@@ -1111,16 +1111,15 @@ read is refused naming why.
 
 `ROADMAP.md`, Future, v0.22.0 Mila::AI and A Developer Can Start
 
-## Chat and the inference server each hold code that knows which model they are running
+## The inference server holds code that knows which model it is running
 
 `apps` · `build` · `breaking`
 
-Rebuilt as consumers of `Mila::AI`, reaching anything beneath it only through `model()`: Chat keeps
-terminal rendering and the approval gate, the server keeps the wire shapes and per-request
-statelessness. The move to `Mila/Apps/` is not part of this: it is v0.21.0 work (`BACKLOG.md`,
-Internal fixes). Nor is Chat's tool calling, which moves onto `Mila::AI` in v0.21.0 (`BACKLOG.md`, *The Desktop
-Agent*). Gate: neither contains model-specific code, and the Codex CLI and Claude Code CLI tool
-flows still pass unchanged.
+Rebuilt as a consumer of `Mila::AI`, reaching anything beneath it only through `model()`: the server keeps the
+wire shapes and per-request statelessness. The move to `Mila/Apps/` is not part of this: it is v0.21.0 work
+(`BACKLOG.md`, Internal fixes). Nor is Chat, whose tool calling and model-specific code go in v0.21.0
+(`BACKLOG.md`, *The Desktop Agent*; Chat's half moved there 2026-10-27, Todd). Gate: the server contains no
+model-specific code, and the Codex CLI and Claude Code CLI tool flows still pass unchanged.
 
 `routes/chat.py` and `routes/completions.py` are not moved:
 nothing registers them, and `chat.py` carries its own request schema and prompt assembly.

@@ -534,6 +534,8 @@ PUBLIC
 
         # Mila::AI, the level applications are built on (Direction.md 3.2): above the model level, which never
         # imports it.
+        "Src/AI/OpenRefusal.ixx"
+        "Src/AI/OpenRefusedError.ixx"
         "Src/AI/ModelHandle.ixx"
         "Src/AI/ToolNeeds.ixx"
         "Src/AI/FolderAccess.ixx"
@@ -557,6 +559,8 @@ PUBLIC
         "Src/AI/AgentEvent.ixx"
         "Src/AI/AgentLimits.ixx"
         "Src/AI/Response.ixx"
+        "Src/AI/SamplingOverride.ixx"
+        "Src/AI/Session.ixx"
         "Src/AI/Agent.ixx"
 
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.ixx"

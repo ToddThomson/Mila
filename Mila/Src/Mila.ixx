@@ -349,7 +349,9 @@ export import Deployment.InstalledModelPlanner;
 // ============================================================================
 // AI - the level applications are built on (Specifications/Direction.md 3.2)
 // ============================================================================
-// An opened model, whatever its family (ModelHandle.md).
+// An opened model, whatever its family (ModelHandle.md), and why a name would not open.
+export import AI.OpenRefusal;
+export import AI.OpenRefusedError;
 export import AI.ModelHandle;
 
 // A model at work in a program: its conversation, its tools and the loop that runs their calls (ToolCalling.md).
@@ -375,6 +377,8 @@ export import AI.ToolGate;
 export import AI.AgentEvent;
 export import AI.AgentLimits;
 export import AI.Response;
+export import AI.SamplingOverride;
+export import AI.Session;
 export import AI.Agent;
 
 // ============================================================================

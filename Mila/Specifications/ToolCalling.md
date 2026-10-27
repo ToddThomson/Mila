@@ -95,8 +95,8 @@ A gate that every call passes; inside `Mila::AI` there is no path to execution a
 
 - **In:** the agent, the tool, the arguments and the tool's declared needs. **Out:** allow, ask or deny, and with
   allow a **grant** -- which folders, read-only or read-write, and whether the network -- and the call's time and
-  size caps. *Decided 2026-10-27 (Todd):* the application gives the agent the most any call may reach
-  (`withGrant`); each call allowed is given that narrowed to its tool's needs -- no folder to a tool that declares
+  size caps. *Decided 2026-10-27 (Todd):* the application gives the agent's session the most any call may reach
+  (`Session::withGrant`, `Direction.md` 4.3); each call allowed is given that narrowed to its tool's needs -- no folder to a tool that declares
   no files, read-only to one that only reads, the network only to one that uses it -- so what a call reaches comes
   from the application's data, never the model's text. The caps stay with the gate, which enforces them (`+100`),
   rather than in the grant. The question shows the grant the call would be given.

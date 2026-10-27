@@ -242,7 +242,10 @@ let one loop drive every family, and `Mila::AI` itself, whose tool loop appends 
 cache instead of reading the conversation again. On it: tools that declare what they touch, permissions every call
 passes, with the app's hook for asking the person, and a grant through which a tool opens files and makes
 connections, which holds it to the folder and to public addresses. Mila ships no tools: the desktop app's file and
-web tools are its own code, the first written through grants. Tools in processes of their own, MCP and an
+web tools are its own code, the first written through grants. And an agent holds a session -- what the program
+gave it and the conversation -- apart from its model, so a program changes model or context without losing either;
+today the desktop app borrows Chat's session code for that, and Chat's family-specific code with it, where each
+should build on the library alone (`Direction.md` 4.3, Todd, 2026-10-27). Tools in processes of their own, MCP and an
 operating-system sandbox come later, with the shell and other people's tool servers that need them. The grant's
 checks are Windows first: on any other platform the app runs without tools until they are tested there.
 
@@ -255,7 +258,9 @@ name and address that is refused; the desktop app and Chat run every tool call t
 and neither runs a call itself nor holds a model's tool grammar; the console Chat asks before a tool runs, as the
 window does; a program built against the library alone registers a tool and runs it under `Mila::AI`'s permissions
 on Gemma, Llama and Qwen by changing only the model's name, `plan()` and `model()` reaching the objects that ran;
-no dispatch site in `Mila::AI` carries a
+a program changes its model, or its context, and keeps its tools, rules, grant and conversation; the desktop app and
+Chat each build on `Mila::AI` alone, neither linking the other's code, and neither holds code that knows which family
+a model belongs to; no dispatch site in `Mila::AI` carries a
 per-family branch; and across a multi-turn tool session, prefill tokens per turn equal the tokens the turn added,
 measured, for every family that permits prefix reuse, Qwen from the position it saved at the end of the previous
 turn.
@@ -405,8 +410,8 @@ feature allocates nothing.
 
 *The object a program creates to put a model to work, and the in-process tool loop beneath it.*
 
-`Mila::AI` is a contract, not a catalogue: create, respond whole or streamed, tools, the conversation
-it holds, `plan()` and `model()`. It lives in the Mila library beside the handle, above the model level,
+`Mila::AI` is a contract, not a catalogue: create, respond whole or streamed, the session it holds --
+its tools and its conversation --, `plan()` and `model()`. It lives in the Mila library beside the handle, above the model level,
 and the wheel and a `FetchContent` consumer both receive it. The object and its tool loop are built in v0.21.0,
 under *The Desktop Agent* (`ToolCalling.md`); this theme adds compaction and use cases to them. It never decides
 a deployment — creation
@@ -469,7 +474,8 @@ statelessness for the server. The server keeps its second job as the conformance
 them. The standing rule carries over with a new subject: a gap between what
 `Mila::AI` can do and what an application reaches is a defect in the application.
 
-**Success criteria:** neither Chat nor the server contains model-specific code; the server serves
+**Success criteria:** the server contains no model-specific code (Chat's goes in v0.21.0, under *The Desktop
+Agent*); the server serves
 every architecture Chat does and its family enum is gone; the binding's per-family session classes
 are replaced by `mila.AI` with the same contract and the same plan, with no component-level surface
 added; and the foreign-harness tool flows established in v0.20 — Codex CLI and Claude Code CLI over

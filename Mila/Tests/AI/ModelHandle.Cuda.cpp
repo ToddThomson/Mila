@@ -57,8 +57,14 @@ namespace Mila::Tests::AI
 
             ModelStore store() const { return ModelStore( root_ ); }
 
-            /// Record an instruct model whose weights and tokenizer are each a few bytes, enough to be complete.
-            void install( std::string name, std::string architecture, std::string architecture_version = {} ) const
+            /**
+             * @brief Record an instruct model whose weights and tokenizer are each a few bytes, enough to be complete.
+             *
+             * @param weight_quantization The scheme the record declares; empty for reference weights.
+             * @param complete            False leaves the weights' file out of the store.
+             */
+            void install( std::string name, std::string architecture, std::string architecture_version = {},
+                std::string weight_quantization = {}, bool complete = true ) const
             {
                 ModelStore target = store();
 
@@ -66,6 +72,7 @@ namespace Mila::Tests::AI
                 record.name = std::move( name );
                 record.architecture = std::move( architecture );
                 record.architecture_version = std::move( architecture_version );
+                record.weight_quantization = std::move( weight_quantization );
                 record.capabilities.instruct = true;
 
                 for ( const char* role : { "weights", "tokenizer" } )
@@ -75,6 +82,7 @@ namespace Mila::Tests::AI
 
                     std::filesystem::create_directories( target.blobPath( digest ).parent_path() );
 
+                    if ( complete || std::string_view( role ) != "weights" )
                     {
                         std::FILE* file = std::fopen( target.blobPath( digest ).string().c_str(), "wb" );
                         std::fwrite( payload.data(), 1, payload.size(), file );
@@ -294,7 +302,96 @@ namespace Mila::Tests::AI
         scratch.install( "llama-undeclared", "llama" );
         scratch.install( "qwen-4", "qwen", "4" );
 
-        EXPECT_THROW( (void)Handle::open( "llama-undeclared", requestOn( 0 ), scratch.store() ), std::invalid_argument );
-        EXPECT_THROW( (void)Handle::open( "qwen-4", requestOn( 0 ), scratch.store() ), std::invalid_argument );
+        const auto refusedFor = [&scratch]( const char* name )
+            {
+                try
+                {
+                    (void)Handle::open( name, requestOn( 0 ), scratch.store() );
+                }
+                catch ( const Mila::AI::OpenRefusedError& error )
+                {
+                    return std::optional( error.refusal().reason );
+                }
+
+                return std::optional<Mila::AI::OpenRefusal::Reason>();
+            };
+
+        EXPECT_EQ( refusedFor( "llama-undeclared" ), Mila::AI::OpenRefusal::Reason::ChatTemplateNotRecorded );
+        EXPECT_EQ( refusedFor( "qwen-4" ), Mila::AI::OpenRefusal::Reason::NoChatTemplate );
+    }
+
+    // ================================================================
+    // The check: every refusal open would give, with nothing loaded
+    // ================================================================
+
+    namespace
+    {
+        std::optional<Mila::AI::OpenRefusal::Reason> checked(
+            const ScratchStore& scratch, const char* name, const DeploymentRequest& request = requestOn( 0 ) )
+        {
+            return Handle::check( name, request, scratch.store() )
+                .transform( []( const Mila::AI::OpenRefusal& refusal ) { return refusal.reason; } );
+        }
+    }
+
+    TEST( ModelHandle, ChecksEachRefusalBesideAModelThatOpens )
+    {
+        using Reason = Mila::AI::OpenRefusal::Reason;
+
+        ScratchStore scratch;
+        scratch.install( "gemma-chat", "gemma" );
+        scratch.install( "gemma-incomplete", "gemma", {}, {}, false );
+        scratch.install( "gpt2-small", "gpt2" );
+        scratch.install( "llama-undeclared", "llama" );
+        scratch.install( "llama-31", "llama", "3.1" );
+        scratch.install( "qwen-4", "qwen", "4" );
+        scratch.install( "gemma-unknown-format", "gemma", {}, "per_tensor_int3" );
+
+        EXPECT_EQ( checked( scratch, "gemma-chat" ), std::nullopt );
+        EXPECT_EQ( checked( scratch, "llama-31" ), std::nullopt );
+
+        EXPECT_EQ( checked( scratch, "not-installed" ), Reason::NotInstalled );
+        EXPECT_EQ( checked( scratch, "gemma-incomplete" ), Reason::FilesMissing );
+        EXPECT_EQ( checked( scratch, "gpt2-small" ), Reason::ArchitectureNotDeployed );
+        EXPECT_EQ( checked( scratch, "llama-undeclared" ), Reason::ChatTemplateNotRecorded );
+        EXPECT_EQ( checked( scratch, "qwen-4" ), Reason::NoChatTemplate );
+        EXPECT_EQ( checked( scratch, "gemma-unknown-format" ), Reason::WeightFormatUnknown );
+    }
+
+    TEST( ModelHandle, ChecksAWeightFormatAskedForOnLoadAgainstTheStoredOne )
+    {
+        using Reason = Mila::AI::OpenRefusal::Reason;
+
+        ScratchStore scratch;
+        scratch.install( "gemma-reference", "gemma" );
+        scratch.install( "gemma-q4_0", "gemma", {}, std::string( weightQuantizationName( WeightQuantization::Q4_0 ) ) );
+
+        DeploymentRequest fp4 = requestOn( 0 );
+        fp4.withWeightQuantization( WeightQuantization::FP4 );
+
+        DeploymentRequest q4_0 = requestOn( 0 );
+        q4_0.withWeightQuantization( WeightQuantization::Q4_0 );
+
+        // Reference weights quantize to FP4 as they load; packed Q4_0 weights are not FP4, and are what they are.
+        EXPECT_EQ( checked( scratch, "gemma-reference", fp4 ), std::nullopt );
+        EXPECT_EQ( checked( scratch, "gemma-q4_0", fp4 ), Reason::WeightFormatNotDerivable );
+        EXPECT_EQ( checked( scratch, "gemma-q4_0", q4_0 ), std::nullopt );
+    }
+
+    TEST( ModelHandle, OpenRefusesWhatTheCheckRefusesWithTheSameReason )
+    {
+        ScratchStore scratch;
+        scratch.install( "gemma-incomplete", "gemma", {}, {}, false );
+
+        try
+        {
+            (void)Handle::open( "gemma-incomplete", requestOn( 0 ), scratch.store() );
+            ADD_FAILURE() << "an incomplete model opened";
+        }
+        catch ( const Mila::AI::OpenRefusedError& error )
+        {
+            EXPECT_EQ( error.refusal().reason, Mila::AI::OpenRefusal::Reason::FilesMissing );
+            EXPECT_EQ( error.refusal().name, "gemma-incomplete" );
+        }
     }
 }

@@ -36,7 +36,8 @@ Browse the tree for what is where. What the tree does not tell you:
 - **`Mila::AI`** is the level of the Mila library applications are built on (`Direction.md` 3.2), above the model
   level, which never imports it. Tool calling is its structure and every tool is the application's
   (`ToolCalling.md`). It is part of the Mila library, not a library of its own: `Mila/Src/AI/` holds the model
-  handle (`ModelHandle.md`), the agent, `Mila::AI::Agent` (`Direction.md` 4), and `ToolGate`, the one path a
+  handle (`ModelHandle.md`), the agent, `Mila::AI::Agent` (`Direction.md` 4), the `Session` it holds -- what the
+  program gave it and the conversation, which outlives the model (4.3) -- and `ToolGate`, the one path a
   model's call takes to a tool: the arguments checked, the person's rules and question, the call's limits.
 - **`Mila/Bindings/`** is the Python projection, and is **consumer-blind**: it knows nothing about Chat or MIS. Session depth only, never components.
 - **`Mila/Apps/`** are first-class consumers, not samples — `Chat/` (`mila-chat`, human gate), `Desktop/` (Mila, the end-user desktop app: Electron window, page, and `mila-session` over Chat's session library), `Server/` (MIS, `mila-server`, which imports the binding) and `Tools/Store/` (`mila-store`, the model store from the shell). Everything under it ships; every command a user types is lowercase-hyphenated with the `mila-` prefix. See `Specifications/MilaProductFamily.md` and `Specifications/Notebooks/MilaCommandLineReview.md`.

@@ -94,8 +94,8 @@ agent behaviour the library and the app do not yet have: a card is shown when it
   Mila, which stays the library and its bindings. The tool loop and the KV splice still run inside the
   session process; only presentation crosses the process boundary.
 - **The window never reaches the library.** It speaks only the schema in section 4, so a third copy of
-  the family-specific code (Vnext: "Chat and the inference server each hold code that knows which model
-  they are running") is never written.
+  the family-specific code is never written. The session process links Chat's today, and with it Chat's
+  family-specific types; that goes in v0.21.0 (`BACKLOG.md` *The Desktop Agent*, `Direction.md` 4.3).
 
 ## 3. Layout
 
@@ -537,7 +537,11 @@ conversation it holds -- so that v0.22.0 moves this code into Mila.AI rather tha
   `mila-store` command. A failed load, install or remove is the session's `error`, not its `info`, so the
   page shows a refusal where it happened.
 - **The session is a library target of its own, `MilaChatSession`,** which `mila-chat` and the session
-  process link. Nothing in it can import the renderer, so the build keeps the line.
+  process link. Nothing in it can import the renderer, so the build keeps the line. To be dissolved
+  (2026-10-27, Todd): an agent becomes a model and a session in `Mila::AI` (`Direction.md` 4.3), and each
+  application keeps only its own layer over it. The session process then reads settings of its own, which the
+  Settings view writes, rather than Chat's files; its prompts live in `Mila/Apps/Desktop/`; and it offers only its
+  own tools, Chat's canned weather tool gone (`Notebooks/SessionInventory.md` section 5).
 - **`turn.stop` is `ChatSession::stop()`,** on a stop source made fresh for each turn; the library ends a
   generate with `GenerateStatus::ClientCancelled` on it. A tool call not yet run is not run. Ctrl+C during
   a reply calls it -- the console installs its SIGINT handler for the turn only, so Ctrl+C at the prompt

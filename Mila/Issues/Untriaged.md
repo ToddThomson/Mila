@@ -10,6 +10,15 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## In Get Things Done, Gemma 4 12B looks at the folder before it proposes a plan about half the time
+
+`D:\Claude\filetools\drive_tasks.py` (the session drive's "the first call proposes a plan" check); `Mila/Apps/Chat/Prompts/tasks.json` @ cc07f776
+
+Measured 2026-10-27 on Gemma 4 12B Q4_0 at the publisher's sampling: the first call was `list_folder` in 2 of 3 runs
+on `+103`'s session and 3 of 3 on the session change after it, `propose_plan` otherwise; the plan, its steps and the
+edit ran correctly every time. The same model chose both ways on one build, so the check measures the model's choice,
+not the session. Whether the prompt should allow a look first, or the check should, is not decided.
+
 ## Off Windows a tool's grant holds no folder, so no file tool can run there
 
 `Mila/Src/AI/GrantFileSystem.Posix.ixx`; an absence -- no POSIX file checks behind the grant @ f42c0d95

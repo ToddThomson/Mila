@@ -170,10 +170,10 @@ std::cout << response.text;
 With tools, streaming, and a look underneath:
 
 ```cpp
-auto agent = Mila::AI::Agent::create( "Qwen3.8-27B-fp4" )
-    .withTool( readFile )
-    .withTool( runTests )
-    .onAsk( askThePerson );
+Mila::AI::Session session;
+session.withTool( readFile ).withTool( runTests ).onAsk( askThePerson );
+
+auto agent = Mila::AI::Agent::create( "Qwen3.8-27B-fp4", {}, std::move( session ) );
 
 agent.respond( "Why does the parser test fail?", onEvent );
 
@@ -181,13 +181,23 @@ const DeploymentPlan& plan = agent.plan();   // what was decided, and what bound
 auto& model = agent.model();                 // the handle; from here, the typed model and its components
 ```
 
-As built at `+97` (`Mila/Src/AI/Agent.ixx`). `Agent` is `BasicAgent<Cuda, BF16>`, the pair every published model
-runs in; a program that wants another names the template.
+Another model, with the same tools and the same conversation:
+
+```cpp
+if ( auto refusal = Mila::AI::Agent::check( "gemma-4-12b-it-q4_0" ) )
+    return say( *refusal );                  // nothing released: the agent still answers
+
+auto held = std::move( agent ).release();    // the model is freed before the next is planned
+agent = Mila::AI::Agent::create( "gemma-4-12b-it-q4_0", {}, std::move( held ) );
+```
+
+`Agent` is `BasicAgent<Cuda, BF16>`, the pair every published model runs in; a program that wants another names the
+template.
 
 ### 4.2 Rules
 
-1. **Small.** `Mila::AI` is a contract, not a catalogue: create, respond (whole or streamed), tools,
-   the conversation it holds, `plan()`, `model()`. A capability one model has and another lacks is
+1. **Small.** `Mila::AI` is a contract, not a catalogue: create, respond (whole or streamed), the
+   session it holds -- its tools and its conversation (4.3) --, `plan()`, `model()`. A capability one model has and another lacks is
    discovered from the handle, never added as a method that throws on the others.
 2. **It never decides a deployment.** Creation calls the planner and keeps the plan. There is one
    decision site, `Deployment.md`'s, and `Mila::AI` exposes its result rather than deriving one.
@@ -205,6 +215,61 @@ runs in; a program that wants another names the template.
    store name. The factory is a convenience for published models, never the only way in.
 7. **A model is named.** In v0.21.0 creation takes a store name. Naming a base model and letting Mila
    pick the package, and naming an intent, are later questions (section 6.5).
+
+### 4.3 An agent is a model and a session
+
+Decided 2026-10-27 (Todd), for v0.21.0 under *The Desktop Agent* (decision 5), and built the same day
+(`Mila/Src/AI/Session.ixx`, `Agent.ixx`); Chat's session holds one, the desktop app's still through Chat's. The type
+is `Mila::AI::Session`: "context" in Mila is the model's window
+(`contextLength()`), and 6.4 already speaks of an agent saving its session.
+
+**The session** is everything a program gives an agent, and the conversation: the system prompt, the tool gate
+(the tools, the rules, the grant and the tools the person allowed for that conversation), the way the person is
+asked, the limits, the conversation, and the template variables and sampling the program asked for (Todd,
+2026-10-27). It needs no model, so a program builds one before it has chosen a model. It is copied freely: a copy
+is a fork of the conversation. Its builders are the only ones: the agent has none that forward to it.
+
+**The agent** is a model handle and a session. It checks what the session asks of the model against that model's
+template -- when it is created, dropping what the template does not accept, and before each response, refusing it
+-- and holds of its own only the state of the response in flight (the splice's continuation). A variable set through
+the agent is checked at once. `create( name, request, Session&& )` moves the session only once the model has
+opened, so a create that throws leaves the caller's session as it was.
+
+**Before a release, a check.** `Agent::check( name, request, store )` says whether the name opens as an agent,
+loading nothing, and returns the reason it does not as an `OpenRefusal`; `ModelHandle::open` runs the same check and
+throws it as an `OpenRefusedError`, so the two never disagree. Whether the model fits is not part of it: that is
+read from free memory, which the resident model still holds.
+
+**Changing the model, or its context, is giving the session back and creating another agent from it.**
+`std::move( agent ).release()` consumes the agent, so none is left to call by mistake, and frees its model before
+it returns the session, so the next one is planned against a card that no longer holds it -- the planner reads free memory -- and two models are never resident at once. A load that
+fails leaves the program holding the session, conversation included. "No model yet" is the program's state, an
+empty optional, never an agent's.
+
+Why: an agent today ends with its model, and everything set on it ends too. Chat's `ChatSession` keeps a copy of
+each -- rules, grant, limits, prompt, tool handlers and a held conversation -- only to give them to the next
+agent, and any program that changes model would have to do the same. That copy, with the loading around it, is
+also why the Mila app links Chat's session library (`MilaChatSession`, `MilaApp.md` 7): two applications sharing
+a layer is a gap in `Mila::AI` (3.3). With the session in the library that layer has no reason to exist; each
+application keeps only its own concern, and what both need that a developer's program would need too is
+`Mila::AI`'s. Its family-specific code -- the `FamilyTraits` table and the mapping of an effort scale onto Qwen's
+levels -- is deleted rather than moved: the planner caps a context at the model's trained maximum, and the template
+lists its own variables' values. What each piece becomes: `Notebooks/SessionInventory.md`.
+
+Rejected: `Agent::switchTo( name )`, since the old model must be released before the new one is planned, and a
+failed load would leave an agent with no model and every method a state to check; and a session that holds the
+agent, since two objects would then own the conversation.
+
+**What crosses a change of model.** The program's settings cross with the session. The template variables it
+asked for are checked against the new model's template when the agent is created; those it does not accept are
+dropped from the session and named by `droppedTemplateVariables()`. Sampling is asked for per setting
+(`SamplingOverride`): each setting the program names stands over the publisher's recommendation for the thinking in
+effect, and the rest are the publisher's.
+
+**A conversation crosses to another model.** Its turns are structured and each template renders them its own way,
+and the Mila app already reopens a stored conversation on whichever model is loaded. The library carries it and
+the application chooses: Chat clears it, as it does today. Untested across families, so a test that carries one
+conversation through Gemma, Llama and Qwen comes before anything relies on it.
 
 ---
 
@@ -409,7 +474,8 @@ Settled 2026-09-23, each on the leaning this section recorded, when section 5 be
    (moved 2026-10-10, Todd; it was v0.21.0 with them), before any new chassis — which agrees with the rule that the handle is a precondition
    for every new model. Muse Glimmer follows in ROADMAP's Future. One piece comes forward (Todd, 2026-10-24):
    v0.21.0 ships the desktop app as an agent harness with tool calling. Its tool calling is designed in
-   `ToolCalling.md` (2026-10-25), which replaced the tool broker's design.
+   `ToolCalling.md` (2026-10-25), which replaced the tool broker's design. So does the session the agent holds
+   (4.3; Todd, 2026-10-27), with Chat and the desktop app each built on it and Chat's family-specific types gone.
 6. **Tool registration: a compiled-in registry** — a callable plus a schema, registered on the `AI`.
    Declarative subprocess tools alongside it remain open for section 6, carried from
    `MilaProductFamily.md` Open Decision 5. **Tool calling is `Mila::AI`'s structure** (Todd, 2026-10-25,

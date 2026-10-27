@@ -25,6 +25,9 @@ import Deployment.InstalledModel;
 import Deployment.InstalledModelPlanner;
 import Distribution.ModelCapabilities;
 import Distribution.ModelStore;
+import Dnn.WeightQuantization;
+import AI.OpenRefusal;
+import AI.OpenRefusedError;
 
 namespace Mila::AI
 {
@@ -49,22 +52,107 @@ namespace Mila::AI
         using LanguageModelType = LanguageModel<TDeviceType, TPrecision>;
 
         /**
+         * @brief Whether a name would open, without loading or reading anything but its record: the reason it would
+         *        not, or nothing when it would.
+         *
+         * A base model opens: it has no protocol. Whether it fits the device is the planner's answer, not this one.
+         */
+        [[nodiscard]] static std::optional<OpenRefusal> check(
+            std::string_view name, const DeploymentRequest& request = {}, const ModelStore& store = ModelStore{} )
+        {
+            const std::optional<InstalledModel> installed = InstalledModel::find( name, store );
+
+            if ( !installed )
+            {
+                return OpenRefusal{ OpenRefusal::Reason::NotInstalled, std::string( name ),
+                    std::format( "no model named '{}' is installed", name ) };
+            }
+
+            return check( *installed, request );
+        }
+
+        /// @copydoc check
+        [[nodiscard]] static std::optional<OpenRefusal> check( const InstalledModel& installed, const DeploymentRequest& request )
+        {
+            const std::string& name = installed.name();
+            const auto& record = installed.stored().record;
+
+            if ( !installed.isComplete() )
+            {
+                return OpenRefusal{ OpenRefusal::Reason::FilesMissing, name,
+                    std::format( "'{}' is installed but its files are missing, so it cannot be loaded", name ) };
+            }
+
+            if ( !Architectures::contains( installed.architecture() ) )
+            {
+                return OpenRefusal{ OpenRefusal::Reason::ArchitectureNotDeployed, name,
+                    std::format( "'{}' has architecture '{}', which this build of Mila cannot deploy; it deploys {}",
+                        name, installed.architecture(), Architectures::names() ) };
+            }
+
+            if ( installed.capabilities().instruct )
+            {
+                try
+                {
+                    (void)chatProtocolFor( installed.architecture(), record.architecture_version );
+                }
+                catch ( const std::invalid_argument& error )
+                {
+                    // Family-blind: an architecture with one template takes an empty version as that one, so an
+                    // empty version refused is one whose record does not say which of several it is.
+                    if ( record.architecture_version.empty() )
+                    {
+                        return OpenRefusal{ OpenRefusal::Reason::ChatTemplateNotRecorded, name, std::format(
+                            "'{}' does not record which version of '{}' it is, which decides the chat template it was "
+                            "trained with: {}", name, installed.architecture(), error.what() ) };
+                    }
+
+                    return OpenRefusal{ OpenRefusal::Reason::NoChatTemplate, name,
+                        std::format( "'{}' was trained with a chat template this build does not have: {}", name, error.what() ) };
+                }
+            }
+
+            const std::optional<WeightQuantization> stored = installed.storedWeightQuantization();
+
+            if ( !stored )
+            {
+                return OpenRefusal{ OpenRefusal::Reason::WeightFormatUnknown, name, std::format(
+                    "'{}' stores its weights as '{}', which this build of Mila does not read", name, record.weight_quantization ) };
+            }
+
+            if ( request.isWeightQuantizationNamed() && request.getWeightQuantization() != *stored )
+            {
+                // The load's own rule, asked here so it refuses before anything is released.
+                const std::string_view scheme = record.weight_quantization == "none"
+                    ? std::string_view{} : std::string_view( record.weight_quantization );
+
+                try
+                {
+                    requireStoredQuantizationMatches(
+                        "ModelHandle::check", installed.weightsPath().string(), scheme, request.getWeightQuantization() );
+                }
+                catch ( const std::runtime_error& error )
+                {
+                    return OpenRefusal{ OpenRefusal::Reason::WeightFormatNotDerivable, name, error.what() };
+                }
+            }
+
+            return std::nullopt;
+        }
+
+        /**
          * @brief Open an installed model on the best plan for the request.
          *
          * Never installs. The tokenizer and the chat template are read before the weights, so a model that cannot
          * be conversed with is refused before its load.
          *
-         * @throws std::runtime_error     for a name not installed, missing files, or an architecture this build
-         *                                does not deploy.
-         * @throws std::invalid_argument  for an instruct model whose chat template this build lacks.
+         * @throws OpenRefusedError       for every refusal check gives, before anything is read.
          * @throws DeploymentRefusedError when nothing fits the device, carrying the refusal.
          */
         static ModelHandle open(
             std::string_view name, const DeploymentRequest& request, const ModelStore& store = ModelStore{} )
         {
-            const InstalledModel installed = installedNamed( name, store );
-
-            requirePlannable( installed );
+            const InstalledModel installed = checkedNamed( name, request, store );
 
             // A base model has no template to render, so it has no protocol (ModelHandle.md 3.5).
             std::unique_ptr<Conversation::Protocol> protocol = installed.capabilities().instruct
@@ -97,12 +185,12 @@ namespace Mila::AI
         /**
          * @brief What open would load, without loading: the plans for the request, or why none fits.
          *
-         * @throws std::runtime_error as open, before any load.
+         * @throws OpenRefusedError as open, before any load.
          */
         static std::expected<DeploymentPlans, DeploymentRefusal> planFor(
             std::string_view name, const DeploymentRequest& request, const ModelStore& store = ModelStore{} )
         {
-            return planDeployment<TDeviceType, TPrecision>( installedNamed( name, store ), request );
+            return planDeployment<TDeviceType, TPrecision>( checkedNamed( name, request, store ), request );
         }
 
         ModelHandle( ModelHandle&& ) noexcept = default;
@@ -180,13 +268,19 @@ namespace Mila::AI
               prefix_reuse_( prefix_reuse )
         {}
 
-        static InstalledModel installedNamed( std::string_view name, const ModelStore& store )
+        /// The installed model of that name, once check finds nothing to refuse.
+        static InstalledModel checkedNamed( std::string_view name, const DeploymentRequest& request, const ModelStore& store )
         {
             std::optional<InstalledModel> installed = InstalledModel::find( name, store );
 
             if ( !installed )
             {
-                throw std::runtime_error( std::format( "no model named '{}' is installed", name ) );
+                throw OpenRefusedError( *check( name, request, store ) );
+            }
+
+            if ( auto refusal = check( *installed, request ) )
+            {
+                throw OpenRefusedError( std::move( *refusal ) );
             }
 
             return std::move( *installed );

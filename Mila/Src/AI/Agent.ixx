@@ -23,18 +23,21 @@ import Deployment.DeploymentPlan;
 import Deployment.InstalledModel;
 import Distribution.ModelStore;
 import Distribution.SamplingRecommendation;
+import Distribution.FamilySampling;
 import AI.ModelHandle;
 import AI.Tool;
 import AI.ToolQuestion;
 import AI.ToolAnswer;
-import AI.ToolRules;
-import AI.ToolGrant;
 import AI.ToolDecision;
 import AI.ToolOutcome;
 import AI.ToolGate;
 import AI.AgentEvent;
 import AI.AgentLimits;
 import AI.Response;
+import AI.Session;
+import AI.SamplingOverride;
+import AI.OpenRefusal;
+import AI.OpenRefusedError;
 
 namespace Mila::AI
 {
@@ -141,12 +144,15 @@ namespace Mila::AI
     };
 
     /**
-     * @brief A model named by its store name, holding one conversation and running the calls the model makes.
+     * @brief A model named by its store name, and a session: its conversation, and the calls the model makes in it.
      *
-     * Through an agent the application never runs a call itself: it registers tools and a way to ask the person, and
-     * the agent parses each call, asks, runs it and gives the model its result. Family-blind: everything a model
-     * does differently comes from its handle. A response is one virtual call into the model per round, and runs
-     * within the program's limits (AgentLimits).
+     * Through an agent the application never runs a call itself: its session holds the tools and a way to ask the
+     * person, and the agent parses each call, asks, runs it and gives the model its result. Family-blind: everything
+     * a model does differently comes from its handle. A response is one virtual call into the model per round, and
+     * runs within the session's limits (AgentLimits).
+     *
+     * An agent ends with its model; its session does not. Another model, or the same one at another context, is
+     * another agent created from the session `release` gives back (Direction.md 4.3).
      *
      * Device and precision are the program's, fixed at compile time; Agent is the pair every published model runs.
      */
@@ -158,151 +164,104 @@ namespace Mila::AI
 
         using Handle = ModelHandle<TDeviceType, TPrecision>;
         using EventSink = std::function<void( const AgentEvent& )>;
-        using Asker = ToolGate::Asker;
 
         /**
-         * @brief Open an installed model on the best plan for the request, ready to converse.
-         *
-         * @throws std::invalid_argument for a base model, before its weights are read, and as Handle::open.
-         * @throws std::runtime_error and DeploymentRefusedError as Handle::open.
+         * @brief Whether a name would open as an agent, loading nothing: the reason it would not, or nothing when it
+         *        would. What create refuses before it reads a file, so a program can ask before it releases a model.
          */
-        static BasicAgent create(
+        [[nodiscard]] static std::optional<OpenRefusal> check(
             std::string_view name, const DeploymentRequest& request = {}, const ModelStore& store = ModelStore{} )
         {
-            if ( const auto installed = InstalledModel::find( name, store ); installed && !installed->capabilities().instruct )
+            const std::optional<InstalledModel> installed = InstalledModel::find( name, store );
+
+            if ( installed && !installed->capabilities().instruct )
             {
-                throw std::invalid_argument( baseModelRefusal( installed->name() ) );
+                return baseModelRefusal( installed->name() );
             }
 
-            return BasicAgent( Handle::open( name, request, store ) );
+            return Handle::check( name, request, store );
+        }
+
+        /**
+         * @brief Open an installed model on the best plan for the request, ready to converse in the session.
+         *
+         * The session is moved from only once the model has opened: a create that throws leaves the caller's session
+         * as it was, conversation included.
+         *
+         * @throws OpenRefusedError       for every refusal check gives, before a file is read.
+         * @throws DeploymentRefusedError as Handle::open.
+         */
+        static BasicAgent create( std::string_view name, const DeploymentRequest& request = {}, Session&& session = {},
+            const ModelStore& store = ModelStore{} )
+        {
+            if ( auto refusal = check( name, request, store ) )
+            {
+                throw OpenRefusedError( std::move( *refusal ) );
+            }
+
+            Handle handle = Handle::open( name, request, store );
+
+            return BasicAgent( std::move( handle ), std::move( session ) );
         }
 
         /**
          * @brief An agent over a model already opened.
          *
-         * @throws std::invalid_argument for a base model: it has no chat template to converse in.
+         * The session's template variables the model's template does not accept are dropped from it, and named by
+         * droppedTemplateVariables.
+         *
+         * @throws OpenRefusedError for a base model: it has no chat template to converse in.
          */
-        explicit BasicAgent( Handle handle )
-            : handle_( std::move( handle ) )
+        explicit BasicAgent( Handle handle, Session session = {} )
+            : handle_( std::move( handle ) ), session_( std::move( session ) )
         {
             if ( handle_.protocol() == nullptr )
             {
-                throw std::invalid_argument( baseModelRefusal( handle_.name() ) );
+                throw OpenRefusedError( baseModelRefusal( handle_.name() ) );
             }
+
+            dropUnacceptedTemplateVariables();
         }
 
         BasicAgent( BasicAgent&& ) noexcept = default;
         BasicAgent& operator=( BasicAgent&& ) noexcept = default;
 
         /**
-         * @brief Offer the model a tool.
-         *
-         * @throws std::invalid_argument as ToolGate::add.
+         * @brief Give the session back, the model freed before it returns, so the next model is planned against a
+         *        device that no longer holds this one. Nothing is left to call.
          */
-        BasicAgent& withTool( Tool tool ) &
+        [[nodiscard]] Session release() &&
         {
-            gate_.add( std::move( tool ) );
+            Session session = std::move( session_ );
 
-            return *this;
+            {
+                const Handle released = std::move( handle_ );
+            }
+
+            return session;
         }
 
-        BasicAgent&& withTool( Tool tool ) &&
+        /// What the program gave the agent, and the conversation: change it between responses.
+        [[nodiscard]] Session& session() noexcept
         {
-            gate_.add( std::move( tool ) );
+            return session_;
+        }
 
-            return std::move( *this );
+        [[nodiscard]] const Session& session() const noexcept
+        {
+            return session_;
+        }
+
+        /// The template variables the session asked for that this model's template does not accept, dropped from it
+        /// when the agent was created.
+        [[nodiscard]] std::span<const std::string> droppedTemplateVariables() const noexcept
+        {
+            return dropped_template_variables_;
         }
 
         /**
-         * @brief Offer the model no tool from the next response on, so a program can give one conversation a
-         *        different set of tools than the last without opening the model again.
-         *
-         * Tools allowed for the conversation are forgotten with them; the rules stay.
-         */
-        BasicAgent& withoutTools() &
-        {
-            gate_.clear();
-
-            return *this;
-        }
-
-        BasicAgent&& withoutTools() &&
-        {
-            gate_.clear();
-
-            return std::move( *this );
-        }
-
-        /**
-         * @brief Decide the model's calls by these rules from the next call on. With none, every call is asked about.
-         */
-        BasicAgent& withRules( ToolRules rules ) &
-        {
-            gate_.setRules( std::move( rules ) );
-
-            return *this;
-        }
-
-        BasicAgent&& withRules( ToolRules rules ) &&
-        {
-            gate_.setRules( std::move( rules ) );
-
-            return std::move( *this );
-        }
-
-        /**
-         * @brief The most the model's calls may reach from the next call on: folders and the network. Each call
-         *        allowed is given this narrowed to its tool's needs; with none, a call reaches nothing.
-         */
-        BasicAgent& withGrant( ToolGrant grant ) &
-        {
-            gate_.setGrant( std::move( grant ) );
-
-            return *this;
-        }
-
-        BasicAgent&& withGrant( ToolGrant grant ) &&
-        {
-            gate_.setGrant( std::move( grant ) );
-
-            return std::move( *this );
-        }
-
-        /**
-         * @brief How the person is asked whether a call may run. With none, no one can be asked, so every call the
-         *        rules would ask about is declined.
-         */
-        BasicAgent& onAsk( Asker ask ) &
-        {
-            ask_ = std::move( ask );
-
-            return *this;
-        }
-
-        BasicAgent&& onAsk( Asker ask ) &&
-        {
-            ask_ = std::move( ask );
-
-            return std::move( *this );
-        }
-
-        /// The system message every prompt begins with; empty for none.
-        BasicAgent& withSystemPrompt( std::string text ) &
-        {
-            system_prompt_ = std::move( text );
-
-            return *this;
-        }
-
-        BasicAgent&& withSystemPrompt( std::string text ) &&
-        {
-            system_prompt_ = std::move( text );
-
-            return std::move( *this );
-        }
-
-        /**
-         * @brief Set one of the chat template's own variables, such as its thinking switch.
+         * @brief Set one of the chat template's own variables in the session, such as its thinking switch, checked
+         *        against this model's template at once.
          *
          * A variable not set takes the template's default. The variables are the model's and differ between
          * models: what one accepts is on `model().protocol()->templateVariables()`.
@@ -319,21 +278,6 @@ namespace Mila::AI
         BasicAgent&& withTemplateVariable( std::string name, std::string value ) &&
         {
             setTemplateVariable( std::move( name ), std::move( value ) );
-
-            return std::move( *this );
-        }
-
-        /// Sample with these settings instead of what the model's publisher recommends.
-        BasicAgent& withSampling( SamplingParams sampling ) &
-        {
-            sampling_ = sampling;
-
-            return *this;
-        }
-
-        BasicAgent&& withSampling( SamplingParams sampling ) &&
-        {
-            sampling_ = sampling;
 
             return std::move( *this );
         }
@@ -359,32 +303,17 @@ namespace Mila::AI
         }
 
         /**
-         * @brief Limit how far each response may run. None is set until this is called.
-         *
-         * @throws std::invalid_argument for a limit set to zero or less.
-         */
-        BasicAgent& withLimits( AgentLimits limits ) &
-        {
-            setLimits( limits );
-
-            return *this;
-        }
-
-        BasicAgent&& withLimits( AgentLimits limits ) &&
-        {
-            setLimits( limits );
-
-            return std::move( *this );
-        }
-
-        /**
          * @brief The prompt a response to this message would begin from, the system prompt and tools included.
          *
          * Nothing joins the conversation; what it measures is what the next response would prefill.
+         *
+         * @throws std::invalid_argument for a template variable the session asks for that the template does not
+         *         accept.
          */
         [[nodiscard]] Conversation::Prompt prompt( std::string_view message = {} ) const
         {
-            std::vector<Conversation::Turn> turns( history_.begin(), history_.end() );
+            const auto conversation = session_.conversation();
+            std::vector<Conversation::Turn> turns( conversation.begin(), conversation.end() );
             turns.push_back( { Conversation::Role::User, std::string( message ) } );
 
             return render( turns );
@@ -419,7 +348,15 @@ namespace Mila::AI
 
             Response response;
 
-            history_.push_back( { Conversation::Role::User, std::string( message ) } );
+            // Set on the session since the agent was created, a variable its template refuses is refused before the
+            // message joins.
+            Conversation::validateTemplateVariables(
+                handle_.protocol()->templateVariables(), session_.templateVariables() );
+
+            std::vector<Conversation::Turn>& history = session_.turns();
+            const AgentLimits& limits = session_.limits();
+
+            history.push_back( { Conversation::Role::User, std::string( message ) } );
             continued_.reset();
 
             RoundPrompt next = nextRound();
@@ -429,7 +366,7 @@ namespace Mila::AI
             if ( !fitsContext( tokens ) )
             {
                 // Never answered, so it never joined: the conversation stays one the context holds.
-                history_.pop_back();
+                history.pop_back();
                 response.status = GenerateStatus::ContextOverflow;
 
                 return response;
@@ -438,7 +375,7 @@ namespace Mila::AI
             // One stop for everything the response runs: the caller's, or its own time running out.
             std::stop_source halt;
             const std::stop_callback forward_stop( stop, [&halt] { halt.request_stop(); } );
-            ResponseClock clock( limits_.time, halt );
+            ResponseClock clock( limits.time, halt );
             const std::stop_token halted = halt.get_token();
 
             GenerateParams params;
@@ -515,20 +452,20 @@ namespace Mila::AI
                     emit( { AgentEvent::Kind::MalformedToolCall, span } );
                 }
 
-                const bool runs_calls = !reply.tool_calls.empty() && !gate_.tools().empty()
+                const bool runs_calls = !reply.tool_calls.empty() && !session_.tools().empty()
                     && status == GenerateStatus::Success && !halted.stop_requested();
 
                 if ( !runs_calls )
                 {
-                    history_.push_back( { Conversation::Role::Assistant, reply.content, {}, {}, reply.reasoning } );
+                    history.push_back( { Conversation::Role::Assistant, reply.content, {}, {}, reply.reasoning } );
 
                     return response;
                 }
 
-                history_.push_back(
+                history.push_back(
                     { Conversation::Role::Assistant, reply.content, reply.tool_calls, {}, reply.reasoning } );
 
-                if ( limits_.rounds && round + 1 >= *limits_.rounds )
+                if ( limits.rounds && round + 1 >= *limits.rounds )
                 {
                     // Run now, their results would reach no round; the next response can make the calls again.
                     for ( const auto& call : reply.tool_calls )
@@ -554,7 +491,7 @@ namespace Mila::AI
                     {
                         for ( std::size_t rest = index + 1; rest < reply.tool_calls.size(); ++rest )
                         {
-                            history_.push_back( { Conversation::Role::Tool,
+                            history.push_back( { Conversation::Role::Tool,
                                 std::string( stoppedResult( clock, false ) ), {}, reply.tool_calls[ rest ].name } );
                         }
 
@@ -575,26 +512,6 @@ namespace Mila::AI
                     return response;
                 }
             }
-        }
-
-        /// Forget the conversation, and every tool allowed for it. Tools and settings stay.
-        void newConversation()
-        {
-            history_.clear();
-            gate_.newConversation();
-        }
-
-        /// Continue a conversation saved earlier, as `conversation()` gave it; no tool is allowed for it yet.
-        void openConversation( std::vector<Conversation::Turn> turns )
-        {
-            history_ = std::move( turns );
-            gate_.newConversation();
-        }
-
-        /// Every message, reply and result so far, without the system prompt.
-        [[nodiscard]] std::span<const Conversation::Turn> conversation() const noexcept
-        {
-            return history_;
         }
 
         /// The plan the model was loaded on.
@@ -623,9 +540,10 @@ namespace Mila::AI
         static constexpr std::string_view kOutOfTimeWhileRunningResult =
             "The response ran out of time while this tool call ran, so it may not have finished.";
 
-        static std::string baseModelRefusal( std::string_view name )
+        static OpenRefusal baseModelRefusal( std::string_view name )
         {
-            return std::format( "'{}' is a base model: it has no chat template to converse in", name );
+            return OpenRefusal{ OpenRefusal::Reason::BaseModel, std::string( name ),
+                std::format( "'{}' is a base model: it has no chat template to converse in", name ) };
         }
 
         void setTemplateVariable( std::string name, std::string value )
@@ -633,59 +551,50 @@ namespace Mila::AI
             Conversation::validateTemplateVariables(
                 handle_.protocol()->templateVariables(), { { name, value } } );
 
-            template_variables_[ std::move( name ) ] = std::move( value );
+            session_.templateVariables()[ std::move( name ) ] = std::move( value );
         }
 
         void setTemplateVariables( std::map<std::string, std::string> variables )
         {
             Conversation::validateTemplateVariables( handle_.protocol()->templateVariables(), variables );
 
-            template_variables_ = std::move( variables );
+            session_.templateVariables() = std::move( variables );
         }
 
-        void setLimits( const AgentLimits& limits )
+        /// Each variable the session asks for is checked alone, so one the template refuses takes no other with it.
+        void dropUnacceptedTemplateVariables()
         {
-            if ( limits.rounds && *limits.rounds <= 0 )
-            {
-                throw std::invalid_argument( std::format( "a response needs at least one round, not {}", *limits.rounds ) );
-            }
+            const auto accepted = handle_.protocol()->templateVariables();
+            std::map<std::string, std::string>& asked = session_.templateVariables();
 
-            if ( limits.time && limits.time->count() <= 0 )
+            for ( auto variable = asked.begin(); variable != asked.end(); )
             {
-                throw std::invalid_argument( std::format( "a response needs some time, not {}", *limits.time ) );
+                try
+                {
+                    Conversation::validateTemplateVariables( accepted, { { variable->first, variable->second } } );
+                    ++variable;
+                }
+                catch ( const std::invalid_argument& )
+                {
+                    dropped_template_variables_.push_back( variable->first );
+                    variable = asked.erase( variable );
+                }
             }
-
-            if ( limits.reply_tokens && *limits.reply_tokens <= 0 )
-            {
-                throw std::invalid_argument(
-                    std::format( "a response needs at least one reply token, not {}", *limits.reply_tokens ) );
-            }
-
-            if ( limits.tool_time && limits.tool_time->count() <= 0 )
-            {
-                throw std::invalid_argument( std::format( "a tool call needs some time to run, not {}", *limits.tool_time ) );
-            }
-
-            if ( limits.result_tokens && *limits.result_tokens <= 0 )
-            {
-                throw std::invalid_argument(
-                    std::format( "a result needs at least one token, not {}", *limits.result_tokens ) );
-            }
-
-            limits_ = limits;
         }
 
         /// The most tokens a round may generate: the reply tokens the response has left, within the context left.
         std::optional<dim_t> roundBudget( const std::vector<std::int32_t>& tokens, dim_t generated ) const
         {
-            if ( !limits_.reply_tokens )
+            const AgentLimits& limits = session_.limits();
+
+            if ( !limits.reply_tokens )
             {
                 return std::nullopt;
             }
 
             const dim_t context_left = handle_.plan().contextLength() - static_cast<dim_t>( tokens.size() );
 
-            return std::min( *limits_.reply_tokens - generated, context_left );
+            return std::min( *limits.reply_tokens - generated, context_left );
         }
 
         /**
@@ -708,26 +617,32 @@ namespace Mila::AI
                 return true;
             }
 
-            return Conversation::resolveTemplateVariable( variables, template_variables_, "enable_thinking" ) == "true";
+            return Conversation::resolveTemplateVariable( variables, session_.templateVariables(), "enable_thinking" ) == "true";
         }
 
-        /// The program's sampling, else the publisher's for the thinking in effect, else the sampler's neutral values.
+        /// Each setting the session asks for, over the publisher's for the thinking in effect, over the sampler's
+        /// neutral values.
         SamplingParams sampling() const
         {
-            if ( sampling_ )
-            {
-                return *sampling_;
-            }
-
             SamplingParams sampling;
 
-            if ( const auto* recommended = matchingSampling( handle_.installed().stored().record.sampling, thinks() ) )
+            // The family's published settings where the manifest carries none, as every application opens at.
+            const std::vector<SamplingRecommendation> recommendations = recommendedSampling( handle_.installed().stored().record );
+
+            if ( const auto* recommended = matchingSampling( recommendations, thinks() ) )
             {
                 sampling.temperature = recommended->temperature.value_or( sampling.temperature );
                 sampling.top_k = recommended->top_k.value_or( sampling.top_k );
                 sampling.top_p = recommended->top_p.value_or( sampling.top_p );
                 sampling.presence_penalty = recommended->presence_penalty.value_or( sampling.presence_penalty );
             }
+
+            const SamplingOverride& asked = session_.sampling();
+
+            sampling.temperature = asked.temperature.value_or( sampling.temperature );
+            sampling.top_k = asked.top_k.value_or( sampling.top_k );
+            sampling.top_p = asked.top_p.value_or( sampling.top_p );
+            sampling.presence_penalty = asked.presence_penalty.value_or( sampling.presence_penalty );
 
             return sampling;
         }
@@ -748,23 +663,25 @@ namespace Mila::AI
          */
         RoundPrompt nextRound() const
         {
+            const std::span<const Conversation::Turn> history = session_.conversation();
+
             if ( !continued_ )
             {
-                Conversation::Prompt prompt = render( history_ );
+                Conversation::Prompt prompt = render( history );
                 std::vector<std::int32_t> tokens = encode( prompt );
 
                 return { std::move( prompt ), std::move( tokens ) };
             }
 
-            std::size_t first_result = history_.size();
+            std::size_t first_result = history.size();
 
-            while ( first_result > 0 && history_[ first_result - 1 ].role == Conversation::Role::Tool )
+            while ( first_result > 0 && history[ first_result - 1 ].role == Conversation::Role::Tool )
             {
                 --first_result;
             }
 
             const Conversation::Prompt after = handle_.protocol()->continueWithToolResults(
-                std::span<const Conversation::Turn>( history_ ).subspan( first_result ), promptOptions() );
+                history.subspan( first_result ), promptOptions() );
 
             RoundPrompt next = *continued_;
             next.prompt.text += after.text;
@@ -799,9 +716,9 @@ namespace Mila::AI
         Conversation::PromptOptions promptOptions() const
         {
             Conversation::PromptOptions options;
-            options.template_variables = template_variables_;
+            options.template_variables = session_.templateVariables();
 
-            if ( !gate_.tools().empty() )
+            if ( !session_.tools().empty() )
             {
                 options.tools_json = toolsJson();
             }
@@ -816,9 +733,9 @@ namespace Mila::AI
             std::vector<Conversation::Turn> turns;
             turns.reserve( history.size() + 1 );
 
-            if ( !system_prompt_.empty() )
+            if ( !session_.systemPrompt().empty() )
             {
-                turns.push_back( { Conversation::Role::System, system_prompt_ } );
+                turns.push_back( { Conversation::Role::System, session_.systemPrompt() } );
             }
 
             turns.insert( turns.end(), history.begin(), history.end() );
@@ -831,7 +748,7 @@ namespace Mila::AI
         {
             nlohmann::ordered_json array = nlohmann::ordered_json::array();
 
-            for ( const auto& tool : gate_.tools() )
+            for ( const auto& tool : session_.tools() )
             {
                 nlohmann::ordered_json function = nlohmann::ordered_json::object();
                 function[ "name" ] = tool.name;
@@ -907,26 +824,26 @@ namespace Mila::AI
         template<typename TEmit>
         bool answerCall( const Conversation::ToolCall& call, const TEmit& emit, std::stop_token halted, ResponseClock& clock )
         {
-            Asker ask;
+            Session::Asker ask;
 
-            if ( ask_ )
+            if ( session_.asker() )
             {
                 ask = [this, &clock]( const ToolQuestion& question )
                     {
                         clock.pause();
-                        const ToolAnswer answer = ask_( question );
+                        const ToolAnswer answer = session_.asker()( question );
                         clock.resume();
 
                         return answer;
                     };
             }
 
-            ToolOutcome outcome = gate_.answer( call.name, call.arguments, ask, halted, limits_ );
+            ToolOutcome outcome = session_.gate().answer( call.name, call.arguments, ask, halted, session_.limits() );
 
             if ( outcome.stopped )
             {
                 // Every call in the conversation keeps a result, so the next prompt renders.
-                history_.push_back(
+                session_.turns().push_back(
                     { Conversation::Role::Tool, std::string( stoppedResult( clock, outcome.ran ) ), {}, call.name } );
 
                 return false;
@@ -947,7 +864,7 @@ namespace Mila::AI
         void answerNotRun( const Conversation::ToolCall& call, const TEmit& emit )
         {
             const std::string result = std::format(
-                "This tool call was not run: the response reached its limit of {} rounds.", *limits_.rounds );
+                "This tool call was not run: the response reached its limit of {} rounds.", *session_.limits().rounds );
 
             AgentEvent called{ AgentEvent::Kind::ToolCalled, result };
             called.call = &call;
@@ -955,7 +872,7 @@ namespace Mila::AI
             called.decision = ToolDecision::NotRun;
             emit( called );
 
-            history_.push_back( { Conversation::Role::Tool, result, {}, call.name } );
+            session_.turns().push_back( { Conversation::Role::Tool, result, {}, call.name } );
         }
 
         /// Cut a result to the most tokens its tool may give the model, and tell the model so.
@@ -1000,8 +917,9 @@ namespace Mila::AI
         {
             std::string& result = outcome.result;
             bool is_error = outcome.is_error;
+            std::vector<Conversation::Turn>& history = session_.turns();
 
-            history_.push_back( { Conversation::Role::Tool, result, {}, call.name } );
+            history.push_back( { Conversation::Role::Tool, result, {}, call.name } );
 
             std::vector<std::int32_t> prompt_tokens = nextRound().tokens;
 
@@ -1024,7 +942,7 @@ namespace Mila::AI
                     cut += std::format(
                         "\n[The result was cut to its first {} of {} tokens to fit the context.]", kept, total );
 
-                    history_.back().content = cut;
+                    history.back().content = cut;
                     prompt_tokens = nextRound().tokens;
 
                     if ( fitsContext( prompt_tokens ) )
@@ -1038,10 +956,10 @@ namespace Mila::AI
                     kept -= tokensOverContext( prompt_tokens );
                 }
 
-                history_.back().content = result;
+                history.back().content = result;
             }
 
-            AgentEvent called{ AgentEvent::Kind::ToolCalled, history_.back().content };
+            AgentEvent called{ AgentEvent::Kind::ToolCalled, history.back().content };
             called.call = &call;
             called.is_error = is_error;
             called.decision = outcome.decision;
@@ -1083,13 +1001,8 @@ namespace Mila::AI
         }
 
         Handle handle_;
-        ToolGate gate_;
-        Asker ask_;
-        std::string system_prompt_;
-        std::map<std::string, std::string> template_variables_;
-        std::optional<SamplingParams> sampling_;
-        AgentLimits limits_;
-        std::vector<Conversation::Turn> history_;
+        Session session_;
+        std::vector<std::string> dropped_template_variables_;
 
         // While a round's calls are answered: its prompt and its reply as generated, which the results continue.
         std::optional<RoundPrompt> continued_;

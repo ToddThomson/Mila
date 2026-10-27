@@ -410,8 +410,7 @@ benchmark's own protocol -- and it is not the card's claim.
 Each was excluded from the comparison on purpose and is worth measuring on its own terms:
 
 - **MIS's prompt template.** Through `/v1/chat/completions`, MIS renders Llama's prompt itself, and differently from
-  Meta's (`BACKLOG.md`, *Chat and the inference server each hold code that knows which model they are
-  running*). The same task through chat completions against Phase 1's run measures what that costs.
+  Meta's (`Vnext.md`, *The inference server holds code that knows which model it is running*). The same task through chat completions against Phase 1's run measures what that costs.
 - **Mila's tokenizer.** Mila's BPE against HuggingFace's on every Phase 1 prompt: identical ids, or the first
   difference.
 - **MIS's tool path.** BFCL measures tool calling from a prompt it renders itself. A user's agent goes through MIS's
@@ -490,8 +489,8 @@ open. Registering a new benchmark is by request, onto an allow-list.
   percentages (one MMLU-Pro row reports a fraction and ranks near the bottom for it).
 - **The prompt is the engine's.** inspect-ai sends chat messages, so each arm renders its own template, and the
   section 4 control of identical token ids does not hold. inspect-ai sends one user message and no system message;
-  MIS then adds "You are a helpful assistant." as the system turn (`BACKLOG.md`, *Chat and the inference server
-  each hold code that knows which model they are running*). The mila arm measures MIS as a user meets it, and its comparison with `hf` measures the engine and the template together.
+  MIS then adds "You are a helpful assistant." as the system turn (`Vnext.md`, *The inference server holds code
+  that knows which model it is running*). The mila arm measures MIS as a user meets it, and its comparison with `hf` measures the engine and the template together.
 
 ### 11.3 The benchmarks
 

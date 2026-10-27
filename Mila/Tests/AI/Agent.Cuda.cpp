@@ -1,7 +1,8 @@
 /**
  * @file Agent.Cuda.cpp
  * @brief One program runs Gemma, Llama and Qwen by changing only the name, streaming and calling a tool; every call
- *        is asked, declined, refused or stopped as ToolCalling.md 3.3 says, and a response keeps to its limits (4).
+ *        is asked, declined, refused or stopped as ToolCalling.md 3.3 says, a response keeps to its limits (4), and a
+ *        session outlives its model (Direction.md 4.3).
  *
  * Reads installed models from the model store, read only, and skips a family with none installed.
  */
@@ -138,14 +139,14 @@ namespace Mila::Tests::AI
             std::vector<std::string> arguments_seen;
             std::vector<std::string> asked;
 
-            auto agent = Agent::create( name, *requestThatFits( name ) )
+            auto agent = Agent::create( name, *requestThatFits( name ), Session{}
                 .withTool( weatherTool( arguments_seen ) )
                 .onAsk( [&asked]( const ToolQuestion& question )
                     {
                         asked.emplace_back( question.name );
 
                         return ToolAnswer::Once;
-                    } );
+                    } ) );
 
             agent.model().model().seedSampler( 7 );
 
@@ -189,7 +190,7 @@ namespace Mila::Tests::AI
             ASSERT_FALSE( kinds.empty() );
             EXPECT_EQ( kinds.front(), AgentEvent::Kind::RoundBegan );
 
-            const auto conversation = agent.conversation();
+            const auto conversation = agent.session().conversation();
 
             ASSERT_GE( conversation.size(), 3u );
             EXPECT_EQ( conversation.front().role, Conversation::Role::User );
@@ -331,9 +332,9 @@ namespace Mila::Tests::AI
         {
             std::vector<std::string> arguments_seen;
 
-            auto agent = Agent::create( name, *requestThatFits( name ) )
+            auto agent = Agent::create( name, *requestThatFits( name ), Session{}
                 .withTool( weatherTool( arguments_seen ) )
-                .onAsk( []( const ToolQuestion& ) { return ToolAnswer::Once; } );
+                .onAsk( []( const ToolQuestion& ) { return ToolAnswer::Once; } ) );
 
             agent.model().model().seedSampler( 7 );
 
@@ -345,7 +346,7 @@ namespace Mila::Tests::AI
             for ( std::size_t message = 0; message < messages.size(); ++message )
             {
                 const std::size_t first_round = reuse.rounds().size();
-                const std::size_t first_turn = agent.conversation().size();
+                const std::size_t first_turn = agent.session().conversation().size();
 
                 // Each round's prompt is the last one's, the tokens it generated and its results: none dropped.
                 dim_t expected_prompt = static_cast<dim_t>(
@@ -381,7 +382,7 @@ namespace Mila::Tests::AI
 
                 ASSERT_EQ( reuse.rounds().size(), first_round + static_cast<std::size_t>( response.rounds ) );
 
-                const auto conversation = agent.conversation();
+                const auto conversation = agent.session().conversation();
                 std::size_t turn = first_turn + 1;
 
                 for ( int round = 1; round < response.rounds; ++round )
@@ -586,7 +587,7 @@ namespace Mila::Tests::AI
                 return;
             }
 
-            agent_ = std::make_unique<Agent>( Agent::create( *name, *requestThatFits( *name ) )
+            agent_ = std::make_unique<Agent>( Agent::create( *name, *requestThatFits( *name ), Session{}
                 .withTool( Tool{
                     "get_weather",
                     "Get the current weather in a city.",
@@ -608,7 +609,7 @@ namespace Mila::Tests::AI
                         return std::string( kWeatherResult );
                     },
                     "Agent tests",
-                    "Looks up the weather." } ) );
+                    "Looks up the weather." } ) ) );
         }
 
         static void TearDownTestSuite()
@@ -623,11 +624,12 @@ namespace Mila::Tests::AI
                 GTEST_SKIP() << "no Gemma 4 12B is installed, or no CUDA device holds it";
             }
 
-            agent_->newConversation();
-            agent_->onAsk( {} );
-            agent_->withSystemPrompt( {} );
-            agent_->withLimits( {} );
-            agent_->withRules( {} );
+            agent_->session().newConversation();
+            agent_->session().onAsk( {} );
+            agent_->session().withSystemPrompt( {} );
+            agent_->session().withLimits( {} );
+            agent_->session().withRules( {} );
+            agent_->session().withSampling( {} );
             agent_->model().model().seedSampler( 7 );
 
             arguments_seen_.clear();
@@ -670,7 +672,7 @@ namespace Mila::Tests::AI
 
         static void allowEveryCall()
         {
-            agent_->onAsk( []( const ToolQuestion& ) { return ToolAnswer::Once; } );
+            agent_->session().onAsk( []( const ToolQuestion& ) { return ToolAnswer::Once; } );
         }
 
         static inline std::unique_ptr<Agent> agent_;
@@ -697,7 +699,7 @@ namespace Mila::Tests::AI
         EXPECT_TRUE( called.front().is_error );
         EXPECT_EQ( results_.front(), "The user declined to run this tool call." );
 
-        const auto conversation = agent_->conversation();
+        const auto conversation = agent_->session().conversation();
         EXPECT_EQ( conversation[ 2 ].content, "The user declined to run this tool call." );
         EXPECT_EQ( conversation.back().role, Conversation::Role::Assistant );
     }
@@ -706,7 +708,7 @@ namespace Mila::Tests::AI
     {
         int asked = 0;
 
-        agent_->onAsk( [&asked]( const ToolQuestion& question )
+        agent_->session().onAsk( [&asked]( const ToolQuestion& question )
             {
                 ++asked;
                 EXPECT_EQ( question.name, "get_weather" );
@@ -730,13 +732,13 @@ namespace Mila::Tests::AI
     {
         int asked = 0;
 
-        agent_->onAsk( [&asked]( const ToolQuestion& )
+        agent_->session().onAsk( [&asked]( const ToolQuestion& )
             {
                 ++asked;
 
                 return ToolAnswer::Deny;
             } );
-        agent_->withRules( ToolRules{}.add( { "get_weather", ToolPermission::Allow } ) );
+        agent_->session().withRules( ToolRules{}.add( { "get_weather", ToolPermission::Allow } ) );
 
         const auto called = respond( "What is the weather in Paris right now?" );
 
@@ -751,22 +753,22 @@ namespace Mila::Tests::AI
     TEST_F( AgentOnGemmaCuda, ACallTheRulesDenyDoesNotRunAndTheModelReadsSo )
     {
         allowEveryCall();
-        agent_->withRules( ToolRules{}.add( { "*", ToolPermission::Deny } ) );
+        agent_->session().withRules( ToolRules{}.add( { "*", ToolPermission::Deny } ) );
 
         const auto called = respond( "What is the weather in Paris right now?" );
 
         ASSERT_FALSE( called.empty() ) << last_.text;
         EXPECT_TRUE( arguments_seen_.empty() );
         EXPECT_EQ( called.front().decision, ToolDecision::DeniedByRule );
-        EXPECT_EQ( agent_->conversation()[ 2 ].content, "The user's rules do not allow this tool call." );
-        EXPECT_EQ( agent_->conversation().back().role, Conversation::Role::Assistant );
+        EXPECT_EQ( agent_->session().conversation()[ 2 ].content, "The user's rules do not allow this tool call." );
+        EXPECT_EQ( agent_->session().conversation().back().role, Conversation::Role::Assistant );
     }
 
     TEST_F( AgentOnGemmaCuda, AToolAllowedForTheConversationIsNotAskedAboutAgainUntilItEnds )
     {
         int asked = 0;
 
-        agent_->onAsk( [&asked]( const ToolQuestion& )
+        agent_->session().onAsk( [&asked]( const ToolQuestion& )
             {
                 ++asked;
 
@@ -779,7 +781,7 @@ namespace Mila::Tests::AI
         EXPECT_EQ( asked, 1 );
         EXPECT_GE( arguments_seen_.size(), 2u );
 
-        agent_->newConversation();
+        agent_->session().newConversation();
 
         ASSERT_FALSE( respond( "What is the weather in Oslo right now?" ).empty() ) << last_.text;
         EXPECT_EQ( asked, 2 ) << "an answer for one conversation was kept into the next";
@@ -787,7 +789,7 @@ namespace Mila::Tests::AI
 
     TEST_F( AgentOnGemmaCuda, AToolThatThrowsReachesTheModelAsAnErrorResult )
     {
-        agent_->onAsk( []( const ToolQuestion& ) { return ToolAnswer::Once; } );
+        agent_->session().onAsk( []( const ToolQuestion& ) { return ToolAnswer::Once; } );
         tool_throws_ = true;
 
         const auto called = respond( "What is the weather in Paris right now?" );
@@ -795,14 +797,14 @@ namespace Mila::Tests::AI
         ASSERT_FALSE( called.empty() ) << last_.text;
         EXPECT_TRUE( called.front().is_error );
         EXPECT_NE( results_.front().find( "the weather service is down" ), std::string::npos ) << results_.front();
-        EXPECT_EQ( agent_->conversation().back().role, Conversation::Role::Assistant );
+        EXPECT_EQ( agent_->session().conversation().back().role, Conversation::Role::Assistant );
     }
 
     TEST_F( AgentOnGemmaCuda, AReplyStoppedWhileACallWaitsRunsNothingAndEndsTheResponse )
     {
         std::stop_source stop;
 
-        agent_->onAsk( [&stop]( const ToolQuestion& )
+        agent_->session().onAsk( [&stop]( const ToolQuestion& )
             {
                 stop.request_stop();
 
@@ -816,7 +818,7 @@ namespace Mila::Tests::AI
         EXPECT_EQ( last_.status, GenerateStatus::ClientCancelled );
         EXPECT_EQ( last_.rounds, 1 );
 
-        const auto conversation = agent_->conversation();
+        const auto conversation = agent_->session().conversation();
         ASSERT_EQ( conversation.size(), 3u );
         EXPECT_EQ( conversation.back().role, Conversation::Role::Tool );
         EXPECT_EQ( conversation.back().content, "The user stopped the reply before this tool call ran." );
@@ -831,35 +833,35 @@ namespace Mila::Tests::AI
             long_prompt += "weather ";
         }
 
-        agent_->withSystemPrompt( long_prompt );
+        agent_->session().withSystemPrompt( long_prompt );
 
         const auto called = respond( "What is the weather in Paris right now?" );
 
         EXPECT_TRUE( called.empty() );
         EXPECT_EQ( last_.status, GenerateStatus::ContextOverflow );
         EXPECT_EQ( last_.rounds, 0 );
-        EXPECT_TRUE( agent_->conversation().empty() );
+        EXPECT_TRUE( agent_->session().conversation().empty() );
     }
 
     TEST_F( AgentOnGemmaCuda, RefusesAToolOrSettingItCannotUse )
     {
         const auto run = []( std::string_view, const ToolGrant&, std::stop_token ) { return std::string(); };
 
-        EXPECT_THROW( agent_->withTool( Tool{ "get_weather", "again", kWeatherParameters, run } ), std::invalid_argument );
-        EXPECT_THROW( agent_->withTool( Tool{ "", "nameless", kWeatherParameters, run } ), std::invalid_argument );
-        EXPECT_THROW( agent_->withTool( Tool{ "no_function", "", kWeatherParameters, {} } ), std::invalid_argument );
-        EXPECT_THROW( agent_->withTool( Tool{ "bad_schema", "", "{not json", run } ), std::invalid_argument );
-        EXPECT_THROW( agent_->withTool( Tool{ "array_schema", "", "[]", run } ), std::invalid_argument );
+        EXPECT_THROW( agent_->session().withTool( Tool{ "get_weather", "again", kWeatherParameters, run } ), std::invalid_argument );
+        EXPECT_THROW( agent_->session().withTool( Tool{ "", "nameless", kWeatherParameters, run } ), std::invalid_argument );
+        EXPECT_THROW( agent_->session().withTool( Tool{ "no_function", "", kWeatherParameters, {} } ), std::invalid_argument );
+        EXPECT_THROW( agent_->session().withTool( Tool{ "bad_schema", "", "{not json", run } ), std::invalid_argument );
+        EXPECT_THROW( agent_->session().withTool( Tool{ "array_schema", "", "[]", run } ), std::invalid_argument );
 
         EXPECT_THROW( agent_->withTemplateVariable( "no_such_variable", "true" ), std::invalid_argument );
         EXPECT_THROW( agent_->withTemplateVariable( "enable_thinking", "maybe" ), std::invalid_argument );
         EXPECT_THROW( agent_->withTemplateVariables( { { "enable_thinking", "maybe" } } ), std::invalid_argument );
 
-        EXPECT_THROW( agent_->withLimits( { .rounds = 0 } ), std::invalid_argument );
-        EXPECT_THROW( agent_->withLimits( { .time = std::chrono::milliseconds( 0 ) } ), std::invalid_argument );
-        EXPECT_THROW( agent_->withLimits( { .reply_tokens = 0 } ), std::invalid_argument );
-        EXPECT_THROW( agent_->withLimits( { .tool_time = std::chrono::milliseconds( 0 ) } ), std::invalid_argument );
-        EXPECT_THROW( agent_->withLimits( { .result_tokens = 0 } ), std::invalid_argument );
+        EXPECT_THROW( agent_->session().withLimits( { .rounds = 0 } ), std::invalid_argument );
+        EXPECT_THROW( agent_->session().withLimits( { .time = std::chrono::milliseconds( 0 ) } ), std::invalid_argument );
+        EXPECT_THROW( agent_->session().withLimits( { .reply_tokens = 0 } ), std::invalid_argument );
+        EXPECT_THROW( agent_->session().withLimits( { .tool_time = std::chrono::milliseconds( 0 ) } ), std::invalid_argument );
+        EXPECT_THROW( agent_->session().withLimits( { .result_tokens = 0 } ), std::invalid_argument );
     }
 
     // ================================================================
@@ -869,7 +871,7 @@ namespace Mila::Tests::AI
     TEST_F( AgentOnGemmaCuda, TheLastRoundAllowedAnswersItsCallsWithoutRunningThem )
     {
         allowEveryCall();
-        agent_->withLimits( { .rounds = 1 } );
+        agent_->session().withLimits( { .rounds = 1 } );
 
         const auto called = respond( "What is the weather in Paris right now?" );
 
@@ -881,7 +883,7 @@ namespace Mila::Tests::AI
         EXPECT_EQ( last_.rounds, 1 );
 
         // The calls keep their results, so the conversation renders and the next response can ask again.
-        const auto conversation = agent_->conversation();
+        const auto conversation = agent_->session().conversation();
         ASSERT_EQ( conversation.size(), 3u );
         EXPECT_EQ( conversation.back().role, Conversation::Role::Tool );
         EXPECT_NO_THROW( (void)agent_->prompt( "And now?" ) );
@@ -890,7 +892,7 @@ namespace Mila::Tests::AI
     TEST_F( AgentOnGemmaCuda, ReplyTokensBoundTheWholeResponseAcrossItsRounds )
     {
         allowEveryCall();
-        agent_->withLimits( { .reply_tokens = 4000 } );
+        agent_->session().withLimits( { .reply_tokens = 4000 } );
 
         ASSERT_FALSE( respond( "What is the weather in Paris right now?" ).empty() ) << last_.text;
         ASSERT_GE( budgets_.size(), 2u );
@@ -903,7 +905,7 @@ namespace Mila::Tests::AI
     TEST_F( AgentOnGemmaCuda, AResponseOutOfReplyTokensStopsAndRunsNothing )
     {
         allowEveryCall();
-        agent_->withLimits( { .reply_tokens = 3 } );
+        agent_->session().withLimits( { .reply_tokens = 3 } );
 
         const auto called = respond( "What is the weather in Paris right now?" );
 
@@ -912,7 +914,7 @@ namespace Mila::Tests::AI
         EXPECT_EQ( last_.status, GenerateStatus::MaxNewTokensReached ) << to_string( last_.status );
         ASSERT_EQ( tokens_.size(), 1u );
         EXPECT_EQ( tokens_[ 0 ].size(), 3u );
-        EXPECT_EQ( agent_->conversation().back().role, Conversation::Role::Assistant );
+        EXPECT_EQ( agent_->session().conversation().back().role, Conversation::Role::Assistant );
     }
 
     TEST_F( AgentOnGemmaCuda, TokenEventsAreTheModelsOutputVerbatim )
@@ -969,7 +971,7 @@ namespace Mila::Tests::AI
 
         ASSERT_NE( note, std::string::npos ) << result.substr( result.size() - 200 );
         EXPECT_TRUE( forecast.starts_with( result.substr( 0, note ) ) ) << "the cut is not the result's beginning";
-        EXPECT_EQ( agent_->conversation()[ 2 ].content, result );
+        EXPECT_EQ( agent_->session().conversation()[ 2 ].content, result );
 
         // The cut leaves the model a position to answer in, so the response never overflowed with no word of why.
         EXPECT_EQ( last_.rounds, 2 );
@@ -978,7 +980,7 @@ namespace Mila::Tests::AI
     TEST_F( AgentOnGemmaCuda, AResultLongerThanAToolMayGiveIsCutAndTheModelToldSo )
     {
         allowEveryCall();
-        agent_->withLimits( { .result_tokens = 40 } );
+        agent_->session().withLimits( { .result_tokens = 40 } );
 
         std::string forecast;
 
@@ -1001,13 +1003,13 @@ namespace Mila::Tests::AI
         ASSERT_NE( note, std::string::npos ) << result;
         EXPECT_TRUE( result.ends_with( " tokens, the most this tool may give.]" ) ) << result;
         EXPECT_TRUE( forecast.starts_with( result.substr( 0, note ) ) ) << "the cut is not the result's beginning";
-        EXPECT_EQ( agent_->conversation()[ 2 ].content, result );
+        EXPECT_EQ( agent_->session().conversation()[ 2 ].content, result );
     }
 
     TEST_F( AgentOnGemmaCuda, ACallOutOfItsTimeEndsAndTheResponseGoesOn )
     {
         allowEveryCall();
-        agent_->withLimits( { .rounds = 2, .tool_time = std::chrono::milliseconds( 200 ) } );
+        agent_->session().withLimits( { .rounds = 2, .tool_time = std::chrono::milliseconds( 200 ) } );
 
         bool tool_saw_stop = false;
 
@@ -1055,14 +1057,14 @@ namespace Mila::Tests::AI
         EXPECT_TRUE( results_.empty() ) << "a stopped call was reported";
         EXPECT_EQ( last_.status, GenerateStatus::ClientCancelled );
         EXPECT_FALSE( last_.time_limit_reached );
-        EXPECT_EQ( agent_->conversation().back().content,
+        EXPECT_EQ( agent_->session().conversation().back().content,
             "The user stopped the reply while this tool call ran, so it may not have finished." );
     }
 
     TEST_F( AgentOnGemmaCuda, ATimeLimitEndsARunningCallAndTheResponse )
     {
         allowEveryCall();
-        agent_->withLimits( { .time = std::chrono::seconds( 10 ) } );
+        agent_->session().withLimits( { .time = std::chrono::seconds( 10 ) } );
 
         bool tool_saw_stop = false;
 
@@ -1085,14 +1087,14 @@ namespace Mila::Tests::AI
         EXPECT_TRUE( tool_saw_stop );
         EXPECT_TRUE( last_.time_limit_reached );
         EXPECT_EQ( last_.status, GenerateStatus::ClientCancelled );
-        EXPECT_EQ( agent_->conversation().back().content,
+        EXPECT_EQ( agent_->session().conversation().back().content,
             "The response ran out of time while this tool call ran, so it may not have finished." );
     }
 
     TEST_F( AgentOnGemmaCuda, ThePersonsTimeToAnswerIsNotTheResponses )
     {
-        agent_->withLimits( { .time = std::chrono::seconds( 8 ) } );
-        agent_->onAsk( []( const ToolQuestion& )
+        agent_->session().withLimits( { .time = std::chrono::seconds( 8 ) } );
+        agent_->session().onAsk( []( const ToolQuestion& )
             {
                 std::this_thread::sleep_for( std::chrono::seconds( 9 ) );
 
@@ -1104,19 +1106,19 @@ namespace Mila::Tests::AI
         ASSERT_FALSE( arguments_seen_.empty() ) << last_.text;
         EXPECT_FALSE( last_.time_limit_reached );
         EXPECT_EQ( last_.status, GenerateStatus::Success ) << to_string( last_.status );
-        EXPECT_EQ( agent_->conversation()[ 2 ].content, kWeatherResult );
+        EXPECT_EQ( agent_->session().conversation()[ 2 ].content, kWeatherResult );
     }
 
     TEST_F( AgentOnGemmaCuda, ThePromptOfANextMessageLeavesTheConversationAlone )
     {
-        agent_->withSystemPrompt( "You are terse." );
+        agent_->session().withSystemPrompt( "You are terse." );
 
         const Conversation::Prompt prompt = agent_->prompt( "Is it raining in Lima?" );
 
         EXPECT_NE( prompt.text.find( "You are terse." ), std::string::npos );
         EXPECT_NE( prompt.text.find( "Is it raining in Lima?" ), std::string::npos );
         EXPECT_NE( prompt.text.find( "get_weather" ), std::string::npos ) << "the tools are not in the prompt";
-        EXPECT_TRUE( agent_->conversation().empty() );
+        EXPECT_TRUE( agent_->session().conversation().empty() );
     }
 
     // ================================================================
@@ -1129,14 +1131,238 @@ namespace Mila::Tests::AI
         ScratchStore scratch;
         scratch.install( "gemma-base", "gemma", false );
 
+        const std::optional<OpenRefusal> checked = Agent::check( "gemma-base", requestOn( 0 ), scratch.store() );
+
+        ASSERT_TRUE( checked.has_value() );
+        EXPECT_EQ( checked->reason, OpenRefusal::Reason::BaseModel );
+
         try
         {
-            (void)Agent::create( "gemma-base", requestOn( 0 ), scratch.store() );
+            (void)Agent::create( "gemma-base", requestOn( 0 ), {}, scratch.store() );
             ADD_FAILURE() << "a base model opened as an agent";
         }
-        catch ( const std::invalid_argument& error )
+        catch ( const OpenRefusedError& error )
         {
+            EXPECT_EQ( error.refusal().reason, OpenRefusal::Reason::BaseModel );
             EXPECT_NE( std::string( error.what() ).find( "base model" ), std::string::npos ) << error.what();
         }
+    }
+
+    TEST( Agent, ChecksAnInstructModelThroughItsHandleAndOpensNothing )
+    {
+        ScratchStore scratch;
+        scratch.install( "gemma-chat", "gemma", true );
+
+        // Its weights are a few bytes, so a check that read them would fail; one that reads only the record passes.
+        EXPECT_FALSE( Agent::check( "gemma-chat", requestOn( 0 ), scratch.store() ).has_value() );
+
+        const std::optional<OpenRefusal> absent = Agent::check( "not-installed", requestOn( 0 ), scratch.store() );
+
+        ASSERT_TRUE( absent.has_value() );
+        EXPECT_EQ( absent->reason, OpenRefusal::Reason::NotInstalled );
+        EXPECT_EQ( absent->name, "not-installed" );
+    }
+
+    TEST( Agent, ACreateThatFailsLeavesTheSessionAsItWas )
+    {
+        ScratchStore scratch;
+        Session session;
+        std::vector<std::string> arguments_seen;
+
+        session.withTool( weatherTool( arguments_seen ) ).withSystemPrompt( "You are terse." );
+        session.openConversation( { { Conversation::Role::User, "Hello" }, { Conversation::Role::Assistant, "Hi." } } );
+
+        EXPECT_THROW( (void)Agent::create( "not-installed", requestOn( 0 ), std::move( session ), scratch.store() ),
+            OpenRefusedError );
+
+        // Moved from only once a model opens.
+        EXPECT_EQ( session.conversation().size(), 2u );
+        EXPECT_EQ( session.tools().size(), 1u );
+        EXPECT_EQ( session.systemPrompt(), "You are terse." );
+    }
+
+    // ================================================================
+    // A session outlives its model (Direction.md 4.3)
+    // ================================================================
+
+    TEST( AgentCuda, ALoadTheDeviceRefusesLeavesTheSessionAsItWas )
+    {
+        const auto name = firstInstalled( { "gemma-4-12b-it-fp4", "gemma-4-12b-it-q4_0" } );
+
+        if ( const auto skipped = whyNotRunnable( name ) )
+        {
+            GTEST_SKIP() << *skipped;
+        }
+
+        Session session;
+        session.openConversation( { { Conversation::Role::User, "Hello" }, { Conversation::Role::Assistant, "Hi." } } );
+
+        // Past any context the model addresses: refused by the planner, after the check passed.
+        DeploymentRequest request = *requestThatFits( *name );
+        request.withContextLength( dim_t( 1 ) << 30 );
+
+        ASSERT_FALSE( Agent::check( *name, request ).has_value() );
+        EXPECT_ANY_THROW( (void)Agent::create( *name, request, std::move( session ) ) );
+        EXPECT_EQ( session.conversation().size(), 2u );
+    }
+
+    TEST( AgentCuda, AReloadAtAnotherContextKeepsTheConversationAndItsTools )
+    {
+        const auto name = firstInstalled( { "gemma-4-12b-it-fp4", "gemma-4-12b-it-q4_0" } );
+
+        if ( const auto skipped = whyNotRunnable( name ) )
+        {
+            GTEST_SKIP() << *skipped;
+        }
+
+        std::vector<std::string> arguments_seen;
+        DeploymentRequest request = *requestThatFits( *name );
+
+        auto agent = Agent::create( *name, request, Session{}
+            .withTool( weatherTool( arguments_seen ) )
+            .withRules( ToolRules{}.add( { "get_weather", ToolPermission::Allow } ) ) );
+
+        agent.model().model().seedSampler( 7 );
+
+        const Response first = agent.respond( "What is the weather in Paris right now?" );
+
+        ASSERT_FALSE( arguments_seen.empty() ) << "Gemma answered without calling the tool: " << first.text;
+
+        const std::size_t turns = agent.session().conversation().size();
+
+        request.withContextLength( kContextLength / 2 );
+
+        Session held = std::move( agent ).release();
+        agent = Agent::create( *name, request, std::move( held ) );
+
+        EXPECT_EQ( agent.plan().contextLength(), kContextLength / 2 );
+        ASSERT_EQ( agent.session().conversation().size(), turns );
+        EXPECT_EQ( agent.session().tools().size(), 1u );
+
+        const Response next = agent.respond( "And what is the weather in Rome right now?" );
+
+        EXPECT_EQ( next.status, GenerateStatus::Success ) << to_string( next.status );
+        EXPECT_GT( agent.session().conversation().size(), turns );
+    }
+
+    TEST( AgentCuda, OneSessionCarriesItsToolsRulesAndConversationThroughEveryFamily )
+    {
+        // One model resident at a time, each released before the next is planned.
+        const std::vector<std::optional<std::string>> names{
+            firstInstalled( { "gemma-4-12b-it-fp4", "gemma-4-12b-it-q4_0" } ),
+            firstInstalled( { "Qwen3.8-27B-fp4", "Qwen3.8-27B-fp4-cb3" } ),
+            firstInstalled( { "Llama-3.1-8B-Instruct-fp4", "Llama-3.1-8B-Instruct-fp8" } ) };
+
+        std::vector<std::string> runnable;
+
+        for ( const auto& name : names )
+        {
+            if ( !whyNotRunnable( name ) )
+            {
+                runnable.push_back( *name );
+            }
+        }
+
+        if ( runnable.size() < 2 )
+        {
+            GTEST_SKIP() << "fewer than two families can run here";
+        }
+
+        std::vector<std::string> arguments_seen;
+        int asked = 0;
+
+        Session session;
+        session.withTool( weatherTool( arguments_seen ) )
+            .withRules( ToolRules{}.add( { "get_weather", ToolPermission::Allow } ) )
+            .onAsk( [&asked]( const ToolQuestion& )
+                {
+                    ++asked;
+
+                    return ToolAnswer::Deny;
+                } )
+            .withSystemPrompt( "Answer in one sentence." );
+
+        const std::vector<std::string> messages{
+            "What is the weather in Paris right now?", "And in Rome?", "Which of the two cities is warmer?" };
+
+        std::size_t turns = 0;
+
+        for ( std::size_t index = 0; index < runnable.size(); ++index )
+        {
+            auto agent = Agent::create( runnable[ index ], *requestThatFits( runnable[ index ] ), std::move( session ) );
+
+            agent.model().model().seedSampler( 7 );
+
+            // What the last model left, in this model's own template.
+            ASSERT_EQ( agent.session().conversation().size(), turns ) << runnable[ index ];
+
+            const Conversation::Prompt prompt = agent.prompt();
+
+            EXPECT_NE( prompt.text.find( "get_weather" ), std::string::npos ) << runnable[ index ] << ": the tools did not cross";
+            EXPECT_NE( prompt.text.find( "Answer in one sentence." ), std::string::npos ) << runnable[ index ];
+
+            if ( index > 0 )
+            {
+                EXPECT_NE( prompt.text.find( messages.front() ), std::string::npos )
+                    << runnable[ index ] << ": the conversation did not cross";
+            }
+
+            const Response response = agent.respond( messages[ index ] );
+
+            EXPECT_EQ( response.status, GenerateStatus::Success ) << runnable[ index ] << ": " << to_string( response.status );
+            EXPECT_GT( agent.session().conversation().size(), turns ) << runnable[ index ];
+
+            turns = agent.session().conversation().size();
+            session = std::move( agent ).release();
+        }
+
+        // Every call the models made was allowed by the rule, and none was asked about.
+        EXPECT_EQ( asked, 0 );
+        EXPECT_FALSE( arguments_seen.empty() ) << "no model called the tool";
+    }
+
+    TEST( AgentCuda, ATemplateVariableTheNextModelDoesNotAcceptIsDroppedAndNamed )
+    {
+        const auto name = firstInstalled( { "gemma-4-12b-it-fp4", "gemma-4-12b-it-q4_0" } );
+
+        if ( const auto skipped = whyNotRunnable( name ) )
+        {
+            GTEST_SKIP() << *skipped;
+        }
+
+        // Llama's own variable, which Gemma's template does not have; Gemma's thinking switch, which it does.
+        auto agent = Agent::create( *name, *requestThatFits( *name ), Session{}
+            .withTemplateVariable( "tools_in_user_message", "false" )
+            .withTemplateVariable( "enable_thinking", "false" ) );
+
+        ASSERT_EQ( agent.droppedTemplateVariables().size(), 1u );
+        EXPECT_EQ( agent.droppedTemplateVariables().front(), "tools_in_user_message" );
+        EXPECT_FALSE( agent.session().templateVariables().contains( "tools_in_user_message" ) );
+        EXPECT_EQ( agent.session().templateVariables().at( "enable_thinking" ), "false" );
+
+        // Set on the session of a live agent, an unaccepted one is refused before the message joins.
+        agent.session().withTemplateVariable( "no_such_variable", "true" );
+
+        EXPECT_THROW( (void)agent.respond( "Hello" ), std::invalid_argument );
+        EXPECT_TRUE( agent.session().conversation().empty() );
+    }
+
+    TEST_F( AgentOnGemmaCuda, ASamplingSettingTheSessionNamesIsTheOneUsed )
+    {
+        // Greedy whatever the seed: the publisher's sampling for Gemma is not, so two seeds would part.
+        agent_->session().withSampling( SamplingOverride{ .top_k = 1 } ).withLimits( { .reply_tokens = 48 } );
+
+        std::vector<std::string> replies;
+
+        for ( const std::uint64_t seed : { 7u, 8u } )
+        {
+            agent_->session().newConversation();
+            agent_->model().model().seedSampler( seed );
+
+            replies.push_back( agent_->respond( "Name three colours." ).text );
+        }
+
+        ASSERT_FALSE( replies.front().empty() );
+        EXPECT_EQ( replies.front(), replies.back() );
     }
 }

@@ -53,6 +53,8 @@ add_executable( MilaTests
     "AI/PublicAddress.cpp"
     "AI/ToolRules.cpp"
     "AI/ToolGate.cpp"
+    # What a program gives an agent, kept apart from its model (Direction.md 4.3). Needs no model.
+    "AI/Session.cpp"
     "Data/Loaders/DataLoader.cpp"
     "Dnn/Components/Activations/Activation/ActivationConfig.cpp"
     "Dnn/Components/Activations/Gelu/GeluConfig.cpp"

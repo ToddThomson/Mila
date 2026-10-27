@@ -57,7 +57,14 @@ namespace Mila::ChatApp
             : config_( std::move( config ) ), events_( events )
         {
             loadSystemPrompt();
+
+            // Set once: it goes with the session to every model it is given to.
+            held_session_.onAsk( [this]( const Mila::AI::ToolQuestion& question ) { return askAboutCall( question ); } );
+            held_session_.withSystemPrompt( system_prompt_config_.system_prompt );
         }
+
+        ChatSession( const ChatSession& ) = delete;
+        ChatSession& operator=( const ChatSession& ) = delete;
 
         /**
          * @brief Register a handler for a named tool.
@@ -89,12 +96,12 @@ namespace Mila::ChatApp
             const auto [handler_entry, added] = tool_handlers_.emplace(
                 std::move( name ), std::pair{ needs, std::move( handler ) } );
 
-            // A tool registered once a model is resident is offered from the next response.
-            if ( added && agent_ )
+            // Offered from the next response, whether or not a model is resident yet.
+            if ( added )
             {
                 if ( const auto tool = agentTool( handler_entry->first ) )
                 {
-                    agent_->withTool( *tool );
+                    session().withTool( *tool );
                 }
             }
         }
@@ -205,29 +212,19 @@ namespace Mila::ChatApp
         /// The rules every tool call passes from the next call on; with none set, every call is asked about.
         void useToolRules( Mila::AI::ToolRules rules )
         {
-            tool_rules_ = std::move( rules );
-
-            if ( agent_ )
-            {
-                agent_->withRules( tool_rules_ );
-            }
+            session().withRules( std::move( rules ) );
         }
 
         /// The most a tool call may reach from the next call on -- folders and the network; with none, nothing.
         void useGrant( Mila::AI::ToolGrant grant )
         {
-            grant_ = std::move( grant );
-
-            if ( agent_ )
-            {
-                agent_->withGrant( grant_ );
-            }
+            session().withGrant( std::move( grant ) );
         }
 
         /**
          * @brief Use another system prompt file, and the tools it describes, from the next response on.
          *
-         * The model stays resident: the agent is given the file's prompt and offered only the tools the file
+         * The model stays resident: the session is given the file's prompt and offers only the tools the file
          * describes and a handler runs. The history is kept; a front end that changes prompt starts a conversation.
          *
          * @throws std::runtime_error when the file cannot be read as a system prompt.
@@ -237,17 +234,14 @@ namespace Mila::ChatApp
             system_prompt_config_ = SystemPromptLoader::load( path );
             config_.system_prompt_path = path;
 
-            if ( agent_ )
-            {
-                agent_->withSystemPrompt( system_prompt_config_.system_prompt );
-                offerTools();
-            }
+            session().withSystemPrompt( system_prompt_config_.system_prompt );
+            offerTools();
         }
 
         /// Stop offering a tool from the next response on, as though its handler had never been registered.
         void unregisterTool( const std::string& name )
         {
-            if ( tool_handlers_.erase( name ) > 0 && agent_ )
+            if ( tool_handlers_.erase( name ) > 0 )
             {
                 offerTools();
             }
@@ -264,14 +258,7 @@ namespace Mila::ChatApp
         {
             std::erase_if( turns, []( const ChatMessage& turn ) { return turn.role == MessageRole::System; } );
 
-            if ( agent_ )
-            {
-                agent_->openConversation( std::move( turns ) );
-            }
-            else
-            {
-                held_conversation_ = std::move( turns );
-            }
+            session().openConversation( std::move( turns ) );
         }
 
         /**
@@ -596,7 +583,7 @@ namespace Mila::ChatApp
         /// The conversation, without the system prompt; held across a reload, when no model is resident.
         std::span<const ChatMessage> history() const noexcept
         {
-            return agent_ ? agent_->conversation() : std::span<const ChatMessage>( held_conversation_ );
+            return session().conversation();
         }
 
         /// The most recent turn's rounds, in the order they ran.
@@ -666,14 +653,23 @@ namespace Mila::ChatApp
         /// Rounds in one turn: the four Chat has run since it first ran tools, a number no measurement has set.
         static constexpr int kToolRounds = 4;
 
-        /// The agent's conversation is kept across a reload, and while nothing is resident.
+        /// The resident agent's session, or the one held while nothing is resident.
+        Mila::AI::Session& session() noexcept
+        {
+            return agent_ ? agent_->session() : held_session_;
+        }
+
+        const Mila::AI::Session& session() const noexcept
+        {
+            return agent_ ? agent_->session() : held_session_;
+        }
+
+        /// The session, conversation and all, is kept across a reload, and while nothing is resident.
         void releaseModel()
         {
             if ( agent_ )
             {
-                const auto conversation = agent_->conversation();
-
-                held_conversation_.assign( conversation.begin(), conversation.end() );
+                held_session_ = std::move( *agent_ ).release();
                 agent_.reset();
             }
 
@@ -723,14 +719,16 @@ namespace Mila::ChatApp
             return active;
         }
 
-        /// The agent offers exactly the tools the system prompt describes and a handler runs.
+        /// The session offers exactly the tools the system prompt describes and a handler runs.
         void offerTools()
         {
-            agent_->withoutTools();
+            Mila::AI::Session& offering = session();
+
+            offering.withoutTools();
 
             for ( const auto& tool : activeTools() )
             {
-                agent_->withTool( *agentTool( tool.name ) );
+                offering.withTool( *agentTool( tool.name ) );
             }
         }
 
@@ -909,8 +907,10 @@ namespace Mila::ChatApp
                     return stop_src_.get_token();
                 }();
 
-            agent_->withSampling( sessionSampling( config_ ) );
-            agent_->withLimits( limits_.value_or(
+            // The user's own knobs; the agent sets each one left empty at the publisher's for the thinking in effect.
+            agent_->session().withSampling(
+                Mila::AI::SamplingOverride{ config_.temperature, config_.top_k, config_.top_p, config_.presence_penalty } );
+            agent_->session().withLimits( limits_.value_or(
                 Mila::AI::AgentLimits{ .rounds = kToolRounds, .reply_tokens = static_cast<dim_t>( config_.max_new_tokens ) } ) );
 
             const Mila::Dnn::Conversation::Protocol& protocol = *agent_->model().protocol();
@@ -1367,30 +1367,19 @@ namespace Mila::ChatApp
         {
             try
             {
-                auto agent = std::make_unique<Mila::AI::Agent>(
-                    Mila::AI::Agent::create( config_.model_name, activeDeploymentRequest() ) );
+                // The held session -- prompt, tools, rules, grant, asker and conversation -- goes to the agent only
+                // once the model has opened, so a load that fails leaves it here.
+                agent_ = std::make_unique<Mila::AI::Agent>(
+                    Mila::AI::Agent::create( config_.model_name, activeDeploymentRequest(), std::move( held_session_ ) ) );
 
                 if ( config_.detail == DetailLevel::All )
                 {
-                    events_.log( agent->model().model().toString() );
-                    events_.log( agent->model().model().getMemoryStats().toString() + "\n" );
+                    events_.log( agent_->model().model().toString() );
+                    events_.log( agent_->model().model().getMemoryStats().toString() + "\n" );
                 }
 
-                agent->withSystemPrompt( system_prompt_config_.system_prompt );
-
-                for ( const auto& tool : activeTools() )
-                {
-                    agent->withTool( *agentTool( tool.name ) );
-                }
-
-                agent->onAsk( [this]( const Mila::AI::ToolQuestion& question ) { return askAboutCall( question ); } );
-                agent->withRules( tool_rules_ );
-                agent->withGrant( grant_ );
-                agent->openConversation( std::exchange( held_conversation_, {} ) );
-
-                deployment_plan_ = agent->plan();
+                deployment_plan_ = agent_->plan();
                 config_.context_length = static_cast<std::size_t>( deployment_plan_->contextLength() );
-                agent_ = std::move( agent );
 
                 applyTemplateVariables();
             }
@@ -1429,12 +1418,7 @@ namespace Mila::ChatApp
         {
             // Ends the tools allowed for the conversation with it: conversation.new, conversation.open and model.load
             // (MilaApp.md 4.5).
-            if ( agent_ )
-            {
-                agent_->newConversation();
-            }
-
-            held_conversation_.clear();
+            session().newConversation();
         }
 
         ChatConfig config_;
@@ -1448,16 +1432,15 @@ namespace Mila::ChatApp
         std::unordered_map<std::string, std::pair<Mila::AI::ToolNeeds,
             std::function<std::string( const std::string&, const Mila::AI::ToolGrant& )>>> tool_handlers_;
 
-        // Set by a front end that runs its own limits, rules and grant; Chat's own when empty, and no grant.
+        // Set by a front end that runs its own limits; Chat's own when empty.
         std::optional<Mila::AI::AgentLimits> limits_;
-        Mila::AI::ToolRules tool_rules_;
-        Mila::AI::ToolGrant grant_;
 
-        // The resident model, its conversation and the calls it makes; empty when nothing is resident.
+        // The resident model and its session; empty when nothing is resident.
         std::unique_ptr<Mila::AI::Agent> agent_;
 
-        // The conversation while no agent holds it: between releasing a model and loading the next.
-        std::vector<ChatMessage> held_conversation_;
+        // The session while no agent holds it: before the first load, and between releasing a model and loading
+        // the next. Moved from while an agent holds it.
+        Mila::AI::Session held_session_;
 
         // Replaced at the start of each turn and read by stop() from any thread, hence the lock.
         mutable std::mutex stop_mutex_;
