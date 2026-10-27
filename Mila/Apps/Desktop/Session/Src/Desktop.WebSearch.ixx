@@ -15,15 +15,14 @@ namespace Mila::DesktopApp
 {
     using Mila::Distribution::HttpFetch;
     using Mila::Distribution::HttpResponse;
-    using Mila::Distribution::IHttpTransport;
 
     /**
      * @brief Searches the web for the model, one query at a time.
      *
      * The query leaves the machine for Tavily, which is why every search is asked about. The key is the person's,
      * sent only to Tavily and never written into a result, a log or a conversation. A basic search is asked for by
-     * name, so a search never costs Tavily's two credits for an advanced one. A failure throws, and the model reads
-     * its message.
+     * name, so a search never costs Tavily's two credits for an advanced one. The request goes through the call's
+     * grant, as every connection a tool makes does. A failure throws, and the model reads its message.
      */
     export class WebSearch
     {
@@ -32,13 +31,13 @@ namespace Mila::DesktopApp
         /// The tool's name, as the research and tasks prompts define it.
         static constexpr std::string_view kName = "web_search";
 
-        WebSearch( std::shared_ptr<const IHttpTransport> transport, std::string key )
-            : transport_( std::move( transport ) ), key_( std::move( key ) )
+        explicit WebSearch( std::string key )
+            : key_( std::move( key ) )
         {
         }
 
         /// `query`, and optionally `max_results`, from 1 to 10.
-        [[nodiscard]] std::string search( const std::string& arguments_text ) const
+        [[nodiscard]] std::string search( const std::string& arguments_text, const Mila::AI::ToolGrant& grant ) const
         {
             const auto arguments = nlohmann::json::parse( arguments_text );
             const std::string query = arguments.at( "query" ).get<std::string>();
@@ -54,7 +53,7 @@ namespace Mila::DesktopApp
             request.low_speed_timeout_seconds = 20;
 
             std::string body;
-            const HttpResponse response = transport_->fetch( request,
+            const HttpResponse response = grant.transport()->fetch( request,
                 [&body]( const char* data, std::size_t length )
                 {
                     body.append( data, length );
@@ -104,7 +103,6 @@ namespace Mila::DesktopApp
             return text + "\nRead a page in full with read_web_page.";
         }
 
-        std::shared_ptr<const IHttpTransport> transport_;
         std::string key_;
     };
 }

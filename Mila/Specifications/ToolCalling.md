@@ -14,8 +14,9 @@ each round continues from the reply as generated and the results as the template
 `+100`: sections 3.1 to 3.3 -- every call passes `ToolGate`: the arguments checked against the tool's parameters,
 the person's rules (`ToolRules`), the question built from the tool as registered, the call's own time and a cap on
 its result, and the record of each call on its event. Since 2026-10-26 an agent's tools can be withdrawn
-(`withoutTools`), so one resident model serves conversations with different tools. Section 3.4, an output schema, and
-results other than text are not built. It replaces `ToolBroker.md` as the design of record for where tool calling lives; the code built to that
+(`withoutTools`), so one resident model serves conversations with different tools. Built at `+103`: section 3.4 on
+Windows -- `ToolGrant`, given to every call allowed, narrowed to its tool's needs; off Windows a grant holds no
+folder. An output schema and results other than text are not built. It replaces `ToolBroker.md` as the design of record for where tool calling lives; the code built to that
 spec -- the broker in `Mila/Apps/Tools/Broker`, the client in `Mila/AI/`, the session's own handler map in Chat --
 is refit to this one. Open decisions are in section 9.
 
@@ -59,8 +60,9 @@ choice to leave the structure, not a way around it.
 
 - A name, a description, an input schema and, optionally, an output schema.
 - **A summary, written for the person,** which is what a question shows. The description is written for the model.
-- **Declared needs:** whether it reads files, writes files or uses the network, and which areas it touches. They
-  are facts the person is shown, and the permissions of 3.3 decide on, not hints to the model.
+- **Declared needs:** whether it reads files, writes files or uses the network. They are facts the person is
+  shown, the permissions of 3.3 decide on and a call's grant is narrowed to, not hints to the model. Which folders
+  are touched is the grant's, not the tool's.
 - **The source is a field,** shown to the person. *Decided 2026-10-26 (Todd):* the name the model reads is letters,
   digits, `_` and `-`, since Anthropic's tool names refuse a dot; two tools of one name are refused when the second
   is registered, so two sources cannot collide.
@@ -92,8 +94,12 @@ How a call reaches the tool. **Initially in-process only:** a function of the ap
 A gate that every call passes; inside `Mila::AI` there is no path to execution around it.
 
 - **In:** the agent, the tool, the arguments and the tool's declared needs. **Out:** allow, ask or deny, and with
-  allow a **grant** -- which folders, read-only or read-write, whether the network, the time and size caps. *Built
-  at `+100`:* an allow carries the time and size caps; the folders and the network arrive with the grant of 3.4.
+  allow a **grant** -- which folders, read-only or read-write, and whether the network -- and the call's time and
+  size caps. *Decided 2026-10-27 (Todd):* the application gives the agent the most any call may reach
+  (`withGrant`); each call allowed is given that narrowed to its tool's needs -- no folder to a tool that declares
+  no files, read-only to one that only reads, the network only to one that uses it -- so what a call reaches comes
+  from the application's data, never the model's text. The caps stay with the gate, which enforces them (`+100`),
+  rather than in the grant. The question shows the grant the call would be given.
 - **Rules match on arguments,** not only on the tool: a read inside the project folder can be allowed while one
   outside it is denied. *Decided 2026-10-26 (Todd):* a rule names a tool, or a pattern of tools, and conditions on
   arguments named by JSON Pointer -- one of some values, or matching a pattern. Of the rules that apply, deny wins
@@ -122,24 +128,36 @@ opens files and makes connections through the grant, and the grant checks each a
 of the tool, on the text of its arguments, is not enough, since what a name leads to is known only once it is
 opened.
 
-- **Files.** The grant opens the path, then compares the opened file's final path -- after every link, junction and
-  mount point is followed -- with the granted folder's own final path, and closes and refuses anything outside it.
-  Before opening it refuses names that are not plain paths: alternate data streams (`name:stream`), device names
-  (`CON`, `NUL`, `COM1`), the `\\?\` and `\\.\` forms, and network (UNC) paths. Short 8.3 names and differences of
-  case resolve to the same final path and are caught there. A new file is checked through its folder, which must
-  itself resolve inside the grant.
-- **Network.** The grant resolves each host name itself and refuses private (RFC 1918 and IPv6 unique-local),
-  loopback, link-local and unspecified addresses. It checks the address it actually connects to, not a name, so a
-  name that resolves differently a second time gains nothing. A redirect is a new connection and is checked again.
+- **Files.** The grant accepts a path in one form only: a drive-letter path or a path relative to the granted
+  folder -- the first, where several are granted -- each part an ordinary file or folder name: no `..`, no `:`, no
+  reserved or control character, no name ending in a space or period, and no name Windows reserves for a device
+  (`GrantPath`). It opens the file, takes the final path the operating system reports for it, and keeps it open
+  only when that path lies within the granted folder's own final path. Short names, differences of case, symbolic
+  links, junctions and mount points all lead to that final path, so the comparison decides for them. A hard link
+  does not: which of a file's names is reported is not documented (Raymond Chen's *The Old New Thing*, 2016-04-06
+  and 2019-04-10, give different answers), so *decided 2026-10-27 (Todd)* a file with more than one name on disk
+  is refused. A new file or folder is created only in a folder already opened and checked, through the handle
+  that folder was opened by, and never through a name that already exists, a link included; nothing is truncated
+  before the file is checked.
+- **Network.** The grant connects only to public addresses. *Decided 2026-10-27 (Todd):* public is globally
+  reachable as IANA's IPv4 and IPv6 special-purpose registries record it, multicast refused too, and an IPv6
+  address that carries an IPv4 one -- IPv4-mapped, NAT64, 6to4 -- is public only when that IPv4 address is
+  (`PublicAddress`); without that last rule `::ffff:127.0.0.1` would pass. The check is made on the address each
+  connection is about to be made to, once the name is resolved, so the decision is on the connection, not on the
+  name. A redirect is a new connection and is checked the same way. No proxy is used, one named in the
+  environment included, since the connection checked would be the proxy's.
+- **Where.** *Decided 2026-10-27 (Todd):* Windows only for now. Elsewhere a grant holds no folder, so no tool
+  reaches one; Linux's `openat2` with `RESOLVE_BENEATH` (Linux 5.6) is the likely route there and is filed in
+  `Untriaged.md`, unmeasured.
 - **What it holds.** A tool that works through its grant is held to it. One that opens files directly is not; an
   in-process tool is the application's own code, and that is the application's choice.
 - **Mila never claims containment it does not enforce.** A tool that would need more -- a shell, another party's
   server, code an agent wrote -- is not offered until an implementation exists that enforces its whole grant.
 
-The checks are the hard, security-critical part, which is why they are Mila's and not each application's: written
-once, and each tested: the access refused, beside the same access inside the grant allowed. *Decided 2026-10-26
-(Todd):* no test first shows an access getting out with the check removed; that probe is the operating-system
-sandbox's gate (`Vnext.md`), not the grant's.
+The checks are the hard, security-critical part, so they are Mila's and not each application's: written once, and
+each tested by an access the grant refuses beside the same kind of access inside the grant, allowed. *Decided
+2026-10-26 (Todd):* the tests do not also run each access with its check removed; that step belongs to the
+operating-system sandbox's own measurement (`Vnext.md`), not to the grant's.
 
 ## 4. The loop and the splice
 
@@ -213,8 +231,10 @@ system's file and socket calls for the grant; HTTP, TLS and process launching co
 1. **Several calls in one turn:** run together or in order. Reads and writes may need different answers.
 2. **Rules after untrusted content.** Once a fetched page or a file the person did not write enters the
    conversation, whether rules tighten -- for example, ask before any write that follows.
-3. **Connections through the grant.** How an application's HTTP client makes its connections through the grant,
-   so every connection, a redirect's included, is checked.
+3. **Connections through the grant.** *Decided 2026-10-27 (Todd):* a tool fetches through the grant's own
+   transport (`ToolGrant::transport`), libcurl with each connection's address checked before it is made, so every
+   connection, a redirect's included, is checked. A transport the application supplies, such as the Python
+   binding's, is never a grant's.
 4. **Where `Mila::AI` sits in the build.** *Directory decided 2026-10-25 (Todd): `Mila/Src/AI/`, built into the
    Mila target* (`ModelHandle.md` 3.5). Still open: whether the tool pieces become a target of their own, so a
    program wanting tools alone needs no GPU stack -- asked when such a program exists.

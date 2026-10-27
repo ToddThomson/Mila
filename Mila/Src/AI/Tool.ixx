@@ -9,6 +9,7 @@ export module AI.Tool;
 import std;
 import Dnn.TensorTypes;
 import AI.ToolNeeds;
+import AI.ToolGrant;
 
 namespace Mila::AI
 {
@@ -33,10 +34,12 @@ namespace Mila::AI
         /**
          * @brief Runs one call: the arguments as the model wrote them, a JSON object; returns the result the model reads.
          *
-         * The stop token is requested when the reply is stopped, or the response's or the call's time runs out, while
-         * the call runs. A tool that can end early should, since what it returns after a stop does not reach the model.
+         * The grant is what this call may reach -- the agent's grant narrowed to the tool's needs -- and a tool that
+         * opens files and makes connections through it is held to it (ToolCalling.md 3.4). The stop token is
+         * requested when the reply is stopped, or the response's or the call's time runs out, while the call runs.
+         * A tool that can end early should, since what it returns after a stop does not reach the model.
          */
-        std::function<std::string( std::string_view arguments, std::stop_token stop )> run;
+        std::function<std::string( std::string_view arguments, const ToolGrant& grant, std::stop_token stop )> run;
 
         /// Where the tool comes from, such as the application that registers it.
         std::string source;
@@ -44,6 +47,7 @@ namespace Mila::AI
         /// What the tool does, written for the person; the description is written for the model.
         std::string summary;
 
+        /// What the tool reads, writes and connects to; its grant is narrowed to these.
         ToolNeeds needs;
 
         /// The longest one call may run; the response's tool_time when not set.

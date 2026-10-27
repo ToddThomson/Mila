@@ -10,18 +10,24 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
-## The desktop app's file tools open files directly, with nothing holding them to the chosen folder
+## Off Windows a tool's grant holds no folder, so no file tool can run there
 
-`Mila/Apps/Desktop/Session/Src/` file tools and `Desktop.WebPageReader.ixx`; an absence -- no grant (`ToolCalling.md`
-3.4) @ da647c29
+`Mila/Src/AI/GrantFileSystem.Posix.ixx`; an absence -- no POSIX file checks behind the grant @ f42c0d95
 
-Workaround Todd chose 2026-10-26: the grant could not be written here (an automated safety check withheld six
-responses on this line of work, 2026-10-24 and 2026-10-26, reasons not shown), so the app's file tools come first
-without it. Every call of them asks by default, reads included; nothing the app shows says they are held to the
-folder; every path a tool touches goes through one function of the app's, which the grant replaces. The page reader
-came the same day on the same terms: it reaches any address, private and local ones included, and every fetch asks.
-The BACKLOG gate item stays open, and the theme's success criterion fails until it lands, so the tools do not ship to
-end users this way.
+Todd, 2026-10-27: the grant is Windows-only for now (`ToolCalling.md` 3.4 *Where*). Every POSIX call refuses, so a
+grant of folders throws and a tool reaches none. The likely route is Linux's `openat2` with `RESOLVE_BENEATH` from
+a held folder descriptor (Linux 5.6, man7.org openat2(2)), which decides in the kernel rather than by a final path,
+plus a link-count check for hard links, which the man page does not mention. Unmeasured; macOS not looked at.
+
+## Neither Chat nor the desktop app shows the person what a tool call would reach
+
+`Mila/Apps/Chat/Src/Chat.Session.ixx` `askAboutCall`; an absence -- the question's needs and grant are not shown @ f42c0d95
+
+`ToolCalling.md` 3.3 says the person is shown the tool's name and summary, every argument, and what it will touch.
+`ToolQuestion` carries all of it, the grant included since `+103`, but `askAboutCall` passes on only the name and
+the arguments, so the console line and the desktop app's approval card show neither the summary, the needs nor the
+folders and network the call would be given. The desktop's card is `MilaApp.md` 4.5's schema, so showing them is a
+protocol change too.
 
 ## Nobody has read whether Tavily's terms let the Mila app keep search results in a saved conversation
 
@@ -192,8 +198,12 @@ read-write and read-only paths are set at creation, denied paths "limited / unsu
 or CIDR only, `allowedHosts`/`blockedHosts` "not yet enforced on Windows", so OpenShell's host proxy is the real network
 enforcer; mapping five policies onto MXC gave 64 access-broadening errors. #2050 closed stale, "not planned",
 2026-10-13; #4450 showed 6 of 9 sub-issues done. Fits Mila per tool, not per agent: the loop runs in the model's
-process (section 1). Section 6 records MXC kept out for now (Todd, 2026-10-25). Unmeasured: launching a container
-from a C++ process, and whether it holds against the routes of 3.4.
+process (section 1). Section 6 records MXC kept out for now (Todd, 2026-10-25). Measured 2026-10-26, a standalone
+C++23 program calling `mxc_ffi.dll` v1.0.1 (outside the repository): a process container launches in 40-70 ms; reads
+and writes outside the one read-write folder and all network were refused, beside the same accesses inside it
+allowed; the process runs as the person's own account; with the UI disabled `whoami.exe` fails to start
+(0xC0000142), allowed it runs. Unmeasured: whether it holds a grant as completely as section 3.4's file and network
+checks describe.
 
 ## No CI job builds the desktop app's installer
 

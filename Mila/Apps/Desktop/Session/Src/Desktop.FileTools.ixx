@@ -9,15 +9,22 @@ export module Desktop.FileTools;
 import std;
 import Chat.Json;
 
+import Mila;
+
 namespace Mila::DesktopApp
 {
-    // Not exported, and of module linkage rather than internal, since the exported class's template member uses them.
+    using Mila::AI::FolderEntry;
+    using Mila::AI::GrantFile;
+    using Mila::AI::ToolGrant;
+    using Mila::AI::ToolNeeds;
+
+    // Not exported, and of module linkage rather than internal, since the exported class's members use them.
     namespace FileToolsDetail
     {
         /// Larger files are refused whole; search_text finds a passage in them.
-        inline constexpr std::uintmax_t kMostBytesRead = 8u * 1024u * 1024u;
+        inline constexpr std::uint64_t kMostBytesRead = 8u * 1024u * 1024u;
 
-        inline constexpr std::uintmax_t kMostBytesSearched = 2u * 1024u * 1024u;
+        inline constexpr std::uint64_t kMostBytesSearched = 2u * 1024u * 1024u;
         inline constexpr int kDefaultLinesRead = 400;
         inline constexpr int kMostLinesRead = 2000;
         inline constexpr std::size_t kMostEntriesListed = 500;
@@ -58,16 +65,6 @@ namespace Mila::DesktopApp
                 return std::nullopt;
 
             return arguments[ name ].get<int>();
-        }
-
-        std::string readBytes( const std::filesystem::path& file )
-        {
-            std::ifstream stream( file, std::ios::binary );
-
-            if ( !stream )
-                throw std::runtime_error( "the file could not be opened" );
-
-            return std::string( std::istreambuf_iterator<char>( stream ), std::istreambuf_iterator<char>() );
         }
 
         /// A NUL among the first bytes is what text never has.
@@ -190,7 +187,7 @@ namespace Mila::DesktopApp
             return parts;
         }
 
-        std::string sizeText( std::uintmax_t bytes )
+        std::string sizeText( std::uint64_t bytes )
         {
             if ( bytes < 1024 )
                 return std::format( "{} bytes", bytes );
@@ -200,17 +197,45 @@ namespace Mila::DesktopApp
 
             return std::format( "{:.1f} MB", static_cast<double>( bytes ) / ( 1024.0 * 1024.0 ) );
         }
+
+        /// What a walk could not enter, so the model knows a result may be missing what lies there.
+        std::string notEnteredNote( std::size_t not_entered )
+        {
+            if ( not_entered == 0 )
+                return {};
+
+            return std::format( "({} folder{} not searched: {} outside the project folder or could not be opened)\n",
+                not_entered, not_entered == 1 ? "" : "s", not_entered == 1 ? "it leads" : "they lead" );
+        }
+
+        /// A walk's visit for files only: .git is never entered, and the walk ends at a bound.
+        template <typename TVisitFile>
+        ToolGrant::Visit filesUnder( TVisitFile&& visit_file )
+        {
+            return [visit_file = std::forward<TVisitFile>( visit_file ), visited = std::size_t{ 0 }](
+                std::string_view relative, const FolderEntry& entry ) mutable
+                {
+                    if ( entry.is_folder )
+                        return entry.name != ".git";
+
+                    if ( ++visited > kMostFilesVisited )
+                        return false;
+
+                    visit_file( relative, entry );
+
+                    return true;
+                };
+        }
     }
 
     using namespace FileToolsDetail;
 
     /**
-     * @brief The file tools over one folder, each run by its name.
+     * @brief The file tools, each run by its name, through the grant its call was given.
      *
-     * Every path a tool takes is relative to the folder and passes through locate(), the one place the grant of
-     * ToolCalling.md 3.4 replaces. Until then nothing here holds a path to the folder: a tool opens what it is
-     * given, and only the person's answer to each call stands in the way (Untriaged.md, "The desktop app's file
-     * tools open files directly"). A failure throws, and the model reads its message as the call's error.
+     * Every path a tool takes is opened through the grant (ToolCalling.md 3.4), which holds it to the project
+     * folder: a path, link or junction leading outside is refused when it is opened. A failure throws, and the
+     * model reads its message as the call's error.
      */
     export class FileTools
     {
@@ -220,73 +245,47 @@ namespace Mila::DesktopApp
         static constexpr std::array<std::string_view, 6> kNames{
             "read_file", "list_folder", "find_files", "search_text", "write_file", "edit_file" };
 
-        /**
-         * @throws std::invalid_argument when the folder does not exist or is not a folder.
-         */
-        explicit FileTools( std::filesystem::path folder )
+        /// What a tool of that name touches: the first four read files, the last two write them.
+        [[nodiscard]] static ToolNeeds needsOf( std::string_view name )
         {
-            std::error_code error;
+            ToolNeeds needs;
+            needs.reads_files = true;
+            needs.writes_files = name == "write_file" || name == "edit_file";
 
-            if ( !std::filesystem::is_directory( folder, error ) )
-                throw std::invalid_argument( std::format( "'{}' is not a folder", utf8FromPath( folder ) ) );
-
-            folder_ = std::filesystem::absolute( folder ).lexically_normal();
-        }
-
-        /// The tools over a folder named as the schema carries it, in UTF-8.
-        [[nodiscard]] static FileTools inFolder( std::string_view folder )
-        {
-            return FileTools( pathFromUtf8( folder ) );
-        }
-
-        [[nodiscard]] const std::filesystem::path& folder() const noexcept
-        {
-            return folder_;
-        }
-
-        /// The folder in UTF-8, with the system's own separators, as the person's picker gave it.
-        [[nodiscard]] std::string folderText() const
-        {
-            const std::u8string text = folder_.u8string();
-
-            return std::string( text.begin(), text.end() );
+            return needs;
         }
 
         /// Runs the tool of that name, one of kNames.
-        [[nodiscard]] std::string run( std::string_view name, const std::string& arguments ) const
+        [[nodiscard]] static std::string run( std::string_view name, const std::string& arguments, const ToolGrant& grant )
         {
             if ( name == "read_file" )
-                return readFile( arguments );
+                return readFile( arguments, grant );
 
             if ( name == "list_folder" )
-                return listFolder( arguments );
+                return listFolder( arguments, grant );
 
             if ( name == "find_files" )
-                return findFiles( arguments );
+                return findFiles( arguments, grant );
 
             if ( name == "search_text" )
-                return searchText( arguments );
+                return searchText( arguments, grant );
 
             if ( name == "write_file" )
-                return writeFile( arguments );
+                return writeFile( arguments, grant );
 
             if ( name == "edit_file" )
-                return editFile( arguments );
+                return editFile( arguments, grant );
 
             throw std::invalid_argument( std::format( "there is no file tool named '{}'", name ) );
         }
 
         /// `path`, and optionally `start_line` (from 1) and `line_count`.
-        [[nodiscard]] std::string readFile( const std::string& arguments_text ) const
+        [[nodiscard]] static std::string readFile( const std::string& arguments_text, const ToolGrant& grant )
         {
             const auto arguments = nlohmann::json::parse( arguments_text );
             const std::string given = requiredText( arguments, "path" );
-            const auto file = locate( given );
-
-            if ( !std::filesystem::is_regular_file( file ) )
-                throw std::runtime_error( std::format( "there is no file '{}'", given ) );
-
-            const auto bytes_on_disk = std::filesystem::file_size( file );
+            const GrantFile file = grant.openFile( given );
+            const std::uint64_t bytes_on_disk = file.size();
 
             if ( bytes_on_disk > kMostBytesRead )
             {
@@ -294,7 +293,7 @@ namespace Mila::DesktopApp
                     "'{}' is {}, more than can be read at once; search_text finds a passage in it", given, sizeText( bytes_on_disk ) ) );
             }
 
-            const std::string bytes = readBytes( file );
+            const std::string bytes = file.read();
 
             if ( looksBinary( bytes ) )
                 return std::format( "'{}' is a binary file of {}, not text.", given, sizeText( bytes.size() ) );
@@ -326,34 +325,24 @@ namespace Mila::DesktopApp
         }
 
         /// `path`: the folder to list, `.` for the project folder.
-        [[nodiscard]] std::string listFolder( const std::string& arguments_text ) const
+        [[nodiscard]] static std::string listFolder( const std::string& arguments_text, const ToolGrant& grant )
         {
             const auto arguments = nlohmann::json::parse( arguments_text );
             const std::string given = requiredText( arguments, "path" );
-            const auto folder = locate( given );
-
-            if ( !std::filesystem::is_directory( folder ) )
-                throw std::runtime_error( std::format( "there is no folder '{}'", given ) );
+            const std::vector<FolderEntry> entries = grant.list( given );
 
             std::vector<std::string> folders;
             std::vector<std::string> files;
-            std::size_t seen = 0;
 
-            for ( const auto& entry : std::filesystem::directory_iterator(
-                folder, std::filesystem::directory_options::skip_permission_denied ) )
+            for ( const FolderEntry& entry : entries )
             {
-                ++seen;
-
                 if ( folders.size() + files.size() >= kMostEntriesListed )
-                    continue;
+                    break;
 
-                std::error_code error;
-                const std::string name = utf8FromPath( entry.path().filename() );
-
-                if ( entry.is_directory( error ) )
-                    folders.push_back( name + "/" );
+                if ( entry.is_folder )
+                    folders.push_back( entry.name + "/" );
                 else
-                    files.push_back( std::format( "{}  ({})", name, sizeText( entry.file_size( error ) ) ) );
+                    files.push_back( std::format( "{}  ({})", entry.name, sizeText( entry.bytes ) ) );
             }
 
             std::ranges::sort( folders );
@@ -361,7 +350,7 @@ namespace Mila::DesktopApp
 
             std::string result = std::format( "{}\n", given == "." ? "The project folder" : given );
 
-            if ( seen == 0 )
+            if ( entries.empty() )
                 return result + "(empty)\n";
 
             for ( const auto& line : folders )
@@ -370,14 +359,14 @@ namespace Mila::DesktopApp
             for ( const auto& line : files )
                 result += line + "\n";
 
-            if ( seen > folders.size() + files.size() )
-                result += std::format( "({} more not listed)\n", seen - folders.size() - files.size() );
+            if ( entries.size() > folders.size() + files.size() )
+                result += std::format( "({} more not listed)\n", entries.size() - folders.size() - files.size() );
 
             return result;
         }
 
         /// `pattern`: `*` and `?` within a name, `**` for any folders; a pattern with no `/` matches a name anywhere.
-        [[nodiscard]] std::string findFiles( const std::string& arguments_text ) const
+        [[nodiscard]] static std::string findFiles( const std::string& arguments_text, const ToolGrant& grant )
         {
             const auto arguments = nlohmann::json::parse( arguments_text );
             const std::string pattern = requiredText( arguments, "pattern" );
@@ -390,11 +379,11 @@ namespace Mila::DesktopApp
             std::vector<std::string> found;
             std::size_t matched = 0;
 
-            visitFiles( folder_, [&]( const std::filesystem::path& relative )
+            const std::size_t not_entered = grant.walk( ".", filesUnder( [&]( std::string_view relative, const FolderEntry& entry )
                 {
-                    const auto names = segments( utf8FromPath( relative ) );
+                    const auto names = segments( relative );
                     const bool matches = anywhere
-                        ? matchesSegment( names.back(), patterns.front() )
+                        ? matchesSegment( entry.name, patterns.front() )
                         : matchesPath( names, patterns );
 
                     if ( matches )
@@ -402,12 +391,12 @@ namespace Mila::DesktopApp
                         ++matched;
 
                         if ( found.size() < kMostFilesFound )
-                            found.push_back( utf8FromPath( relative ) );
+                            found.emplace_back( relative );
                     }
-                } );
+                } ) );
 
             if ( found.empty() )
-                return std::format( "No file matches '{}'.", pattern );
+                return std::format( "No file matches '{}'.\n", pattern ) + notEnteredNote( not_entered );
 
             std::ranges::sort( found );
 
@@ -419,34 +408,46 @@ namespace Mila::DesktopApp
             if ( matched > found.size() )
                 result += std::format( "({} more match; a narrower pattern lists them)\n", matched - found.size() );
 
-            return result;
+            return result + notEnteredNote( not_entered );
         }
 
         /// `text`, found exactly as written, and optionally `path`, a file or folder to search in.
-        [[nodiscard]] std::string searchText( const std::string& arguments_text ) const
+        [[nodiscard]] static std::string searchText( const std::string& arguments_text, const ToolGrant& grant )
         {
             const auto arguments = nlohmann::json::parse( arguments_text );
             const std::string text = requiredText( arguments, "text" );
             const std::string given = optionalText( arguments, "path" ).value_or( "." );
-            const auto where = locate( given );
 
             if ( text.empty() )
                 throw std::runtime_error( "the text to search for is empty" );
 
-            if ( !std::filesystem::exists( where ) )
+            const std::optional<FolderEntry> where = grant.find( given );
+
+            if ( !where )
                 throw std::runtime_error( std::format( "there is no file or folder '{}'", given ) );
 
             std::string result;
             std::size_t matches = 0;
 
-            const auto searchFile = [&]( const std::filesystem::path& file, const std::string& shown )
+            const auto searchFile = [&]( const std::string& shown )
                 {
-                    std::error_code error;
+                    std::string bytes;
 
-                    if ( std::filesystem::file_size( file, error ) > kMostBytesSearched || error )
+                    // A file that cannot be opened through the grant -- a link leading outside, a hard link -- is
+                    // passed over, as an unreadable one is.
+                    try
+                    {
+                        const GrantFile file = grant.openFile( shown );
+
+                        if ( file.size() > kMostBytesSearched )
+                            return;
+
+                        bytes = file.read();
+                    }
+                    catch ( const std::runtime_error& )
+                    {
                         return;
-
-                    const std::string bytes = readBytes( file );
+                    }
 
                     if ( looksBinary( bytes ) || bytes.find( text ) == std::string::npos )
                         return;
@@ -469,67 +470,60 @@ namespace Mila::DesktopApp
                     }
                 };
 
-            if ( std::filesystem::is_regular_file( where ) )
+            std::size_t not_entered = 0;
+
+            if ( !where->is_folder )
             {
-                searchFile( where, given );
+                searchFile( given );
             }
             else
             {
-                visitFiles( where, [&]( const std::filesystem::path& relative )
+                not_entered = grant.walk( given, filesUnder( [&]( std::string_view relative, const FolderEntry& entry )
                     {
-                        const auto shown = utf8FromPath( ( pathFromUtf8( given ) / relative ).lexically_normal() );
-                        searchFile( where / relative, shown );
-                    } );
+                        if ( entry.bytes <= kMostBytesSearched )
+                            searchFile( utf8FromPath( ( pathFromUtf8( given ) / pathFromUtf8( relative ) ).lexically_normal() ) );
+                    } ) );
             }
 
             if ( matches == 0 )
-                return std::format( "'{}' was not found.", text );
+                return std::format( "'{}' was not found.\n", text ) + notEnteredNote( not_entered );
 
             if ( matches > kMostMatches )
                 result += std::format( "({} more matches; a narrower path or longer text shows them)\n", matches - kMostMatches );
 
-            return result;
+            return result + notEnteredNote( not_entered );
         }
 
         /// `path` and `content`: the file is created, or replaced whole, and its folders made as needed.
-        [[nodiscard]] std::string writeFile( const std::string& arguments_text ) const
+        [[nodiscard]] static std::string writeFile( const std::string& arguments_text, const ToolGrant& grant )
         {
             const auto arguments = nlohmann::json::parse( arguments_text );
             const std::string given = requiredText( arguments, "path" );
             const std::string content = requiredText( arguments, "content" );
-            const auto file = locate( given );
+            const std::optional<FolderEntry> existing = grant.find( given );
 
-            if ( std::filesystem::is_directory( file ) )
+            if ( existing && existing->is_folder )
                 throw std::runtime_error( std::format( "'{}' is a folder", given ) );
 
-            const bool existed = std::filesystem::exists( file );
+            GrantFile file = grant.openFileToWrite( given, true );
+            file.replace( content );
 
-            std::filesystem::create_directories( file.parent_path() );
-
-            std::ofstream stream( file, std::ios::binary | std::ios::trunc );
-
-            if ( !stream || !stream.write( content.data(), static_cast<std::streamsize>( content.size() ) ) )
-                throw std::runtime_error( std::format( "'{}' could not be written", given ) );
-
-            return std::format( "{} '{}' ({}).", existed ? "Replaced" : "Created", given, sizeText( content.size() ) );
+            return std::format( "{} '{}' ({}).", existing ? "Replaced" : "Created", given, sizeText( content.size() ) );
         }
 
         /// `path`, `old_text` and `new_text`: the one place old_text appears becomes new_text.
-        [[nodiscard]] std::string editFile( const std::string& arguments_text ) const
+        [[nodiscard]] static std::string editFile( const std::string& arguments_text, const ToolGrant& grant )
         {
             const auto arguments = nlohmann::json::parse( arguments_text );
             const std::string given = requiredText( arguments, "path" );
             std::string old_text = requiredText( arguments, "old_text" );
             std::string new_text = requiredText( arguments, "new_text" );
-            const auto file = locate( given );
-
-            if ( !std::filesystem::is_regular_file( file ) )
-                throw std::runtime_error( std::format( "there is no file '{}'", given ) );
 
             if ( old_text.empty() )
                 throw std::runtime_error( "old_text is empty; write_file makes a new file" );
 
-            std::string bytes = readBytes( file );
+            GrantFile file = grant.openFileToWrite( given, false );
+            std::string bytes = file.read();
 
             // A model writes its lines with \n; a file kept with \r\n is matched and edited in its own endings.
             if ( bytes.find( "\r\n" ) != std::string::npos && old_text.find( "\r\n" ) == std::string::npos )
@@ -557,11 +551,7 @@ namespace Mila::DesktopApp
 
             const std::size_t at = bytes.find( old_text );
             bytes.replace( at, old_text.size(), new_text );
-
-            std::ofstream stream( file, std::ios::binary | std::ios::trunc );
-
-            if ( !stream || !stream.write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) ) )
-                throw std::runtime_error( std::format( "'{}' could not be written", given ) );
+            file.replace( bytes );
 
             // The lines around the change as they now read, so the model checks its edit without reading the file again.
             const auto lines = splitLines( bytes );
@@ -579,54 +569,5 @@ namespace Mila::DesktopApp
 
             return result;
         }
-
-    private:
-
-        /// Where a path the model gave lies, read against the folder. The grant replaces this one function.
-        std::filesystem::path locate( std::string_view given ) const
-        {
-            const std::filesystem::path path = pathFromUtf8( given );
-
-            if ( path.has_root_name() || path.has_root_directory() )
-            {
-                throw std::runtime_error( std::format(
-                    "'{}' is not relative to the project folder; give paths as list_folder shows them", given ) );
-            }
-
-            return ( folder_ / path ).lexically_normal();
-        }
-
-        /// Every file under a folder, as a path relative to it; .git is not entered, and the walk ends at a bound.
-        template <typename TVisit>
-        static void visitFiles( const std::filesystem::path& root, TVisit&& visit )
-        {
-            std::size_t visited = 0;
-            std::error_code error;
-            std::filesystem::recursive_directory_iterator walk(
-                root, std::filesystem::directory_options::skip_permission_denied, error );
-
-            for ( ; !error && walk != std::filesystem::recursive_directory_iterator(); walk.increment( error ) )
-            {
-                std::error_code kind_error;
-
-                if ( walk->is_directory( kind_error ) )
-                {
-                    if ( walk->path().filename() == ".git" )
-                        walk.disable_recursion_pending();
-
-                    continue;
-                }
-
-                if ( !walk->is_regular_file( kind_error ) )
-                    continue;
-
-                if ( ++visited > kMostFilesVisited )
-                    return;
-
-                visit( walk->path().lexically_relative( root ) );
-            }
-        }
-
-        std::filesystem::path folder_;
     };
 }

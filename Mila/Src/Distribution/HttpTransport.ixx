@@ -72,6 +72,16 @@ namespace Mila::Distribution
         std::function<void( long http_code, std::uint64_t content_length )>;
 
     /**
+     * @brief Called with the address of each connection a transport is about to make, before it is made; false
+     *        refuses it.
+     *
+     * The address is 4 bytes for IPv4 or 16 for IPv6, in network order -- the one connected to, after the name was
+     * resolved, so a check here decides on the connection and not on a host name.
+     */
+    export using ConnectionCheck =
+        std::function<bool( std::span<const std::uint8_t> address )>;
+
+    /**
      * @brief Performs one HTTP GET, or a POST when the request carries a body.
      *
      * A transport that cannot send a body answers a request with one as a transport failure, never as a GET.

@@ -105,7 +105,6 @@ namespace Mila::DesktopApp
               research_search_prompt_( prompt_directory / "research-search.json" ),
               tasks_prompt_( prompt_directory / "tasks.json" ), tasks_search_prompt_( prompt_directory / "tasks-search.json" ),
               out_( protocol_out ),
-              transport_( Mila::Distribution::makeDefaultHttpTransport() ), web_reader_( transport_ ),
               search_key_file_( store_.directory().parent_path() / "search.json" )
         {
             ask_prompt_ = session_.config().system_prompt_path;
@@ -132,22 +131,22 @@ namespace Mila::DesktopApp
                     return result;
                 } );
 
-            session_.registerTool( std::string( WebPageReader::kName ), [this]( const std::string& arguments )
+            Mila::AI::ToolNeeds network;
+            network.uses_network = true;
+
+            session_.registerTool( std::string( WebPageReader::kName ), network,
+                []( const std::string& arguments, const Mila::AI::ToolGrant& grant )
                 {
-                    return web_reader_.read( arguments );
+                    return WebPageReader::read( arguments, grant );
                 } );
 
-            // Registered once; each call runs in the folder of the conversation it belongs to.
+            // Registered once; each call reaches the folder of the conversation it belongs to, through its grant.
             for ( const std::string_view name : FileTools::kNames )
             {
-                session_.registerTool( std::string( name ), [this, name]( const std::string& arguments )
+                session_.registerTool( std::string( name ), FileTools::needsOf( name ),
+                    [name]( const std::string& arguments, const Mila::AI::ToolGrant& grant )
                     {
-                        if ( !file_tools_ )
-                        {
-                            throw std::runtime_error( "this conversation has no project folder" );
-                        }
-
-                        return file_tools_->run( name, arguments );
+                        return FileTools::run( name, arguments, grant );
                     } );
             }
         }
@@ -693,11 +692,12 @@ namespace Mila::DesktopApp
         }
 
         /**
-         * @brief Give the session an activity's system prompt, tools, limits and rules (MilaApp.md 3.1).
+         * @brief Give the session an activity's system prompt, tools, limits, rules and grant (MilaApp.md 3.1).
          *
-         * Ask & Explore has no tools and Chat's own limits. The others run with no round or reply limit, bounded by
-         * the context and the person's Stop: Build & Code with the file tools over its folder, Research & Analyze
-         * reading web pages, Get Things Done with both and its plan, whose updates run without asking.
+         * Ask & Explore has no tools, no grant and Chat's own limits. The others run with no round or reply limit,
+         * bounded by the context and the person's Stop: Build & Code with the file tools, granted its folder to
+         * read and write, Research & Analyze reading web pages, granted the network, Get Things Done with both and
+         * its plan, whose updates run without asking.
          *
          * @return False, having said why, for an activity this session does not offer or a folder that does not
          *         exist; nothing has changed then.
@@ -713,21 +713,32 @@ namespace Mila::DesktopApp
                 return false;
             }
 
-            std::optional<FileTools> tools;
+            std::vector<Mila::AI::GrantFolder> folders;
 
             if ( activity == "build" || activity == "tasks" )
             {
-                try
+                if ( folder.empty() )
                 {
-                    tools.emplace( FileTools::inFolder( folder ) );
-                }
-                catch ( const std::invalid_argument& )
-                {
-                    sendError( folder.empty() ? std::string( "This works in a folder; choose one to start." )
-                        : std::format( "The folder {} is not there any more.", folder ), "conversation" );
+                    sendError( "This works in a folder; choose one to start.", "conversation" );
 
                     return false;
                 }
+
+                folders.push_back( { std::filesystem::path( std::u8string( folder.begin(), folder.end() ) ),
+                    Mila::AI::FolderAccess::ReadWrite } );
+            }
+
+            std::optional<Mila::AI::ToolGrant> grant;
+
+            try
+            {
+                grant.emplace( std::move( folders ), activity == "research" || activity == "tasks" );
+            }
+            catch ( const std::invalid_argument& )
+            {
+                sendError( std::format( "The folder {} is not there any more.", folder ), "conversation" );
+
+                return false;
             }
 
             if ( activity == "ask" )
@@ -753,7 +764,16 @@ namespace Mila::DesktopApp
             }
 
             session_.useToolRules( std::move( rules ) );
-            file_tools_ = std::move( tools );
+
+            conversation_folder_.reset();
+
+            if ( !grant->folders().empty() )
+            {
+                const std::u8string text = grant->folders().front().folder.u8string();
+                conversation_folder_.emplace( text.begin(), text.end() );
+            }
+
+            session_.useGrant( std::move( *grant ) );
             plan_.clear();
             conversation_activity_ = activity;
 
@@ -1004,17 +1024,21 @@ namespace Mila::DesktopApp
 
         void useSearchKey( const std::string& key )
         {
-            web_search_.emplace( transport_, key );
+            web_search_.emplace( key );
+
+            Mila::AI::ToolNeeds network;
+            network.uses_network = true;
 
             // Registered once; a later key replaces the search it runs.
-            session_.registerTool( std::string( WebSearch::kName ), [this]( const std::string& arguments )
+            session_.registerTool( std::string( WebSearch::kName ), network,
+                [this]( const std::string& arguments, const Mila::AI::ToolGrant& grant )
                 {
                     if ( !web_search_ )
                     {
                         throw std::runtime_error( "web search is not set up" );
                     }
 
-                    return web_search_->search( arguments );
+                    return web_search_->search( arguments, grant );
                 } );
         }
 
@@ -1248,7 +1272,7 @@ namespace Mila::DesktopApp
 
         nlohmann::json conversationFolder() const
         {
-            return file_tools_ ? nlohmann::json( file_tools_->folderText() ) : nlohmann::json( nullptr );
+            return conversation_folder_ ? nlohmann::json( *conversation_folder_ ) : nlohmann::json( nullptr );
         }
 
         void sendConversations()
@@ -1521,8 +1545,6 @@ namespace Mila::DesktopApp
         std::filesystem::path tasks_search_prompt_;
         std::optional<std::filesystem::path> ask_prompt_;
         std::ostream& out_;
-        std::shared_ptr<const Mila::Distribution::IHttpTransport> transport_;
-        WebPageReader web_reader_;
         SearchKeyFile search_key_file_;
 
         // Set while the person has given a search key; the web_search tool is offered only then.
@@ -1546,9 +1568,10 @@ namespace Mila::DesktopApp
         std::uint64_t install_total_{ 0 };
         int install_percent_{ -1 };
 
-        // The conversation's activity, and for Build & Code the tools over its folder (MilaApp.md 3.1).
+        // The conversation's activity, and the folder its grant holds, in UTF-8, for those that have one
+        // (MilaApp.md 3.1).
         std::string conversation_activity_ = "ask";
-        std::optional<FileTools> file_tools_;
+        std::optional<std::string> conversation_folder_;
         TaskPlan plan_;
 
         // The conversation the session's history belongs to; empty until its first turn.

@@ -16,6 +16,7 @@ import AI.ToolDecision;
 import AI.ToolOutcome;
 import AI.ArgumentSchema;
 import AI.AgentLimits;
+import AI.ToolGrant;
 
 namespace Mila::AI
 {
@@ -24,7 +25,8 @@ namespace Mila::AI
      *
      * A call of a tool not offered, or with arguments its parameters refuse, is never asked about, since nothing
      * will run. Otherwise the rules decide; where they ask, an answer for the conversation stands in for asking
-     * again, and a deny rule is never overridden by one. Needs nothing of a model.
+     * again, and a deny rule is never overridden by one. A call allowed runs with the gate's grant narrowed to the
+     * tool's needs (ToolCalling.md 3.4). Needs nothing of a model.
      */
     export class ToolGate
     {
@@ -114,6 +116,18 @@ namespace Mila::AI
             return rules_;
         }
 
+        /// The most any call may reach from the next call on; each is given this narrowed to its tool's needs. With
+        /// none set, a call reaches no folder and no network.
+        void setGrant( ToolGrant grant )
+        {
+            grant_ = std::move( grant );
+        }
+
+        [[nodiscard]] const ToolGrant& grant() const noexcept
+        {
+            return grant_;
+        }
+
         /// Forget every tool the person allowed for the conversation.
         void newConversation() noexcept
         {
@@ -170,7 +184,7 @@ namespace Mila::AI
             }
 
             outcome.result_tokens = tool->result_tokens ? tool->result_tokens : limits.result_tokens;
-            run( *tool, arguments, halted, tool->time ? tool->time : limits.tool_time, outcome );
+            run( *tool, arguments, grant_.narrowedTo( tool->needs ), halted, tool->time ? tool->time : limits.tool_time, outcome );
 
             return outcome;
         }
@@ -213,7 +227,9 @@ namespace Mila::AI
                 return ToolDecision::NoOneToAsk;
             }
 
-            switch ( ask( ToolQuestion{ tool->name, tool->source, tool->summary, arguments, tool->needs } ) )
+            const ToolGrant grant = grant_.narrowedTo( tool->needs );
+
+            switch ( ask( ToolQuestion{ tool->name, tool->source, tool->summary, arguments, tool->needs, grant } ) )
             {
                 case ToolAnswer::Once:
                     return ToolDecision::AllowedByPerson;
@@ -264,7 +280,7 @@ namespace Mila::AI
             }
         }
 
-        static void run( const Tool& tool, std::string_view arguments, std::stop_token halted,
+        static void run( const Tool& tool, std::string_view arguments, const ToolGrant& grant, std::stop_token halted,
             std::optional<std::chrono::milliseconds> time, ToolOutcome& outcome )
         {
             std::stop_source call_stop;
@@ -297,7 +313,7 @@ namespace Mila::AI
 
             try
             {
-                outcome.result = tool.run( arguments, call_stop.get_token() );
+                outcome.result = tool.run( arguments, grant, call_stop.get_token() );
                 outcome.returned_bytes = outcome.result.size();
                 outcome.is_error = false;
             }
@@ -336,6 +352,7 @@ namespace Mila::AI
         std::vector<Tool> tools_;
         std::vector<ArgumentSchema> schemas_;
         ToolRules rules_;
+        ToolGrant grant_;
         std::set<std::string, std::less<>> allowed_for_conversation_;
     };
 }

@@ -536,6 +536,13 @@ PUBLIC
         # imports it.
         "Src/AI/ModelHandle.ixx"
         "Src/AI/ToolNeeds.ixx"
+        "Src/AI/FolderAccess.ixx"
+        "Src/AI/GrantFolder.ixx"
+        "Src/AI/FolderEntry.ixx"
+        "Src/AI/GrantPath.ixx"
+        "Src/AI/PublicAddress.ixx"
+        "Src/AI/GrantFile.ixx"
+        "Src/AI/ToolGrant.ixx"
         "Src/AI/Tool.ixx"
         "Src/AI/ToolQuestion.ixx"
         "Src/AI/ToolAnswer.ixx"
@@ -1070,6 +1077,32 @@ else()
     )
 
     message(STATUS "Added HTTP transport: none (caller supplies one, or install from disk)")
+endif()
+
+# ----------------------------------------------------------------------------
+# Mila::AI -- the file calls a tool's grant makes
+#
+# AI.GrantFileSystem has two candidate source files and exactly one is compiled, as
+# Distribution.HttpTransportBackend does. Windows holds a tool to its folders; elsewhere every call
+# refuses, so no folder can be granted where none can be enforced (ToolCalling.md 3.4).
+# ----------------------------------------------------------------------------
+if(WIN32)
+    target_sources(Mila
+        PUBLIC
+            FILE_SET module_files
+            TYPE CXX_MODULES FILES
+                "Src/AI/GrantFileSystem.Windows.ixx"
+    )
+
+    # NtCreateFile: creating a name inside a folder already opened, rather than by walking a path again.
+    target_link_libraries(Mila PRIVATE ntdll)
+else()
+    target_sources(Mila
+        PUBLIC
+            FILE_SET module_files
+            TYPE CXX_MODULES FILES
+                "Src/AI/GrantFileSystem.Posix.ixx"
+    )
 endif()
 
 # ----------------------------------------------------------------------------

@@ -354,6 +354,13 @@ export import AI.ModelHandle;
 
 // A model at work in a program: its conversation, its tools and the loop that runs their calls (ToolCalling.md).
 export import AI.ToolNeeds;
+export import AI.FolderAccess;
+export import AI.GrantFolder;
+export import AI.FolderEntry;
+export import AI.GrantPath;
+export import AI.PublicAddress;
+export import AI.GrantFile;
+export import AI.ToolGrant;
 export import AI.Tool;
 export import AI.ToolQuestion;
 export import AI.ToolAnswer;

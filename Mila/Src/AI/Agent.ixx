@@ -28,6 +28,7 @@ import AI.Tool;
 import AI.ToolQuestion;
 import AI.ToolAnswer;
 import AI.ToolRules;
+import AI.ToolGrant;
 import AI.ToolDecision;
 import AI.ToolOutcome;
 import AI.ToolGate;
@@ -245,6 +246,24 @@ namespace Mila::AI
         BasicAgent&& withRules( ToolRules rules ) &&
         {
             gate_.setRules( std::move( rules ) );
+
+            return std::move( *this );
+        }
+
+        /**
+         * @brief The most the model's calls may reach from the next call on: folders and the network. Each call
+         *        allowed is given this narrowed to its tool's needs; with none, a call reaches nothing.
+         */
+        BasicAgent& withGrant( ToolGrant grant ) &
+        {
+            gate_.setGrant( std::move( grant ) );
+
+            return *this;
+        }
+
+        BasicAgent&& withGrant( ToolGrant grant ) &&
+        {
+            gate_.setGrant( std::move( grant ) );
 
             return std::move( *this );
         }

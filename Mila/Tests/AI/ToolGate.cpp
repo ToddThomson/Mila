@@ -58,7 +58,7 @@ namespace Mila::Tests::AI
                     "delete_file",
                     "Delete one file. Use only when the user asks for a file to be removed.",
                     kParameters,
-                    [this]( std::string_view arguments, std::stop_token stop )
+                    [this]( std::string_view arguments, const ToolGrant&, std::stop_token stop )
                     {
                         ran_.emplace_back( arguments );
 
@@ -73,7 +73,6 @@ namespace Mila::Tests::AI
                 tool.source = "files";
                 tool.summary = "Deletes a file in the project.";
                 tool.needs.writes_files = true;
-                tool.needs.areas = { "D:/Project" };
 
                 return tool;
             }
@@ -84,7 +83,9 @@ namespace Mila::Tests::AI
                 return [this, answers = std::move( answers ), next = std::size_t{ 0 }]( const ToolQuestion& question ) mutable
                     {
                         asked_.push_back( { std::string( question.name ), std::string( question.source ),
-                            std::string( question.summary ), std::string( question.arguments ), question.needs } );
+                            std::string( question.summary ), std::string( question.arguments ), question.needs,
+                            std::vector<GrantFolder>( question.grant.folders().begin(), question.grant.folders().end() ),
+                            question.grant.network() } );
 
                         return answers.at( next++ );
                     };
@@ -103,6 +104,8 @@ namespace Mila::Tests::AI
                 std::string summary;
                 std::string arguments;
                 ToolNeeds needs;
+                std::vector<GrantFolder> folders;
+                bool network;
             };
 
             ToolGate gate_;
@@ -265,7 +268,8 @@ namespace Mila::Tests::AI
         EXPECT_EQ( asked_.front().arguments, arguments ) << "every argument is shown in full";
         EXPECT_TRUE( asked_.front().needs.writes_files );
         EXPECT_FALSE( asked_.front().needs.reads_files );
-        EXPECT_EQ( asked_.front().needs.areas, std::vector<std::string>{ "D:/Project" } );
+        EXPECT_TRUE( asked_.front().folders.empty() ) << "a gate granted nothing shows a call that reaches nothing";
+        EXPECT_FALSE( asked_.front().network );
     }
 
     // ================================================================

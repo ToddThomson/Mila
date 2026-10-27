@@ -70,7 +70,24 @@ namespace Mila::ChatApp
          */
         void registerTool( std::string name, std::function<std::string( const std::string& )> handler )
         {
-            const auto [handler_entry, added] = tool_handlers_.emplace( std::move( name ), std::move( handler ) );
+            registerTool( std::move( name ), {},
+                [handler = std::move( handler )]( const std::string& arguments, const Mila::AI::ToolGrant& )
+                {
+                    return handler( arguments );
+                } );
+        }
+
+        /**
+         * @brief Register a handler for a named tool that touches files or the network, as its needs declare.
+         *
+         * Each call is given the session's grant narrowed to the needs (useGrant), and the handler opens files and
+         * makes connections through it.
+         */
+        void registerTool( std::string name, Mila::AI::ToolNeeds needs,
+            std::function<std::string( const std::string&, const Mila::AI::ToolGrant& )> handler )
+        {
+            const auto [handler_entry, added] = tool_handlers_.emplace(
+                std::move( name ), std::pair{ needs, std::move( handler ) } );
 
             // A tool registered once a model is resident is offered from the next response.
             if ( added && agent_ )
@@ -193,6 +210,17 @@ namespace Mila::ChatApp
             if ( agent_ )
             {
                 agent_->withRules( tool_rules_ );
+            }
+        }
+
+        /// The most a tool call may reach from the next call on -- folders and the network; with none, nothing.
+        void useGrant( Mila::AI::ToolGrant grant )
+        {
+            grant_ = std::move( grant );
+
+            if ( agent_ )
+            {
+                agent_->withGrant( grant_ );
             }
         }
 
@@ -717,14 +745,18 @@ namespace Mila::ChatApp
                 return std::nullopt;
             }
 
-            return Mila::AI::Tool{
+            Mila::AI::Tool tool{
                 definition->name,
                 definition->description,
                 parametersJson( *definition ),
-                [run = handler->second]( std::string_view arguments, std::stop_token )
+                [run = handler->second.second]( std::string_view arguments, const Mila::AI::ToolGrant& grant, std::stop_token )
                 {
-                    return run( std::string( arguments ) );
+                    return run( std::string( arguments ), grant );
                 } };
+
+            tool.needs = handler->second.first;
+
+            return tool;
         }
 
         /// A tool's arguments as the JSON Schema object a request writes, keys in that order.
@@ -1353,6 +1385,7 @@ namespace Mila::ChatApp
 
                 agent->onAsk( [this]( const Mila::AI::ToolQuestion& question ) { return askAboutCall( question ); } );
                 agent->withRules( tool_rules_ );
+                agent->withGrant( grant_ );
                 agent->openConversation( std::exchange( held_conversation_, {} ) );
 
                 deployment_plan_ = agent->plan();
@@ -1411,11 +1444,14 @@ namespace Mila::ChatApp
         // rather than a second derivation of it.
         std::optional<DeploymentPlan> deployment_plan_;
         SystemPromptConfig system_prompt_config_;
-        std::unordered_map<std::string, std::function<std::string( const std::string& )>> tool_handlers_;
+        // Each tool's declared needs, and its handler.
+        std::unordered_map<std::string, std::pair<Mila::AI::ToolNeeds,
+            std::function<std::string( const std::string&, const Mila::AI::ToolGrant& )>>> tool_handlers_;
 
-        // Set by a front end that runs its own limits and rules; Chat's own when empty.
+        // Set by a front end that runs its own limits, rules and grant; Chat's own when empty, and no grant.
         std::optional<Mila::AI::AgentLimits> limits_;
         Mila::AI::ToolRules tool_rules_;
+        Mila::AI::ToolGrant grant_;
 
         // The resident model, its conversation and the calls it makes; empty when nothing is resident.
         std::unique_ptr<Mila::AI::Agent> agent_;

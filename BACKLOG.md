@@ -410,7 +410,7 @@ checked: how Anthropic and OpenAI join a message's parts, or whether the billing
 
 #### Nothing keeps a tool inside the folder it was given, or off local addresses
 
-`open` · `ai` · `gate`
+`in progress` · `ai` · `gate`
 
 `ToolCalling.md` section 3.4: the grant a tool opens files and makes connections through. On Windows one file has
 many names: `..`, links, junctions, mount points, short 8.3 names, case, alternate data streams, device names, the
@@ -418,7 +418,9 @@ many names: `..`, links, junctions, mount points, short 8.3 names, case, alterna
 and refuses the non-path forms before opening; it refuses private, loopback, link-local and unspecified addresses
 on the address actually connected to, and on every redirect. Gate: a test per route and per address kind, by name,
 by literal address and through a redirect, each refused, beside the same access inside the folder or to a public
-address allowed. Gates every item below that runs a tool.
+address allowed. Gates every item below that runs a tool. Built on Windows (`ToolGrant`, `Tests/AI/ToolGrant.*.cpp`);
+what is left is the pair for short 8.3 names and the pair for mount points, which need a volume that makes short
+names and an administrator to create one.
 
 `Mila/Specifications/ToolCalling.md` section 3.4
 
@@ -430,8 +432,9 @@ The desktop app's own tools, written through grants (Mila ships none): reading a
 listing a folder, finding files by name, searching text, writing a file and editing one exact passage, in the
 folder the person chose and its `.mila` folder; and fetching a web page as readable text, size-capped, from public
 addresses. Reads allowed by default, writes and fetches asked. The file tools exist (`Desktop.FileTools.ixx`, the
-`files` prompt, Build & Code's folder) without the grant, every call asked (`Untriaged.md`, "The desktop app's file tools open
-files directly"); so does reading a web page (`Desktop.WebPageReader.ixx`, Research & Analyze), on the same terms.
+`files` prompt, Build & Code's folder), and so does reading a web page (`Desktop.WebPageReader.ixx`, Research &
+Analyze), each through its call's grant; what is left is the rules -- every call is still asked, reads included --
+and the `.mila` folder.
 
 `Mila/Specifications/ToolCalling.md` section 5
 

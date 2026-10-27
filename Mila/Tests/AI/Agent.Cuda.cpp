@@ -57,7 +57,7 @@ namespace Mila::Tests::AI
                 "get_weather",
                 "Get the current weather in a city.",
                 kWeatherParameters,
-                [&arguments_seen]( std::string_view arguments, std::stop_token )
+                [&arguments_seen]( std::string_view arguments, const ToolGrant&, std::stop_token )
                 {
                     arguments_seen.emplace_back( arguments );
 
@@ -591,7 +591,7 @@ namespace Mila::Tests::AI
                     "get_weather",
                     "Get the current weather in a city.",
                     kWeatherParameters,
-                    []( std::string_view arguments, std::stop_token stop )
+                    []( std::string_view arguments, const ToolGrant&, std::stop_token stop )
                     {
                         arguments_seen_.emplace_back( arguments );
 
@@ -843,7 +843,7 @@ namespace Mila::Tests::AI
 
     TEST_F( AgentOnGemmaCuda, RefusesAToolOrSettingItCannotUse )
     {
-        const auto run = []( std::string_view, std::stop_token ) { return std::string(); };
+        const auto run = []( std::string_view, const ToolGrant&, std::stop_token ) { return std::string(); };
 
         EXPECT_THROW( agent_->withTool( Tool{ "get_weather", "again", kWeatherParameters, run } ), std::invalid_argument );
         EXPECT_THROW( agent_->withTool( Tool{ "", "nameless", kWeatherParameters, run } ), std::invalid_argument );

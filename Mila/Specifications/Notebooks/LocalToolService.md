@@ -339,8 +339,8 @@ shape section 7's rule for secrets will take.
 
 `github.com/microsoft/mxc`, MIT, v1.0.0 on 2026-10-07 and v1.0.1 on 2026-10-17, read 2026-10-24. One containment
 policy -- read-write, read-only and denied paths, outbound network, UI -- launched through a process container on
-Windows 11, Seatbelt on macOS and bubblewrap on Linux; SDKs for Rust, .NET and Node, none for C or C++, and an
-executor (`wxc-exec.exe`) that takes the policy as JSON. Its Windows table gives process isolation from build
+Windows 11, Seatbelt on macOS and bubblewrap on Linux; SDKs for Rust, .NET and Node, a C library (`mxc_ffi.dll`,
+the one the .NET SDK loads) that takes the policy as JSON, and an executor (`wxc-exec.exe`) that does the same. Its Windows table gives process isolation from build
 26300.9550 on 26H2, which Todd's machine passes.
 
 An independent analysis (Tyler Holmwood, *MXC Internals*, Origin, 2026-06-04, read through a summary) describes

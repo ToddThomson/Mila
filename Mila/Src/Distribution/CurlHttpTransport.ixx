@@ -13,6 +13,11 @@ module;
 
 #include <curl/curl.h>
 
+// curl.h brings winsock2.h on Windows; elsewhere sockaddr_in and sockaddr_in6 need their own header.
+#ifndef _WIN32
+#  include <netinet/in.h>
+#endif
+
 export module Distribution.CurlHttpTransport;
 
 import std;
@@ -58,6 +63,43 @@ namespace Mila::Distribution
             /// diagnostic text, and passing it to the sink would prepend it to real content.
             bool capturing{ false };
         };
+
+        /// What a checked transfer's socket callback reads and reports.
+        struct ConnectionState
+        {
+            const ConnectionCheck* check{ nullptr };
+
+            /// Set when the check refused an address, so the failure says why rather than "couldn't connect".
+            bool refused{ false };
+        };
+
+        /// Stands in for socket(2) on every connection a checked transfer makes, so the address is seen before it
+        /// is connected to: the resolved one, every address tried included.
+        curl_socket_t openCheckedSocket( void* client, curlsocktype purpose, curl_sockaddr* address )
+        {
+            auto* state = static_cast<ConnectionState*>( client );
+            std::span<const std::uint8_t> bytes;
+
+            if ( address->family == AF_INET )
+            {
+                const auto* ipv4 = reinterpret_cast<const sockaddr_in*>( &address->addr );
+                bytes = std::span<const std::uint8_t>( reinterpret_cast<const std::uint8_t*>( &ipv4->sin_addr ), 4 );
+            }
+            else if ( address->family == AF_INET6 )
+            {
+                const auto* ipv6 = reinterpret_cast<const sockaddr_in6*>( &address->addr );
+                bytes = std::span<const std::uint8_t>( reinterpret_cast<const std::uint8_t*>( &ipv6->sin6_addr ), 16 );
+            }
+
+            if ( purpose != CURLSOCKTYPE_IPCXN || bytes.empty() || !( *state->check )( bytes ) )
+            {
+                state->refused = true;
+
+                return CURL_SOCKET_BAD;
+            }
+
+            return socket( address->family, address->socktype, address->protocol );
+        }
 
         std::size_t writeBody( char* data, std::size_t size, std::size_t count, void* user_data )
         {
@@ -190,6 +232,19 @@ namespace Mila::Distribution
     {
     public:
 
+        CurlHttpTransport() = default;
+
+        /**
+         * @brief A transport that makes only the connections the check allows.
+         *
+         * No proxy is used, one named in the environment included: through one, the connection checked would be
+         * the proxy's, not the address the request reaches. Only http and https are spoken.
+         */
+        explicit CurlHttpTransport( ConnectionCheck check )
+            : check_( std::move( check ) )
+        {
+        }
+
         std::string name() const override { return "libcurl"; }
 
         HttpResponse fetch(
@@ -231,6 +286,20 @@ namespace Mila::Distribution
             curl_easy_setopt( handle.get(), CURLOPT_FOLLOWLOCATION, 0L );
             curl_easy_setopt( handle.get(), CURLOPT_NOSIGNAL, 1L );
             curl_easy_setopt( handle.get(), CURLOPT_USERAGENT, "Mila/0.20" );
+
+            ConnectionState connection;
+
+            if ( check_ )
+            {
+                connection.check = &check_;
+
+                curl_easy_setopt( handle.get(), CURLOPT_OPENSOCKETFUNCTION, openCheckedSocket );
+                curl_easy_setopt( handle.get(), CURLOPT_OPENSOCKETDATA, &connection );
+
+                // An empty proxy is none at all, even when the environment names one (CURLOPT_PROXY).
+                curl_easy_setopt( handle.get(), CURLOPT_PROXY, "" );
+                curl_easy_setopt( handle.get(), CURLOPT_PROTOCOLS_STR, "http,https" );
+            }
 
             if ( request.low_speed_timeout_seconds > 0 )
             {
@@ -284,10 +353,16 @@ namespace Mila::Distribution
             if ( code != CURLE_OK )
             {
                 response.transport_failed = true;
-                response.message = curl_easy_strerror( code );
+                response.message = connection.refused && code == CURLE_COULDNT_CONNECT
+                    ? "the address it leads to is not a public one, and only public addresses may be reached"
+                    : curl_easy_strerror( code );
             }
 
             return response;
         }
+
+    private:
+
+        ConnectionCheck check_;
     };
 }

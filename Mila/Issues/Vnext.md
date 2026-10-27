@@ -1035,7 +1035,8 @@ In v0.21.0 a tool runs in the application's process, held only by the grant it w
 3.4). A shell, other people's MCP servers and tools an agent writes need a sandbox that enforces a grant whole,
 under the same containment interface, and wait for one. Microsoft eXecution Container (MXC) was the first
 candidate (Todd, 2026-10-24: "quite promising for Windows, and a macOS, Linux equivalent") and is kept out of Mila
-for now (Todd, 2026-10-25). Its SDKs are Rust, .NET and Node, with no C or C++.
+for now (Todd, 2026-10-25). Its SDKs are Rust, .NET and Node; a C++ program calls its C library, `mxc_ffi.dll`
+(`mxc_run_json`, a policy in and the result out), which ran a shell command contained from C++23 on 2026-10-26.
 
 Before any sandbox is adopted: the four escape tests (a child started through WMI, the network with nothing
 granted, a file outside the granted folder, a child process), each first shown to pass unsandboxed.

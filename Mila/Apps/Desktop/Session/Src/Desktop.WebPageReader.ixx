@@ -21,10 +21,10 @@ namespace Mila::DesktopApp
     /**
      * @brief Reads one web page for the model, a part at a time.
      *
-     * The page is fetched through Mila's own transport, following at most five redirects and only to http and
-     * https addresses, and is cut at a size no page of text needs. Nothing here holds a fetch to public addresses:
-     * that is the grant of ToolCalling.md 3.4, which does not exist yet, so every call asks (Untriaged.md, "The
-     * desktop app's file tools open files directly"). A failure throws, and the model reads its message.
+     * The page is fetched through the call's grant, which connects only to public addresses, each redirect's
+     * connection checked as the first was (ToolCalling.md 3.4). At most five redirects are followed, only to http
+     * and https addresses, and the page is cut at a size no page of text needs. A failure throws, and the model
+     * reads its message.
      */
     export class WebPageReader
     {
@@ -33,13 +33,8 @@ namespace Mila::DesktopApp
         /// The tool's name, as the research prompt defines it.
         static constexpr std::string_view kName = "read_web_page";
 
-        explicit WebPageReader( std::shared_ptr<const IHttpTransport> transport )
-            : transport_( std::move( transport ) )
-        {
-        }
-
         /// `url`, and optionally `start`, the character the part read begins at.
-        [[nodiscard]] std::string read( const std::string& arguments_text ) const
+        [[nodiscard]] static std::string read( const std::string& arguments_text, const Mila::AI::ToolGrant& grant )
         {
             const auto arguments = nlohmann::json::parse( arguments_text );
             const std::string url = arguments.at( "url" ).get<std::string>();
@@ -49,7 +44,7 @@ namespace Mila::DesktopApp
             if ( !isWebAddress( url ) )
                 throw std::runtime_error( std::format( "'{}' is not a web address; give one starting http:// or https://", url ) );
 
-            const auto [final_url, body] = fetch( url );
+            const auto [final_url, body] = fetch( url, *grant.transport() );
             std::string title;
             std::string text;
 
@@ -111,7 +106,7 @@ namespace Mila::DesktopApp
         }
 
         /// The page's address after its redirects, and its bytes up to the cut.
-        std::pair<std::string, std::string> fetch( std::string url ) const
+        static std::pair<std::string, std::string> fetch( std::string url, const IHttpTransport& transport )
         {
             for ( int hop = 0; hop <= kMostRedirects; ++hop )
             {
@@ -123,7 +118,7 @@ namespace Mila::DesktopApp
                 request.headers = { { "Accept", "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5" } };
                 request.low_speed_timeout_seconds = 20;
 
-                const HttpResponse response = transport_->fetch( request,
+                const HttpResponse response = transport.fetch( request,
                     [&body, &cut]( const char* data, std::size_t length )
                     {
                         body.append( data, std::min( length, kMostBytesFetched - body.size() ) );
@@ -173,7 +168,5 @@ namespace Mila::DesktopApp
                 default:  return code >= 500 ? " (the site had an error)" : "";
             }
         }
-
-        std::shared_ptr<const IHttpTransport> transport_;
     };
 }

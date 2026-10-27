@@ -112,7 +112,7 @@ system prompt, and the agent's limits. It does not name a model. A conversation 
 |---|---|---|
 | **Ask & Explore** | Questions, explanations, ideas, working a problem through | Now: it needs no tools |
 | **Build & Code** | Writing, debugging and improving software in a folder the person chooses | The app's file tools exist (BACKLOG, "A model has no tools to read or edit files") and run through their grants ("Nothing keeps a tool inside the folder it was given") |
-| **Research & Analyze** | Investigating a question across sources, comparing evidence | The app's web-reading tool exists: shown since 2026-10-26, reading the pages the person names or the model knows, without the grant (6.1). Web search with Tavily (Todd, 2026-10-26) once the person has given their own key in Settings (3.7). Analysing data by running code waits for a sandbox (`Vnext.md`) |
+| **Research & Analyze** | Investigating a question across sources, comparing evidence | The app's web-reading tool exists: shown since 2026-10-26, reading the pages the person names or the model knows, through its grant: public addresses only (6.1). Web search with Tavily (Todd, 2026-10-26) once the person has given their own key in Settings (3.7). Analysing data by running code waits for a sandbox (`Vnext.md`) |
 | **Get Things Done** | An outcome to reach in steps: a plan the person approves before it runs, progress, a deliverable | Shown since 2026-10-26 (Todd), in the app's form: in a folder, with the file tools and web reading, and a plan the model proposes (`propose_plan`, always asked about) and marks step by step (`update_step`, allowed by rule), shown as a checklist above the box and kept with the conversation. A plan the person edits in place, and the task itself run and checked by `Mila::AI` rather than by the model's own discipline, remain the goal (9.7) |
 
 A card whose work cannot yet be done is not shown, rather than shown disabled. Nothing guesses the activity from
@@ -415,10 +415,12 @@ process would have to grow to serve a client belongs in `Mila::AI` instead.
   (`Desktop.WebPageReader.ixx`): a page fetched over Mila's own HTTP transport, following at most five redirects and
   only to http and https, cut at 4 MiB, and read as text (`Desktop.HtmlText.ixx`, its own test target) in parts of
   40,000 characters. The model stays resident across the change: the session gives the agent
-  the activity's prompt and tools (`ChatSession::useSystemPrompt`, over `Agent::withoutTools`). The file tools open
-  files directly, without the grant of `ToolCalling.md` 3.4, so the session sets no rule for them and every call
-  asks (`Untriaged.md`, "The desktop app's file tools open files directly"); the page reader reaches any address,
-  local ones included, for the same reason. Run on Gemma 4 12B Q4_0 over stdio and in the window: it listed the
+  the activity's prompt and tools (`ChatSession::useSystemPrompt`, over `Agent::withoutTools`), and its grant
+  (`ChatSession::useGrant`, `ToolCalling.md` 3.4): none for Ask & Explore, the folder read-write for Build & Code,
+  the network for Research & Analyze, both for Get Things Done. Every file tool opens through its call's grant, so
+  a path, link or junction leading outside the folder is refused; the page reader and web search fetch through it,
+  so they reach public addresses only. The session sets no rule for the file tools yet, so every call asks. Run on
+  Gemma 4 12B Q4_0 over stdio and in the window: it listed the
   folder, read a file, fixed a bug with one exact edit, and answered a declined write as declined; in Research &
   Analyze it read a Wikipedia article and answered from it, and read a missing page's 404 as one.
 - **Two threads.** The one that started the process does all session work, model loads included; a second

@@ -47,8 +47,10 @@ add_executable( MilaTests
     # ==============================================================
     # Section 1 - Current test methodology (Specifications/Testing.md)
     # ==============================================================
-    # The gate every tool call passes (ToolCalling.md 3.1 to 3.3). Needs no model.
+    # The gate every tool call passes and the grant it gives (ToolCalling.md 3.1 to 3.4). Needs no model.
     "AI/ArgumentSchema.cpp"
+    "AI/GrantPath.cpp"
+    "AI/PublicAddress.cpp"
     "AI/ToolRules.cpp"
     "AI/ToolGate.cpp"
     "Data/Loaders/DataLoader.cpp"
@@ -179,6 +181,23 @@ target_sources( MilaTests PRIVATE
     # An installed model by name and the manifest fields it answers from (Deployment.md 8.1). Offline.
     "Deployment/InstalledModel.Cpu.cpp"
 )
+
+# What a tool's grant reaches (ToolCalling.md 3.4). Files only where a folder can be granted,
+# Windows; the network where this build has its own transport to check, and the local server's
+# sockets are Windows's.
+if(WIN32)
+    target_sources( MilaTests PRIVATE
+        "AI/ToolGrant.Files.cpp"
+    )
+
+    if(MILA_ENABLE_LIBCURL)
+        target_sources( MilaTests PRIVATE
+            "AI/ToolGrant.Network.cpp"
+        )
+
+        target_link_libraries( MilaTests PRIVATE ws2_32 )
+    endif()
+endif()
 
 # Nothing under Distribution is gated any more. HttpClient's policy -- redirect hops, the
 # cross-host token drop, Range and the 200-versus-206 rule -- runs against a scripted

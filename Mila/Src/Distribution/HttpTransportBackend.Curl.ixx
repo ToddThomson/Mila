@@ -34,4 +34,14 @@ namespace Mila::Distribution
     {
         return std::make_shared<const CurlHttpTransport>();
     }
+
+    /**
+     * @brief A transport that makes only the connections a check allows, and none through a proxy.
+     *
+     * Never null; in a build with no transport, the one it returns refuses every request.
+     */
+    export std::shared_ptr<const IHttpTransport> makeCheckedHttpTransport( ConnectionCheck check )
+    {
+        return std::make_shared<const CurlHttpTransport>( std::move( check ) );
+    }
 }
