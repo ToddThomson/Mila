@@ -77,6 +77,15 @@ export function createSettingsView( root, actions )
 
         if ( action === 'seed' )
             sendSeed();
+
+        if ( action === 'search-key-save' )
+            sendSearchKey();
+
+        if ( action === 'search-key-remove' )
+        {
+            const change = { search_key: null };
+            sendSetting( change );
+        }
     }
 
     function sendSeed()
@@ -240,9 +249,59 @@ export function createSettingsView( root, actions )
         container.append( row );
     }
 
+    /**
+     * The person's own search key. The page never holds it after Save: the field is cleared, and the session
+     * says only whether a key is set.
+     */
+    function buildWebSearch( session )
+    {
+        const enabled = session.web_search === true;
+        const note = enabled
+            ? 'Research & Analyze and Get Things Done can search the web with your Tavily key. Each search asks first, and its words go to Tavily.'
+            : 'Add a Tavily key to let Research & Analyze and Get Things Done search the web. tavily.com gives 1,000 searches a month free.';
+        const container = section( 'Web search', note );
+        const row = element( 'div', 'setting-row' );
+
+        if ( enabled )
+        {
+            const remove = button( 'chip-button', 'Remove key', 'search-key-remove' );
+            row.append( remove );
+        }
+        else
+        {
+            const field = element( 'input', 'search-key-input number-input' );
+            const save = button( 'chip-button', 'Save', 'search-key-save' );
+
+            field.type = 'password';
+            field.autocomplete = 'off';
+            field.spellcheck = false;
+            field.placeholder = 'tvly-…';
+            field.setAttribute( 'aria-label', 'Tavily key' );
+            row.append( field, save );
+        }
+
+        container.append( row );
+    }
+
+    function sendSearchKey()
+    {
+        const field = body.querySelector( '.search-key-input' );
+        const key = field.value.trim();
+        field.value = '';
+
+        if ( key.length === 0 )
+            return;
+
+        const change = { search_key: key };
+        sendSetting( change );
+    }
+
     function build( session )
     {
         clear( body );
+
+        if ( session !== null )
+            buildWebSearch( session );
 
         if ( session === null || session.model === null )
         {

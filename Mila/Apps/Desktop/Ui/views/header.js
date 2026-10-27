@@ -1,7 +1,7 @@
 // The main pane's header: the loaded model as a picker, and the session's facts as quiet text.
 
 import { element, button, iconButton, setIcon, clear } from '../dom.js';
-import { contextFact, thinkingFact } from '../format.js';
+import { contextFact, thinkingFact, activityCard, folderName } from '../format.js';
 
 export function createHeaderView( root, actions )
 {
@@ -140,6 +140,18 @@ export function createHeaderView( root, actions )
 
         if ( session.model === null )
             return;
+
+        if ( session.activity !== undefined && session.activity !== 'ask' )
+        {
+            const where = session.folder ? ' · ' + folderName( session.folder ) : '';
+            const activity = element( 'span', 'fact', activityCard( session.activity ).name + where );
+            const separator = element( 'span', 'fact-separator', '·' );
+
+            if ( session.folder )
+                activity.title = session.folder;
+
+            facts.append( activity, separator );
+        }
 
         const contextText = contextFact( session );
         const context = element( 'span', 'fact', contextText );

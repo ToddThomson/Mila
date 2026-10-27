@@ -1,13 +1,16 @@
-# Mila Desktop
+# Mila, the App
 
-Mila, the desktop app (`Mila/Apps/Desktop/`): a sidebar of conversations and a main pane, over the same
-session as Chat's console. The session runs as its own C++ process; the window is a client of it, in
-whatever language suits the window. The console stays first-class on every platform.
+Mila, the desktop app (`Mila/Apps/Desktop/`): an agent a person puts to work, organised around the work they
+came to do rather than around models (section 3). It runs over the same session as Chat's console. The
+session runs as its own C++ process; the window is a client of it, in whatever language suits the window. The
+console stays first-class on every platform. Named `ChatDesktop.md` until 2026-10-26.
 
 **Status:** draft, 2026-10-20. Phase 1 (the page and the Electron window, against a mock session) is
 built; phase 2 (the session split, section 7) and phase 3 (the session process, section 6.1) are built,
 2026-10-24, and the window runs over the real session (phase 4, section 8). The app's name and audience are
-decided (section 9, 2026-10-24). Open decisions are in section 9.
+decided (section 9, 2026-10-24); its direction, activities over models, on 2026-10-26 (section 9.7). The
+layout of section 3 is that direction; the page as built is still the conversation-and-models layout it
+replaces (phase 6, section 8). Open decisions are in section 9.
 
 ---
 
@@ -29,8 +32,18 @@ window is a second front end over that same session. It exists because the thing
   face. The library's audience is the developer; the app's is the person running it (Todd, 2026-10-24,
   section 9). Everything the app shows a person is end-user prose (CLAUDE.md, *End-User Prose*).
 
+**The person chooses the work; Mila chooses the intelligence** (Todd, 2026-10-26). The app is not a place to
+configure and run models -- a catalogue of models, each with its sampling, context and quantization knobs, is
+the layout of LM Studio and its peers, and Mila's case against them is the quality of the agent, not the breadth
+of the catalogue. A person starts from what they want done; the model, its deployment and the agent's limits
+are Mila's choice, made from what Mila has measured, visible on request and capped where the person wants a
+boundary. The comparison is cuBLASLt's: the caller states the operation and its constraints, the library picks
+the implementation. Every element on the main path earns its place by helping the person get the work done,
+showing what Mila is doing, or setting a boundary that matters.
+
 **An app adds no capability to the library** (CLAUDE.md). The window shows what the library and the
-session already do. Video, which no Mila model takes, has no place in it.
+session already do. Video, which no Mila model takes, has no place in it. Nor does an activity whose tools or
+agent behaviour the library and the app do not yet have: a card is shown when its work can be done (section 3).
 
 ## 2. Architecture
 
@@ -86,22 +99,70 @@ session already do. Video, which no Mila model takes, has no place in it.
 
 ## 3. Layout
 
-Modelled on the Claude desktop app: a sidebar on the left, the conversation on the right.
+A sidebar on the left; on the right, the start of new work, or the work under way. Organised around activities,
+not models (section 1; decided 2026-10-26, section 9.7).
 
-**Sidebar**
+### 3.1 Activities
 
-- *New conversation* at the top (Ctrl+N).
+An activity is what a person came to do. It is the app's vocabulary, and it decides what the app gives the agent
+for that work: which of the app's tools, the default rules for them (`ToolCalling.md` 3.3), the guidance in the
+system prompt, and the agent's limits. It does not name a model. A conversation keeps the activity it started in.
+
+| Card | What it is for | Shown when |
+|---|---|---|
+| **Ask & Explore** | Questions, explanations, ideas, working a problem through | Now: it needs no tools |
+| **Build & Code** | Writing, debugging and improving software in a folder the person chooses | The app's file tools exist (BACKLOG, "A model has no tools to read or edit files") and run through their grants ("Nothing keeps a tool inside the folder it was given") |
+| **Research & Analyze** | Investigating a question across sources, comparing evidence | The app's web-reading tool exists: shown since 2026-10-26, reading the pages the person names or the model knows, without the grant (6.1). Web search with Tavily (Todd, 2026-10-26) once the person has given their own key in Settings (3.7). Analysing data by running code waits for a sandbox (`Vnext.md`) |
+| **Get Things Done** | An outcome to reach in steps: a plan the person approves before it runs, progress, a deliverable | Shown since 2026-10-26 (Todd), in the app's form: in a folder, with the file tools and web reading, and a plan the model proposes (`propose_plan`, always asked about) and marks step by step (`update_step`, allowed by rule), shown as a checklist above the box and kept with the conversation. A plan the person edits in place, and the task itself run and checked by `Mila::AI` rather than by the model's own discipline, remain the goal (9.7) |
+
+A card whose work cannot yet be done is not shown, rather than shown disabled. Nothing guesses the activity from
+what a person types: guessing is a model call before the first token, or a guess. The box on the home screen
+starts *Ask & Explore*; a card is the way into the others. Changing an activity inside a conversation changes the
+agent's tools and so its system prompt, which costs a prefill of the whole conversation; whether to offer it is
+open (section 9.7).
+
+### 3.2 The model is Mila's choice
+
+What an activity needs -- a model whose manifest carries `agentic` (`ModelDistribution.md`), the context it works in, a modality -- is the
+library's vocabulary; which installed model meets it on this card, deployed how, is a question the library answers,
+not the app (the no-new-capability rule). That query does not exist yet: it would rank the installed models on
+what Mila has measured, never on a family name (BACKLOG, "What a model can do is inferred from its family name"),
+and plan each on the device (`Deployment.md`). Its nearest anchor is v0.22.0's use case (`ROADMAP.md`, *Mila::AI*:
+"a named selection of features over the same request", its defaults from measurement), which deploys one model for
+a use case; choosing which installed model serves it goes one step past that narrative. It is a proposal for
+`Mila::AI`, not agreed. Until it exists, the app uses the model the session loads, as today.
+
+What has been measured today is one judgement, agentic or not, plus whether a model fits the card; on a 16 GB card
+every activity would choose the same model. That is expected: what differs between activities is what the agent
+is given, not who runs it.
+
+**First run.** A fresh store has no model (CLAUDE.md), so the home screen with nothing installed recommends one
+model for this card -- the measured agentic model that fits it, from the published list -- with one *Install* and
+its progress, not a catalogue.
+
+### 3.3 Sidebar
+
+- *New* at the top (Ctrl+N): the home screen.
 - Conversations, newest first, grouped *Today*, *Yesterday*, *Previous 7 days*, *Older*. Each row shows
-  its title; hover shows the model it was held with. Rename and delete from a row's menu; delete asks
-  first.
-- At the foot: *Models* (opens the models view) and *Settings*.
+  its title and its activity; hover shows the model it was held with. Rename and delete from a row's menu;
+  delete asks first.
+- At the foot: *Settings*. The models view is reached from Settings, off the main path.
 - Collapsible; collapsed below 900 px of window width.
 
-**Main pane**
+### 3.4 Home screen
 
-- *Header:* the loaded model as a picker (installed models, then *Manage models...*), and the session's
-  facts as quiet text: context window (with "auto" when it was measured, not chosen) and thinking (off,
-  on, or the effort level). With no model loaded, the header says so and the picker is the way out.
+- One line asking what the person wants to do, and one box under it; sending from it starts *Ask & Explore*.
+- The cards of 3.1 that can be shown, each its name and one line of what it is for.
+- Nothing else: no model, no settings. With no model installed, the first-run recommendation of 3.2 takes the
+  cards' place until a model is installed.
+
+### 3.5 Main pane
+
+- *Header:* the conversation's activity, and as quiet text what Mila chose for it -- the model, the context window
+  -- which opens on request to the detail: the model and its package, context (with "auto" when it was
+  measured, not chosen), thinking, the tools the activity gives the agent and their rules. Read-only there; a
+  change is made under the limits (below) or, for the model, in the models view. With no model loaded, the
+  header says so and the way out.
 - *Transcript:*
   - User turns, right-aligned, with their attachments as thumbnails (image) or a small player (audio).
   - Assistant turns, full width. The reasoning channel is a collapsed block above the answer ("Thought
@@ -119,15 +180,46 @@ Modelled on the Claude desktop app: a sidebar on the left, the conversation on t
   the pane to attach, attachments as removable chips above the box. While a reply is generating, *Send*
   becomes *Stop* (Esc). Attach is disabled with a tooltip naming why for a model without that modality.
 
-**Models view** (a pane over the main pane): installed models with size and quantization, *Load* (with
-the quantization choice for unquantized weights: none, fp8, fp4, q4_0), *Remove* (asks first);
+### 3.6 Limits
+
+The person's caps on what Mila chose, in a small panel from the header. Every one defaults to Mila's choice, and a
+cap is a hard bound, not a preference: a reply that meets one stops and says so, with what it had done.
+
+- *Ask before* -- which of the activity's tools run without asking: the rules of `ToolCalling.md` 3.3, the
+  activity's defaults shown. Being allowed to proceed never widens what a tool may reach; that is its grant.
+- *Time* and *length* of a reply -- `AgentLimits` (`+98`).
+- *Effort* -- only where the model's template has levels, from its default; a model without them shows none,
+  since no layer invents a reasoning mode a model's template does not have.
+
+There is no cap on agents in parallel: `Mila::AI` runs one.
+
+### 3.7 Settings and the models view
+
+Off the main path, for the person who wants them.
+
+**Web search** (in Settings, 2026-10-26): the person's own Tavily key, pasted once and shown only as set, with
+*Remove key*. The session keeps it in `search.json` beside the conversations folder, in plain text until the
+operating system's credential store holds it, and sends it only to Tavily, in a basic search (one credit) of at most
+ten results (`Desktop.WebSearch.ixx`). With a key, Research & Analyze and Get Things Done are offered `web_search`,
+and every search is asked about with its words shown, since they leave the machine; without one, the tool is not
+offered. Tavily's search is a POST, which Mila's HTTP transport sends since that day (`HttpClient.md` 4.1). Not yet
+read: Tavily's terms on keeping results, which a saved conversation does.
+
+**Settings** (a side panel): the limits' defaults for new conversations, and under *Advanced* the session's
+knobs -- sampling (temperature, top_k, top_p, presence_penalty, each with *model default*), thinking on/off,
+context (a number or *auto*), detail (off, thoughts, all), seed. Each reflects `session.state`; changing one
+sends `settings.set`. The defaults are the publisher's (CLAUDE.md, *Measurement*), so a person who never opens
+*Advanced* runs the model as it was measured.
+
+**Models view** (a pane over the main pane, from Settings): installed models with size and quantization, *Load*
+(with the quantization choice for unquantized weights: none, fp8, fp4, q4_0), *Remove* (asks first);
 *Available to install* from the published list, *Install* with progress. A load or install that is refused
 shows the refusal's own text at the top of the view, which covers the transcript, until the next load,
-install or remove.
+install or remove. Once the selection of 3.2 exists, *Load* here is an override of Mila's choice, and says so.
 
-**Settings** (a side panel): sampling (temperature, top_k, top_p, presence_penalty, each with *model
-default*), effort (1-5, when the template has levels), thinking on/off, context (a number or *auto*),
-detail (off, thoughts, all), seed. Each reflects `session.state`; changing one sends `settings.set`.
+**The schema** (section 4) carries the activity and its folder: `session.state` lists the activities the session
+can start, `conversation.new` names one, and `conversations.list`, `conversation.loaded` and the stored conversation
+keep it. The folder is chosen in the window's own picker (`folder.choose`), never typed.
 
 **Look:** light and dark follow the system. The palette and type follow the website
 (`Web/layouts/_default/baseof.html`), quieter. No animation beyond the streaming caret and a progress
@@ -155,14 +247,14 @@ at standard error and writes the protocol to the real standard output, as `mila-
 for its answer (`Chat::runOnce`). End of input ends the session process. Between the page and the
 window process, the window's own bridge (section 6.2).
 
-The window relays every message unchanged in both directions, except the two it handles itself:
-`link.open`, and resolving a dropped file to a path (section 6.4).
+The window relays every message unchanged in both directions, except the three it handles itself:
+`link.open`, `folder.choose`, and resolving a dropped file to a path (section 6.4).
 
 ### 4.1 Session to page
 
 | type | fields | meaning |
 |---|---|---|
-| `session.state` | `model` (name or null), `no_model_reason` (string or null), `context_length`, `context_automatic`, `thinking_capable`, `thinking` (`"off"`, `"on"` or an effort name), `effort` (1-5 or null), `effort_levels` (bool), `detail` (`"off"`, `"thoughts"`, `"all"`), `sampling` ({`temperature`, `top_k`, `top_p`, `presence_penalty`}, each `{value, is_model_default}`), `modalities` (subset of `["image","audio"]`), `busy` (bool), `streams` ([{`stream_id`, `parent_stream_id` (or null), `conversation_id`, `busy`}]) | The whole session state. Sent after every change, never as a delta. |
+| `session.state` | `model` (name or null), `no_model_reason` (string or null), `context_length`, `context_automatic`, `thinking_capable`, `thinking` (`"off"`, `"on"` or an effort name), `effort` (1-5 or null), `effort_levels` (bool), `detail` (`"off"`, `"thoughts"`, `"all"`), `sampling` ({`temperature`, `top_k`, `top_p`, `presence_penalty`}, each `{value, is_model_default}`), `modalities` (subset of `["image","audio"]`), `activities` (the activities this session can start, in card order, a subset of `["ask","build","research","tasks"]`), `activity` (the conversation's), `folder` (the conversation's project folder, or null), `plan` (Get Things Done's approved plan, [{`text`, `status`: `"pending"`, `"in_progress"`, `"done"` or `"skipped"`}], or null), `web_search` (bool: a search key is set; the key itself is never sent), `busy` (bool), `streams` ([{`stream_id`, `parent_stream_id` (or null), `conversation_id`, `busy`}]) | The whole session state. Sent after every change, never as a delta. |
 | `models.list` | `installed` ([{`name`, `size_bytes`, `quantization`, `family`}]), `published` ([{`name`, `size_bytes`, `quantization`, `installed`}] or null when not fetched) | Reply to `models.refresh`, and after install or remove. |
 | `progress` | `task` (`"load"`, `"install"`, `"rebuild"`), `label`, `done`, `total` (both null when unknown) | A long task's progress; a final one has `done == total`. |
 | `turn.begin` | `turn_id`, `conversation_id` | A reply starts. |
@@ -173,12 +265,13 @@ The window relays every message unchanged in both directions, except the two it 
 | `turn.tool_result` | `turn_id`, `call_id`, `result`, `is_error` | The tool's result, fed back to the model. |
 | `turn.round_end` | `turn_id`, `round`, `prefill_ms`, `tokens_per_second`, `tokens`, `thought_tokens` (those of `tokens` the reasoning channel took; 0 when it did not open), `finish` (`turn.end`'s values, or `"tool_call"` for a round that ended in one) | One generate call ended. `thought_tokens` labels the round's thought block ("Thought for 412 tokens"), which the page cannot count from text. |
 | `turn.end` | `turn_id`, `finish` (`"stop"`, `"length"`, `"context"`, `"cancelled"`, `"error"`), `answer` (the parsed final answer) | The reply ended. `answer` is what the conversation keeps. |
-| `conversations.list` | `items` ([{`id`, `title`, `updated` (ISO 8601), `model`}]) | After any change to the store. |
-| `conversation.loaded` | `id`, `title`, `model`, `messages` (section 4.3) | The conversation now in the main pane. |
+| `conversations.list` | `items` ([{`id`, `title`, `updated` (ISO 8601), `model`, `activity`, `folder`}]) | After any change to the store. A conversation stored before activities is `"ask"` with no folder. |
+| `conversation.loaded` | `id`, `title`, `model`, `activity`, `folder`, `messages` (section 4.3) | The conversation now in the main pane. |
 | `attachment.accepted` | `attachment_id`, `kind`, `name`, `size_bytes` | The session has read and decoded the file. |
 | `attachment.refused` | `attachment_id`, `reason` | Not found, not decodable, too large, or no such modality on this model. |
 | `info` | `text` | A sentence the console would print with `printInfo`. Shown as a quiet line in the transcript. |
-| `error` | `text`, `during` (`"load"`, `"turn"`, `"install"`, `"settings"`, or null) | Shown where it happened, never as a modal. |
+| `error` | `text`, `during` (`"load"`, `"turn"`, `"install"`, `"settings"`, `"conversation"`, or null) | Shown where it happened, never as a modal. |
+| `folder.chosen` | `path` (or null when the person cancelled) | From the window, not the session: the answer to `folder.choose`. |
 | `log` | `level`, `text` | Only at detail `all`; shown in a collapsible log drawer. |
 
 ### 4.2 Page to session
@@ -189,7 +282,8 @@ The window relays every message unchanged in both directions, except the two it 
 | `turn.send` | `text`, `attachment_ids` | A user turn. Refused with `error` while `busy`. |
 | `turn.stop` | -- | Stop the reply in flight; it ends with `finish: "cancelled"`. A call waiting for approval is not run. |
 | `turn.tool_decision` | `turn_id`, `call_id`, `decision` (one of the approval's `choices`) | The person's answer to a `turn.tool_approval`. One for a call not waiting is ignored. |
-| `conversation.new` | -- | Clear the session's history and start a new conversation. |
+| `conversation.new` | `activity` (`"ask"` when absent), `folder` (for `"build"` and `"tasks"`) | Clear the session's history and start a new conversation in that activity: its system prompt and its tools (section 3.1). A `"build"` or `"tasks"` without a folder that exists, or an activity not in `session.state`'s `activities`, is refused with `error` (`during: "conversation"`) and the conversation is unchanged. |
+| `folder.choose` | -- | Handled by the window, which shows the system's folder picker and answers `folder.chosen`. |
 | `conversation.open` | `id` | Replace the session's history with that conversation's. |
 | `conversation.rename` | `id`, `title` | |
 | `conversation.delete` | `id` | |
@@ -197,7 +291,7 @@ The window relays every message unchanged in both directions, except the two it 
 | `model.load` | `name`, `quantization` (`"none"`, `"fp8"`, `"fp4"`, `"q4_0"` or null) | Clears the history, as `/model load` does. |
 | `model.install` | `name` | |
 | `model.remove` | `name` | |
-| `settings.set` | one of: `context` (n or `"auto"`), `thinking` (bool), `effort` (1-5), `detail`, `sampling` ({`key`, `value` or `"model"`}), `seed` | One change per message; the reply is `session.state`, or `error` with `during: "settings"`. |
+| `settings.set` | one of: `context` (n or `"auto"`), `thinking` (bool), `effort` (1-5), `detail`, `sampling` ({`key`, `value` or `"model"`}), `seed`, `search_key` (the person's Tavily key, or null to remove it) | One change per message; the reply is `session.state`, or `error` with `during: "settings"`. |
 | `attachment.add` | `attachment_id`, `kind`, `name`, `path` | The file on this machine; the session reads it (section 6.4). |
 | `attachment.remove` | `attachment_id` | |
 | `link.open` | `url` | Handled by the window, which opens it in the system browser. The page never navigates. |
@@ -314,6 +408,19 @@ process would have to grow to serve a client belongs in `Mila::AI` instead.
   `--device`, `--system-prompt` and `--settings`, plus `--conversations <dir>` for the store of 6.3, which
   defaults to `Mila Desktop\Conversations` under `%LOCALAPPDATA%` (`$XDG_DATA_HOME/mila-desktop/conversations`
   elsewhere).
+- **Activities** (3.1, 2026-10-26). A conversation is Ask & Explore, with the prompt the settings resolved and no
+  tools, or Build & Code, with the `files` prompt beside the program and the file tools over the conversation's
+  folder (`Desktop.FileTools.ixx`): `list_folder`, `read_file`, `find_files`, `search_text`, `write_file` and
+  `edit_file`, paths relative to the folder; or Research & Analyze, with the `research` prompt and `read_web_page`
+  (`Desktop.WebPageReader.ixx`): a page fetched over Mila's own HTTP transport, following at most five redirects and
+  only to http and https, cut at 4 MiB, and read as text (`Desktop.HtmlText.ixx`, its own test target) in parts of
+  40,000 characters. The model stays resident across the change: the session gives the agent
+  the activity's prompt and tools (`ChatSession::useSystemPrompt`, over `Agent::withoutTools`). The file tools open
+  files directly, without the grant of `ToolCalling.md` 3.4, so the session sets no rule for them and every call
+  asks (`Untriaged.md`, "The desktop app's file tools open files directly"); the page reader reaches any address,
+  local ones included, for the same reason. Run on Gemma 4 12B Q4_0 over stdio and in the window: it listed the
+  folder, read a file, fixed a bug with one exact edit, and answered a declined write as declined; in Research &
+  Analyze it read a Wikipedia article and answered from it, and read a missing page's 404 as one.
 - **Two threads.** The one that started the process does all session work, model loads included; a second
   reads requests. It answers `turn.stop` and `turn.tool_decision` itself, since the session's thread is inside the
   reply they are about, and refuses a `turn.send` while a turn is queued or running, so the refusal does not
@@ -369,7 +476,7 @@ context isolation on and Node integration off in the page. One engine (Chromium)
   a path (`webUtils.getPathForFile`).
 - **Which session it starts:** the session the package carries (`resources/Session/`), or in development the
   copy staged for packaging (`Window/session/`); `MILA_SESSION` names another program, and `--scenario <n>`
-  runs the mock session (section 5) instead. The mock stays for development and is not packaged, so a packaged
+  runs the mock session (section 5) instead. It answers `folder.choose` with the system's folder picker. The mock stays for development and is not packaged, so a packaged
   build has no `--scenario` (2026-10-26).
 - **The package:** Electron and the packager pinned to exact versions in `package.json`, with the lock
   file committed; `node_modules/` and build output ignored by a `.gitignore` inside the folder. The
@@ -381,10 +488,12 @@ context isolation on and Node integration off in the page. One engine (Chromium)
 ### 6.3 Conversation store
 
 The session process owns it, so every window gets it equally: one JSON file per conversation (section
-4.3 plus `id`, `title`, `model`, `created`, `updated`, and `turns`, the history as the model read it) under the
+4.3 plus `id`, `title`, `model`, `activity`, `folder`, `plan`, `created`, `updated`, and `turns`, the history as the
+model read it) under the
 user's local application data, never in the model store. An id is used as a file name only when it is made of
 the characters the store gives ids, so an id from the page cannot reach outside the folder. The title is the first user message, cut at a word under 60 characters. Opening a
-conversation replaces the session's history; its next turn prefills it whole.
+conversation replaces the session's history and takes its activity and folder; its next turn prefills it whole. A
+conversation whose folder no longer exists is not opened, and says so (`error`, `during: "conversation"`).
 
 ### 6.4 Attachments
 
@@ -481,6 +590,11 @@ interrupted the reply printed after the trace line; the renderer now writes it f
    things section 3 describes, built in the same change: the log drawer, and a refused install shown in the
    Models view (it had been drawn in the transcript beneath the view, out of sight).
 5. **Distribution.** Section 9.
+6. **Activities** (local). Section 3: the home screen with *Ask & Explore* and its box, the sidebar's activity,
+   the header's detail, the limits panel, Settings and the models view moved off the main path, and the
+   first-run recommendation. Each further card arrives in the change that gives it its tools: *Build & Code*
+   with the file tools, *Research & Analyze* with web reading. The selection of 3.2 is its own `Mila::AI`
+   change, proposed first.
 
 ## 9. Open decisions
 
@@ -521,9 +635,28 @@ interrupted the reply printed after the trace line; the renderer now writes it f
    runtime (`InstallRequiredSystemLibraries`, which needs a CMake that knows the VS 2026 toolset: Visual
    Studio's 4.3 does, 4.0 does not and is warned on) into `Window/session/`, which the package carries as
    `resources/Session/`; the window's build refuses to run without the program and the runtime.
+   *Built 2026-10-27 (Todd: "I do things in vs2026 not the command line"):* the `mila-app` CMake target
+   (`Desktop/CMakeLists.txt`) builds the session, stages it afresh and runs the window's build, so the installer
+   and `Mila.exe` come from one target in Visual Studio. It is outside ALL, and needs `npm` found at configure.
 5. **Math.** Shown as source in phase 1; a vendored math renderer later, or never.
 6. **When macOS.** macOS is wanted (Todd, 2026-10-20). The page and the Electron window run there as they
    are; the session process reaches it once a Metal backend exists.
+7. **Activities over models -- direction decided 2026-10-26 (Todd).** The app starts from the work, through four
+   activity cards and one box, with the model, its deployment and the agent's limits chosen by Mila from what it
+   has measured, and the person's overrides as caps (section 3). It replaces the layout this document had until
+   then: a model picker in the header, the models view on the sidebar, and sampling on the main path. Within it:
+   - *Decided with it:* the activity is the app's, and maps to needs the library ranks models by (3.2); a card
+     is shown only once its work can be done (3.1); nothing guesses the activity from the text typed; there is
+     no cap on parallel agents.
+   - *Open:* the selection query of 3.2 (a `Mila::AI` proposal); whether a conversation may change its
+     activity, at the cost of a prefill; what *Get Things Done* needs of `Mila::AI` beyond the loop it has.
+   - *Considered and declined:* the model-catalogue layout of LM Studio and its peers, for the reason in
+     section 1; inferring the activity from the first message.
+   - *Reversed 2026-10-26 (Todd):* *Get Things Done* waiting for `Mila::AI` to run a task. It is shown now in the
+     app's form (3.1): a plan the model proposes and the person approves, marked as the model works. With it, each
+     activity has its own limits: Ask & Explore keeps Chat's four rounds and a reply of `max_new_tokens`, numbers no
+     measurement set; the others run with none, bounded by the context and the person's Stop, until the limits of
+     3.6 let the person set caps.
 **Decided 2026-10-20 (Todd).** The page is HTML, so one page serves every platform. The session is its
 own process and the window a client of it, so the window's language is free. The window is Electron, so
 there is one presentation layer. Considered and declined:

@@ -27,6 +27,10 @@ namespace Mila::Distribution
         /// Exactly what to send. A transport adds nothing and removes nothing.
         std::vector<HttpHeader> headers;
 
+        /// When set, the request is a POST carrying exactly these bytes, and its Content-Type is one of the headers;
+        /// a GET when not.
+        std::optional<std::string> body;
+
         /// Seconds with no data before the transfer is abandoned. Zero disables.
         long low_speed_timeout_seconds{ 60 };
     };
@@ -68,7 +72,9 @@ namespace Mila::Distribution
         std::function<void( long http_code, std::uint64_t content_length )>;
 
     /**
-     * @brief Performs one HTTP GET.
+     * @brief Performs one HTTP GET, or a POST when the request carries a body.
+     *
+     * A transport that cannot send a body answers a request with one as a transport failure, never as a GET.
      *
      * Three obligations, and they are the whole contract:
      *

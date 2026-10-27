@@ -463,6 +463,39 @@ gtest_discover_tests( ChatRichTextTests
         VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 
+# ---------------------------------------------------------------------------
+# The desktop app: a web page's HTML read as text.
+#
+# Its own executable for the reason ChatRichTextTests is: Desktop.HtmlText imports nothing of
+# Mila's, so it builds and runs anywhere without the library.
+# ---------------------------------------------------------------------------
+add_executable( DesktopHtmlTextTests
+    "Apps/Desktop/HtmlText.Cpu.cpp"
+)
+
+target_sources( DesktopHtmlTextTests
+PUBLIC
+    FILE_SET module_files
+    TYPE CXX_MODULES
+    BASE_DIRS "${CMAKE_SOURCE_DIR}/Mila/Apps/Desktop/Session/Src"
+    FILES
+        "${CMAKE_SOURCE_DIR}/Mila/Apps/Desktop/Session/Src/Desktop.HtmlText.ixx"
+)
+
+set_target_properties( DesktopHtmlTextTests PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+target_link_libraries( DesktopHtmlTextTests PRIVATE MilaStd gtest gtest_main )
+
+gtest_discover_tests( DesktopHtmlTextTests
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    PROPERTIES
+        VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+
 # Packaging gates: the FetchContent subproject consumer against the local tree, and the
 # opt-in CPM-by-tag consumer against a published release. Defined here, with the tests,
 # rather than at the root: it is meaningful only when MILA_ENABLE_TESTING is on, and that

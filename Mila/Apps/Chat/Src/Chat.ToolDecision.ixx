@@ -1,6 +1,6 @@
 /**
  * @file Chat.ToolDecision.ixx
- * @brief The person's answer when the session asks before running a tool (ChatDesktop.md 4.5).
+ * @brief The person's answer when the session asks before running a tool (MilaApp.md 4.5).
  */
 
 export module Chat.ToolDecision;

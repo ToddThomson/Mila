@@ -1,4 +1,4 @@
-// Markdown to HTML for the subset ChatDesktop.md section 3 names. The input is model text, which
+// Markdown to HTML for the subset MilaApp.md section 3 names. The input is model text, which
 // is untrusted: every character of it is escaped on the way out, raw HTML renders as text, a link
 // is an element the page turns into link.open, and an image is never fetched.
 

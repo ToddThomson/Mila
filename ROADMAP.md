@@ -250,8 +250,8 @@ checks are Windows first: on any other platform the app runs without tools until
 task that reads files in the chosen folder, edits one, and reads a web page, each call allowed or asked by the
 person's rules and shown in the conversation; a denied call reaches the model as declined and the reply continues;
 a tool working through its grant cannot read or write outside the chosen folder by any name that leads there, and
-reaches no private or local address by name, by literal address or through a redirect, shown by tests that each
-reach their target with the check removed first; the desktop app and Chat run every tool call through `Mila::AI`,
+reaches no private or local address by name, by literal address or through a redirect, shown by a test per kind of
+name and address that is refused; the desktop app and Chat run every tool call through `Mila::AI`,
 and neither runs a call itself nor holds a model's tool grammar; the console Chat asks before a tool runs, as the
 window does; a program built against the library alone registers a tool and runs it under `Mila::AI`'s permissions
 on Gemma, Llama and Qwen by changing only the model's name, `plan()` and `model()` reaching the objects that ran;

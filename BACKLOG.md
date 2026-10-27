@@ -417,20 +417,21 @@ many names: `..`, links, junctions, mount points, short 8.3 names, case, alterna
 `\\?\` and `\\.\` forms, network paths. The grant compares the opened file's final path with the granted folder's,
 and refuses the non-path forms before opening; it refuses private, loopback, link-local and unspecified addresses
 on the address actually connected to, and on every redirect. Gate: a test per route and per address kind, by name,
-by literal address and through a redirect, each first shown reaching its target with the check removed. Gates
-every item below that runs a tool.
+by literal address and through a redirect, each refused, beside the same access inside the folder or to a public
+address allowed. Gates every item below that runs a tool.
 
 `Mila/Specifications/ToolCalling.md` section 3.4
 
 #### A model has no tools to read or edit files or to read a web page
 
-`open` · `apps`
+`in progress` · `apps`
 
 The desktop app's own tools, written through grants (Mila ships none): reading a file or a range of its lines,
 listing a folder, finding files by name, searching text, writing a file and editing one exact passage, in the
 folder the person chose and its `.mila` folder; and fetching a web page as readable text, size-capped, from public
-addresses. Reads allowed by default, writes and fetches asked. Absent today: Chat's only tool is a `get_weather`
-stub (`Mila/Apps/Chat/Src/main.cpp:515`, and the same stub in `Mila/Apps/Desktop/Session/Src/main.cpp`).
+addresses. Reads allowed by default, writes and fetches asked. The file tools exist (`Desktop.FileTools.ixx`, the
+`files` prompt, Build & Code's folder) without the grant, every call asked (`Untriaged.md`, "The desktop app's file tools open
+files directly"); so does reading a web page (`Desktop.WebPageReader.ixx`, Research & Analyze), on the same terms.
 
 `Mila/Specifications/ToolCalling.md` section 5
 
@@ -438,14 +439,14 @@ stub (`Mila/Apps/Chat/Src/main.cpp:515`, and the same stub in `Mila/Apps/Desktop
 
 `in progress` · `apps`
 
-`ChatDesktop.md` phases 3 and 4: the session process that speaks section 4 over stdio on a real model, then the
+`MilaApp.md` phases 3 and 4: the session process that speaks section 4 over stdio on a real model, then the
 window starting it in place of the mock, with tool calls through `Mila::AI`. Gate: a script driving the session
 process runs the equivalents of scenarios 1 to 8 and 11 on a real model; the window runs the theme's task on
 every published model that calls tools. The session process is built (`mila-session`) and its gate passes
 on Llama, Gemma and Qwen, with a real install and removal. The window starts it in place of the mock and runs
 scenarios 1 to 11 on Llama, Gemma and a real install; tool calls through `Mila::AI` and the theme's task remain.
 
-`Mila/Specifications/ChatDesktop.md` sections 6.1, 8
+`Mila/Specifications/MilaApp.md` sections 6.1, 8
 
 #### Tool calling has never been driven end to end on Llama
 

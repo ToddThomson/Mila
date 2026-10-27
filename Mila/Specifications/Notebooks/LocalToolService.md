@@ -188,7 +188,7 @@ How much that credential proves depends on who can read it:
 | Process the broker itself started, credential handed over at start | Identity, and the broker knows the process is the one it started |
 
 The third row is the strongest, and Chat's desktop window already runs its session as a separate process
-(`ChatDesktop.md`), so the broker starting that session is not foreign to the design. Not decided.
+(`MilaApp.md`), so the broker starting that session is not foreign to the design. Not decided.
 
 **The model is asserted, not proven.** The broker cannot see which weights an application loaded; a rule that
 depends on the model rests on the application's word.

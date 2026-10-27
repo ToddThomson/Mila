@@ -1,4 +1,4 @@
-// The mock's scripted scenarios, by the numbers ChatDesktop.md section 5 gives them.
+// The mock's scripted scenarios, by the numbers MilaApp.md section 5 gives them.
 
 import { streamedReply } from './scenario-streamed-reply.js';
 import { imageAttachment } from './scenario-image-attachment.js';

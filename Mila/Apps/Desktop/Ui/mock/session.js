@@ -1,4 +1,4 @@
-// A mock of the session process: it answers ChatDesktop.md section 4.2's requests with section
+// A mock of the session process: it answers MilaApp.md section 4.2's requests with section
 // 4.1's events, as the session would, and plays a scenario's scripted reply for each turn. No DOM
 // and no timers of its own -- the host passes a clock -- so one implementation serves the page in
 // a browser, a Node wrapper on stdio, and node --test.
@@ -7,6 +7,9 @@ import { findModel, models, seedConversations, titleFor } from './fixtures.js';
 import { findScenario } from './scenarios.js';
 
 const streamId = 'stream-1';
+const offeredActivities = [ 'ask', 'build', 'research', 'tasks' ];
+const folderActivities = [ 'build', 'tasks' ];
+const mockFolder = 'C:\\Users\\you\\Projects\\calc';
 
 /**
  * @param options.scenario The scenario's number (section 5).
@@ -38,6 +41,9 @@ export function createMockSession( options )
         sampling: {},
         busy: false,
         conversationId: null,
+        activity: 'ask',
+        folder: null,
+        webSearch: false,
         history: [],
         nextConversationNumber: seeds.length + 1,
         nextTurnNumber: 1
@@ -101,6 +107,11 @@ export function createMockSession( options )
             detail: session.detail,
             sampling: samplingState(),
             modalities: model === null ? [] : model.modalities,
+            activities: offeredActivities,
+            activity: session.activity,
+            folder: session.folder,
+            plan: null,
+            web_search: session.webSearch,
             busy: session.busy,
             streams: [ stream ]
         };
@@ -110,7 +121,14 @@ export function createMockSession( options )
 
     function conversationItem( conversation )
     {
-        return { id: conversation.id, title: conversation.title, updated: conversation.updated, model: conversation.model };
+        return {
+            id: conversation.id,
+            title: conversation.title,
+            updated: conversation.updated,
+            model: conversation.model,
+            activity: conversation.activity,
+            folder: conversation.folder
+        };
     }
 
     function emitConversations()
@@ -232,7 +250,7 @@ export function createMockSession( options )
     }
 
     /**
-     * A tool allowed in this conversation runs without asking (ChatDesktop.md section 4.5); any
+     * A tool allowed in this conversation runs without asking (MilaApp.md section 4.5); any
      * other waits for turn.tool_decision, with nothing scheduled until it comes.
      */
     function askOrContinue( step )
@@ -366,7 +384,16 @@ export function createMockSession( options )
         if ( existing === undefined )
         {
             const title = titleFor( reply.request.text );
-            const created = { id: session.conversationId, title, model: session.model.name, created: updated, updated, messages: session.history.slice() };
+            const created = {
+                id: session.conversationId,
+                title,
+                model: session.model.name,
+                activity: session.activity,
+                folder: session.folder,
+                created: updated,
+                updated,
+                messages: session.history.slice()
+            };
             conversations.set( session.conversationId, created );
         }
         else
@@ -474,9 +501,32 @@ export function createMockSession( options )
 
     // ---- Conversations -----------------------------------------------------------------------
 
-    function newConversation()
+    /**
+     * A folder is any path the mock is given, since the mock reads no files; the real session refuses one
+     * that does not exist.
+     */
+    function newConversation( request )
     {
+        const activity = request.activity === undefined ? 'ask' : request.activity;
+        const folder = typeof request.folder === 'string' && request.folder.length > 0 ? request.folder : null;
+
+        if ( !offeredActivities.includes( activity ) )
+        {
+            emitError( 'There is no activity called ' + activity + '.', 'conversation' );
+
+            return;
+        }
+
+        if ( folderActivities.includes( activity ) && folder === null )
+        {
+            emitError( 'This works in a folder; choose one to start.', 'conversation' );
+
+            return;
+        }
+
         session.conversationId = null;
+        session.activity = activity;
+        session.folder = folderActivities.includes( activity ) ? folder : null;
         session.history = [];
         allowedTools.clear();
 
@@ -495,10 +545,20 @@ export function createMockSession( options )
         }
 
         session.conversationId = conversation.id;
+        session.activity = conversation.activity;
+        session.folder = conversation.folder;
         session.history = conversation.messages.slice();
         allowedTools.clear();
 
-        const loaded = { type: 'conversation.loaded', id: conversation.id, title: conversation.title, model: conversation.model, messages: conversation.messages };
+        const loaded = {
+            type: 'conversation.loaded',
+            id: conversation.id,
+            title: conversation.title,
+            model: conversation.model,
+            activity: conversation.activity,
+            folder: conversation.folder,
+            messages: conversation.messages
+        };
 
         emit( loaded );
         emitState();
@@ -547,6 +607,14 @@ export function createMockSession( options )
 
         if ( Object.hasOwn( request, 'seed' ) )
             return changeSeed( request.seed );
+
+        // The mock keeps no key: it says only whether one is set, as the session does.
+        if ( Object.hasOwn( request, 'search_key' ) )
+        {
+            session.webSearch = typeof request.search_key === 'string' && request.search_key.trim().length > 0;
+
+            return emitState();
+        }
 
         emitError( 'That setting is not one Chat has.', 'settings' );
     }
@@ -746,7 +814,11 @@ export function createMockSession( options )
                 return decideTool( request );
 
             case 'conversation.new':
-                return newConversation();
+                return newConversation( request );
+
+            // The window answers this; with no window, as in a browser, the mock does.
+            case 'folder.choose':
+                return emit( { type: 'folder.chosen', path: mockFolder } );
 
             case 'conversation.open':
                 return openConversation( request );

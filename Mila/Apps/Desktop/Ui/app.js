@@ -12,6 +12,7 @@ import { createSettingsView } from './views/settings.js';
 import { createModelsView } from './views/models.js';
 import { createDevelopmentView } from './views/development.js';
 import { createLogView } from './views/log.js';
+import { createPlanView } from './views/plan.js';
 
 const narrowQuery = window.matchMedia( '(max-width: 899.98px)' );
 
@@ -19,6 +20,7 @@ const transport = await createTransport( window.location );
 
 let state = createInitialState();
 let renderPending = false;
+let pendingActivity = null;
 
 const surface = {
     narrow: narrowQuery.matches,
@@ -90,13 +92,66 @@ function closeOverlay()
 
 function newConversation()
 {
-    const message = { type: 'conversation.new' };
+    const message = { type: 'conversation.new', activity: 'ask' };
 
     const closed = { sidebarOverlay: false, modelsOpen: false };
 
     send( message );
     changeSurface( closed );
     composer.focus();
+}
+
+/**
+ * A card on the home screen. Ask & Explore is the conversation already open; an activity that works in
+ * a folder starts once the person has chosen one in the window's picker.
+ */
+function startActivity( activity )
+{
+    if ( activity === 'ask' )
+    {
+        composer.focus();
+
+        return;
+    }
+
+    // Build & Code and Get Things Done work in a folder; the others start at once.
+    if ( activity !== 'build' && activity !== 'tasks' )
+    {
+        const start = { type: 'conversation.new', activity };
+        send( start );
+        composer.focus();
+
+        return;
+    }
+
+    const choose = { type: 'folder.choose' };
+    transport.send( choose );
+    pendingActivity = activity;
+}
+
+function onFolderChosen( message )
+{
+    const activity = pendingActivity;
+    pendingActivity = null;
+
+    if ( activity === null || message.path === null )
+        return;
+
+    const start = { type: 'conversation.new', activity, folder: message.path };
+    send( start );
+    composer.focus();
+}
+
+function onTransportMessage( message )
+{
+    if ( message.type === 'folder.chosen' )
+    {
+        onFolderChosen( message );
+
+        return;
+    }
+
+    dispatch( message );
 }
 
 function decideTool( turnId, callId, decision )
@@ -122,6 +177,7 @@ const actions = {
     toggleExpanded,
     closeOverlay,
     newConversation,
+    startActivity,
     decideTool,
     openLink,
     transmit: ( message ) => transport.send( message ),
@@ -140,6 +196,7 @@ const settingsElement = document.getElementById( 'settings' );
 const modelsElement = document.getElementById( 'models' );
 const developmentElement = document.getElementById( 'development' );
 const logElement = document.getElementById( 'log-drawer' );
+const planElement = document.getElementById( 'plan' );
 
 const sidebar = createSidebarView( sidebarElement, actions );
 const header = createHeaderView( headerElement, actions );
@@ -149,6 +206,7 @@ const settings = createSettingsView( settingsElement, actions );
 const models = createModelsView( modelsElement, actions );
 const development = createDevelopmentView( developmentElement, transport.development, composer );
 const log = createLogView( logElement, actions );
+const plan = createPlanView( planElement );
 
 function render()
 {
@@ -167,6 +225,7 @@ function render()
     settings.render( state, surface );
     models.render( state, surface );
     log.render( state, surface );
+    plan.render( state );
 }
 
 function onNarrowChange( event )
@@ -232,7 +291,7 @@ narrowQuery.addEventListener( 'change', onNarrowChange );
 document.addEventListener( 'keydown', onKeyDown );
 document.addEventListener( 'click', onLinkActivate );
 document.addEventListener( 'keydown', onLinkActivate );
-transport.onMessage( dispatch );
+transport.onMessage( onTransportMessage );
 
 development.render();
 render();

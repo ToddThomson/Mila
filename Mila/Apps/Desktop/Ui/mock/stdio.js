@@ -1,4 +1,4 @@
-// The mock session as a process, in place of the real one: ChatDesktop.md 4.2's requests arrive on
+// The mock session as a process, in place of the real one: MilaApp.md 4.2's requests arrive on
 // standard input and 4.1's events leave on standard output, one JSON object per line. Standard error
 // carries its log. End of input ends it. Node only; the page never loads this file.
 //

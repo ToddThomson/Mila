@@ -5,7 +5,7 @@
 import { element, button, iconButton, setIcon, clear, previewOrIcon } from '../dom.js';
 import { renderMarkdown } from '../markdown.js';
 import { summarizeTurn, isBusy } from '../state.js';
-import { thoughtLabel, statsLine, finishNotice, readableJson } from '../format.js';
+import { thoughtLabel, statsLine, finishNotice, readableJson, activityCard } from '../format.js';
 
 const stickDistance = 80;
 
@@ -46,6 +46,9 @@ export function createTranscriptView( scroller, container, actions )
 
         if ( action === 'tool-decision' )
             actions.decideTool( target.dataset.turn, target.dataset.call, target.dataset.decision );
+
+        if ( action === 'start-activity' )
+            actions.startActivity( target.dataset.activity );
     }
 
     function copyReply( target )
@@ -120,10 +123,45 @@ export function createTranscriptView( scroller, container, actions )
             return;
         }
 
-        const heading = element( 'p', 'empty-heading', 'New conversation' );
-        const detailText = 'Replies come from ' + state.session.model + ', running on this computer.';
-        const detail = element( 'p', 'empty-detail', detailText );
-        emptyState.append( heading, detail );
+        const activity = state.session.activity;
+
+        if ( activity !== undefined && activity !== 'ask' )
+        {
+            const card = activityCard( activity );
+            const detailText = state.session.folder ? 'Working in ' + state.session.folder : card.line;
+            const heading = element( 'p', 'empty-heading', card.name );
+            const detail = element( 'p', 'empty-detail', detailText );
+            emptyState.append( heading, detail );
+
+            return;
+        }
+
+        renderHome( state );
+    }
+
+    /**
+     * The home screen: what the person came to do, as the box below and a card for each activity the
+     * session can start (MilaApp.md 3.4).
+     */
+    function renderHome( state )
+    {
+        const heading = element( 'p', 'empty-heading', 'What would you like to do?' );
+        const cards = element( 'div', 'activity-cards' );
+        const offered = state.session.activities === undefined ? [ 'ask' ] : state.session.activities;
+
+        for ( const activity of offered )
+        {
+            const card = activityCard( activity );
+            const tile = button( 'activity-card', null, 'start-activity' );
+            const name = element( 'span', 'activity-name', card.name );
+            const line = element( 'span', 'activity-line', card.line );
+
+            tile.dataset.activity = activity;
+            tile.append( name, line );
+            cards.append( tile );
+        }
+
+        emptyState.append( heading, cards );
     }
 
     function renderEntry( entry, surface )

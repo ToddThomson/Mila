@@ -1,5 +1,5 @@
 # The session: the model, the conversation, the settings and the turn loop, with no console in it
-# (Specifications/ChatDesktop.md section 7). It is a library so that the console and the session process are two
+# (Specifications/MilaApp.md section 7). It is a library so that the console and the session process are two
 # front ends over one session, and so the build itself keeps the console out: nothing here can import the renderer.
 add_library( MilaChatSession STATIC )
 

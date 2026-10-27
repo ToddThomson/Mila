@@ -553,3 +553,71 @@ function loadingAModelReportsProgressThenTheNewState()
 }
 
 test( 'loading a model reports progress, then the new state', loadingAModelReportsProgressThenTheNewState );
+
+function aBuildConversationStartsOnlyInAFolder()
+{
+    const { events, session } = startSession( 1 );
+    const withoutFolder = { v: 1, type: 'conversation.new', activity: 'build' };
+    const withFolder = { v: 1, type: 'conversation.new', activity: 'build', folder: 'C:\\Projects\\calc' };
+
+    session.handle( withoutFolder );
+
+    const refused = ofType( events, 'error' );
+    assert.equal( refused.length, 1 );
+    assert.equal( refused[ 0 ].during, 'conversation' );
+    assert.equal( ofType( events, 'session.state' ).length, 0 );
+
+    session.handle( withFolder );
+
+    const states = ofType( events, 'session.state' );
+    const state = states[ states.length - 1 ];
+    assert.deepEqual( state.activities, [ 'ask', 'build', 'research', 'tasks' ] );
+    assert.equal( state.activity, 'build' );
+    assert.equal( state.folder, 'C:\\Projects\\calc' );
+}
+
+test( 'a build conversation starts only in a folder', aBuildConversationStartsOnlyInAFolder );
+
+function aConversationKeepsItsActivityAndFolder()
+{
+    const { clock, events, session } = startSession( 1 );
+    const start = { v: 1, type: 'conversation.new', activity: 'build', folder: 'C:\\Projects\\calc' };
+
+    session.handle( start );
+    sendTurn( session, 'Hello' );
+    clock.run();
+
+    const lists = ofType( events, 'conversations.list' );
+    const items = lists[ lists.length - 1 ].items;
+    const stored = items.find( ( item ) => item.title === 'Hello' );
+    assert.equal( stored.activity, 'build' );
+    assert.equal( stored.folder, 'C:\\Projects\\calc' );
+
+    session.handle( { v: 1, type: 'conversation.new' } );
+    session.handle( { v: 1, type: 'conversation.open', id: stored.id } );
+
+    const loaded = ofType( events, 'conversation.loaded' ).pop();
+    assert.equal( loaded.activity, 'build' );
+    assert.equal( loaded.folder, 'C:\\Projects\\calc' );
+    assert.equal( ofType( events, 'session.state' ).pop().activity, 'build' );
+}
+
+test( 'a conversation keeps its activity and folder', aConversationKeepsItsActivityAndFolder );
+
+function aSearchKeyIsSaidToBeSetButNeverSentBack()
+{
+    const { events, session } = startSession( 1 );
+    const key = 'tvly-mock-key-not-real';
+
+    session.handle( { v: 1, type: 'settings.set', search_key: key } );
+
+    const set = ofType( events, 'session.state' ).pop();
+    assert.equal( set.web_search, true );
+    assert.ok( !JSON.stringify( events ).includes( key ), 'the key came back from the session' );
+
+    session.handle( { v: 1, type: 'settings.set', search_key: null } );
+
+    assert.equal( ofType( events, 'session.state' ).pop().web_search, false );
+}
+
+test( 'a search key is said to be set, but never sent back', aSearchKeyIsSaidToBeSetButNeverSentBack );

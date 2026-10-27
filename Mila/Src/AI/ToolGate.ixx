@@ -120,6 +120,14 @@ namespace Mila::AI
             allowed_for_conversation_.clear();
         }
 
+        /// Offer no tool from the next call on; a tool once offered can then be added again. The rules stay.
+        void clear() noexcept
+        {
+            tools_.clear();
+            schemas_.clear();
+            allowed_for_conversation_.clear();
+        }
+
         /**
          * @brief Decide one call, ask the person where the rules say to, and run it when allowed.
          *

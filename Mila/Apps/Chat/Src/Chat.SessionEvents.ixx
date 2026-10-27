@@ -1,6 +1,6 @@
 /**
  * @file Chat.SessionEvents.ixx
- * @brief What a chat session reports to the front end driving it (ChatDesktop.md sections 4.1 and 7).
+ * @brief What a chat session reports to the front end driving it (MilaApp.md sections 4.1 and 7).
  */
 
 export module Chat.SessionEvents;
@@ -18,7 +18,7 @@ namespace Mila::ChatApp
      * @brief The session's side of the conversation with a front end: everything it would say, and the one question it asks.
      *
      * Every call arrives on the thread running the request that caused it -- a turn's events on the thread inside
-     * ChatSession::respond(). The console implements this over its renderer; the session process (ChatDesktop.md
+     * ChatSession::respond(). The console implements this over its renderer; the session process (MilaApp.md
      * section 6.1) over the message schema.
      */
     export class SessionEvents
@@ -80,7 +80,7 @@ namespace Mila::ChatApp
         /**
          * @brief The model called a tool the person has not allowed for this conversation: run it?
          *
-         * The reply waits on the answer (ChatDesktop.md section 4.5).
+         * The reply waits on the answer (MilaApp.md section 4.5).
          */
         virtual ToolDecision approveToolCall( const ToolCall& call ) = 0;
 

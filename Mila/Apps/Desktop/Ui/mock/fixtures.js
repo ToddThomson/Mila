@@ -109,6 +109,8 @@ export function seedConversations( now )
             id: 'conversation-2',
             title: 'Rust lifetimes in a struct that holds a slice',
             model: 'Llama-3.1-8B-Instruct-fp4',
+            activity: 'build',
+            folder: 'C:\\Users\\you\\Projects\\window',
             age: dayMilliseconds + 3 * hourMilliseconds,
             messages: [
                 userMessage( 'How do I write a Rust struct that holds a slice of another struct\'s data?' ),
@@ -167,7 +169,10 @@ function storedConversation( seed, now )
     const updated = new Date( now - seed.age );
     const stamp = updated.toISOString();
 
-    return { id: seed.id, title: seed.title, model: seed.model, created: stamp, updated: stamp, messages: seed.messages };
+    const activity = seed.activity === undefined ? 'ask' : seed.activity;
+    const folder = seed.folder === undefined ? null : seed.folder;
+
+    return { id: seed.id, title: seed.title, model: seed.model, activity, folder, created: stamp, updated: stamp, messages: seed.messages };
 }
 
 /**
@@ -183,7 +188,7 @@ export function splitIntoTokens( text )
 
 /**
  * The title a new conversation takes: its first message, cut at a word under 60 characters
- * (ChatDesktop.md 6.3).
+ * (MilaApp.md 6.3).
  */
 export function titleFor( text )
 {

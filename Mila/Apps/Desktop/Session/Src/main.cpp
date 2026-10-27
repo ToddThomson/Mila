@@ -154,7 +154,7 @@ static void printUsage( const char* program )
         << "Usage: " << program << " [options]\n"
         << "\n"
         << "The Mila desktop app's session: requests in as JSON lines on standard input, events out as JSON lines on\n"
-        << "standard output (Specifications/ChatDesktop.md section 4). Log records go to standard error. End of input\n"
+        << "standard output (Specifications/MilaApp.md section 4). Log records go to standard error. End of input\n"
         << "ends it. Settings resolve as mila-chat's do, from the same files.\n"
         << "\n"
         << "  --model <name>          Load this model, as 'mila-store models' lists it.\n"
@@ -197,7 +197,7 @@ int main( int argc, char* argv[] )
 
     // Standard output carries the protocol and nothing else, and not every writer that would share it is ours: the
     // library's console sink writes its records to std::cout. So std::cout is pointed at standard error for the
-    // whole run, and the protocol is written through the buffer it used to hold (ChatDesktop.md 4, Transport).
+    // whole run, and the protocol is written through the buffer it used to hold (MilaApp.md 4, Transport).
     std::streambuf* const standard_output = std::cout.rdbuf( std::cerr.rdbuf() );
     std::ostream protocol_out( standard_output );
 
@@ -212,8 +212,9 @@ int main( int argc, char* argv[] )
         if ( config.detail == DetailLevel::All )
             Mila::Logging::Logger::defaultLogger().setLevel( Mila::Logging::LogLevel::Info );
 
-        SessionProcess process(
-            std::move( config ), line.conversations.value_or( ConversationStore::defaultDirectory() ), protocol_out );
+        // The activities' own prompts describe their tools; they ship beside the program with the other named prompts.
+        SessionProcess process( std::move( config ), line.conversations.value_or( ConversationStore::defaultDirectory() ),
+            executable_directory() / "Prompts", protocol_out );
 
         // The same canned reading as mila-chat's probe stub, so a reply can call a tool before the app has tools of
         // its own (ToolCalling.md section 5).

@@ -24,7 +24,7 @@ The user builds exclusively inside **Visual Studio 2026**. Ninja is required —
 
 **The C++23 modules constrain the compiler:** MSVC (VS 2026 18.6.2+ — earlier 2026 builds have a module regression that breaks Mila) or Clang 22+ with a standard library that ships a `std` module (libstdc++ 15, libc++ 17). Every module does `import std;` -- never `std.compat`; C names are written `std::size_t`, `std::uint32_t` -- from `MilaStd`, the library's own `std` module target (`cmake/StdModule.cmake`); Clang 21 rejects libstdc++'s `shared_ptr` friends once `std` is reachable (LLVM #156604). On MSVC a translation unit that does `import Mila;` keeps its standard `#include`s before it. **GCC is not supported:** 14.2 and the GCC 15 on Ubuntu 25.04 failed to compile the modules (GitHub issue #2), and GCC 16 has never been tried. Never write that GCC 16 works — that claim shipped in v0.20.0 unmeasured. In CUDA builds the C++ compiler handles the module units while nvcc uses a separate host compiler for `.cu` files, so an older host GCC is fine in that role. Cross-compiler builds surface missing `#include`s that MSVC resolves transitively — those are real portability fixes, not Clang being difficult.
 
-Presets are in `CMakePresets.json`; output is always `out/build/<preset-name>`. VS 2026 shows each preset's `displayName`, not its `name` (`x64-validate` appears as "x64 Release (full validation - run before committing)"). The unit tests build into **one binary**, `Mila/Tests/MilaTests` — narrow with `--gtest_filter`; `ChatRichTextTests` is the separate target, for a module that imports nothing of Mila.
+Presets are in `CMakePresets.json`; output is always `out/build/<preset-name>`. VS 2026 shows each preset's `displayName`, not its `name` (`x64-validate` appears as "x64 Release (full validation - run before committing)"). The unit tests build into **one binary**, `Mila/Tests/MilaTests` — narrow with `--gtest_filter`; `ChatRichTextTests` and `DesktopHtmlTextTests` are the separate targets, each for an app module that imports nothing of Mila.
 
 ---
 
@@ -107,7 +107,7 @@ without prior agreement (they consume the runtime; they are not the runtime's pu
 change to the core Mila library (`Mila/Src/`) still requires explicit agreement first.
 
 Key files:
-- `Chat.Session.ixx` — `ChatSession`: the model as one `Mila::AI::Agent`, which runs every turn and its tool calls; model hot-switching, the round measurements; never draws or reads input, and reports through `SessionEvents` (library target `MilaChatSession`, `ChatDesktop.md` section 7)
+- `Chat.Session.ixx` — `ChatSession`: the model as one `Mila::AI::Agent`, which runs every turn and its tool calls; model hot-switching, the round measurements; never draws or reads input, and reports through `SessionEvents` (library target `MilaChatSession`, `MilaApp.md` section 7)
 - `Chat.ConsoleFrontEnd.ixx` — the console over the session: slash commands, tables, the live display, Ctrl+C stops a reply
 - `Chat.ModelCatalog.ixx` — resolves a store name to a loadable model, and owns the load refusals
 - `Chat.Config.ixx` — `ChatConfig`: the model a store name resolved to (`ModelType`, `QuantizationMode` none/fp8/fp4/codebook), its device, context length and sampling

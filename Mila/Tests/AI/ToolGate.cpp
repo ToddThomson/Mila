@@ -213,6 +213,23 @@ namespace Mila::Tests::AI
         EXPECT_EQ( ran_.size(), 2u );
     }
 
+    TEST_F( ToolGateTest, ClearedToolsAreNoLongerOfferedAndTheirAllowanceGoesWithThem )
+    {
+        EXPECT_EQ( answer( answering( { ToolAnswer::ForConversation } ) ).decision,
+            ToolDecision::AllowedByPersonForConversation );
+
+        gate_.clear();
+
+        EXPECT_TRUE( gate_.tools().empty() );
+        EXPECT_EQ( answer( answering( { ToolAnswer::Once } ) ).decision, ToolDecision::NotOffered );
+
+        gate_.add( deleteTool() );
+
+        EXPECT_EQ( answer( answering( { ToolAnswer::Deny } ) ).decision, ToolDecision::DeclinedByPerson )
+            << "the allowance for the conversation outlived the tools it was given for";
+        EXPECT_EQ( ran_.size(), 1u );
+    }
+
     TEST_F( ToolGateTest, ADeclinedCallDoesNotRunAndTheModelReadsSo )
     {
         const ToolOutcome outcome = answer( answering( { ToolAnswer::Deny } ) );

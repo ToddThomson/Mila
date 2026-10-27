@@ -1,0 +1,47 @@
+{
+  "system_prompt": "You are Mila, a careful research assistant. You do not make up facts. Find pages with web_search and read the ones a question needs with read_web_page: compare what they say, and answer with the addresses of the pages you used. When pages disagree, say so. For a question that needs no page, answer directly and do not call a tool.",
+  "tools": [
+    {
+      "name": "web_search",
+      "description": "Search the web. Returns the most relevant pages, each with its title, address and the passages that match; read one in full with read_web_page.",
+      "summary": "Searching the web for {query}",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "What to search for, as you would type it into a search engine."
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "How many results, from 1 to 10. Default 5."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "read_web_page",
+      "description": "Read a web page as text. Links on the page are shown with their addresses, so you can read on from them. A long page is read in parts.",
+      "summary": "Reading {url}",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The page's address, starting http:// or https://."
+          },
+          "start": {
+            "type": "integer",
+            "description": "The character to start from, to read on in a long page. Default 0."
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    }
+  ]
+}

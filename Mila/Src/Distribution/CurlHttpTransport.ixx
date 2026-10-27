@@ -239,6 +239,12 @@ namespace Mila::Distribution
                     request.low_speed_timeout_seconds );
             }
 
+            if ( request.body )
+            {
+                curl_easy_setopt( handle.get(), CURLOPT_POSTFIELDS, request.body->data() );
+                curl_easy_setopt( handle.get(), CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>( request.body->size() ) );
+            }
+
             curl_slist* headers = nullptr;
 
             for ( const auto& header : request.headers )

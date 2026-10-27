@@ -15,7 +15,7 @@ tools do not.
 9); so are MCP's tool methods, rules held in memory, the approvals of section 5, and Mila.AI's client. The checks
 of section 6.2, where the rules are kept, the audit trace and the executable are not. The evidence behind it, and the reasoning for each decision, is
 `Notebooks/LocalToolService.md`. **Ships in v0.21.0 on Windows** (Todd, 2026-10-24), behind the desktop app's tool
-calling (`ChatDesktop.md`): the ROADMAP theme *The Desktop Agent*. Open decisions are in section 10.
+calling (`MilaApp.md`): the ROADMAP theme *The Desktop Agent*. Open decisions are in section 10.
 
 ---
 
@@ -48,7 +48,7 @@ Every rule and every line of the audit trace is keyed on the pair **(user, agent
   the pipe (Todd, 2026-10-24); the application declares which of its registered agents a call belongs to, since
   one process may run several.
 - **The application starts its agent** (Todd, 2026-10-24), as Chat's window starts its session process
-  (`ChatDesktop.md`). On a normal desktop a program running as the user can take over another unsandboxed one,
+  (`MilaApp.md`). On a normal desktop a program running as the user can take over another unsandboxed one,
   so the broker starting it would add little.
 - **The model is asserted, not proven.** The broker cannot see which weights an application loaded. A rule that
   depends on the model rests on the application's word, and says so where it is shown to the user.
@@ -124,7 +124,7 @@ question to the person and retries the call with the answer. The broker decides;
 - **What the person is shown** is the tool's name and summary and its arguments in full, before the call runs
   (MCP: show inputs before calling, to catch exfiltration).
 
-Chat's window carries this in its own schema (`ChatDesktop.md` section 4); the console as a prompt line.
+Chat's window carries this in its own schema (`MilaApp.md` section 4); the console as a prompt line.
 
 ## 6. Workers and their limits
 

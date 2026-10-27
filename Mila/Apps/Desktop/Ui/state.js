@@ -1,4 +1,4 @@
-// The page's state, reduced from the messages of ChatDesktop.md section 4 in both directions.
+// The page's state, reduced from the messages of MilaApp.md section 4 in both directions.
 // No DOM access, so the page's behaviour is testable under node --test. Every change returns new
 // objects along the changed path and keeps the rest, so the view can compare by identity.
 

@@ -213,6 +213,26 @@ namespace Mila::AI
         }
 
         /**
+         * @brief Offer the model no tool from the next response on, so a program can give one conversation a
+         *        different set of tools than the last without opening the model again.
+         *
+         * Tools allowed for the conversation are forgotten with them; the rules stay.
+         */
+        BasicAgent& withoutTools() &
+        {
+            gate_.clear();
+
+            return *this;
+        }
+
+        BasicAgent&& withoutTools() &&
+        {
+            gate_.clear();
+
+            return std::move( *this );
+        }
+
+        /**
          * @brief Decide the model's calls by these rules from the next call on. With none, every call is asked about.
          */
         BasicAgent& withRules( ToolRules rules ) &

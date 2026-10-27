@@ -1,8 +1,17 @@
 # Mila Desktop
 
 Mila, the desktop app: a page (`Ui/`) over Chat's session, hosted by an Electron window (`Window/`),
-which starts the session process (`Session/`). The design of record is `Mila/Specifications/ChatDesktop.md`.
+which starts the session process (`Session/`). The design of record is `Mila/Specifications/MilaApp.md`.
 For development the window can run the mock session (`Ui/mock/`) instead, which plays scripted scenarios.
+
+## Building the app
+
+Build the `mila-app` target, in Visual Studio from the CMake targets view like any other. It builds the session,
+stages it into `Window/` and packages the window, giving `Window/dist/Mila-Setup-<version>.exe`, the installer a user
+runs, and `Window/dist/win-unpacked/Mila.exe`, the same app without installing. It is not part of a full build: it
+takes about a minute and the installer is about 525 MB. It needs Node 22 or later with `npm` on the PATH when the
+build directory is configured, and installs the window's packages the first time. The sections below are its steps,
+for running any one of them alone.
 
 ## The session process
 
@@ -77,11 +86,12 @@ mock session over stdio.
 
 | | Command, in `Window/` | Output in `Window/dist/` |
 |---|---|---|
-| Windows installer, on Windows | `npm ci` then `npm run build:windows` | `Mila-Setup-<version>.exe` and `win-unpacked/` |
+| Windows installer, on Windows | the `mila-app` target, or `npm ci` then `npm run build:windows` | `Mila-Setup-<version>.exe` and `win-unpacked/` |
 | Windows installer, on Linux | the same, with 64- and 32-bit Wine installed (`wine64`, `wine32:i386`) | the same |
-| Linux folder | `npm run build:linux` | `linux-unpacked/` |
+| Linux folder | the `mila-app` target, or `npm run build:linux` | `linux-unpacked/` |
 
-Each build needs the session staged first, built for the platform it packages, and refuses to run without it. The package
+Each npm build needs the session staged first, built for the platform it packages, and refuses to run without it;
+`mila-app` stages it afresh each time. The package
 carries it as `resources/Session/` and starts it; the mock is not packaged.
 
 Builds are unsigned. The icon is the Mila mark, in `Window/icons/` (electron-builder's build resources),

@@ -1,6 +1,6 @@
 /**
  * @file Desktop.SessionProcess.ixx
- * @brief The desktop app's session process: Chat's session, spoken to as JSON lines on stdio (ChatDesktop.md 6.1).
+ * @brief The desktop app's session process: Chat's session, spoken to as JSON lines on stdio (MilaApp.md 6.1).
  */
 
 export module Desktop.SessionProcess;
@@ -13,6 +13,11 @@ import Chat.Session;
 import Chat.TextChannel;
 import Chat.ToolDecision;
 import Desktop.ConversationStore;
+import Desktop.FileTools;
+import Desktop.SearchKeyFile;
+import Desktop.TaskPlan;
+import Desktop.WebPageReader;
+import Desktop.WebSearch;
 
 import Mila;
 
@@ -78,7 +83,7 @@ namespace Mila::DesktopApp
     /**
      * @brief Chat's session as a program a window starts: section 4.2's requests in, section 4.1's events out.
      *
-     * It translates and holds no logic of its own, so that v0.22.0 makes it a layer over Mila::AI (ChatDesktop.md
+     * It translates and holds no logic of its own, so that v0.22.0 makes it a layer over Mila::AI (MilaApp.md
      * 6.1). Two threads: the one that called run() does every piece of session work, model loads included, and a
      * second reads requests, so a stop or a tool decision is heard while a reply is being written. Every event is
      * one line on the protocol stream, written under a lock because both threads write.
@@ -87,9 +92,64 @@ namespace Mila::DesktopApp
     {
     public:
 
-        SessionProcess( ChatConfig config, std::filesystem::path conversation_directory, std::ostream& protocol_out )
-            : session_( std::move( config ), *this ), store_( std::move( conversation_directory ) ), out_( protocol_out )
+        /**
+         * @param prompt_directory Where the activities' own prompts are: `files.json` for Build & Code, `research.json`
+         *                         for Research & Analyze and `tasks.json` for Get Things Done, each of the last two with
+         *                         a `-search` version for when a search key is set. Ask & Explore uses the one the
+         *                         settings resolved.
+         */
+        SessionProcess( ChatConfig config, std::filesystem::path conversation_directory,
+            const std::filesystem::path& prompt_directory, std::ostream& protocol_out )
+            : session_( std::move( config ), *this ), store_( std::move( conversation_directory ) ),
+              build_prompt_( prompt_directory / "files.json" ), research_prompt_( prompt_directory / "research.json" ),
+              research_search_prompt_( prompt_directory / "research-search.json" ),
+              tasks_prompt_( prompt_directory / "tasks.json" ), tasks_search_prompt_( prompt_directory / "tasks-search.json" ),
+              out_( protocol_out ),
+              transport_( Mila::Distribution::makeDefaultHttpTransport() ), web_reader_( transport_ ),
+              search_key_file_( store_.directory().parent_path() / "search.json" )
         {
+            ask_prompt_ = session_.config().system_prompt_path;
+
+            if ( const std::optional<std::string> key = search_key_file_.read() )
+            {
+                useSearchKey( *key );
+            }
+
+            // A plan's change is shown at once, while the reply that made it is still running.
+            session_.registerTool( std::string( TaskPlan::kProposeName ), [this]( const std::string& arguments )
+                {
+                    std::string result = plan_.propose( arguments );
+                    sendState();
+
+                    return result;
+                } );
+
+            session_.registerTool( std::string( TaskPlan::kUpdateName ), [this]( const std::string& arguments )
+                {
+                    std::string result = plan_.update( arguments );
+                    sendState();
+
+                    return result;
+                } );
+
+            session_.registerTool( std::string( WebPageReader::kName ), [this]( const std::string& arguments )
+                {
+                    return web_reader_.read( arguments );
+                } );
+
+            // Registered once; each call runs in the folder of the conversation it belongs to.
+            for ( const std::string_view name : FileTools::kNames )
+            {
+                session_.registerTool( std::string( name ), [this, name]( const std::string& arguments )
+                    {
+                        if ( !file_tools_ )
+                        {
+                            throw std::runtime_error( "this conversation has no project folder" );
+                        }
+
+                        return file_tools_->run( name, arguments );
+                    } );
+            }
         }
 
         /// @copydoc ChatSession::registerTool
@@ -450,8 +510,14 @@ namespace Mila::DesktopApp
             }
             else if ( type == "conversation.new" )
             {
-                startNewConversation();
-                sendState();
+                const std::string folder = request.contains( "folder" ) && request[ "folder" ].is_string()
+                    ? request[ "folder" ].get<std::string>() : std::string{};
+
+                if ( useActivity( request.value( "activity", std::string( "ask" ) ), folder ) )
+                {
+                    startNewConversation();
+                    sendState();
+                }
             }
             else if ( type == "conversation.open" )
             {
@@ -602,6 +668,9 @@ namespace Mila::DesktopApp
                 { "id", conversation_id_ },
                 { "title", conversation_title_ },
                 { "model", session_.modelName() },
+                { "activity", conversation_activity_ },
+                { "folder", conversationFolder() },
+                { "plan", plan_.toJson() },
                 { "created", conversation_created_ },
                 { "updated", timestamp() },
                 { "messages", conversation_messages_ },
@@ -621,6 +690,102 @@ namespace Mila::DesktopApp
         {
             session_.newConversation();
             forgetConversation();
+        }
+
+        /**
+         * @brief Give the session an activity's system prompt, tools, limits and rules (MilaApp.md 3.1).
+         *
+         * Ask & Explore has no tools and Chat's own limits. The others run with no round or reply limit, bounded by
+         * the context and the person's Stop: Build & Code with the file tools over its folder, Research & Analyze
+         * reading web pages, Get Things Done with both and its plan, whose updates run without asking.
+         *
+         * @return False, having said why, for an activity this session does not offer or a folder that does not
+         *         exist; nothing has changed then.
+         */
+        bool useActivity( const std::string& activity, const std::string& folder )
+        {
+            const bool known = activity == "ask" || activity == "build" || activity == "research" || activity == "tasks";
+
+            if ( !known )
+            {
+                sendError( std::format( "There is no activity called {}.", activity ), "conversation" );
+
+                return false;
+            }
+
+            std::optional<FileTools> tools;
+
+            if ( activity == "build" || activity == "tasks" )
+            {
+                try
+                {
+                    tools.emplace( FileTools::inFolder( folder ) );
+                }
+                catch ( const std::invalid_argument& )
+                {
+                    sendError( folder.empty() ? std::string( "This works in a folder; choose one to start." )
+                        : std::format( "The folder {} is not there any more.", folder ), "conversation" );
+
+                    return false;
+                }
+            }
+
+            if ( activity == "ask" )
+            {
+                if ( ask_prompt_ )
+                {
+                    session_.useSystemPrompt( *ask_prompt_ );
+                }
+
+                session_.useLimits( std::nullopt );
+            }
+            else
+            {
+                session_.useSystemPrompt( promptFor( activity ) );
+                session_.useLimits( Mila::AI::AgentLimits{} );
+            }
+
+            Mila::AI::ToolRules rules;
+
+            if ( activity == "tasks" )
+            {
+                rules.add( { std::string( TaskPlan::kUpdateName ), Mila::AI::ToolPermission::Allow, {} } );
+            }
+
+            session_.useToolRules( std::move( rules ) );
+            file_tools_ = std::move( tools );
+            plan_.clear();
+            conversation_activity_ = activity;
+
+            return true;
+        }
+
+        /**
+         * @brief An activity's own prompt. Research & Analyze and Get Things Done have one that names web search and
+         *        one that does not, since a prompt naming a tool not offered draws calls of it.
+         */
+        std::filesystem::path promptFor( const std::string& activity ) const
+        {
+            if ( activity == "research" )
+            {
+                return web_search_ ? research_search_prompt_ : research_prompt_;
+            }
+
+            if ( activity == "tasks" )
+            {
+                return web_search_ ? tasks_search_prompt_ : tasks_prompt_;
+            }
+
+            return build_prompt_;
+        }
+
+        /// A key given or removed changes the open conversation's prompt and tools from its next response.
+        void refreshSearchPrompt()
+        {
+            if ( conversation_activity_ == "research" || conversation_activity_ == "tasks" )
+            {
+                session_.useSystemPrompt( promptFor( conversation_activity_ ) );
+            }
         }
 
         /// The session's history no longer belongs to a stored conversation; the next turn starts one.
@@ -643,6 +808,17 @@ namespace Mila::DesktopApp
                 return;
             }
 
+            const std::string activity = conversation->value( "activity", std::string( "ask" ) );
+            const nlohmann::json stored_folder = conversation->value( "folder", nlohmann::json( nullptr ) );
+            const std::string folder = stored_folder.is_string() ? stored_folder.get<std::string>() : std::string{};
+
+            if ( !useActivity( activity, folder ) )
+            {
+                return;
+            }
+
+            plan_.restore( conversation->value( "plan", nlohmann::json( nullptr ) ) );
+
             std::vector<ChatMessage> turns;
 
             for ( const nlohmann::json& turn : conversation->value( "turns", nlohmann::json::array() ) )
@@ -658,7 +834,8 @@ namespace Mila::DesktopApp
             conversation_messages_ = conversation->value( "messages", nlohmann::json::array() );
 
             send( "conversation.loaded", { { "id", id }, { "title", conversation_title_ },
-                { "model", conversation->value( "model", std::string{} ) }, { "messages", conversation_messages_ } } );
+                { "model", conversation->value( "model", std::string{} ) }, { "activity", conversation_activity_ },
+                { "folder", conversationFolder() }, { "messages", conversation_messages_ } } );
 
             sendState();
         }
@@ -751,7 +928,7 @@ namespace Mila::DesktopApp
                 []( const ChatMessage& turn ) { return turn.role == MessageRole::User; } );
         }
 
-        /// One change per request (ChatDesktop.md 4.2); what the session says about it arrives as its own events.
+        /// One change per request (MilaApp.md 4.2); what the session says about it arrives as its own events.
         void changeSetting( const nlohmann::json& request )
         {
             if ( request.contains( "context" ) )
@@ -792,10 +969,53 @@ namespace Mila::DesktopApp
             {
                 changeSeed( request[ "seed" ] );
             }
+            else if ( request.contains( "search_key" ) )
+            {
+                changeSearchKey( request[ "search_key" ] );
+            }
             else
             {
                 sendError( "That is not a setting this session has.", "settings" );
             }
+        }
+
+        /// A key is kept and searching offered from the next response; null or empty removes both.
+        void changeSearchKey( const nlohmann::json& value )
+        {
+            const std::string key = value.is_string() ? value.get<std::string>() : std::string{};
+            const auto first = key.find_first_not_of( " \t\r\n" );
+            const auto last = key.find_last_not_of( " \t\r\n" );
+            const std::string trimmed = first == std::string::npos ? std::string{} : key.substr( first, last - first + 1 );
+
+            if ( trimmed.empty() )
+            {
+                search_key_file_.remove();
+                web_search_.reset();
+                session_.unregisterTool( std::string( WebSearch::kName ) );
+                refreshSearchPrompt();
+
+                return;
+            }
+
+            search_key_file_.write( trimmed );
+            useSearchKey( trimmed );
+            refreshSearchPrompt();
+        }
+
+        void useSearchKey( const std::string& key )
+        {
+            web_search_.emplace( transport_, key );
+
+            // Registered once; a later key replaces the search it runs.
+            session_.registerTool( std::string( WebSearch::kName ), [this]( const std::string& arguments )
+                {
+                    if ( !web_search_ )
+                    {
+                        throw std::runtime_error( "web search is not set up" );
+                    }
+
+                    return web_search_->search( arguments );
+                } );
         }
 
         void changeContext( const nlohmann::json& value )
@@ -1017,8 +1237,18 @@ namespace Mila::DesktopApp
                 { "detail", detailLevelName( config.detail ) },
                 { "sampling", std::move( sampling ) },
                 { "modalities", std::move( modalities ) },
+                { "activities", nlohmann::ordered_json::array( { "ask", "build", "research", "tasks" } ) },
+                { "activity", conversation_activity_ },
+                { "folder", conversationFolder() },
+                { "plan", plan_.toJson() },
+                { "web_search", web_search_.has_value() },
                 { "busy", busy },
                 { "streams", nlohmann::ordered_json::array( { stream } ) } } );
+        }
+
+        nlohmann::json conversationFolder() const
+        {
+            return file_tools_ ? nlohmann::json( file_tools_->folderText() ) : nlohmann::json( nullptr );
         }
 
         void sendConversations()
@@ -1201,7 +1431,7 @@ namespace Mila::DesktopApp
             return "deny";
         }
 
-        /// The first user message, cut at a word under 60 characters (ChatDesktop.md 6.3).
+        /// The first user message, cut at a word under 60 characters (MilaApp.md 6.3).
         static std::string titleFor( const std::string& text )
         {
             std::string title = text.substr( 0, text.find( '\n' ) );
@@ -1284,7 +1514,19 @@ namespace Mila::DesktopApp
 
         ChatSession session_;
         ConversationStore store_;
+        std::filesystem::path build_prompt_;
+        std::filesystem::path research_prompt_;
+        std::filesystem::path research_search_prompt_;
+        std::filesystem::path tasks_prompt_;
+        std::filesystem::path tasks_search_prompt_;
+        std::optional<std::filesystem::path> ask_prompt_;
         std::ostream& out_;
+        std::shared_ptr<const Mila::Distribution::IHttpTransport> transport_;
+        WebPageReader web_reader_;
+        SearchKeyFile search_key_file_;
+
+        // Set while the person has given a search key; the web_search tool is offered only then.
+        std::optional<WebSearch> web_search_;
         std::mutex output_mutex_;
 
         RequestQueue queue_;
@@ -1303,6 +1545,11 @@ namespace Mila::DesktopApp
         std::string install_name_;
         std::uint64_t install_total_{ 0 };
         int install_percent_{ -1 };
+
+        // The conversation's activity, and for Build & Code the tools over its folder (MilaApp.md 3.1).
+        std::string conversation_activity_ = "ask";
+        std::optional<FileTools> file_tools_;
+        TaskPlan plan_;
 
         // The conversation the session's history belongs to; empty until its first turn.
         std::string conversation_id_;

@@ -5,10 +5,10 @@
 # Gated on MILA_ENABLE_APPS so a find_package/CPM consumer embedding Mila builds none of them.
 
 # Chat runs models, and CUDA is the only compute backend. The desktop app's session process links Chat's session
-# library, so it builds wherever Chat does; its window and page are Node, built by their own workflow.
+# library, so it builds wherever Chat does; mila-app packages it with the window and page, which are Node.
 if(MILA_ENABLE_APPS AND MILA_ENABLE_CUDA)
     add_subdirectory( Chat )
-    add_subdirectory( Desktop/Session )
+    add_subdirectory( Desktop )
 elseif(MILA_ENABLE_APPS)
     message(STATUS "MILA_ENABLE_CUDA is OFF - skipping mila-chat (instruct/CUDA-only)")
 endif()

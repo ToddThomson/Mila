@@ -1,6 +1,6 @@
 /**
  * @file Desktop.ConversationStore.ixx
- * @brief The desktop app's past conversations: one JSON file each, in a folder of the person's own (ChatDesktop.md 6.3).
+ * @brief The desktop app's past conversations: one JSON file each, in a folder of the person's own (MilaApp.md 6.3).
  */
 
 export module Desktop.ConversationStore;
@@ -15,7 +15,7 @@ namespace Mila::DesktopApp
     /**
      * @brief One JSON file per conversation, named by its id.
      *
-     * A file holds the conversation as the page shows it (`messages`, ChatDesktop.md 4.3) and as the model read it
+     * A file holds the conversation as the page shows it (`messages`, MilaApp.md 4.3) and as the model read it
      * (`turns`), with `id`, `title`, `model`, `created` and `updated`. Ids arrive from the page, so one is used as a
      * file name only when it is made of the characters this store gives ids; any other names no conversation.
      */
@@ -93,11 +93,14 @@ namespace Mila::DesktopApp
                     continue;
                 }
 
+                // A conversation stored before activities was asked and explored, with no folder (MilaApp.md 4.1).
                 items.push_back( {
                     { "id", conversation->value( "id", std::string{} ) },
                     { "title", conversation->value( "title", std::string{} ) },
                     { "updated", conversation->value( "updated", std::string{} ) },
-                    { "model", conversation->value( "model", std::string{} ) } } );
+                    { "model", conversation->value( "model", std::string{} ) },
+                    { "activity", conversation->value( "activity", std::string( "ask" ) ) },
+                    { "folder", conversation->value( "folder", nlohmann::json( nullptr ) ) } } );
             }
 
             // ISO 8601 in UTC sorts as text. A JSON array's iterators are not a std::ranges range.

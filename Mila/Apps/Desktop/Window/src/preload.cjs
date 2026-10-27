@@ -1,5 +1,5 @@
 // The page's bridge, and the page's only reach beyond itself: send, onMessage and pathForFile
-// (ChatDesktop.md 6.2). Runs sandboxed, so it may require only what Electron's sandbox allows.
+// (MilaApp.md 6.2). Runs sandboxed, so it may require only what Electron's sandbox allows.
 
 const { contextBridge, ipcRenderer, webUtils } = require( 'electron' );
 

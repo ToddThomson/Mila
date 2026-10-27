@@ -1,4 +1,4 @@
-# The Mila desktop app's session process (Specifications/ChatDesktop.md section 6.1): Chat's session, spoken to as JSON
+# The Mila desktop app's session process (Specifications/MilaApp.md section 6.1): Chat's session, spoken to as JSON
 # lines on stdio by the window. It links Chat's session library, so the two front ends are one session.
 add_executable( mila-session
     "Src/main.cpp"
@@ -14,6 +14,12 @@ PUBLIC
        TYPE CXX_MODULES FILES
         "Src/Desktop.SessionProcess.ixx"
         "Src/Desktop.ConversationStore.ixx"
+        "Src/Desktop.FileTools.ixx"
+        "Src/Desktop.HtmlText.ixx"
+        "Src/Desktop.TaskPlan.ixx"
+        "Src/Desktop.SearchKeyFile.ixx"
+        "Src/Desktop.WebSearch.ixx"
+        "Src/Desktop.WebPageReader.ixx"
 )
 
 target_link_libraries( mila-session PRIVATE MilaChatSession )
@@ -26,7 +32,7 @@ add_custom_command( TARGET mila-session POST_BUILD
         "$<TARGET_FILE_DIR:mila-session>/Prompts"
 )
 
-# What the window's package carries (ChatDesktop.md 9.4): the session, its prompts, and the CUDA libraries it loads,
+# What the window's package carries (MilaApp.md 9.4): the session, its prompts, and the CUDA libraries it loads,
 # found by reading the program's imports, so a toolkit that renames them needs no edit here. Installed only on request:
 #   cmake --install <build directory> --component mila-session --prefix Mila/Apps/Desktop/Window/session
 # The CUDA 13 toolkit keeps its Windows libraries in bin/x64.

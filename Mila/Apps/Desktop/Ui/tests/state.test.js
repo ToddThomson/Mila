@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createInitialState, reduce, summarizeTurn, groupConversations } from '../state.js';
-import { statsLine, thoughtLabel, contextFact, thinkingFact, finishNotice } from '../format.js';
+import { statsLine, thoughtLabel, contextFact, thinkingFact, finishNotice, activityCard, folderName, planProgress } from '../format.js';
 
 function apply( messages )
 {
@@ -259,3 +259,16 @@ function aReplyThatDidNotFinishOnItsOwnSaysWhy()
 }
 
 test( 'a reply that did not finish on its own says why', aReplyThatDidNotFinishOnItsOwnSaysWhy );
+
+function anActivityIsNamedForItsCardAndAFolderByItsLastPart()
+{
+    assert.equal( activityCard( 'build' ).name, 'Build & Code' );
+    assert.equal( activityCard( 'research' ).name, 'Research & Analyze' );
+    assert.equal( activityCard( 'tasks' ).name, 'Get Things Done' );
+    assert.equal( activityCard( 'plan' ).name, 'plan' );
+    assert.equal( planProgress( [ { text: 'a', status: 'done' }, { text: 'b', status: 'skipped' }, { text: 'c', status: 'in_progress' } ] ), '2 of 3 done' );
+    assert.equal( folderName( 'C:\\Users\\you\\Projects\\calc\\' ), 'calc' );
+    assert.equal( folderName( '/home/you/calc' ), 'calc' );
+}
+
+test( 'an activity is named for its card, and a folder by its last part', anActivityIsNamedForItsCardAndAFolderByItsLastPart );

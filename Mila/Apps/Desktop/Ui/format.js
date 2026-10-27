@@ -124,3 +124,41 @@ export function readableJson( text )
         return text;
     }
 }
+
+const activities = {
+    ask: { name: 'Ask & Explore', line: 'Questions, explanations, ideas, working a problem through.' },
+    build: { name: 'Build & Code', line: 'Write and improve software in a folder you choose.' },
+    research: { name: 'Research & Analyze', line: 'Investigate a question across web pages, with sources.' },
+    tasks: { name: 'Get Things Done', line: 'Give Mila an outcome: it plans the steps, you approve, it works through them.' }
+};
+
+/**
+ * How far a plan has come: steps done or skipped of all of them.
+ */
+export function planProgress( plan )
+{
+    const finished = plan.filter( ( step ) => step.status === 'done' || step.status === 'skipped' ).length;
+
+    return finished + ' of ' + plan.length + ' done';
+}
+
+/**
+ * An activity's card: its name and what it is for. An activity this page does not know is shown by
+ * its identifier, so a newer session's card still appears.
+ */
+export function activityCard( activity )
+{
+    const known = activities[ activity ];
+
+    return known === undefined ? { name: activity, line: '' } : known;
+}
+
+/**
+ * The last part of a folder's path, which is how a person names their project.
+ */
+export function folderName( folder )
+{
+    const parts = folder.split( /[\\/]/ ).filter( ( part ) => part.length > 0 );
+
+    return parts.length === 0 ? folder : parts[ parts.length - 1 ];
+}

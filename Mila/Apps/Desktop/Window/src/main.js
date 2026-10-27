@@ -1,8 +1,8 @@
 // Mila's window: starts Chat's session, hosts the page, and relays messages between them
-// unchanged, except link.open, which it handles itself (ChatDesktop.md 6.2). The page reaches
-// nothing else: no Node, no navigation, no new windows, no permissions but the clipboard.
+// unchanged, except link.open and folder.choose, which it handles itself (MilaApp.md 6.2). The
+// page reaches nothing else: no Node, no navigation, no new windows, no permissions but the clipboard.
 
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { registerPageScheme, servePage, isPageUrl, pageUrl } from './page-protocol.js';
@@ -112,6 +112,20 @@ function openLink( url )
     shell.openExternal( external );
 }
 
+/**
+ * The project folder comes from the system's own picker, so the page never names a path the
+ * person did not choose.
+ */
+async function chooseFolder()
+{
+    const options = { title: 'Choose a project folder', properties: [ 'openDirectory', 'createDirectory' ] };
+    const choice = await dialog.showOpenDialog( mainWindow, options );
+    const chosen = choice.canceled || choice.filePaths.length === 0 ? null : choice.filePaths[ 0 ];
+    const message = { v: 1, type: 'folder.chosen', path: chosen };
+
+    deliver( message );
+}
+
 function isFromPage( event )
 {
     const frame = event.senderFrame;
@@ -130,6 +144,13 @@ function onPageMessage( event, message )
     if ( message.type === 'link.open' )
     {
         openLink( message.url );
+
+        return;
+    }
+
+    if ( message.type === 'folder.choose' )
+    {
+        chooseFolder();
 
         return;
     }

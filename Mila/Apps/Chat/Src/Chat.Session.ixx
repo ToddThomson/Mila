@@ -177,6 +177,55 @@ namespace Mila::ChatApp
         }
 
         /**
+         * @brief How far each response may run from the next on; with none, Chat's own: its tool rounds and a reply
+         *        of max_new_tokens across them.
+         */
+        void useLimits( std::optional<Mila::AI::AgentLimits> limits )
+        {
+            limits_ = std::move( limits );
+        }
+
+        /// The rules every tool call passes from the next call on; with none set, every call is asked about.
+        void useToolRules( Mila::AI::ToolRules rules )
+        {
+            tool_rules_ = std::move( rules );
+
+            if ( agent_ )
+            {
+                agent_->withRules( tool_rules_ );
+            }
+        }
+
+        /**
+         * @brief Use another system prompt file, and the tools it describes, from the next response on.
+         *
+         * The model stays resident: the agent is given the file's prompt and offered only the tools the file
+         * describes and a handler runs. The history is kept; a front end that changes prompt starts a conversation.
+         *
+         * @throws std::runtime_error when the file cannot be read as a system prompt.
+         */
+        void useSystemPrompt( const std::filesystem::path& path )
+        {
+            system_prompt_config_ = SystemPromptLoader::load( path );
+            config_.system_prompt_path = path;
+
+            if ( agent_ )
+            {
+                agent_->withSystemPrompt( system_prompt_config_.system_prompt );
+                offerTools();
+            }
+        }
+
+        /// Stop offering a tool from the next response on, as though its handler had never been registered.
+        void unregisterTool( const std::string& name )
+        {
+            if ( tool_handlers_.erase( name ) > 0 && agent_ )
+            {
+                offerTools();
+            }
+        }
+
+        /**
          * @brief Replace the conversation with one held earlier, keeping this session's system prompt.
          *
          * The next turn prefills it whole. Tools allowed in the conversation it replaces are asked about again.
@@ -646,6 +695,17 @@ namespace Mila::ChatApp
             return active;
         }
 
+        /// The agent offers exactly the tools the system prompt describes and a handler runs.
+        void offerTools()
+        {
+            agent_->withoutTools();
+
+            for ( const auto& tool : activeTools() )
+            {
+                agent_->withTool( *agentTool( tool.name ) );
+            }
+        }
+
         /// A tool the system prompt describes and a handler runs, as the agent offers it; nothing for any other name.
         std::optional<Mila::AI::Tool> agentTool( const std::string& name ) const
         {
@@ -818,7 +878,8 @@ namespace Mila::ChatApp
                 }();
 
             agent_->withSampling( sessionSampling( config_ ) );
-            agent_->withLimits( { .rounds = kToolRounds, .reply_tokens = static_cast<dim_t>( config_.max_new_tokens ) } );
+            agent_->withLimits( limits_.value_or(
+                Mila::AI::AgentLimits{ .rounds = kToolRounds, .reply_tokens = static_cast<dim_t>( config_.max_new_tokens ) } ) );
 
             const Mila::Dnn::Conversation::Protocol& protocol = *agent_->model().protocol();
             RoundTimer timer;
@@ -1291,6 +1352,7 @@ namespace Mila::ChatApp
                 }
 
                 agent->onAsk( [this]( const Mila::AI::ToolQuestion& question ) { return askAboutCall( question ); } );
+                agent->withRules( tool_rules_ );
                 agent->openConversation( std::exchange( held_conversation_, {} ) );
 
                 deployment_plan_ = agent->plan();
@@ -1333,7 +1395,7 @@ namespace Mila::ChatApp
         void clearHistory()
         {
             // Ends the tools allowed for the conversation with it: conversation.new, conversation.open and model.load
-            // (ChatDesktop.md 4.5).
+            // (MilaApp.md 4.5).
             if ( agent_ )
             {
                 agent_->newConversation();
@@ -1350,6 +1412,10 @@ namespace Mila::ChatApp
         std::optional<DeploymentPlan> deployment_plan_;
         SystemPromptConfig system_prompt_config_;
         std::unordered_map<std::string, std::function<std::string( const std::string& )>> tool_handlers_;
+
+        // Set by a front end that runs its own limits and rules; Chat's own when empty.
+        std::optional<Mila::AI::AgentLimits> limits_;
+        Mila::AI::ToolRules tool_rules_;
 
         // The resident model, its conversation and the calls it makes; empty when nothing is resident.
         std::unique_ptr<Mila::AI::Agent> agent_;

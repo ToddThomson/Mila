@@ -3,6 +3,7 @@
 
 import { element, button, iconButton, clear } from '../dom.js';
 import { groupConversations } from '../state.js';
+import { activityCard, folderName } from '../format.js';
 
 export function createSidebarView( root, actions )
 {
@@ -201,6 +202,14 @@ export function createSidebarView( root, actions )
         const open = button( 'conversation-open', item.title, 'open-conversation' );
         const menuButton = iconButton( 'row-menu-button quiet-icon', 'more', 'Conversation options', 'row-menu' );
         open.dataset.identifier = item.id;
+
+        // Ask & Explore is the default, so only another activity is named, with the folder it works in.
+        if ( item.activity !== undefined && item.activity !== 'ask' )
+        {
+            const where = item.folder ? ' · ' + folderName( item.folder ) : '';
+            const label = element( 'span', 'conversation-activity', activityCard( item.activity ).name + where );
+            open.append( label );
+        }
         menuButton.dataset.identifier = item.id;
         row.append( open, menuButton );
 

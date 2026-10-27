@@ -10,6 +10,33 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## The desktop app's file tools open files directly, with nothing holding them to the chosen folder
+
+`Mila/Apps/Desktop/Session/Src/` file tools and `Desktop.WebPageReader.ixx`; an absence -- no grant (`ToolCalling.md`
+3.4) @ da647c29
+
+Workaround Todd chose 2026-10-26: the grant could not be written here (an automated safety check withheld six
+responses on this line of work, 2026-10-24 and 2026-10-26, reasons not shown), so the app's file tools come first
+without it. Every call of them asks by default, reads included; nothing the app shows says they are held to the
+folder; every path a tool touches goes through one function of the app's, which the grant replaces. The page reader
+came the same day on the same terms: it reaches any address, private and local ones included, and every fetch asks.
+The BACKLOG gate item stays open, and the theme's success criterion fails until it lands, so the tools do not ship to
+end users this way.
+
+## Nobody has read whether Tavily's terms let the Mila app keep search results in a saved conversation
+
+`Mila/Apps/Desktop/Session/Src/Desktop.WebSearch.ixx`; an absence -- Tavily's terms of service not read @ da647c29
+
+Found 2026-10-26 adding Tavily web search: a saved conversation keeps every tool result, search results included, and
+Tavily's credits page says nothing on keeping or showing results. Brave grants that only on some plans.
+
+## Mila's HTTP transport names itself Mila 0.20 to every server
+
+`Mila/Src/Distribution/CurlHttpTransport.ixx` (`CURLOPT_USERAGENT`, "Mila/0.20") @ da647c29
+
+Found 2026-10-26 writing the desktop app's page reader, which fetches through it: the user agent is a written-in
+string from the 0.20 cycle, not `Version.txt`'s, so model installs and web pages alike are requested as Mila 0.20.
+
 ## A program names a compute precision to open a model whose precision its package already decides
 
 `Mila/Src/AI/Agent.ixx` (`Agent`, `BasicAgent`) and `Mila/Src/AI/ModelHandle.ixx` (`ModelHandle`) @ 793bddb5
@@ -89,7 +116,7 @@ one-type rule, and it holds five types.
 
 an absence -- no file in the repository or in `.internal/` names them @ a8f5360a
 
-Todd, 2026-10-20, while choosing the toolkit for Chat's desktop window (`Mila/Specifications/ChatDesktop.md`
+Todd, 2026-10-20, while choosing the toolkit for Chat's desktop window (`Mila/Specifications/MilaApp.md`
 section 9): "We do have a future for .NET bindings." Like the Python binding: a projection of the C++ API
 (`Mila/Bindings/`).
 
@@ -98,7 +125,7 @@ v0.22.0 or later (Todd).
 
 ## The Mila desktop app's download is unsigned, has no updates and does not say it needs an NVIDIA GPU
 
-`Mila/Specifications/ChatDesktop.md` section 9.4; an absence -- no signing, no update channel, no stated
+`Mila/Specifications/MilaApp.md` section 9.4; an absence -- no signing, no update channel, no stated
 requirement @ c8f71f60
 
 Todd, 2026-10-24: the desktop app is the end-user showcase. Since +101 its installer carries the session, the
@@ -134,14 +161,14 @@ files were overwritten by the next, so what the page received is not known.
 
 `turn.end` is sent from inside the turn and `busy` clears after it, so a `turn.send` written on reading
 `turn.end` gets "A reply is still being written" (seen 2026-10-24 from a stdio script). The page waits for
-`session.state`, so it does not hit this; `ChatDesktop.md` 4.1 does not say which message a client waits for.
+`session.state`, so it does not hit this; `MilaApp.md` 4.1 does not say which message a client waits for.
 
 ## The session sends a thought break when the model is not thinking
 
 `Mila/Apps/Desktop/Session/Src/Desktop.SessionProcess.ixx` `thoughtBreak` @ a9087567
 
 Gemma 4 12B Q4_0 with thinking off, 2026-10-24: `turn.thought_break` after the tool result, with no thought
-text before or after it. `ChatDesktop.md` 4.1 says it means the reasoning resumed. The page shows nothing for it.
+text before or after it. `MilaApp.md` 4.1 says it means the reasoning resumed. The page shows nothing for it.
 
 ## The desktop Models view stays open after a load, and offers Load while one runs
 
@@ -172,7 +199,7 @@ from a C++ process, and whether it holds against the routes of 3.4.
 
 `.github/workflows/desktop.yml`; an absence -- the `windows-installer` job removed @ 793bddb5
 
-Removed 2026-10-26 when the installer began carrying the session (`ChatDesktop.md` 9.4): `npm run build:windows`
+Removed 2026-10-26 when the installer began carrying the session (`MilaApp.md` 9.4): `npm run build:windows`
 refuses to run without `Window/session/` staged from a C++ build, and the desktop workflow has no C++ build. Before
 that the job's upload was an installer that ran only the mock. Nothing builds the installer now but a person
 with a Release build directory (`Mila/Apps/Desktop/README.md`, *Staging it for the window*).

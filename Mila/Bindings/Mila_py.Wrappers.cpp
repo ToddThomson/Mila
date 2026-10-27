@@ -546,6 +546,16 @@ namespace Mila::Bindings
                 const Mila::Distribution::SinkCallback& sink,
                 const Mila::Distribution::HeadersCallback& on_headers ) const override
             {
+                // The delegate's signature carries no body, so a POST it was handed would go out as a GET.
+                if ( request.body )
+                {
+                    Mila::Distribution::HttpResponse refused;
+                    refused.transport_failed = true;
+                    refused.message = "the Python transport sends GET requests only";
+
+                    return refused;
+                }
+
                 std::vector<HttpHeaderInfo> headers;
 
                 for ( const auto& header : request.headers )

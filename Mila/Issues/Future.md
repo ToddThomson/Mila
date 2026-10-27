@@ -729,7 +729,7 @@ ROCm and Metal; `DeviceType::Rocm` / `::Metal` are reserved and unimplemented.
 
 Metal, 2026-09-29: aspirational, gated on hardware -- Todd is trying to get an Apple M1, for a Metal backend running
 Llama. As of 2026-10-20 an M1-or-later loaner is expected at the end of October or early November, and macOS is also
-wanted for Chat's desktop window (`ChatDesktop.md` section 9). What exists is scaffolding --
+wanted for Chat's desktop window (`MilaApp.md` section 9). What exists is scaffolding --
 `Compute/Devices/Metal/` has a device, memory resource, execution context and plugin, and no ops. The order that
 follows from the tree: Mila has never been built on ARM (the next entry), so a CPU-only build on the M1 comes first,
 and with `Vnext.md` "Llama 3.2 runs on the CPU backend" it already runs Llama there; then the Llama op set in Metal,
@@ -876,7 +876,7 @@ window is an HTML page in an Electron client of that process -- one presentation
 (Todd, 2026-10-20). Phase 1, the page and the Electron window against a mock session, is to be built by a cloud
 session. Open: the names, and which release takes phases 2 to 4.
 
-`Mila/Specifications/ChatDesktop.md`
+`Mila/Specifications/MilaApp.md`
 
 ## Qwen 3.8 27B FP4 at 64K would need part of its cache in host memory
 

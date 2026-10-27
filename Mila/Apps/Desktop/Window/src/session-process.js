@@ -1,4 +1,4 @@
-// Starts Chat's session as a child process and speaks JSON lines with it (ChatDesktop.md 4,
+// Starts Chat's session as a child process and speaks JSON lines with it (MilaApp.md 4,
 // Transport): requests on its standard input, events from its standard output, its log on
 // standard error. Ending its input ends it.
 

@@ -57,7 +57,7 @@ researcher." Speed beside llama.cpp is evidence that the work is professional, n
 
 Decided 2026-10-24 (Todd): "Mila is the brand name. [The desktop app] IS the showcase agentic application
 for end users. Mila C++23 library is the dev target audience." The trait above is the library's, and the
-library's reader is the developer. The desktop app, called Mila (`ChatDesktop.md`), is for the person who
+library's reader is the developer. The desktop app, called Mila (`MilaApp.md`), is for the person who
 runs local models: it shows them what Mila can do, an agent at work with the conversation as its face. It
 is judged as an end-user product -- installed without a toolkit, written in end-user prose -- and beside
 other desktop apps for local models its case is the quality of the models it runs and the agent, not

@@ -13,8 +13,9 @@ each round continues from the reply as generated and the results as the template
 (`Protocol::continueWithToolResults`), and Qwen continues from the state its last generation left. Built at
 `+100`: sections 3.1 to 3.3 -- every call passes `ToolGate`: the arguments checked against the tool's parameters,
 the person's rules (`ToolRules`), the question built from the tool as registered, the call's own time and a cap on
-its result, and the record of each call on its event. Section 3.4, an output schema, and results other than text
-are not built. It replaces `ToolBroker.md` as the design of record for where tool calling lives; the code built to that
+its result, and the record of each call on its event. Since 2026-10-26 an agent's tools can be withdrawn
+(`withoutTools`), so one resident model serves conversations with different tools. Section 3.4, an output schema, and
+results other than text are not built. It replaces `ToolBroker.md` as the design of record for where tool calling lives; the code built to that
 spec -- the broker in `Mila/Apps/Tools/Broker`, the client in `Mila/AI/`, the session's own handler map in Chat --
 is refit to this one. Open decisions are in section 9.
 
@@ -23,7 +24,7 @@ is refit to this one. Open decisions are in section 9.
 ## 1. The rule
 
 **The Mila library provides everything a developer needs to build an application like the Mila desktop app**
-(`ChatDesktop.md`). An agent's tools are the core of that app, so tool calling is the library's. Leaving it to
+(`MilaApp.md`). An agent's tools are the core of that app, so tool calling is the library's. Leaving it to
 each application would either give the Mila app a capability the library lacks (`Direction.md` 3.3) or require a
 second harness library, which would be Mila under another name.
 
@@ -136,7 +137,9 @@ opened.
   server, code an agent wrote -- is not offered until an implementation exists that enforces its whole grant.
 
 The checks are the hard, security-critical part, which is why they are Mila's and not each application's: written
-once, and each tested first reaching its target with the check removed, then refused with it.
+once, and each tested: the access refused, beside the same access inside the grant allowed. *Decided 2026-10-26
+(Todd):* no test first shows an access getting out with the check removed; that probe is the operating-system
+sandbox's gate (`Vnext.md`), not the grant's.
 
 ## 4. The loop and the splice
 
@@ -223,7 +226,7 @@ system's file and socket calls for the grant; HTTP, TLS and process launching co
 
 - `Direction.md` 3 and 8 -- the layering and decision 6, which point here.
 - `ModelHandle.md` -- the handle the grammar of section 2 lives on, and its declared capabilities.
-- `ChatDesktop.md` 4.5 -- the desktop app's question and answers, which this design's hook presents.
+- `MilaApp.md` 4.5 -- the desktop app's question and answers, which this design's hook presents.
 - `ToolBroker.md` -- the earlier design; its approval round trip informs section 6, its checks are section 3.4's.
 - `Notebooks/LocalToolService.md` -- the reading behind both: placement, identity, secrets, the round trip
   measured, and prior art.
