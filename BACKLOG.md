@@ -428,17 +428,17 @@ names and an administrator to create one.
 
 `in progress` · `apps`
 
-The desktop app's own tools, written through grants (Mila ships none): reading a file or a range of its lines,
+The Mila app's own tools, written through grants (Mila ships none): reading a file or a range of its lines,
 listing a folder, finding files by name, searching text, writing a file and editing one exact passage, in the
 folder the person chose and its `.mila` folder; and fetching a web page as readable text, size-capped, from public
-addresses. Reads allowed by default, writes and fetches asked. The file tools exist (`Desktop.FileTools.ixx`, the
-`files` prompt, Build & Code's folder), and so does reading a web page (`Desktop.WebPageReader.ixx`, Research &
+addresses. Reads allowed by default, writes and fetches asked. The file tools exist (`Assistant.FileTools.ixx`, the
+`files` prompt, Build & Code's folder), and so does reading a web page (`Assistant.WebPageReader.ixx`, Research &
 Analyze), each through its call's grant; what is left is the rules -- every call is still asked, reads included --
 and the `.mila` folder.
 
 `Mila/Specifications/ToolCalling.md` section 5
 
-#### The desktop app runs only against a mock
+#### The Mila app runs only against a mock
 
 `in progress` · `apps`
 
@@ -451,30 +451,31 @@ scenarios 1 to 11 on Llama, Gemma and a real install; tool calls through `Mila::
 
 `Mila/Specifications/MilaApp.md` sections 6.1, 8
 
-#### A program that changes its model loses its tools, rules and conversation, so the desktop app borrows Chat's code to keep them
+#### A program that changes its model loses its tools, rules and conversation, so the Mila app borrows Chat's code to keep them
 
 `in progress` · `ai` · `apps` · `mila-src` · `breaking`
 
 An agent ends with its model, and everything set on it ends too. Chat's `ChatSession` keeps a copy of each --
-rules, grant, limits, prompt, tool handlers, a held conversation -- to give the next agent, and the desktop app's
-session links that code (`MilaChatSession`), Chat's settings files and Chat's family-specific code with it (the
-`FamilyTraits` table, Qwen's effort mapping). Decided (`Direction.md` 4.3): an agent is a
+rules, grant, limits, prompt, tool handlers, a held conversation -- to give the next agent, in a library
+(`MilaChatSession`) that carries Chat's settings files and Chat's family-specific code with it (the `FamilyTraits`
+table, Qwen's effort mapping). Decided (`Direction.md` 4.3): an agent is a
 model and a `Mila::AI::Session`; changing the model gives the session back, releasing the model, and creates another
 agent from it.
 
 - `Session` in `Mila/Src/AI/`: prompt, tools, rules, grant, asker, limits, conversation and the tools allowed for
   it (out of `ToolGate`). `Agent` keeps the handle, template variables, sampling and the response in flight.
 - Template variables and sampling not accepted by the new model's template are dropped and reported.
-- `MilaChatSession` dissolved: the desktop session builds on `Mila::AI` with a layer of its own, Chat keeps its
+- `MilaChatSession` dissolved: the Mila app's session builds on `Mila::AI` with a layer of its own, Chat keeps its
   console and its configuration, and what both need that a developer's program would too is proposed for
   `Mila::AI`. `ModelCatalog` and `Footprint` are sorted against `InstalledModel` and the planner first.
 - Every job of the shared library, and where it goes: `Notebooks/SessionInventory.md`. Built: `Session`,
   `SamplingOverride`, `OpenRefusal` and `Agent::check`, and Chat's session holding a `Session` (its order's step
-  1). Left: the desktop session onto `Mila::AI` alone (step 2) and `MilaChatSession` dissolved (step 3).
+  1); the Mila app's session on `Mila::AI` alone, with settings, prompts and store work of its own (step 2). Left:
+  `MilaChatSession` dissolved into Chat (step 3).
 
 Gate: library tests -- a session survives a change of model and of context, a failed load leaves the program
 holding it, a dropped template variable is reported, and one conversation carried through Gemma, Llama and Qwen;
-the Chat console byte gate; the desktop session's drives; and `mila-session` links no module of Chat's.
+the Chat console byte gate; the Mila app's session's drives; and `mila-session` links no module of Chat's.
 
 `Mila/Specifications/Direction.md` section 4.3
 

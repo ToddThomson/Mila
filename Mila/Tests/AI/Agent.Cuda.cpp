@@ -1365,4 +1365,52 @@ namespace Mila::Tests::AI
         ASSERT_FALSE( replies.front().empty() );
         EXPECT_EQ( replies.front(), replies.back() );
     }
+
+    TEST_F( AgentOnGemmaCuda, ThinkingFollowsTheTemplatesSwitchWhereTheModelDeclaresIt )
+    {
+        // A package whose manifest does not declare thinking never thinks, whatever the switch says.
+        const bool declared = agent_->model().capabilities().thinking;
+
+        agent_->withTemplateVariable( "enable_thinking", "false" );
+        EXPECT_FALSE( agent_->thinks() );
+
+        agent_->withTemplateVariable( "enable_thinking", "true" );
+        EXPECT_EQ( agent_->thinks(), declared );
+
+        agent_->withTemplateVariables( {} );
+    }
+
+    TEST_F( AgentOnGemmaCuda, TheSamplingInEffectIsThePublishersUnderEachSettingTheSessionNames )
+    {
+        const auto recommendations =
+            Mila::Distribution::recommendedSampling( agent_->model().installed().stored().record );
+
+        for ( const bool thinking : { false, true } )
+        {
+            agent_->withTemplateVariable( "enable_thinking", thinking ? "true" : "false" );
+
+            const auto* recommended = Mila::Distribution::matchingSampling( recommendations, thinking );
+            ASSERT_NE( recommended, nullptr ) << "thinking " << thinking;
+
+            agent_->session().withSampling( {} );
+            const SamplingParams publishers = agent_->sampling();
+
+            EXPECT_EQ( publishers.temperature, recommended->temperature.value_or( SamplingParams{}.temperature ) );
+            EXPECT_EQ( publishers.top_k, recommended->top_k.value_or( SamplingParams{}.top_k ) );
+            EXPECT_EQ( publishers.top_p, recommended->top_p.value_or( SamplingParams{}.top_p ) );
+            EXPECT_EQ( publishers.presence_penalty,
+                recommended->presence_penalty.value_or( SamplingParams{}.presence_penalty ) );
+
+            // One knob named; the other three stay the publisher's.
+            agent_->session().withSampling( SamplingOverride{ .top_k = 1 } );
+            const SamplingParams named = agent_->sampling();
+
+            EXPECT_EQ( named.top_k, 1 );
+            EXPECT_EQ( named.temperature, publishers.temperature );
+            EXPECT_EQ( named.top_p, publishers.top_p );
+            EXPECT_EQ( named.presence_penalty, publishers.presence_penalty );
+        }
+
+        agent_->withTemplateVariables( {} );
+    }
 }

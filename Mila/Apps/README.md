@@ -7,9 +7,8 @@ its own: a gap between what the library can do and what an app reaches is a defe
 - **[Chat](Chat/)** (`mila-chat`) closes the generation loop in-process with a **human** in the
   gate. An instruct chat console with channel-aware streaming, tool calling and model
   hot-switching over any installed instruct model. CUDA-only today.
-- **[Desktop](Desktop/)** is Mila, the desktop app: conversations, models and tool calls in a
-  window, over the same session as Chat. Its session process runs real models; the window still
-  starts a scripted mock session in its place.
+- **[Assistant](Assistant/)** is Mila, the assistant app: conversations, models and tool calls in a
+  window, over a `Mila::AI` agent its session process runs on real models.
 - **[Server](Server/)** (`mila-server`) is the Mila Inference Server: it serves the loop over
   OpenAI- and Anthropic-compatible HTTP, so a foreign harness (Codex, Claude Code) drives Mila
   from another process. It is Python, installs as `mila-llm-server`, and imports the `mila`

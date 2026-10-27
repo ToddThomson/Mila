@@ -7,7 +7,7 @@ How a model's tool calls run through `Mila::AI`: what the Mila library provides 
 three answers, no hook meaning deny, a call of a tool not offered or a tool that throws answered with an error result,
 and a stopped reply running no waiting call. Built at `+98`: section 4's limits per response (`AgentLimits` --
 rounds, time, reply tokens, none set by default), a stop or the time running out asking a running call to stop, and
-a result the context cannot hold cut to what fits and the model told so; Chat and the desktop app's session run
+a result the context cannot hold cut to what fits and the model told so; Chat and the Mila app's session run
 their calls through the agent and hold no loop of their own. Built at `+99`: section 4's splice -- within a response
 each round continues from the reply as generated and the results as the template frames them
 (`Protocol::continueWithToolResults`), and Qwen continues from the state its last generation left. Built at
@@ -24,7 +24,7 @@ is refit to this one. Open decisions are in section 9.
 
 ## 1. The rule
 
-**The Mila library provides everything a developer needs to build an application like the Mila desktop app**
+**The Mila library provides everything a developer needs to build an application like the Mila app**
 (`MilaApp.md`). An agent's tools are the core of that app, so tool calling is the library's. Leaving it to
 each application would either give the Mila app a capability the library lacks (`Direction.md` 3.3) or require a
 second harness library, which would be Mila under another name.
@@ -191,7 +191,7 @@ operating-system sandbox's own measurement (`Vnext.md`), not to the grant's.
 
 ## 5. What the application brings
 
-- **The tools.** Mila ships none (Todd, 2026-10-25). The Mila desktop app's tools for files and the web are its own
+- **The tools.** Mila ships none (Todd, 2026-10-25). The Mila app's tools for files and the web are its own
   code, the first written through grants, and a developer's program could write the same.
 - **Its default rules,** and where the person's rules are kept and how they are edited: a file, a settings page, a
   command.
@@ -246,7 +246,7 @@ system's file and socket calls for the grant; HTTP, TLS and process launching co
 
 - `Direction.md` 3 and 8 -- the layering and decision 6, which point here.
 - `ModelHandle.md` -- the handle the grammar of section 2 lives on, and its declared capabilities.
-- `MilaApp.md` 4.5 -- the desktop app's question and answers, which this design's hook presents.
+- `MilaApp.md` 4.5 -- the Mila app's question and answers, which this design's hook presents.
 - `ToolBroker.md` -- the earlier design; its approval round trip informs section 6, its checks are section 3.4's.
 - `Notebooks/LocalToolService.md` -- the reading behind both: placement, identity, secrets, the round trip
   measured, and prior art.

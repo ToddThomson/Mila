@@ -14,7 +14,7 @@ The roadmap shows the **release in flight**, plus a **Future** tail. A release i
 
 ## v0.21.0 — The Model Families, Finished and Measured
 
-**Release Date:** _Target — 2026-12-04_ (moved two weeks from 2026-11-20 on 2026-10-24, Todd, for the desktop
+**Release Date:** _Target — 2026-12-04_ (moved two weeks from 2026-11-20 on 2026-10-24, Todd, for the Mila app's
 agent harness; it moves again rather than narrow that harness, 2026-10-25)
 
 **The release makes one claim: every model Mila publishes is finished, and you can see how good it
@@ -44,7 +44,7 @@ It was this release until 2026-10-10, when it was split out (Todd): the family w
 API, and a release of finished, measured models need not wait for it. The applications therefore move
 once, in v0.22.0, as that plan intended; what they gain here is what survives that move — a published
 server, correct replies, and defaults read from the model. The one exception is *The Desktop Agent* (below):
-the desktop app becomes an agent harness here, built from the library, so the part of section 5 that tool calling
+the Mila app becomes an agent harness here, built from the library, so the part of section 5 that tool calling
 stands on -- the model handle, and `Mila::AI` with its tool loop -- comes forward with it (Todd, 2026-10-25).
 
 **The date is fixed and the scope drains, except for *The Desktop Agent*.** What has not landed by 2026-12-04
@@ -224,13 +224,13 @@ user from install to a running model.
 
 ### The Desktop Agent
 
-*The models this release finishes call tools, and the desktop app, Mila, lets you put them to work on your own
+*The models this release finishes call tools, and Mila, the assistant app, lets you put them to work on your own
 files and the web, each call under your rules and kept to the folder you choose -- built from the library alone,
 so a developer's program can do the same.*
 
 Family parity gave this release models that call tools: Gemma 4 and Qwen 3.8 are driven through tool calls today,
 and Llama never has been, which this theme closes. The only harnesses that exercise them are other people's, over
-the inference server, and Mila's own Chat runs one stub tool. The desktop app's window was built in October against
+the inference server, and Mila's own Chat runs one stub tool. The Mila app's window was built in October against
 a mock; this theme puts it on a real model and makes it an agent harness: the model reads and edits files in a
 folder the person chooses and reads web pages, and every call is allowed, asked or refused by the person's rules.
 
@@ -241,24 +241,23 @@ from v0.22.0 what tool calling stands on: the model's tool grammar on the model 
 let one loop drive every family, and `Mila::AI` itself, whose tool loop appends each result's tokens to the live
 cache instead of reading the conversation again. On it: tools that declare what they touch, permissions every call
 passes, with the app's hook for asking the person, and a grant through which a tool opens files and makes
-connections, which holds it to the folder and to public addresses. Mila ships no tools: the desktop app's file and
+connections, which holds it to the folder and to public addresses. Mila ships no tools: the Mila app's file and
 web tools are its own code, the first written through grants. And an agent holds a session -- what the program
 gave it and the conversation -- apart from its model, so a program changes model or context without losing either;
-today the desktop app borrows Chat's session code for that, and Chat's family-specific code with it, where each
-should build on the library alone (`Direction.md` 4.3, Todd, 2026-10-27). Tools in processes of their own, MCP and an
+the Mila app and Chat each build on the library alone for that, with no family-specific code of their own (`Direction.md` 4.3, Todd, 2026-10-27). Tools in processes of their own, MCP and an
 operating-system sandbox come later, with the shell and other people's tool servers that need them. The grant's
 checks are Windows first: on any other platform the app runs without tools until they are tested there.
 
-**Success criteria:** on Windows, the desktop app runs every model this release publishes that calls tools through a
+**Success criteria:** on Windows, the Mila app runs every model this release publishes that calls tools through a
 task that reads files in the chosen folder, edits one, and reads a web page, each call allowed or asked by the
 person's rules and shown in the conversation; a denied call reaches the model as declined and the reply continues;
 a tool working through its grant cannot read or write outside the chosen folder by any name that leads there, and
 reaches no private or local address by name, by literal address or through a redirect, shown by a test per kind of
-name and address that is refused; the desktop app and Chat run every tool call through `Mila::AI`,
+name and address that is refused; the Mila app and Chat run every tool call through `Mila::AI`,
 and neither runs a call itself nor holds a model's tool grammar; the console Chat asks before a tool runs, as the
 window does; a program built against the library alone registers a tool and runs it under `Mila::AI`'s permissions
 on Gemma, Llama and Qwen by changing only the model's name, `plan()` and `model()` reaching the objects that ran;
-a program changes its model, or its context, and keeps its tools, rules, grant and conversation; the desktop app and
+a program changes its model, or its context, and keeps its tools, rules, grant and conversation; the Mila app and
 Chat each build on `Mila::AI` alone, neither linking the other's code, and neither holds code that knows which family
 a model belongs to; no dispatch site in `Mila::AI` carries a
 per-family branch; and across a multi-turn tool session, prefill tokens per turn equal the tokens the turn added,

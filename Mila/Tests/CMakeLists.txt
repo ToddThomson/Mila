@@ -55,6 +55,9 @@ add_executable( MilaTests
     "AI/ToolGate.cpp"
     # What a program gives an agent, kept apart from its model (Direction.md 4.3). Needs no model.
     "AI/Session.cpp"
+    # The Mila app's own settings file and activity prompts (MilaApp.md 3.1, 3.7). Needs no model.
+    "Apps/Assistant/SettingsFile.cpp"
+    "Apps/Assistant/PromptFile.cpp"
     "Data/Loaders/DataLoader.cpp"
     "Dnn/Components/Activations/Activation/ActivationConfig.cpp"
     "Dnn/Components/Activations/Gelu/GeluConfig.cpp"
@@ -411,6 +414,20 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   )
 endif()
 
+# The Mila app's modules the model-free tests above read, built here from its sources as AssistantHtmlTextTests builds
+# its own.
+target_sources( MilaTests
+PRIVATE
+    FILE_SET assistant_module_files
+    TYPE CXX_MODULES
+    BASE_DIRS "${CMAKE_SOURCE_DIR}/Mila/Apps/Assistant/Session/Src"
+    FILES
+        "${CMAKE_SOURCE_DIR}/Mila/Apps/Assistant/Session/Src/Assistant.Settings.ixx"
+        "${CMAKE_SOURCE_DIR}/Mila/Apps/Assistant/Session/Src/Assistant.SettingsFile.ixx"
+        "${CMAKE_SOURCE_DIR}/Mila/Apps/Assistant/Session/Src/Assistant.PromptTool.ixx"
+        "${CMAKE_SOURCE_DIR}/Mila/Apps/Assistant/Session/Src/Assistant.PromptFile.ixx"
+)
+
 # MilaMeasurement: the log-likelihood harness and PG-19 reader, shared with Tools/ContextProfile.
 target_link_libraries( MilaTests PRIVATE Mila MilaMeasurement gtest )
 
@@ -485,33 +502,33 @@ gtest_discover_tests( ChatRichTextTests
 )
 
 # ---------------------------------------------------------------------------
-# The desktop app: a web page's HTML read as text.
+# The Mila app: a web page's HTML read as text.
 #
-# Its own executable for the reason ChatRichTextTests is: Desktop.HtmlText imports nothing of
+# Its own executable for the reason ChatRichTextTests is: Assistant.HtmlText imports nothing of
 # Mila's, so it builds and runs anywhere without the library.
 # ---------------------------------------------------------------------------
-add_executable( DesktopHtmlTextTests
-    "Apps/Desktop/HtmlText.Cpu.cpp"
+add_executable( AssistantHtmlTextTests
+    "Apps/Assistant/HtmlText.Cpu.cpp"
 )
 
-target_sources( DesktopHtmlTextTests
+target_sources( AssistantHtmlTextTests
 PUBLIC
     FILE_SET module_files
     TYPE CXX_MODULES
-    BASE_DIRS "${CMAKE_SOURCE_DIR}/Mila/Apps/Desktop/Session/Src"
+    BASE_DIRS "${CMAKE_SOURCE_DIR}/Mila/Apps/Assistant/Session/Src"
     FILES
-        "${CMAKE_SOURCE_DIR}/Mila/Apps/Desktop/Session/Src/Desktop.HtmlText.ixx"
+        "${CMAKE_SOURCE_DIR}/Mila/Apps/Assistant/Session/Src/Assistant.HtmlText.ixx"
 )
 
-set_target_properties( DesktopHtmlTextTests PROPERTIES
+set_target_properties( AssistantHtmlTextTests PROPERTIES
     CXX_STANDARD 23
     CXX_STANDARD_REQUIRED ON
     CXX_EXTENSIONS OFF
 )
 
-target_link_libraries( DesktopHtmlTextTests PRIVATE MilaStd gtest gtest_main )
+target_link_libraries( AssistantHtmlTextTests PRIVATE MilaStd gtest gtest_main )
 
-gtest_discover_tests( DesktopHtmlTextTests
+gtest_discover_tests( AssistantHtmlTextTests
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     PROPERTIES
         VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"

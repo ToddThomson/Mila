@@ -2,7 +2,7 @@ name: Mila .NET Binding
 
 # The C ABI (Mila/Bindings/Native/mila.h) and the C# library over it (Mila/Bindings/DotNet/,
 # DotNetBinding.md), phase 1a: everything runs against the C17 mock of the ABI, so there is no CUDA
-# and no C++ build here. Its own workflow for the reason desktop.yml is: minutes not an hour, and
+# and no C++ build here. Its own workflow for the reason assistant.yml is: minutes not an hour, and
 # build-pipeline.yml's triggers would leave a change here untested on the `dev` push that makes it.
 
 on:

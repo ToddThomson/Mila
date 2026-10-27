@@ -55,9 +55,9 @@ researcher." Speed beside llama.cpp is evidence that the work is professional, n
 
 ### 1.3 Two audiences, one brand
 
-Decided 2026-10-24 (Todd): "Mila is the brand name. [The desktop app] IS the showcase agentic application
+Decided 2026-10-24 (Todd): "Mila is the brand name. [The Mila app] IS the showcase agentic application
 for end users. Mila C++23 library is the dev target audience." The trait above is the library's, and the
-library's reader is the developer. The desktop app, called Mila (`MilaApp.md`), is for the person who
+library's reader is the developer. The Mila app (`MilaApp.md`) is for the person who
 runs local models: it shows them what Mila can do, an agent at work with the conversation as its face. It
 is judged as an end-user product -- installed without a toolkit, written in end-user prose -- and beside
 other desktop apps for local models its case is the quality of the models it runs and the agent, not
@@ -95,7 +95,7 @@ sorted them by who closes the generation loop. From v0.21.0 the loop closes insi
 Chat and MIS are applications built on it, in the same position as any developer's program.
 
 ```
-Applications   Mila (desktop)   Chat   MIS (wire)   your program   Python / other languages
+Applications   Mila (assistant) Chat   MIS (wire)   your program   Python / other languages
                     \            |         |             |              /
                      +-----------+---------+-------------+-------------+
                                          |
@@ -141,8 +141,8 @@ acquires it one convenience class at a time.
 
 ### 3.3 Applications
 
-The Mila desktop app, Chat, MIS, a developer's program and a Python script are the same kind of thing: a
-consumer of `Mila::AI`. What makes each distinct is its own concern and nothing more. For the desktop app
+The Mila app, Chat, MIS, a developer's program and a Python script are the same kind of thing: a
+consumer of `Mila::AI`. What makes each distinct is its own concern and nothing more. For the Mila app
 that is the window, its conversations and the person's approval of each tool call; for Chat it is
 terminal rendering and the human approval gate; for MIS it is the HTTP wire shapes and per-request
 statelessness.
@@ -219,7 +219,7 @@ template.
 ### 4.3 An agent is a model and a session
 
 Decided 2026-10-27 (Todd), for v0.21.0 under *The Desktop Agent* (decision 5), and built the same day
-(`Mila/Src/AI/Session.ixx`, `Agent.ixx`); Chat's session holds one, the desktop app's still through Chat's. The type
+(`Mila/Src/AI/Session.ixx`, `Agent.ixx`); Chat's session holds one, and since `+105` the Mila app holds its own. The type
 is `Mila::AI::Session`: "context" in Mila is the model's window
 (`contextLength()`), and 6.4 already speaks of an agent saving its session.
 
@@ -249,7 +249,7 @@ empty optional, never an agent's.
 Why: an agent today ends with its model, and everything set on it ends too. Chat's `ChatSession` keeps a copy of
 each -- rules, grant, limits, prompt, tool handlers and a held conversation -- only to give them to the next
 agent, and any program that changes model would have to do the same. That copy, with the loading around it, is
-also why the Mila app links Chat's session library (`MilaChatSession`, `MilaApp.md` 7): two applications sharing
+also why the Mila app linked Chat's session library until `+105` (`MilaChatSession`, `MilaApp.md` 7): two applications sharing
 a layer is a gap in `Mila::AI` (3.3). With the session in the library that layer has no reason to exist; each
 application keeps only its own concern, and what both need that a developer's program would need too is
 `Mila::AI`'s. Its family-specific code -- the `FamilyTraits` table and the mapping of an effort scale onto Qwen's
@@ -264,7 +264,8 @@ agent, since two objects would then own the conversation.
 asked for are checked against the new model's template when the agent is created; those it does not accept are
 dropped from the session and named by `droppedTemplateVariables()`. Sampling is asked for per setting
 (`SamplingOverride`): each setting the program names stands over the publisher's recommendation for the thinking in
-effect, and the rest are the publisher's.
+effect, and the rest are the publisher's. The agent says what that comes to -- `sampling()`, and `thinks()`, the
+thinking it keys on -- so a program shows the settings in effect without working them out again (`+105`).
 
 **A conversation crosses to another model.** Its turns are structured and each template renders them its own way,
 and the Mila app already reopens a stored conversation on whichever model is loaded. The library carries it and
@@ -473,9 +474,9 @@ Settled 2026-09-23, each on the leaning this section recorded, when section 5 be
 5. **Sequencing against the ROADMAP: section 5 is v0.22.0,** after v0.21.0 completes Qwen 3.8 and Gemma 4
    (moved 2026-10-10, Todd; it was v0.21.0 with them), before any new chassis — which agrees with the rule that the handle is a precondition
    for every new model. Muse Glimmer follows in ROADMAP's Future. One piece comes forward (Todd, 2026-10-24):
-   v0.21.0 ships the desktop app as an agent harness with tool calling. Its tool calling is designed in
+   v0.21.0 ships the Mila app as an agent harness with tool calling. Its tool calling is designed in
    `ToolCalling.md` (2026-10-25), which replaced the tool broker's design. So does the session the agent holds
-   (4.3; Todd, 2026-10-27), with Chat and the desktop app each built on it and Chat's family-specific types gone.
+   (4.3; Todd, 2026-10-27), with Chat and the Mila app each built on it and Chat's family-specific types gone.
 6. **Tool registration: a compiled-in registry** — a callable plus a schema, registered on the `AI`.
    Declarative subprocess tools alongside it remain open for section 6, carried from
    `MilaProductFamily.md` Open Decision 5. **Tool calling is `Mila::AI`'s structure** (Todd, 2026-10-25,

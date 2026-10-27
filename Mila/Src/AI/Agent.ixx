@@ -531,6 +531,58 @@ namespace Mila::AI
             return handle_;
         }
 
+        /**
+         * @brief Whether the model reasons before it answers, which keys the publisher's sampling.
+         *
+         * `enable_thinking` is the switch both templates that have one name it by; a model with a reasoning channel
+         * and no switch always reasons.
+         */
+        [[nodiscard]] bool thinks() const
+        {
+            if ( !handle_.capabilities().thinking )
+            {
+                return false;
+            }
+
+            const auto variables = handle_.protocol()->templateVariables();
+
+            if ( std::ranges::find( variables, "enable_thinking", &Conversation::TemplateVariable::name ) == variables.end() )
+            {
+                return true;
+            }
+
+            return Conversation::resolveTemplateVariable( variables, session_.templateVariables(), "enable_thinking" ) == "true";
+        }
+
+        /**
+         * @brief The sampling the next response runs at: each setting the session asks for, over the publisher's for
+         *        the thinking in effect, over the sampler's neutral values.
+         */
+        [[nodiscard]] SamplingParams sampling() const
+        {
+            SamplingParams sampling;
+
+            // The family's published settings where the manifest carries none, as every application opens at.
+            const std::vector<SamplingRecommendation> recommendations = recommendedSampling( handle_.installed().stored().record );
+
+            if ( const auto* recommended = matchingSampling( recommendations, thinks() ) )
+            {
+                sampling.temperature = recommended->temperature.value_or( sampling.temperature );
+                sampling.top_k = recommended->top_k.value_or( sampling.top_k );
+                sampling.top_p = recommended->top_p.value_or( sampling.top_p );
+                sampling.presence_penalty = recommended->presence_penalty.value_or( sampling.presence_penalty );
+            }
+
+            const SamplingOverride& asked = session_.sampling();
+
+            sampling.temperature = asked.temperature.value_or( sampling.temperature );
+            sampling.top_k = asked.top_k.value_or( sampling.top_k );
+            sampling.top_p = asked.top_p.value_or( sampling.top_p );
+            sampling.presence_penalty = asked.presence_penalty.value_or( sampling.presence_penalty );
+
+            return sampling;
+        }
+
     private:
 
         static constexpr std::string_view kStoppedResult = "The user stopped the reply before this tool call ran.";
@@ -595,56 +647,6 @@ namespace Mila::AI
             const dim_t context_left = handle_.plan().contextLength() - static_cast<dim_t>( tokens.size() );
 
             return std::min( *limits.reply_tokens - generated, context_left );
-        }
-
-        /**
-         * @brief Whether the model reasons before it answers, which keys the publisher's sampling.
-         *
-         * `enable_thinking` is the switch both templates that have one name it by; a model with a reasoning channel
-         * and no switch always reasons.
-         */
-        bool thinks() const
-        {
-            if ( !handle_.capabilities().thinking )
-            {
-                return false;
-            }
-
-            const auto variables = handle_.protocol()->templateVariables();
-
-            if ( std::ranges::find( variables, "enable_thinking", &Conversation::TemplateVariable::name ) == variables.end() )
-            {
-                return true;
-            }
-
-            return Conversation::resolveTemplateVariable( variables, session_.templateVariables(), "enable_thinking" ) == "true";
-        }
-
-        /// Each setting the session asks for, over the publisher's for the thinking in effect, over the sampler's
-        /// neutral values.
-        SamplingParams sampling() const
-        {
-            SamplingParams sampling;
-
-            // The family's published settings where the manifest carries none, as every application opens at.
-            const std::vector<SamplingRecommendation> recommendations = recommendedSampling( handle_.installed().stored().record );
-
-            if ( const auto* recommended = matchingSampling( recommendations, thinks() ) )
-            {
-                sampling.temperature = recommended->temperature.value_or( sampling.temperature );
-                sampling.top_k = recommended->top_k.value_or( sampling.top_k );
-                sampling.top_p = recommended->top_p.value_or( sampling.top_p );
-                sampling.presence_penalty = recommended->presence_penalty.value_or( sampling.presence_penalty );
-            }
-
-            const SamplingOverride& asked = session_.sampling();
-
-            sampling.temperature = asked.temperature.value_or( sampling.temperature );
-            sampling.top_k = asked.top_k.value_or( sampling.top_k );
-            sampling.top_p = asked.top_p.value_or( sampling.top_p );
-            sampling.presence_penalty = asked.presence_penalty.value_or( sampling.presence_penalty );
-
-            return sampling;
         }
 
         /// A prompt and its tokens, which within a response are not always the encoding of its text.

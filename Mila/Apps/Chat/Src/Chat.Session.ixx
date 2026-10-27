@@ -796,7 +796,7 @@ namespace Mila::ChatApp
         }
 
         /**
-         * @brief A round as the console and the desktop app measure it: when its first token came, how fast the
+         * @brief A round as the console measures it: when its first token came, how fast the
          *        rest followed, and where it stalled.
          *
          * Timed here, in the consumer, from the agent's events: the agent reports that a token arrived, never how

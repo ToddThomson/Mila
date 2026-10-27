@@ -1,0 +1,8 @@
+{
+  "name": "mila-assistant-page",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}

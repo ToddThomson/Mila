@@ -7,7 +7,7 @@ Every job `MilaChatSession` does, who uses it, and where it goes once an agent i
 
 ## 1. What the desktop app reaches
 
-`mila-session` imports seven of Chat's modules. `Desktop.SessionProcess` uses `ChatSession` for nearly everything it
+`mila-session` imports seven of Chat's modules. `Assistant.SessionProcess` uses `ChatSession` for nearly everything it
 does with a model: load, install, remove, the turn, stop, history, the activity's prompt, limits, rules and grant,
 thinking, effort, context, sampling, seed, detail and the round measurements. `main.cpp` resolves its settings with
 Chat's `resolveChatConfig`, **from Chat's own files** ("Settings resolve as mila-chat's do, from the same files"), and
@@ -83,7 +83,7 @@ All five agreed 2026-10-27 (Todd), as proposed.
    decides, as it does for every other program, and that item gates the quality.
 2. **The desktop app's settings stop being Chat's.** The desktop session reads settings of its own, which its
    Settings view writes; Chat keeps `ChatConfiguration.md`'s layers.
-3. **The desktop app's prompts move to `Mila/Apps/Desktop/`**, with a loader of its own, and Chat's `Prompts`
+3. **The desktop app's prompts move to `Mila/Apps/Assistant/`**, with a loader of its own, and Chat's `Prompts`
    keeps Chat's.
 4. **Round measurements stay in each application** (section 3).
 5. **The canned weather tool leaves the desktop app**, which then offers only its own tools; Chat keeps it as its
@@ -94,5 +94,7 @@ All five agreed 2026-10-27 (Todd), as proposed.
 1. Propose 4.1 to 4.3; build them with library tests, Chat moved onto the session in the same change (it is the
    only consumer of the agent that changes model), gated by the console byte gate.
 2. The desktop session onto `Mila::AI` alone: its own settings, prompts, store commands and event mapping. Gated by
-   the session drives and the window drive, and `mila-session` linking no module of Chat's.
+   the session drives and the window drive, and `mila-session` linking no module of Chat's. Built in `+105`, with
+   `Agent::sampling()` and `Agent::thinks()` made public so the app shows the sampling in effect without repeating
+   the merge, and effort offered in the template's own values (`MilaApp.md` 3.7).
 3. `MilaChatSession` dissolved into Chat; `FamilyTraits`, `ModelSize`, the aliases and the Qwen mapping deleted.
