@@ -546,6 +546,7 @@ PUBLIC
         "Src/AI/GrantFile.ixx"
         "Src/AI/ProgramRequest.ixx"
         "Src/AI/ProgramResult.ixx"
+        "Src/AI/ProgramFolders.ixx"
         "Src/AI/ContainedRun.ixx"
         "Src/AI/ProgramContainer.ixx"
         "Src/AI/ToolGrant.ixx"
@@ -1138,6 +1139,9 @@ if(WIN32 AND MILA_ENABLE_MXC)
             TYPE CXX_MODULES FILES
                 "Src/AI/MxcProgramContainer.Windows.ixx"
     )
+
+    # The person's local application data folder, asked of the shell (SHGetKnownFolderPath).
+    target_link_libraries(Mila PRIVATE shell32 ole32)
 
     message(STATUS "Added program container: MXC, loaded at run time")
 else()

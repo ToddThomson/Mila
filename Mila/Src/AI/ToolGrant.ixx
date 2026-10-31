@@ -15,6 +15,7 @@ import AI.GrantFile;
 import AI.GrantFileSystem;
 import AI.GrantPath;
 import AI.ProgramContainer;
+import AI.ProgramFolders;
 import AI.ProgramRequest;
 import AI.ProgramResult;
 import AI.PublicAddress;
@@ -132,14 +133,16 @@ namespace Mila::AI
         }
 
         /**
-         * @brief A grant that also runs programs, through a container, with the folders their tools live in.
+         * @brief A grant that also runs programs, through a container, with the folders their tools live in and the
+         *        variables they need.
          *
-         * The program folders are the application's to name, never the model's; each folder's own final path is
-         * taken now. With no container, the grant refuses to run a program.
+         * The program folders and variables are the application's to give, never the model's; each folder's own
+         * final path is taken now. With no container, the grant refuses to run a program.
          *
-         * @throws std::invalid_argument as the grant of folders alone does, for a program folder too.
+         * @throws std::invalid_argument as the grant of folders alone does, for a program folder too; and for a
+         *         variable that is not NAME=value or names one the container writes (isContainerVariable).
          */
-        ToolGrant( std::vector<GrantFolder> folders, bool network, std::vector<std::filesystem::path> program_folders,
+        ToolGrant( std::vector<GrantFolder> folders, bool network, ProgramFolders programs,
             std::shared_ptr<const ProgramContainer> container )
             : container_( std::move( container ) )
         {
@@ -149,9 +152,27 @@ namespace Mila::AI
                 folders_.push_back( std::move( granted ) );
             }
 
-            for ( auto& folder : program_folders )
+            for ( auto& folder : programs.folders )
             {
                 program_final_paths_.push_back( folderFinalPath( folder ) );
+            }
+
+            for ( auto& variable : programs.environment )
+            {
+                const std::size_t equals = variable.find( '=' );
+
+                if ( equals == 0 || equals == std::string::npos )
+                {
+                    throw std::invalid_argument( std::format( "'{}' is not a variable written NAME=value", variable ) );
+                }
+
+                if ( isContainerVariable( std::string_view( variable ).substr( 0, equals ) ) )
+                {
+                    throw std::invalid_argument( std::format( "{} is written by the container for every run, so it cannot be given",
+                        variable.substr( 0, equals ) ) );
+                }
+
+                program_environment_.push_back( std::move( variable ) );
             }
 
             if ( network )
@@ -186,6 +207,12 @@ namespace Mila::AI
             return program_final_paths_;
         }
 
+        /// The variables the application gives every program, each NAME=value.
+        [[nodiscard]] std::span<const std::string> programEnvironment() const noexcept
+        {
+            return program_environment_;
+        }
+
         /**
          * @brief The part of this grant a tool with these needs is given: folders only to a tool that reads or
          *        writes files, read-only unless it writes them, the network only to a tool that uses it, and the
@@ -217,6 +244,7 @@ namespace Mila::AI
             {
                 narrowed.container_.reset();
                 narrowed.program_final_paths_.clear();
+                narrowed.program_environment_.clear();
             }
 
             return narrowed;
@@ -250,6 +278,7 @@ namespace Mila::AI
             run.command_line = request.command_line;
             run.start_folder = GrantFileSystem::finalPath( start.get() );
             run.program_folders = program_final_paths_;
+            run.environment = program_environment_;
             run.network = network();
             run.time = request.time;
             run.output_bytes = request.output_bytes;
@@ -687,5 +716,6 @@ namespace Mila::AI
         // Given only to a tool that runs programs, as the program folders are.
         std::shared_ptr<const ProgramContainer> container_;
         std::vector<std::filesystem::path> program_final_paths_;
+        std::vector<std::string> program_environment_;
     };
 }

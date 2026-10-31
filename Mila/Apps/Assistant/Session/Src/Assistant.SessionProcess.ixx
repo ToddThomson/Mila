@@ -8,10 +8,12 @@ export module Assistant.SessionProcess;
 
 import std;
 import nlohmann.json;
+import Assistant.CommandTool;
 import Assistant.ConversationStore;
 import Assistant.FileTools;
 import Assistant.Models;
 import Assistant.PromptFile;
+import Assistant.ProgramSetup;
 import Assistant.PromptTool;
 import Assistant.ResidentAgent;
 import Assistant.RoundTimer;
@@ -123,7 +125,7 @@ namespace Mila::Assistant
             useDetail( settings_.detail );
 
             // A plan's change is shown at once, while the reply that made it is still running.
-            registerTool( std::string( TaskPlan::kProposeName ), {}, [this]( const std::string& arguments, const Mila::AI::ToolGrant& )
+            registerTool( std::string( TaskPlan::kProposeName ), {}, [this]( const std::string& arguments, const Mila::AI::ToolGrant&, std::stop_token )
                 {
                     std::string result = plan_.propose( arguments );
                     sendState();
@@ -131,7 +133,7 @@ namespace Mila::Assistant
                     return result;
                 } );
 
-            registerTool( std::string( TaskPlan::kUpdateName ), {}, [this]( const std::string& arguments, const Mila::AI::ToolGrant& )
+            registerTool( std::string( TaskPlan::kUpdateName ), {}, [this]( const std::string& arguments, const Mila::AI::ToolGrant&, std::stop_token )
                 {
                     std::string result = plan_.update( arguments );
                     sendState();
@@ -143,7 +145,7 @@ namespace Mila::Assistant
             network.uses_network = true;
 
             registerTool( std::string( WebPageReader::kName ), network,
-                []( const std::string& arguments, const Mila::AI::ToolGrant& grant )
+                []( const std::string& arguments, const Mila::AI::ToolGrant& grant, std::stop_token )
                 {
                     return WebPageReader::read( arguments, grant );
                 } );
@@ -152,7 +154,7 @@ namespace Mila::Assistant
             for ( const std::string_view name : FileTools::kNames )
             {
                 registerTool( std::string( name ), FileTools::needsOf( name ),
-                    [name]( const std::string& arguments, const Mila::AI::ToolGrant& grant )
+                    [name]( const std::string& arguments, const Mila::AI::ToolGrant& grant, std::stop_token )
                     {
                         return FileTools::run( name, arguments, grant );
                     } );
@@ -161,6 +163,11 @@ namespace Mila::Assistant
             if ( const std::optional<std::string> key = search_key_file_.read() )
             {
                 useSearchKey( *key );
+            }
+
+            if ( settings_.run_commands )
+            {
+                useCommands();
             }
         }
 
@@ -228,9 +235,12 @@ namespace Mila::Assistant
             std::string turn_id;
             std::string call_id;
             std::promise<ToolAnswer> answer;
+
+            /// False for a call asked every time, which an answer for the conversation does not settle.
+            bool conversation_offered{ true };
         };
 
-        using Handler = std::function<std::string( const std::string& arguments, const Mila::AI::ToolGrant& grant )>;
+        using Handler = std::function<std::string( const std::string& arguments, const Mila::AI::ToolGrant& grant, std::stop_token stop )>;
 
         Mila::AI::Session& session() noexcept
         {
@@ -358,7 +368,8 @@ namespace Mila::Assistant
             std::lock_guard<std::mutex> lock( approval_mutex_ );
 
             if ( !parsed.has_value() || !approval_.has_value()
-                || approval_->turn_id != turn_id || approval_->call_id != call_id )
+                || approval_->turn_id != turn_id || approval_->call_id != call_id
+                || ( *parsed == ToolAnswer::ForConversation && !approval_->conversation_offered ) )
             {
                 std::cerr << "Ignored a tool decision for a call that is not waiting.\n";
 
@@ -628,6 +639,12 @@ namespace Mila::Assistant
             std::promise<ToolAnswer> answer;
             std::future<ToolAnswer> decision = answer.get_future();
 
+            // A command is asked every time (ContainedPrograms.md 5): no answer covers the conversation.
+            const bool every_time = question.name == CommandTool::kName;
+            const std::vector<std::string> choices = every_time
+                ? std::vector<std::string>{ "allow_once", "deny" }
+                : std::vector<std::string>{ "allow_once", "allow_conversation", "deny" };
+
             {
                 std::lock_guard<std::mutex> lock( approval_mutex_ );
 
@@ -636,11 +653,11 @@ namespace Mila::Assistant
                     return ToolAnswer::Deny;
                 }
 
-                approval_.emplace( Approval{ turn_id_, call_id, std::move( answer ) } );
+                approval_.emplace( Approval{ turn_id_, call_id, std::move( answer ), !every_time } );
             }
 
             send( "turn.tool_approval", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "call_id", call_id },
-                { "choices", { "allow_once", "allow_conversation", "deny" } } } );
+                { "choices", choices }, { "reaches", reaches( question ) } } );
 
             const ToolAnswer decided = decision.get();
 
@@ -651,6 +668,49 @@ namespace Mila::Assistant
             }
 
             return decided;
+        }
+
+        /**
+         * @brief What the call would reach if allowed, from its grant as the gate narrowed it to the tool: each
+         *        folder and its access, the program folders, and whether the network -- for a command, only when
+         *        the call asks for it, as it runs.
+         */
+        static nlohmann::json reaches( const Mila::AI::ToolQuestion& question )
+        {
+            const auto shown = []( const std::filesystem::path& path )
+                {
+                    const std::u8string text = path.u8string();
+
+                    return std::string( text.begin(), text.end() );
+                };
+
+            nlohmann::json folders = nlohmann::json::array();
+
+            for ( const Mila::AI::GrantFolder& folder : question.grant.folders() )
+            {
+                folders.push_back( { { "path", shown( folder.folder ) },
+                    { "access", folder.access == Mila::AI::FolderAccess::ReadWrite ? "read_write" : "read" } } );
+            }
+
+            nlohmann::json program_folders = nlohmann::json::array();
+
+            for ( const std::filesystem::path& folder : question.grant.programFolders() )
+            {
+                std::wstring plain = folder.native();
+
+                if ( plain.starts_with( LR"(\\?\)" ) )
+                {
+                    plain.erase( 0, 4 );
+                }
+
+                program_folders.push_back( shown( std::filesystem::path( plain ) ) );
+            }
+
+            const bool network = question.grant.network()
+                && ( question.name != CommandTool::kName || CommandTool::asksForNetwork( question.arguments ) );
+
+            return { { "folders", std::move( folders ) }, { "program_folders", std::move( program_folders ) },
+                { "network", network }, { "runs_programs", question.grant.runsPrograms() } };
         }
 
         void callAnswered( const ToolCall& call, std::string_view result, bool is_error )
@@ -919,7 +979,18 @@ namespace Mila::Assistant
 
             try
             {
-                grant.emplace( std::move( folders ), activity == "research" || activity == "tasks" );
+                // Build & Code's commands get the network only by asking, call by call (ContainedPrograms.md
+                // decision 11): the grant holds it and run_command narrows it away from every other call.
+                if ( activity == "build" && container_ )
+                {
+                    const std::filesystem::path project = folders.front().folder;
+                    grant.emplace( std::move( folders ), true, ProgramSetup::forProject( programs_, project ), container_ );
+                    ProgramSetup::writeGitIdentity( grant->folders().front().folder );
+                }
+                else
+                {
+                    grant.emplace( std::move( folders ), activity == "research" || activity == "tasks" );
+                }
             }
             catch ( const std::invalid_argument& )
             {
@@ -960,7 +1031,8 @@ namespace Mila::Assistant
 
         /**
          * @brief An activity's own prompt. Research & Analyze and Get Things Done have one that names web search and
-         *        one that does not, since a prompt naming a tool not offered draws calls of it.
+         *        one that does not, and Build & Code one that names run_command, since a prompt naming a tool not
+         *        offered draws calls of it.
          */
         std::filesystem::path promptFor( const std::string& activity ) const
         {
@@ -979,7 +1051,7 @@ namespace Mila::Assistant
                 return prompts_ / ( web_search_ ? "tasks-search.json" : "tasks.json" );
             }
 
-            return prompts_ / "files.json";
+            return prompts_ / ( handlers_.contains( std::string( CommandTool::kName ) ) ? "files-commands.json" : "files.json" );
         }
 
         /// The prompt's system prompt and its tools, from the next response on; the model and conversation stay.
@@ -1030,9 +1102,9 @@ namespace Mila::Assistant
                     described.name,
                     described.description,
                     described.parameters,
-                    [run = handler->second.second]( std::string_view arguments, const Mila::AI::ToolGrant& grant, std::stop_token )
+                    [run = handler->second.second]( std::string_view arguments, const Mila::AI::ToolGrant& grant, std::stop_token stop )
                     {
-                        return run( std::string( arguments ), grant );
+                        return run( std::string( arguments ), grant, stop );
                     } };
 
                 tool.needs = handler->second.first;
@@ -1374,6 +1446,10 @@ namespace Mila::Assistant
             {
                 changeSearchKey( request[ "search_key" ] );
             }
+            else if ( request.contains( "run_commands" ) )
+            {
+                changeRunCommands( request[ "run_commands" ] );
+            }
             else
             {
                 sendError( "That is not a setting this session has.", "settings" );
@@ -1613,7 +1689,7 @@ namespace Mila::Assistant
 
             // Registered once; a later key replaces the search it runs.
             registerTool( std::string( WebSearch::kName ), network,
-                [this]( const std::string& arguments, const Mila::AI::ToolGrant& grant )
+                [this]( const std::string& arguments, const Mila::AI::ToolGrant& grant, std::stop_token )
                 {
                     if ( !web_search_ )
                     {
@@ -1621,6 +1697,70 @@ namespace Mila::Assistant
                     }
 
                     return web_search_->search( arguments, grant );
+                } );
+        }
+
+        void changeRunCommands( const nlohmann::json& value )
+        {
+            if ( !value.is_boolean() )
+            {
+                sendError( "Running commands is on or off.", "settings" );
+
+                return;
+            }
+
+            settings_.run_commands = value.get<bool>();
+            saveSettings();
+
+            if ( !settings_.run_commands )
+            {
+                // Off at once, in the open conversation too: no prompt names the tool and nothing runs it.
+                container_.reset();
+                container_problem_.clear();
+                handlers_.erase( std::string( CommandTool::kName ) );
+
+                if ( conversation_activity_ == "build" )
+                {
+                    usePrompt( promptFor( conversation_activity_ ) );
+                }
+
+                return;
+            }
+
+            useCommands();
+
+            if ( container_ )
+            {
+                send( "info", { { "text", "Commands can be run from the next Build & Code conversation." } } );
+            } else {
+                sendError( std::format( "Commands cannot be run here: {}", container_problem_ ), "settings" );
+            }
+        }
+
+        /**
+         * @brief Opens MXC from the session's own folder and finds the build tools, so Build & Code can offer
+         *        run_command; what failed is kept for Settings to show.
+         */
+        void useCommands()
+        {
+            auto opened = Mila::AI::MxcProgramContainer::open( prompts_.parent_path() / "mxc_ffi.dll" );
+
+            if ( !opened )
+            {
+                container_.reset();
+                container_problem_ = opened.error();
+
+                return;
+            }
+
+            container_ = std::move( *opened );
+            container_problem_.clear();
+            programs_ = ProgramSetup::find();
+
+            registerTool( std::string( CommandTool::kName ), CommandTool::needs(),
+                []( const std::string& arguments, const Mila::AI::ToolGrant& grant, std::stop_token stop )
+                {
+                    return CommandTool::run( arguments, grant, stop );
                 } );
         }
 
@@ -1814,8 +1954,29 @@ namespace Mila::Assistant
                 { "folder", conversationFolder() },
                 { "plan", plan_.toJson() },
                 { "web_search", web_search_.has_value() },
+                { "run_commands", settings_.run_commands },
+                { "run_commands_problem", container_problem_.empty()
+                    ? nlohmann::ordered_json( nullptr ) : nlohmann::ordered_json( container_problem_ ) },
+                { "program_folders", programFoldersShown() },
                 { "busy", busy },
                 { "streams", nlohmann::ordered_json::array( { stream } ) } } );
+        }
+
+        /// The folders commands are given to read, for Settings to show; none while commands are off.
+        nlohmann::ordered_json programFoldersShown() const
+        {
+            nlohmann::ordered_json shown = nlohmann::ordered_json::array();
+
+            if ( container_ )
+            {
+                for ( const std::filesystem::path& folder : programs_.folders )
+                {
+                    const std::u8string text = folder.u8string();
+                    shown.push_back( std::string( text.begin(), text.end() ) );
+                }
+            }
+
+            return shown;
         }
 
         nlohmann::json conversationFolder() const
@@ -2043,6 +2204,12 @@ namespace Mila::Assistant
 
         // Set while the person has given a search key; the web_search tool is offered only then.
         std::optional<WebSearch> web_search_;
+
+        // Set while commands are on and MXC opened (ContainedPrograms.md 4.11); one container for every
+        // conversation, since it keeps what it checked of each folder between runs. Why it did not open, otherwise.
+        std::shared_ptr<const Mila::AI::ProgramContainer> container_;
+        std::string container_problem_;
+        Mila::AI::ProgramFolders programs_;
         std::mutex output_mutex_;
 
         RequestQueue queue_;

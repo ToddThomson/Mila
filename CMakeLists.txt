@@ -107,6 +107,10 @@ option(MILA_ENABLE_LIBCURL "Build Mila's libcurl HTTP transport." ON)
 # Windows only. Off, a grant runs no programs. See Specifications/ContainedPrograms.md 4.11.
 option(MILA_ENABLE_MXC "Run a tool's programs in Microsoft's MXC container (Windows, experimental)." OFF)
 
+# MXC's library, v1.0.1, as Microsoft's release ships it: copied beside mila-session and carried by its
+# installer, with the LICENSE.md beside it when that is there. Empty, the Mila app runs no commands.
+set(MILA_MXC_LIBRARY "" CACHE FILEPATH "mxc_ffi.dll from MXC v1.0.1, carried beside mila-session (MILA_ENABLE_MXC).")
+
 option(MILA_ENABLE_CUDA "Enable CUDA compute backend" ON)
 
 # The Metal and ROCm backends are currently for internal testing only. Please leave them disabled.

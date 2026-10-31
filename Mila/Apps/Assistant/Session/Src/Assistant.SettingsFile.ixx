@@ -118,6 +118,14 @@ namespace Mila::Assistant
                     passOver( "detail" );
             }
 
+            if ( const auto* run_commands = find( stored, "run_commands" ) )
+            {
+                if ( run_commands->is_boolean() )
+                    settings.run_commands = run_commands->get<bool>();
+                else
+                    passOver( "run_commands" );
+            }
+
             if ( const auto* sampling = find( stored, "sampling" ) )
             {
                 if ( sampling->is_object() )
@@ -150,6 +158,7 @@ namespace Mila::Assistant
             stored[ "thinking" ] = settings.thinking;
             stored[ "effort" ] = settings.effort.empty() ? nlohmann::ordered_json( nullptr ) : nlohmann::ordered_json( settings.effort );
             stored[ "detail" ] = settings.detail;
+            stored[ "run_commands" ] = settings.run_commands;
             stored[ "sampling" ] = std::move( sampling );
 
             std::filesystem::create_directories( path_.parent_path() );

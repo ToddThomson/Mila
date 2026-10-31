@@ -149,19 +149,30 @@ refused by the list alone, and its test is the one that fails without it.
 ### 4.6 Program folders
 
 A command runs programs that live outside the project: Git, CMake, Visual Studio's compiler, Node. The application
-names those folders, read-only, as part of the grant it gives the session (`Session::withGrant`), and the person is
-shown them. They are never the model's to choose. Measured in phase 1: with no folder granted, a file under
+names those folders, read-only, as part of the grant it gives the session (`Session::withGrant`), with the
+variables those tools need (`ProgramFolders`: a compiler's `INCLUDE`, say), and the person is shown the folders.
+Neither is ever the model's to choose. Measured in phase 1: with no folder granted, a file under
 `C:\Program Files` is read by its path while the folder cannot be listed, so granting the program folders is what
 lets the tools list and search their own; `C:\ProgramData`, `C:\Users` and other drives are refused.
 
 ### 4.7 The environment
 
 A run is given the environment Mila writes (`process.env`), never MXC's default, which is the person's own user
-and system variables -- whatever a person keeps there, a token included. The list: `SystemRoot`, `windir`,
-`ComSpec`, `PATHEXT`, `PATH` (System32, Windows PowerShell and the program folders), and `TEMP`, `TMP` and
-`LOCALAPPDATA` pointing into the project's `.mila` folder, `LOCALAPPDATA` being one MXC refuses to start without.
-The project is the first folder granted to write; a grant with none refuses to run a program.
-Measured: `cmd`, `git status`, `cl`, `node` and PowerShell start with these nine.
+and system variables -- whatever a person keeps there, a token included. The list:
+
+- `SystemRoot`, `windir`, `ComSpec`, `PATHEXT`, and `PATH`: System32, Windows PowerShell and the program folders.
+- `LOCALAPPDATA`, the person's own. MXC refuses to start without it, and puts it, `TEMP` and `TMP` in the run's own
+  AppContainer profile beneath it, which Windows makes only under the person's own and removes after the run.
+  Pointing it into the project, as first built, left the temporary folder missing (`MxcConformance.md` 7.1).
+- `USERPROFILE` and `HOME` as `.mila\Home`, and `APPDATA` as `.mila\Roaming`, in the project: the tools' settings
+  and caches stay in the project, never in the person's profile.
+- `SystemDrive`, `ProgramFiles`, `ProgramFiles(x86)`, `CommonProgramFiles`, `ProgramData`, `ALLUSERSPROFILE`:
+  names of the system's folders, which tools read to find their own; naming one grants nothing.
+- Then the application's own variables (`ProgramFolders`, 4.6), refused at the grant when one is a name above.
+
+The project is the first folder granted to write; a grant with none refuses to run a program. Measured: with
+these and the Mila app's variables, `git status` and `git commit`, a CMake + Ninja + `cl` build, `npm run build`
+and `dotnet build` finish (`MxcConformance.md` 7.1).
 
 ### 4.8 Time, stop and output
 
@@ -206,18 +217,36 @@ grant reads what the person keeps under `HKCU`, which no grant gives. It is a kn
 
 ## 5. The first tool: running a command in Build & Code
 
-- **`run_command`**, the Mila app's own (Mila ships no tools): arguments `command` and an optional time; needs: reads
-  and writes files, runs programs, no network unless the person turns it on for the conversation.
+- **`run_command`**, the Mila app's own (Mila ships no tools): arguments `command`, an optional time, and an optional
+  `network`, false unless the model sets it; needs: reads and writes files, runs programs, uses the network. The
+  conversation's grant holds the network, and the tool narrows it away for every call that does not ask for it, so
+  a call never reaches more than its grant (4.1). With the network, a command reaches public addresses only (4.5).
 - **Always asked.** No default rule allows it, and the question shows the command whole, the folder, the program
-  folders and whether the network.
-- The command runs under Windows PowerShell 5.1, present on every Windows 11 (decision 4). `cmd`'s `dir` is refused
-  in a granted folder (phase 1), so the tool's description names PowerShell's own commands.
+  folders and whether the network. A command that needs the network is asked as one, as Codex asks before a command
+  that needs it (decision 11).
+- The command runs under Windows PowerShell 5.1, present on every Windows 11 (decision 4), given whole as
+  a script the tool writes through its grant to `.mila\command.ps1` and runs with `-File`, so no quoting of the
+  model's text changes the command line and errors come back as text, with execution policy bypassed for that
+  process alone so `npm.ps1` runs. `cmd`'s `dir` is refused in a granted folder (phase 1), so the prompt names
+  PowerShell's own commands.
+- **What the Mila app gives a command** (`Assistant.ProgramSetup`, found once when the setting is turned on): the
+  folders of Git, CMake, Ninja, Node and .NET on the person's `PATH`; Visual Studio's x64 setup, run once on the host,
+  for `INCLUDE`, `LIB`, `LIBPATH`, the folders they name and the folders under Visual Studio and the Windows SDK it adds
+  to `PATH`; `NODE_OPTIONS=--preserve-symlinks --preserve-symlinks-main`, since Node resolves a script's real path
+  from the drive's root and the container refuses that root; `_CL_=/Z7`, so a project asking for `/Zi`, whose
+  separate PDB process cannot be reached, embeds its debug information instead; .NET's home in the project
+  (`DOTNET_CLI_HOME`), its first-run work and telemetry off, and its Git query off
+  (`EnableSourceControlManagerQueries=false`), since that query reads the person's own `.gitconfig` and is refused.
+  None of it is the model's to know: each was measured (`MxcConformance.md` 7.1) and is set by variable. The
+  person's Git name and email, and nothing else of their Git settings, go in the project's `.mila\Home\.gitconfig`,
+  and `.mila\.gitignore` keeps the tools' home and the script out of the project's history.
 - The result the model reads: the exit code, the output as cut, and any files withheld (4.3).
 
 ## 6. What the person is told
 
 The setting says what it does and what it does not: commands run in a Windows container limited to the project
-folder and the program folders shown, on a desktop of their own, with no network unless allowed; experimental; on
+folder and the program folders shown, on a desktop of their own, with no network unless a command asks for it and
+the person allows it, and then public addresses only, where an allowed command can send what it reads; experimental; on
 Windows 11 26H2 or later. It never calls the tool sandboxed. The known gaps -- a file given a second name during a
 run (4.3), and the registry under `HKCU` read (4.9) -- are stated where the setting is.
 
@@ -229,6 +258,7 @@ One type each, in `Mila/Src/AI/` unless named:
 |---|---|
 | `AI.ProgramRequest` | `ProgramRequest` |
 | `AI.ProgramResult` | `ProgramResult` |
+| `AI.ProgramFolders` | `ProgramFolders`, the application's program folders and variables (4.6), and the names it may not give |
 | `AI.ContainedRun` | `ContainedRun`, what the grant hands its container: the command and every folder by its final path |
 | `AI.ProgramContainer` | `ProgramContainer`, the interface |
 | `AI.MxcProgramContainer` | the MXC implementation, and its always-absent twin, two candidate files |
@@ -237,6 +267,7 @@ One type each, in `Mila/Src/AI/` unless named:
 | `AI.ToolNeeds`, `AI.ToolGrant` | changed: `runs_programs`; `runProgram`, the program folders and the container |
 | `AI.PublicAddress` | changed: `nonPublicRanges()`, the deny list of 4.5 drawn from its own table |
 | `Mila/Apps/Assistant/Session/Src/Assistant.CommandTool.ixx` | `run_command` |
+| `Mila/Apps/Assistant/Session/Src/Assistant.ProgramSetup.ixx` | the build tools' folders and variables of section 5 |
 
 ## 8. Phases
 
@@ -253,7 +284,11 @@ One type each, in `Mila/Src/AI/` unless named:
    not, saying so. Each of 19 changes that breaks one of those refusals fails a test.
 3. **The tool.** `run_command`, the setting, the program folders, the question showing them; the installer carrying
    `mxc_ffi.dll`. Gate: the session drives a build and a `git status` in a chosen folder on Gemma 4 12B; the
-   window shows the question with every field of 5.
+   window shows the question with every field of 5. Built 2026-10-31, after measuring the builds the environment of
+   4.7 as first built did not finish (`MxcConformance.md` 7.1): on Gemma 4 12B Q4_0 the session ran `git status`, a
+   CMake + Ninja build and the program it built, and `npm run build`, and an install asked for the internet and,
+   declined, installed nothing; the window showed the question with the command, the folder, the program folders
+   and the internet, offering Allow once and Deny alone.
 4. **Later, through the same call:** MCP servers started as processes (`ToolCalling.md` 6), code an agent writes,
    and Linux through bubblewrap once the grant runs there.
 
@@ -294,6 +329,16 @@ Decided 2026-10-31 (Todd, "7c and 8a", then "Agreed" to the bound and to 9 and 1
    Microsoft with the other two findings (`Untriaged.md`). The person's saved credentials are refused, `HKCU`
    cannot be written, and the run's own environment is Mila's (4.7). Not chosen: keeping the shell out until MXC
    can refuse it.
+
+Decided 2026-10-31 (Todd, "off by default", then "Yes to your 2 step plan"):
+
+11. **A command has no network unless it asks and the person allows it** (section 5). Codex starts commands with
+    the network off and asks before a command that needs it; Claude Code's sandbox starts with no domain allowed and
+    asks for each new one (their documentation, read 2026-10-31). Phase 3 asks per call, by the `network` argument.
+    A list of hosts allowed per project, asked for each new host, follows it: MXC's rules match addresses only and
+    no name (its networking document), so that list needs MXC's proxy mode and a proxy of Mila's own, measured
+    first (`Untriaged.md`). Not chosen: the network on for every command, which lets any allowed command send what
+    it reads.
 
 ## 10. Relationship to other specs
 

@@ -56,6 +56,12 @@ export function createSettingsView( root, actions )
             sendSetting( change );
         }
 
+        if ( action === 'run-commands' )
+        {
+            const change = { run_commands: target.getAttribute( 'aria-checked' ) !== 'true' };
+            sendSetting( change );
+        }
+
         if ( action === 'effort' )
         {
             const change = { effort: target.dataset.value };
@@ -282,6 +288,42 @@ export function createSettingsView( root, actions )
         container.append( row );
     }
 
+    /**
+     * What the setting does and does not, and its known gaps, beside it (ContainedPrograms.md 6).
+     */
+    function buildCommands( session )
+    {
+        const container = section( 'Run commands (experimental)',
+            'Build & Code can run commands such as builds, tests and git in a Windows container limited to the ' +
+            'project folder and the program folders below, on a desktop of their own. Each command asks first. A ' +
+            'command has no internet unless it asks and you allow it; one that has it can send what it reads. ' +
+            'Needs Windows 11 26H2 or later.' );
+        const toggle = button( 'switch', null, 'run-commands' );
+        const on = session.run_commands === true;
+
+        toggle.setAttribute( 'role', 'switch' );
+        toggle.setAttribute( 'aria-checked', on ? 'true' : 'false' );
+        toggle.setAttribute( 'aria-label', 'Run commands' );
+        container.append( toggle );
+
+        if ( on && session.run_commands_problem !== null )
+            container.append( element( 'p', 'setting-note setting-problem', 'Commands cannot run here: ' + session.run_commands_problem ) );
+
+        if ( on && session.program_folders.length > 0 )
+        {
+            const folders = element( 'ul', 'setting-folders' );
+
+            for ( const folder of session.program_folders )
+                folders.append( element( 'li', null, folder ) );
+
+            container.append( element( 'p', 'setting-note', 'Program folders commands can read:' ), folders );
+        }
+
+        container.append( element( 'p', 'setting-note',
+            'Known gaps: a file given a second name outside the folder while a command runs can be read through ' +
+            'it, and a command can read the settings programs keep for you in the registry.' ) );
+    }
+
     function sendSearchKey()
     {
         const field = body.querySelector( '.search-key-input' );
@@ -300,7 +342,10 @@ export function createSettingsView( root, actions )
         clear( body );
 
         if ( session !== null )
+        {
             buildWebSearch( session );
+            buildCommands( session );
+        }
 
         if ( session === null || session.model === null )
         {

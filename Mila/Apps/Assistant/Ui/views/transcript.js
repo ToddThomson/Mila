@@ -493,6 +493,11 @@ function updateApproval( built, block )
     if ( block.choices === null )
         return;
 
+    const reaches = reachesList( block.reaches );
+
+    if ( reaches !== null )
+        built.approval.append( reaches );
+
     const question = element( 'span', 'tool-question', 'Run this tool?' );
     built.approval.append( question );
 
@@ -505,6 +510,51 @@ function updateApproval( built, block )
         choiceButton.dataset.decision = choice;
         built.approval.append( choiceButton );
     }
+}
+
+/**
+ * What the call would reach if allowed, as the session says: its folders, the folders of the
+ * programs it may run, and whether the internet. Nothing for a call that reaches none of them.
+ */
+function reachesList( reaches )
+{
+    if ( !reaches )
+        return null;
+
+    const rows = [];
+
+    for ( const folder of reaches.folders )
+        rows.push( [ folder.access === 'read_write' ? 'Reads and writes' : 'Reads', folder.path ] );
+
+    // Many folders, so they are counted, and listed on opening, beside the command they serve.
+    if ( reaches.program_folders.length > 0 )
+    {
+        const count = reaches.program_folders.length;
+        const folders = element( 'details', 'tool-program-folders' );
+        folders.append( element( 'summary', null, count === 1 ? '1 folder' : count + ' folders' ),
+            element( 'div', null, reaches.program_folders.join( '\n' ) ) );
+        rows.push( [ 'Runs programs from', folders ] );
+    }
+
+    if ( reaches.runs_programs || reaches.network )
+        rows.push( [ 'Internet', reaches.network ? 'Yes' : 'No' ] );
+
+    if ( rows.length === 0 )
+        return null;
+
+    const list = element( 'dl', 'tool-reaches' );
+
+    for ( const [ label, value ] of rows )
+    {
+        const definition = element( 'dd', null, typeof value === 'string' ? value : null );
+
+        if ( typeof value !== 'string' )
+            definition.append( value );
+
+        list.append( element( 'dt', null, label ), definition );
+    }
+
+    return list;
 }
 
 // ---- Copying ---------------------------------------------------------------------------------

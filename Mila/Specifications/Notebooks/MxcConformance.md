@@ -164,6 +164,46 @@ Scripts `policy-conformance-7.ps1` and `-8.ps1`, `walk-time.exe`; the host progr
   journal records a link added or removed (`USN_REASON_HARD_LINK_CHANGE`, `USN_RECORD_V2` docs); reading it without
   an administrator is not measured.
 
+### 7.1 Builds under Mila's environment, 2026-10-31 (phase 3)
+
+Scripts `policy-conformance-9.ps1`, `probe9.ps1`; a git project with a CMake, an npm and a .NET project in it,
+granted read-write, the tools' folders read-only, no network, Windows PowerShell's `-EncodedCommand` form included.
+
+- **MXC rewrites `LOCALAPPDATA`, `TEMP` and `TMP`** to the run's own AppContainer profile,
+  `<LOCALAPPDATA given>\Packages\sandbox.{guid}\AC` and its `Temp`, whatever values the request gives. Windows
+  creates that profile only under the person's own `LOCALAPPDATA`, so the request's `LOCALAPPDATA` pointing into the
+  project (4.7 as built) leaves the temporary folder missing: `cl` "cannot create linker response file", `echo >
+  %TMP%\a` "cannot find the path". Given the person's own value, the profile exists, is written, and is gone after.
+- **With that, and nothing else:** `git status` finishes. `git commit` asks who the author is (no identity outside
+  the person's profile). `node build.js` and `npm run build` fail at once: `lstat` of the drive's root is refused,
+  and Node resolves its main script's real path from the root (cf. microsoft/mxc#1464). `cl` builds a file without
+  `/Zi`; with `/Zi`, "Program database manager mismatch" -- the compiler's separate PDB process cannot be reached.
+  `dotnet build` fails at its first run, and NuGet on a missing folder variable ("Value cannot be null.
+  (Parameter 'path1')").
+- **What each needed to finish:**
+  - `git commit`: `HOME` (its identity given with `-c`, or a `.gitconfig` in `HOME`).
+  - npm and Node: `NODE_OPTIONS=--preserve-symlinks --preserve-symlinks-main`, and `USERPROFILE`, `HOME`, `APPDATA`.
+  - CMake + Ninja + `cl`: Visual Studio's `INCLUDE`, `LIB`, `LIBPATH`; the Windows SDK's `bin\<version>\x64` (`rc`,
+    `mt`) as a program folder; debug information embedded (`CMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded`, `/Z7`).
+    A project that asks for `/Zi` does not build.
+  - `dotnet build`: the profile variables, `ProgramFiles`, `ProgramFiles(x86)`, `CommonProgramFiles`, `ProgramData`,
+    `ALLUSERSPROFILE`, `SystemDrive`, `DOTNET_CLI_HOME`, `NUGET_PACKAGES`; and its git query turned off
+    (`-p:EnableSourceControlManagerQueries=false`), since it reads the person's `.gitconfig` through the profile
+    folder, not `HOME`, and is refused. Its first run reports installing a development certificate; where, is not
+    measured.
+- **`run_command`'s form** -- `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass
+  -EncodedCommand`, a script setting UTF-8 output -- ran `git status`, `npm run build` (`npm.ps1`, which execution
+  policy would refuse) and `Get-ChildItem`, exit 0. Its errors came back as CLIXML on standard error, with
+  `-OutputFormat Text` too; the same script run with `-File` gives them as text, so the tool writes the script.
+- **Set by variable rather than by the command:** `_CL_=/Z7`, which `cl` reads after its command line, builds a
+  project asking for `/Zi` unchanged ("overriding '/Zi' with '/Z7'"); `EnableSourceControlManagerQueries=false` as a
+  variable, which MSBuild reads as a property, stands for the `-p:` flag; `.NET` also needs `DOTNET_CLI_HOME`, without
+  which its first run writes under the person's profile and is refused.
+- **On Gemma 4 12B Q4_0 through the Mila app** (`D:\Claude\commands\drive_commands.py`): `git status`, a CMake +
+  Ninja build of a project the model configured without being told of `/Z7`, the program it built, and `npm run
+  build` all ran in the container.
+- Not measured: `--preserve-symlinks` with a pnpm project, whose `node_modules` relies on real paths.
+
 ## 8. Others using MXC
 
 Read 2026-10-27, from each project's source:

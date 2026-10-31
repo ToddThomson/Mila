@@ -91,6 +91,19 @@ function aToolResultFindsItsCallById()
 
 test( 'a tool result finds its call by id', aToolResultFindsItsCallById );
 
+function anApprovalKeepsWhatTheCallWouldReachBesideOneThatSaysNothing()
+{
+    const call = { type: 'turn.tool_call', turn_id: 't1', round: 1, call_id: 'k', name: 'run_command', summary: 'Running git status', arguments: '{}' };
+    const reaches = { folders: [ { path: 'D:\\project', access: 'read_write' } ], program_folders: [ 'C:\\Git\\cmd' ], network: false, runs_programs: true };
+    const asked = { type: 'turn.tool_approval', turn_id: 't1', call_id: 'k', choices: [ 'allow_once', 'deny' ], reaches };
+    const silent = { type: 'turn.tool_approval', turn_id: 't1', call_id: 'k', choices: [ 'allow_once', 'deny' ] };
+
+    assert.deepEqual( apply( [ begin, call, asked ] ).transcript[ 0 ].blocks[ 0 ].reaches, reaches );
+    assert.equal( apply( [ begin, call, silent ] ).transcript[ 0 ].blocks[ 0 ].reaches, null );
+}
+
+test( 'an approval keeps what the call would reach beside one that says nothing', anApprovalKeepsWhatTheCallWouldReachBesideOneThatSaysNothing );
+
 function onlyTheChangedTurnAndBlockBecomeNewObjects()
 {
     const before = apply( [ begin, text( 'thought', 'a', 1 ), text( 'answer', 'b', 1 ) ] );

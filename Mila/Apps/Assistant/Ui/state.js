@@ -257,6 +257,7 @@ function reduceToolCall( turn, message )
         result: null,
         isError: false,
         choices: null,
+        reaches: null,
         decision: null,
         notRun: false
     };
@@ -279,7 +280,7 @@ function updateToolBlock( turn, callId, change )
 
 function reduceToolApproval( turn, message )
 {
-    const change = { choices: message.choices };
+    const change = { choices: message.choices, reaches: message.reaches ?? null };
 
     return updateToolBlock( turn, message.call_id, change );
 }

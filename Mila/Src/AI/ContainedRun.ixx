@@ -30,6 +30,9 @@ namespace Mila::AI
         /// Folders the program's own tools live in, given to the run to read and to no file tool (4.6).
         std::vector<std::filesystem::path> program_folders;
 
+        /// The application's variables, each NAME=value, none of them one the container writes (4.7).
+        std::vector<std::string> environment;
+
         bool network{ false };
 
         std::chrono::milliseconds time{};

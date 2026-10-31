@@ -540,6 +540,21 @@ kbd {
 
 .tool-question { margin-right: 4px; font-size: 13px; }
 
+.tool-reaches {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 10px;
+  width: 100%;
+  margin: 0 0 6px;
+  font-size: 12px;
+}
+
+.tool-reaches dt { color: var(--faint-text); }
+
+.tool-reaches dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); }
+
+.tool-program-folders summary { cursor: pointer; font-family: var(--sans); color: var(--muted); }
+
 .tool-card.open .tool-toggle .chevron svg { transform: rotate(90deg); }
 
 .tool-detail { padding: 2px 12px 10px 37px; border-top: 1px solid var(--rule); }
@@ -884,6 +899,10 @@ kbd {
 .setting-label { margin: 0 0 2px; font-size: 14px; font-weight: 600; }
 
 .setting-note { margin: 0 0 8px; font-size: 13px; color: var(--muted); }
+
+.setting-problem { color: var(--error); }
+
+.setting-folders { margin: 0 0 8px; padding-left: 18px; font-size: 12px; overflow-wrap: anywhere; }
 
 .setting-row { display: flex; align-items: center; gap: 8px; }
 

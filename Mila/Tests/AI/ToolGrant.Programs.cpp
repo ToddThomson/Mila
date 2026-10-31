@@ -12,6 +12,7 @@
 #include <ws2tcpip.h>
 #include <iphlpapi.h>
 #include <gtest/gtest.h>
+#include <array>
 #include <chrono>
 #include <cstdlib>
 #include <expected>
@@ -143,7 +144,8 @@ namespace Mila::Tests::AI
     TEST_F( ToolGrantProgramsTest, TheContainerIsGivenOnlyToAToolThatRunsPrograms )
     {
         const auto container = std::make_shared<RecordingContainer>();
-        const ToolGrant grant( { GrantFolder{ project_, FolderAccess::ReadWrite } }, false, { tools_ }, container );
+        const ToolGrant grant( { GrantFolder{ project_, FolderAccess::ReadWrite } }, false,
+            ProgramFolders{ { tools_ }, { "INCLUDE=x" } }, container );
 
         ToolNeeds files;
         files.reads_files = true;
@@ -154,8 +156,10 @@ namespace Mila::Tests::AI
 
         EXPECT_FALSE( file_tool.runsPrograms() );
         EXPECT_TRUE( file_tool.programFolders().empty() );
+        EXPECT_TRUE( file_tool.programEnvironment().empty() );
         EXPECT_TRUE( command_tool.runsPrograms() );
         EXPECT_EQ( command_tool.programFolders().size(), 1u );
+        EXPECT_EQ( command_tool.programEnvironment().size(), 1u );
 
         EXPECT_THROW( (void)file_tool.runProgram( { "cmd.exe /c echo hi" }, {} ), std::runtime_error );
         EXPECT_NO_THROW( (void)command_tool.runProgram( { "cmd.exe /c echo hi" }, {} ) );
@@ -164,7 +168,7 @@ namespace Mila::Tests::AI
     // Decision 9: the program folders reach only the program.
     TEST_F( ToolGrantProgramsTest, NoFileToolReadsAProgramFolderBesideAFileInTheProject )
     {
-        const ToolGrant grant( { GrantFolder{ project_, FolderAccess::ReadWrite } }, false, { tools_ },
+        const ToolGrant grant( { GrantFolder{ project_, FolderAccess::ReadWrite } }, false, ProgramFolders{ { tools_ } },
             std::make_shared<RecordingContainer>() );
 
         try
@@ -182,7 +186,7 @@ namespace Mila::Tests::AI
     {
         const auto container = std::make_shared<RecordingContainer>();
         const ToolGrant grant( { GrantFolder{ project_, FolderAccess::ReadWrite }, GrantFolder{ reference_, FolderAccess::Read } },
-            false, { tools_ }, container );
+            false, ProgramFolders{ { tools_ }, { "INCLUDE=C:\\include", "NODE_OPTIONS=--preserve-symlinks" } }, container );
         std::filesystem::create_directories( project_ / "sub" );
 
         ProgramRequest request{ "cmd.exe /c echo hi", "sub", std::chrono::seconds( 5 ), 100 };
@@ -198,9 +202,35 @@ namespace Mila::Tests::AI
         EXPECT_EQ( run.folders[ 1 ].access, FolderAccess::Read );
         EXPECT_TRUE( text( run.folders[ 0 ].folder ).starts_with( "\\\\?\\" ) ) << "a final path";
         EXPECT_EQ( run.program_folders.size(), 1u );
+        EXPECT_EQ( run.environment, ( std::vector<std::string>{ "INCLUDE=C:\\include", "NODE_OPTIONS=--preserve-symlinks" } ) );
         EXPECT_FALSE( run.network );
         EXPECT_EQ( run.time, std::chrono::seconds( 5 ) );
         EXPECT_EQ( run.output_bytes, 100u );
+    }
+
+    TEST_F( ToolGrantProgramsTest, AVariableTheContainerWritesIsRefusedBesideOneOfTheApplicationsOwn )
+    {
+        const auto container = std::make_shared<RecordingContainer>();
+        const auto refusal = [&]( std::string variable ) -> std::string
+            {
+                try
+                {
+                    (void)ToolGrant( { GrantFolder{ project_, FolderAccess::ReadWrite } }, false,
+                        ProgramFolders{ {}, { std::move( variable ) } }, container );
+                } catch ( const std::invalid_argument& error ) {
+                    return error.what();
+                }
+
+                return {};
+            };
+
+        EXPECT_TRUE( contains( refusal( "PATH=C:\\elsewhere" ), "written by the container" ) );
+        EXPECT_TRUE( contains( refusal( "path=C:\\elsewhere" ), "written by the container" ) ) << "case is ignored, as Windows ignores it";
+        EXPECT_TRUE( contains( refusal( "LOCALAPPDATA=C:\\elsewhere" ), "written by the container" ) );
+        EXPECT_TRUE( contains( refusal( "HOME=C:\\elsewhere" ), "written by the container" ) );
+        EXPECT_TRUE( contains( refusal( "INCLUDE" ), "NAME=value" ) );
+        EXPECT_TRUE( contains( refusal( "=value" ), "NAME=value" ) );
+        EXPECT_EQ( refusal( "INCLUDE=C:\\include" ), "" );
     }
 
     TEST_F( ToolGrantProgramsTest, AStartFolderOutsideIsRefusedBesideOneInside )
@@ -288,10 +318,10 @@ namespace Mila::Tests::AI
                 ToolGrantProgramsTest::SetUp();
             }
 
-            ToolGrant grant( bool network = false, std::vector<std::filesystem::path> program_folders = {} ) const
+            ToolGrant grant( bool network = false, ProgramFolders programs = {} ) const
             {
                 return ToolGrant( { GrantFolder{ project_, FolderAccess::ReadWrite }, GrantFolder{ reference_, FolderAccess::Read } },
-                    network, std::move( program_folders ), container_ ).narrowedTo( withNetwork( network ) );
+                    network, std::move( programs ), container_ ).narrowedTo( withNetwork( network ) );
             }
 
             static ToolNeeds withNetwork( bool network )
@@ -498,8 +528,71 @@ namespace Mila::Tests::AI
         const ProgramResult without = run( grant(), command );
         EXPECT_FALSE( contains( without.output, "a tool" ) ) << without.output;
 
-        const ProgramResult with = run( grant( false, { tools_ } ), command );
+        const ProgramResult with = run( grant( false, ProgramFolders{ { tools_ } } ), command );
         EXPECT_TRUE( contains( with.output, "a tool" ) ) << with.errors;
+    }
+
+    // MXC puts a run's temporary folder in its own profile under the LOCALAPPDATA it is given, and Windows makes that
+    // profile only under the person's own (MxcConformance.md 7.1): a temporary file is what a compiler's link needs.
+    // The process's own LOCALAPPDATA pointed elsewhere, as an application or a test harness may: the profile is still
+    // made under the person's own folder.
+    TEST_F( ContainedRunTest, ATemporaryFileIsWrittenBesideTheProjectsHome )
+    {
+        std::array<char, 32767> saved{};
+        const DWORD saved_length = GetEnvironmentVariableA( "LOCALAPPDATA", saved.data(), static_cast<DWORD>( saved.size() ) );
+        SetEnvironmentVariableA( "LOCALAPPDATA", text( root_ / "elsewhere" ).c_str() );
+
+        const ProgramResult temporary = run( grant(), "cmd.exe /c echo made> \"%TMP%\\mila-probe.txt\" && type \"%TMP%\\mila-probe.txt\"" );
+        SetEnvironmentVariableA( "LOCALAPPDATA", saved_length > 0 ? saved.data() : nullptr );
+
+        EXPECT_EQ( temporary.exit_code, 0 ) << temporary.errors;
+        EXPECT_TRUE( contains( temporary.output, "made" ) ) << temporary.output << temporary.errors;
+
+        const ProgramResult home = run( grant(), "cmd.exe /c echo %HOME%^|%USERPROFILE%^|%APPDATA%" );
+        const std::string project = text( std::filesystem::path( project_ ).make_preferred() );
+        EXPECT_EQ( std::ranges::count( home.output, '|' ), 2 ) << home.output;
+        EXPECT_TRUE( contains( home.output, project + "\\.mila\\Home|" + project + "\\.mila\\Home|" + project + "\\.mila\\Roaming" ) )
+            << home.output;
+    }
+
+    // A variable the person keeps under HKCU\Environment is in the default environment MXC gives a run whose request
+    // writes none, or layers its own on; MXC adds some system variables itself, so the test uses one of the person's.
+    TEST_F( ContainedRunTest, TheApplicationsVariableReachesTheRunBesideThePersonsOwnWhichDoesNot )
+    {
+        std::string persons;
+        HKEY key = nullptr;
+
+        if ( RegOpenKeyExA( HKEY_CURRENT_USER, "Environment", 0, KEY_READ, &key ) == ERROR_SUCCESS )
+        {
+            for ( DWORD index = 0; persons.empty(); ++index )
+            {
+                std::array<char, 256> name{};
+                DWORD length = static_cast<DWORD>( name.size() );
+
+                if ( RegEnumValueA( key, index, name.data(), &length, nullptr, nullptr, nullptr, nullptr ) != ERROR_SUCCESS )
+                {
+                    break;
+                }
+
+                if ( !isContainerVariable( std::string_view( name.data(), length ) ) )
+                {
+                    persons.assign( name.data(), length );
+                }
+            }
+
+            RegCloseKey( key );
+        }
+
+        if ( persons.empty() )
+        {
+            GTEST_SKIP() << "this person keeps no variable of their own under HKCU\\Environment";
+        }
+
+        const ProgramResult result = run( grant( false, ProgramFolders{ {}, { "MILA_GIVEN=given-value" } } ),
+            std::format( "cmd.exe /c echo [%MILA_GIVEN%][%{}%]", persons ) );
+
+        EXPECT_TRUE( contains( result.output, "[given-value]" ) ) << result.output;
+        EXPECT_TRUE( contains( result.output, std::format( "[%{}%]", persons ) ) ) << persons << " reached the run: " << result.output;
     }
 
     TEST_F( ContainedRunTest, ALoopbackServerIsRefusedWithTheNetworkGrantedBesideTheHostReachingIt )

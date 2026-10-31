@@ -33,6 +33,9 @@ namespace Mila::Assistant
         /// off, thoughts or all.
         std::string detail{ "off" };
 
+        /// Whether Build & Code offers the experimental command tool (ContainedPrograms.md 4.11).
+        bool run_commands{ false };
+
         Mila::AI::SamplingOverride sampling;
     };
 

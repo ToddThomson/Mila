@@ -16,6 +16,7 @@ module;
 #  define NOMINMAX
 #endif
 #include <windows.h>
+#include <shlobj.h>
 
 export module AI.MxcProgramContainer;
 
@@ -146,6 +147,23 @@ namespace Mila::AI
             return utf8( std::filesystem::path( value ) );
         }
 
+        /// The person's local application data folder as the shell knows it, where Windows makes a run's profile,
+        /// whatever this process's LOCALAPPDATA says; empty when the shell cannot say.
+        inline std::string localApplicationData()
+        {
+            PWSTR folder = nullptr;
+            std::string result;
+
+            if ( SUCCEEDED( SHGetKnownFolderPath( FOLDERID_LocalAppData, 0, nullptr, &folder ) ) )
+            {
+                result = utf8( std::filesystem::path( folder ) );
+            }
+
+            CoTaskMemFree( folder );
+
+            return result;
+        }
+
         /// Standard output or error read to the end, kept up to a cap, the rest read and dropped so the program never
         /// blocks on a full pipe.
         struct Drained
@@ -184,8 +202,9 @@ namespace Mila::AI
      * by its name inside and named in the result (4.3). That check counts against the run's time, and a run whose
      * check does not finish within it is refused.
      *
-     * The run is given an environment of Mila's writing (4.7), never the person's: its temporary folders lie in the
-     * first folder granted to write, under `.mila`. Telemetry is off in every request (4.10).
+     * The run is given an environment of Mila's writing (4.7), never the person's, with the application's own
+     * variables after it: its home and settings lie in the first folder granted to write, under `.mila`, and its
+     * temporary files in the run's own profile, gone after it. Telemetry is off in every request (4.10).
      */
     export class MxcProgramContainer final : public ProgramContainer
     {
@@ -443,7 +462,7 @@ namespace Mila::AI
 
             if ( !own_folder )
             {
-                throw std::runtime_error( "a program runs only with a folder granted to write, where its temporary files go" );
+                throw std::runtime_error( "a program runs only with a folder granted to write, where its home and settings go" );
             }
 
             std::string path = MxcDetail::environmentValue( L"SystemRoot" ) + "\\System32;"
@@ -463,12 +482,48 @@ namespace Mila::AI
                 denied_paths.push_back( MxcDetail::utf8( std::filesystem::path( name ) ) );
             }
 
-            const std::filesystem::path temp = *own_folder / "Temp";
-            const std::filesystem::path local = *own_folder / "Local";
-            std::filesystem::create_directories( temp );
-            std::filesystem::create_directories( local );
+            const std::filesystem::path home = *own_folder / "Home";
+            const std::filesystem::path roaming = *own_folder / "Roaming";
+            std::filesystem::create_directories( home );
+            std::filesystem::create_directories( roaming );
 
             const std::string system_root = MxcDetail::environmentValue( L"SystemRoot" );
+
+            // MXC puts LOCALAPPDATA, TEMP and TMP in the run's own AppContainer profile under the LOCALAPPDATA given,
+            // and Windows makes that profile only under the person's own folder, so that folder is given, as the
+            // shell knows it, and the other two are left to MXC (MxcConformance.md 7.1). Home and settings lie in
+            // the project, never the person's profile.
+            const std::string local = MxcDetail::localApplicationData();
+
+            if ( local.empty() )
+            {
+                throw std::runtime_error( "the program could not be started: Windows did not say where this person's local application data is" );
+            }
+
+            nlohmann::json environment = nlohmann::json::array( {
+                "SystemRoot=" + system_root,
+                "windir=" + system_root,
+                "ComSpec=" + system_root + "\\System32\\cmd.exe",
+                "PATHEXT=.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC",
+                "PATH=" + path,
+                "LOCALAPPDATA=" + local,
+                "USERPROFILE=" + MxcDetail::utf8( home ),
+                "HOME=" + MxcDetail::utf8( home ),
+                "APPDATA=" + MxcDetail::utf8( roaming ) } );
+
+            // Names of the system's folders, which tools read to find their own; naming one grants nothing.
+            for ( const wchar_t* name : { L"SystemDrive", L"ProgramFiles", L"ProgramFiles(x86)", L"CommonProgramFiles", L"ProgramData", L"ALLUSERSPROFILE" } )
+            {
+                if ( const std::string value = MxcDetail::environmentValue( name ); !value.empty() )
+                {
+                    environment.push_back( MxcDetail::utf8( std::filesystem::path( name ) ) + "=" + value );
+                }
+            }
+
+            for ( const std::string& variable : run.environment )
+            {
+                environment.push_back( variable );
+            }
 
             nlohmann::json egress = { { "default", run.network ? "allow" : "deny" } };
 
@@ -492,15 +547,7 @@ namespace Mila::AI
                     { "commandLine", run.command_line },
                     { "cwd", MxcDetail::utf8( std::filesystem::path( MxcDetail::plain( run.start_folder ) ) ) },
                     { "timeout", left.count() },
-                    { "env", nlohmann::json::array( {
-                        "SystemRoot=" + system_root,
-                        "windir=" + system_root,
-                        "ComSpec=" + system_root + "\\System32\\cmd.exe",
-                        "PATHEXT=.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC",
-                        "PATH=" + path,
-                        "TEMP=" + MxcDetail::utf8( temp ),
-                        "TMP=" + MxcDetail::utf8( temp ),
-                        "LOCALAPPDATA=" + MxcDetail::utf8( local ) } ) } } },
+                    { "env", std::move( environment ) } } },
                 { "filesystem", { { "readwritePaths", read_write }, { "readonlyPaths", read_only }, { "deniedPaths", denied_paths } } },
                 { "network", { { "egress", egress }, { "ingress", { { "default", "deny" }, { "hostLoopback", "deny" } } } } },
                 { "ui", { { "disable", false }, { "clipboard", "none" }, { "injection", false } } },

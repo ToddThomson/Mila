@@ -22,6 +22,8 @@ PUBLIC
         "Src/Assistant.RoundTimer.ixx"
         "Src/Assistant.ConversationStore.ixx"
         "Src/Assistant.FileTools.ixx"
+        "Src/Assistant.CommandTool.ixx"
+        "Src/Assistant.ProgramSetup.ixx"
         "Src/Assistant.HtmlText.ixx"
         "Src/Assistant.TaskPlan.ixx"
         "Src/Assistant.SearchKeyFile.ixx"
@@ -43,6 +45,27 @@ add_custom_command( TARGET mila-session POST_BUILD
         "${CMAKE_CURRENT_SOURCE_DIR}/../Prompts"
         "$<TARGET_FILE_DIR:mila-session>/Prompts"
 )
+
+# MXC's library beside the session, which loads it from there when commands are on (ContainedPrograms.md 4.10).
+if( MILA_ENABLE_MXC AND MILA_MXC_LIBRARY )
+    get_filename_component( MILA_MXC_FOLDER "${MILA_MXC_LIBRARY}" DIRECTORY )
+
+    if( NOT EXISTS "${MILA_MXC_FOLDER}/LICENSE.md" )
+        message( WARNING "No LICENSE.md beside ${MILA_MXC_LIBRARY}: the installer would carry MXC without its licence." )
+    endif()
+
+    add_custom_command( TARGET mila-session POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MILA_MXC_LIBRARY}" "$<TARGET_FILE_DIR:mila-session>/mxc_ffi.dll"
+    )
+
+    install( FILES "${MILA_MXC_LIBRARY}" DESTINATION . RENAME mxc_ffi.dll COMPONENT mila-session EXCLUDE_FROM_ALL )
+
+    if( EXISTS "${MILA_MXC_FOLDER}/LICENSE.md" )
+        install( FILES "${MILA_MXC_FOLDER}/LICENSE.md" DESTINATION . RENAME MXC-LICENSE.md COMPONENT mila-session EXCLUDE_FROM_ALL )
+    endif()
+elseif( MILA_ENABLE_MXC )
+    message( STATUS "MILA_MXC_LIBRARY names no mxc_ffi.dll: the Mila app will say it cannot run commands." )
+endif()
 
 # What the window's package carries (MilaApp.md 9.4): the session, its prompts, and the CUDA libraries it loads,
 # found by reading the program's imports, so a toolkit that renames them needs no edit here. Installed only on request:

@@ -364,6 +364,7 @@ export import AI.PublicAddress;
 export import AI.GrantFile;
 export import AI.ProgramRequest;
 export import AI.ProgramResult;
+export import AI.ProgramFolders;
 export import AI.ContainedRun;
 export import AI.ProgramContainer;
 export import AI.MxcProgramContainer;

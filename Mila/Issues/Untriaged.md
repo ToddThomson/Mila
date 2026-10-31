@@ -10,6 +10,27 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## A pnpm project may not build under the Mila app's commands, which tell Node to keep links as named
+
+`Mila/Apps/Assistant/Session/Src/Assistant.ProgramSetup.ixx` (`NODE_OPTIONS`) @ 7cf45bdd
+
+Measured 2026-10-31 (`Notebooks/MxcConformance.md` 7.1): in MXC's container Node's resolving of a script's real
+path stats the drive's root, which is refused, so every `node` and `npm` run failed; `--preserve-symlinks
+--preserve-symlinks-main` lets them run. pnpm lays `node_modules` out as links into its store and relies on real
+paths; a pnpm project under those options is not measured. `dotnet build`'s first run in the container also reports
+installing a development certificate; where it lands is not measured.
+
+## A command run through the grant reaches every public host or none, never only the hosts a project needs
+
+`Mila/Specifications/ContainedPrograms.md` decision 11; an absence -- no allow list by host name @ 7cf45bdd
+
+Todd, 2026-10-31: after phase 3 (network per call), a list of hosts allowed per project in the Mila app, and a
+question for each new host. MXC's egress rules match address, protocol and port only; names are out of its scope
+(`docs/backends/process-container/networking.md`). Its proxy mode (`runtimeConfig.networkProxy`, "Model 2") sends
+WinHTTP traffic and `HTTP_PROXY`/`HTTPS_PROXY` to a loopback proxy the host runs, and asks for `egress.default: deny`
+with `ingress.default: allow`. Unmeasured: what that ingress opens, and which tools (npm, git, pip, curl, dotnet)
+go through the proxy inside the container. The proxy would decide the grant's network, so it is `Mila/Src`.
+
 ## Microsoft has not been told of three accesses MXC's policy accepts that no grant gives
 
 `D:\Claude\mxc-cpp` (`policy-conformance-2.ps1`, `-3.ps1`); an absence -- no report made to Microsoft @ 7b5248a2
