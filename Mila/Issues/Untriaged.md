@@ -10,6 +10,39 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Microsoft has not been told of three accesses MXC's policy accepts that no grant gives
+
+`D:\Claude\mxc-cpp` (`policy-conformance-2.ps1`, `-3.ps1`); an absence -- no report made to Microsoft @ 7b5248a2
+
+Measured 2026-10-27 on MXC v1.0.1, Windows 11 build 26300.9711: with the UI on, a contained process reads the
+person's screen in every `processContainer.ui.isolation` mode, and no policy field refuses it; and a file with one
+name inside a read-write folder and another outside it, or in a denied folder, is accepted for read and write through
+its inside name (bubblewrap on Linux the same). MXC's `SECURITY.md` sends security reports to MSRC, never to public
+GitHub issues, and Codex ships with the UI on (`codex-rs/mxc-sandbox/src/policy.rs`), so a public issue would tell
+everyone first. Todd, 2026-10-27: report after the design spec; Todd files, under his account.
+
+Also measured 2026-10-27 (`ContainedPrograms.md` phase 1): with no folder granted, a contained process reads much of
+`HKCU` -- `Environment`, `Software`, `Software\Classes` -- and the policy has no registry field. Todd, 2026-10-31
+(`ContainedPrograms.md` decision 8): a known gap for the Mila app, and told to Microsoft with the other two.
+
+## On NTFS a contained run walks its folders whole before every run
+
+`Mila/Src/AI/SecondNameWatch.ixx` (`watcher_reports_every_name_`) @ 7b5248a2
+
+Todd, 2026-10-31 (`ContainedPrograms.md` decision 7, narrowed): `ReadDirectoryChangesW` on NTFS reports no name made
+outside for a file inside, so off ReFS every run walks the granted folders whole -- about 115 ms for 7,500 files,
+5.5 s for 358,000 (`Notebooks/MxcConformance.md` section 7). NTFS's change journal records a link added
+(`USN_REASON_HARD_LINK_CHANGE`); whether it can be read without an administrator is unmeasured.
+
+## The grant refuses a file with a second name even when every name lies inside the folder
+
+`Mila/Src/AI/ToolGrant.ixx` (`requireOneName`) @ 7b5248a2
+
+Todd, 2026-10-27 (`ContainedPrograms.md` decision 5): kept for v0.21.0. `FindFirstFileNameW` and
+`FindNextFileNameW` list a file's names, so the grant could accept a file whose names all lie within granted
+folders giving at least the access asked, as the container's walk does (`ContainedPrograms.md` 4.3). A project
+whose files are linked between two of its own folders is refused today.
+
 ## Two installed models that think are recorded as not thinking, so neither app offers their switch
 
 `mila-store show gemma-4-12b-it-fp4` and `mila-store show Qwen3.8-27B-fp4` in Todd's store @ e9c9430f
@@ -225,6 +258,9 @@ and writes outside the one read-write folder and all network were refused, besid
 allowed; the process runs as the person's own account; with the UI disabled `whoami.exe` fails to start
 (0xC0000142), allowed it runs. Unmeasured: whether it holds a grant as completely as section 3.4's file and network
 checks describe.
+
+Measured 2026-10-27 (`Specifications/Notebooks/MxcConformance.md`) and designed (`Specifications/ContainedPrograms.md`,
+draft): Todd decided the same day that MXC goes into v0.21.0 as an experiment, off by default.
 
 ## No CI job builds the Mila app's installer
 

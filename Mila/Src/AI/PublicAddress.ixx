@@ -28,17 +28,16 @@ namespace Mila::AI
             return true;
         }
 
-        bool isPublicIpv4( std::span<const std::uint8_t> address ) noexcept
+        template <std::size_t TBytes>
+        struct Block
         {
-            // IANA's IPv4 special-purpose registry marks each of these not globally reachable; 224.0.0.0/4 is
-            // multicast. 192.0.0.0/24 is refused whole, the two anycast addresses inside it included.
-            struct Block
-            {
-                std::array<std::uint8_t, 4> prefix;
-                int bits;
-            };
+            std::array<std::uint8_t, TBytes> prefix;
+            int bits;
+        };
 
-            static constexpr std::array<Block, 16> kRefused{ {
+        // IANA's IPv4 special-purpose registry marks each of these not globally reachable; 224.0.0.0/4 is
+        // multicast. 192.0.0.0/24 is refused whole, the two anycast addresses inside it included.
+        constexpr std::array<Block<4>, 16> kRefusedIpv4{ {
                 { { 0, 0, 0, 0 }, 8 },
                 { { 10, 0, 0, 0 }, 8 },
                 { { 100, 64, 0, 0 }, 10 },
@@ -54,49 +53,99 @@ namespace Mila::AI
                 { { 203, 0, 113, 0 }, 24 },
                 { { 224, 0, 0, 0 }, 4 },
                 { { 240, 0, 0, 0 }, 4 },
-                { { 255, 255, 255, 255 }, 32 },
-            } };
+            { { 255, 255, 255, 255 }, 32 },
+        } };
 
-            return std::ranges::none_of( kRefused, [address]( const Block& block )
+        // Only global unicast, 2000::/3, is public at all, so the three blocks beside it are refused; every other
+        // block IANA's IPv6 registry lists lies in them -- loopback, unspecified, unique-local, link-local,
+        // multicast, discard, NAT64's local prefix. Inside it, the IETF's protocol assignments (refused whole) and
+        // the two documentation blocks.
+        constexpr std::array<Block<16>, 6> kRefusedIpv6{ {
+            { { 0x00 }, 3 },
+            { { 0x40 }, 2 },
+            { { 0x80 }, 1 },
+            { { 0x20, 0x01 }, 23 },
+            { { 0x20, 0x01, 0x0d, 0xb8 }, 32 },
+            { { 0x3f, 0xff }, 20 },
+        } };
+
+        // IPv6 blocks that carry an IPv4 address, which then decides; the first two lie in ::/3.
+        constexpr Block<16> kMapped{ { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff }, 96 };
+        constexpr Block<16> kTranslated{ { 0x00, 0x64, 0xff, 0x9b }, 96 };
+        constexpr Block<16> kSixToFour{ { 0x20, 0x02 }, 16 };
+
+        template <std::size_t TBytes, std::size_t TCount>
+        bool inAny( std::span<const std::uint8_t> address, const std::array<Block<TBytes>, TCount>& blocks ) noexcept
+        {
+            return std::ranges::any_of( blocks, [address]( const Block<TBytes>& block )
                 {
                     return hasPrefix( address, block.prefix, block.bits );
                 } );
         }
 
+        bool isPublicIpv4( std::span<const std::uint8_t> address ) noexcept
+        {
+            return !inAny( address, kRefusedIpv4 );
+        }
+
         bool isPublicIpv6( std::span<const std::uint8_t> address ) noexcept
         {
-            static constexpr std::array<std::uint8_t, 16> kMapped{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff };
-            static constexpr std::array<std::uint8_t, 16> kTranslated{ 0x00, 0x64, 0xff, 0x9b };
-            static constexpr std::array<std::uint8_t, 16> kSixToFour{ 0x20, 0x02 };
-
             // An address that carries an IPv4 address reaches it, so the IPv4 address decides.
-            if ( hasPrefix( address, kMapped, 96 ) || hasPrefix( address, kTranslated, 96 ) )
+            if ( hasPrefix( address, kMapped.prefix, kMapped.bits ) || hasPrefix( address, kTranslated.prefix, kTranslated.bits ) )
             {
                 return isPublicIpv4( address.subspan( 12, 4 ) );
             }
 
-            if ( hasPrefix( address, kSixToFour, 16 ) )
+            if ( hasPrefix( address, kSixToFour.prefix, kSixToFour.bits ) )
             {
                 return isPublicIpv4( address.subspan( 2, 4 ) );
             }
 
-            // Only global unicast, 2000::/3, is public at all; every other block IANA's IPv6 registry lists is outside
-            // it -- loopback, unspecified, unique-local, link-local, multicast, discard -- save NAT64's local prefix.
-            static constexpr std::array<std::uint8_t, 16> kGlobalUnicast{ 0x20 };
+            return !inAny( address, kRefusedIpv6 );
+        }
 
-            if ( !hasPrefix( address, kGlobalUnicast, 3 ) )
+        std::string cidr( const Block<4>& block )
+        {
+            return std::format( "{}.{}.{}.{}/{}", block.prefix[ 0 ], block.prefix[ 1 ], block.prefix[ 2 ], block.prefix[ 3 ], block.bits );
+        }
+
+        std::string cidr( const Block<16>& block )
+        {
+            std::string text;
+
+            for ( std::size_t group = 0; group < 8; ++group )
             {
-                return false;
+                text += std::format( "{}{:x}", group == 0 ? "" : ":", ( block.prefix[ 2 * group ] << 8 ) | block.prefix[ 2 * group + 1 ] );
             }
 
-            // Inside it, the IETF's protocol assignments (refused whole) and the two documentation blocks.
-            static constexpr std::array<std::uint8_t, 16> kProtocolAssignments{ 0x20, 0x01 };
-            static constexpr std::array<std::uint8_t, 16> kDocumentation{ 0x20, 0x01, 0x0d, 0xb8 };
-            static constexpr std::array<std::uint8_t, 16> kDocumentationSince2024{ 0x3f, 0xff };
-
-            return !hasPrefix( address, kProtocolAssignments, 23 ) && !hasPrefix( address, kDocumentation, 32 )
-                && !hasPrefix( address, kDocumentationSince2024, 20 );
+            return std::format( "{}/{}", text, block.bits );
         }
+    }
+
+    /**
+     * @brief Every address range a grant's network refuses, as CIDR text, for a filter that decides by range.
+     *
+     * Drawn from the table isPublicAddress decides by, so the two cannot drift. An IPv6 range that carries an IPv4
+     * address -- IPv4-mapped, NAT64, 6to4 -- is refused whole here, which is stricter than isPublicAddress, which
+     * decides by the IPv4 address inside (ContainedPrograms.md 4.5).
+     */
+    export std::vector<std::string> nonPublicRanges()
+    {
+        std::vector<std::string> ranges;
+
+        for ( const auto& block : kRefusedIpv4 )
+        {
+            ranges.push_back( cidr( block ) );
+        }
+
+        for ( const auto& block : kRefusedIpv6 )
+        {
+            ranges.push_back( cidr( block ) );
+        }
+
+        ranges.push_back( cidr( kSixToFour ) );
+
+        return ranges;
     }
 
     /**

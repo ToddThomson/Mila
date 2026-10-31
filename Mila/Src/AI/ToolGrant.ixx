@@ -1,18 +1,22 @@
 /**
  * @file ToolGrant.ixx
- * @brief What one allowed tool call may reach -- folders, read-only or read-write, and whether the network -- and
- *        the object the tool reaches them through.
+ * @brief What one allowed tool call may reach -- folders, read-only or read-write, whether the network, and whether
+ *        programs -- and the object the tool reaches them through.
  */
 
 export module AI.ToolGrant;
 
 import std;
+import AI.ContainedRun;
 import AI.FolderAccess;
 import AI.GrantFolder;
 import AI.FolderEntry;
 import AI.GrantFile;
 import AI.GrantFileSystem;
 import AI.GrantPath;
+import AI.ProgramContainer;
+import AI.ProgramRequest;
+import AI.ProgramResult;
 import AI.PublicAddress;
 import AI.ToolNeeds;
 import Distribution.HttpTransport;
@@ -97,8 +101,12 @@ namespace Mila::AI
      * The network reaches public addresses only (isPublicAddress), decided on each connection as it is made, a
      * redirect's included, and never through a proxy.
      *
+     * A program runs only through the container the grant holds, held to the same folders and network, and given
+     * the program folders to read; no file tool reaches those (ContainedPrograms.md 4.1, 4.6).
+     *
      * A refusal throws, naming the path as the model gave it; the gate gives the model the message as the call's
-     * error. Copies share nothing that can change.
+     * error. Copies share nothing that can change but the container, which keeps what it checked of each folder
+     * between runs.
      */
     export class ToolGrant
     {
@@ -119,32 +127,31 @@ namespace Mila::AI
          *         operating system cannot report; and for any folder where this build cannot hold a tool to one.
          */
         ToolGrant( std::vector<GrantFolder> folders, bool network )
+            : ToolGrant( std::move( folders ), network, {}, nullptr )
+        {
+        }
+
+        /**
+         * @brief A grant that also runs programs, through a container, with the folders their tools live in.
+         *
+         * The program folders are the application's to name, never the model's; each folder's own final path is
+         * taken now. With no container, the grant refuses to run a program.
+         *
+         * @throws std::invalid_argument as the grant of folders alone does, for a program folder too.
+         */
+        ToolGrant( std::vector<GrantFolder> folders, bool network, std::vector<std::filesystem::path> program_folders,
+            std::shared_ptr<const ProgramContainer> container )
+            : container_( std::move( container ) )
         {
             for ( auto& granted : folders )
             {
-                if ( !GrantFileSystem::kEnforcesFolders )
-                {
-                    throw std::invalid_argument( "a grant of folders is enforced only on Windows so far" );
-                }
-
-                granted.folder = std::filesystem::absolute( granted.folder ).lexically_normal();
-
-                const auto opened = GrantFileSystem::openExisting( granted.folder, false );
-
-                if ( !opened )
-                {
-                    throw std::invalid_argument( std::format( "'{}' does not exist", shown( granted.folder ) ) );
-                }
-
-                const ToolGrantDetail::HeldHandle held( *opened );
-
-                if ( !GrantFileSystem::isFolder( held.get() ) )
-                {
-                    throw std::invalid_argument( std::format( "'{}' is not a folder", shown( granted.folder ) ) );
-                }
-
-                final_paths_.push_back( GrantFileSystem::finalPath( held.get() ) );
+                final_paths_.push_back( folderFinalPath( granted.folder ) );
                 folders_.push_back( std::move( granted ) );
+            }
+
+            for ( auto& folder : program_folders )
+            {
+                program_final_paths_.push_back( folderFinalPath( folder ) );
             }
 
             if ( network )
@@ -167,9 +174,22 @@ namespace Mila::AI
             return network_ != nullptr;
         }
 
+        /// Whether the grant holds a container to run programs through.
+        [[nodiscard]] bool runsPrograms() const noexcept
+        {
+            return container_ != nullptr;
+        }
+
+        /// The program folders, each by its own final path.
+        [[nodiscard]] std::span<const std::filesystem::path> programFolders() const noexcept
+        {
+            return program_final_paths_;
+        }
+
         /**
          * @brief The part of this grant a tool with these needs is given: folders only to a tool that reads or
-         *        writes files, read-only unless it writes them, and the network only to a tool that uses it.
+         *        writes files, read-only unless it writes them, the network only to a tool that uses it, and the
+         *        container and program folders only to a tool that runs programs.
          */
         [[nodiscard]] ToolGrant narrowedTo( const ToolNeeds& needs ) const
         {
@@ -193,7 +213,53 @@ namespace Mila::AI
                 narrowed.network_.reset();
             }
 
+            if ( !needs.runs_programs )
+            {
+                narrowed.container_.reset();
+                narrowed.program_final_paths_.clear();
+            }
+
             return narrowed;
+        }
+
+        /**
+         * @brief Runs a program held to this grant: its folders as granted, the program folders to read, the
+         *        network only when granted, public addresses alone (ContainedPrograms.md 4.1).
+         *
+         * The request names the command and the folder it starts in, and nothing it names widens the grant.
+         *
+         * @throws std::invalid_argument for a folder in a form the grant refuses.
+         * @throws std::runtime_error when the grant holds no container or no folder, the folder lies outside every
+         *         granted folder, or the container refuses the run.
+         */
+        [[nodiscard]] ProgramResult runProgram( const ProgramRequest& request, std::stop_token stop ) const
+        {
+            if ( !container_ )
+            {
+                throw std::runtime_error( "this tool was granted no way to run programs" );
+            }
+
+            if ( folders_.empty() )
+            {
+                throw std::runtime_error( "this tool was granted no folder to run a program in" );
+            }
+
+            const ToolGrantDetail::HeldHandle start = openChecked( request.folder.empty() ? std::string_view( "." ) : request.folder, true );
+
+            ContainedRun run;
+            run.command_line = request.command_line;
+            run.start_folder = GrantFileSystem::finalPath( start.get() );
+            run.program_folders = program_final_paths_;
+            run.network = network();
+            run.time = request.time;
+            run.output_bytes = request.output_bytes;
+
+            for ( std::size_t index = 0; index < folders_.size(); ++index )
+            {
+                run.folders.push_back( GrantFolder{ final_paths_[ index ], folders_[ index ].access } );
+            }
+
+            return container_->run( run, stop );
         }
 
         /**
@@ -388,6 +454,33 @@ namespace Mila::AI
             const std::u8string text = path.u8string();
 
             return std::string( text.begin(), text.end() );
+        }
+
+        /// A folder named by the application, made absolute, and the final path its open handle reports.
+        static std::filesystem::path folderFinalPath( std::filesystem::path& folder )
+        {
+            if ( !GrantFileSystem::kEnforcesFolders )
+            {
+                throw std::invalid_argument( "a grant of folders is enforced only on Windows so far" );
+            }
+
+            folder = std::filesystem::absolute( folder ).lexically_normal();
+
+            const auto opened = GrantFileSystem::openExisting( folder, false );
+
+            if ( !opened )
+            {
+                throw std::invalid_argument( std::format( "'{}' does not exist", shown( folder ) ) );
+            }
+
+            const ToolGrantDetail::HeldHandle held( *opened );
+
+            if ( !GrantFileSystem::isFolder( held.get() ) )
+            {
+                throw std::invalid_argument( std::format( "'{}' is not a folder", shown( folder ) ) );
+            }
+
+            return GrantFileSystem::finalPath( held.get() );
         }
 
         void requireFolders( std::string_view path ) const
@@ -590,5 +683,9 @@ namespace Mila::AI
         std::vector<std::filesystem::path> final_paths_;
 
         std::shared_ptr<const Distribution::IHttpTransport> network_;
+
+        // Given only to a tool that runs programs, as the program folders are.
+        std::shared_ptr<const ProgramContainer> container_;
+        std::vector<std::filesystem::path> program_final_paths_;
     };
 }

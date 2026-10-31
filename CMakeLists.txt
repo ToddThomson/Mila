@@ -103,6 +103,10 @@ option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)
 # See Specifications/ModelDistribution.md.
 option(MILA_ENABLE_LIBCURL "Build Mila's libcurl HTTP transport." ON)
 
+# A tool's programs run in Microsoft's MXC container, loaded at run time; experimental in v0.21.0 and
+# Windows only. Off, a grant runs no programs. See Specifications/ContainedPrograms.md 4.11.
+option(MILA_ENABLE_MXC "Run a tool's programs in Microsoft's MXC container (Windows, experimental)." OFF)
+
 option(MILA_ENABLE_CUDA "Enable CUDA compute backend" ON)
 
 # The Metal and ROCm backends are currently for internal testing only. Please leave them disabled.

@@ -244,9 +244,12 @@ passes, with the app's hook for asking the person, and a grant through which a t
 connections, which holds it to the folder and to public addresses. Mila ships no tools: the Mila app's file and
 web tools are its own code, the first written through grants. And an agent holds a session -- what the program
 gave it and the conversation -- apart from its model, so a program changes model or context without losing either;
-the Mila app and Chat each build on the library alone for that, with no family-specific code of their own (`Direction.md` 4.3, Todd, 2026-10-27). Tools in processes of their own, MCP and an
-operating-system sandbox come later, with the shell and other people's tool servers that need them. The grant's
-checks are Windows first: on any other platform the app runs without tools until they are tested there.
+the Mila app and Chat each build on the library alone for that, with no family-specific code of their own (`Direction.md` 4.3, Todd, 2026-10-27). One program-running tool comes in as an
+experiment, off by default: the grant runs a program in Microsoft's execution container, held to the folder, the
+network as granted and a desktop of its own, and the Mila app's Build & Code gains a shell through it
+(`ContainedPrograms.md`, Todd, 2026-10-27). MCP and other people's tool servers come later, through the same
+container. The grant's checks are Windows first: on any other platform the app runs without tools until they are
+tested there.
 
 **Success criteria:** on Windows, the Mila app runs every model this release publishes that calls tools through a
 task that reads files in the chosen folder, edits one, and reads a web page, each call allowed or asked by the
@@ -262,7 +265,10 @@ Chat each build on `Mila::AI` alone, neither linking the other's code, and neith
 a model belongs to; no dispatch site in `Mila::AI` carries a
 per-family branch; and across a multi-turn tool session, prefill tokens per turn equal the tokens the turn added,
 measured, for every family that permits prefix reuse, Qwen from the position it saved at the end of the previous
-turn.
+turn; and with the experimental setting on, on Windows 11 26H2, the Mila app runs a command in the chosen folder,
+asked first, and a test per kind of access the container refuses -- a file outside, a name inside for a file
+outside, a file also in a denied folder, a write to a read-only folder, the network with none granted, a private
+address with it granted, the person's screen -- shows it refused beside the same access inside allowed.
 
 ### Upgrades Keep Your Models
 

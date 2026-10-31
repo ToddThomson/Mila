@@ -181,18 +181,19 @@ Both are the next tools after v0.21.0.
 
 **What waits for the sandbox:** a shell, third-party MCP servers, and any tool an agent writes -- a script, a
 plugin, a new tool of unknown origin, whatever a library of the agent's adopted it for. Until a platform's sandbox
-is built and its escape tests pass, the broker registers none of them there and says so.
+is built and its conformance checks pass, the broker registers none of them there and says so.
 
 ### 6.3 The sandbox, next
 
-Filed in `Mila/Issues/Vnext.md`. **Microsoft eXecution Container (MXC)** is the first candidate (Todd,
+*Designed 2026-10-27 under `ToolCalling.md` instead, as a program run through the grant: `ContainedPrograms.md`,
+measured in `Notebooks/MxcConformance.md`.* Filed in `Mila/Issues/Vnext.md`. **Microsoft eXecution Container (MXC)** is the first candidate (Todd,
 2026-10-24): one containment policy -- read-write, read-only and denied paths, outbound network, UI -- launched on
 Windows through Microsoft's process container, on macOS through Seatbelt and on Linux through bubblewrap, so it
 answers section 10.2 as well. What adopting it requires:
 
-- **The escape tests**, each first shown to pass against an unsandboxed worker: a child started through WMI (which
-  does not join a job object, on Microsoft's job-object page), the network with nothing granted, a file outside
-  the granted folder, and a child process.
+- **The conformance checks**, each an access the policy must refuse, first shown to be accepted for a worker
+  running without it: a child started through WMI (which does not join a job object, on Microsoft's job-object
+  page), the network with nothing granted, a file outside the granted folder, and a child process.
 - **The connection moves into the broker.** The `web` worker then has no network at all and turns into text what
   the broker fetched under policy, which is NVIDIA OpenShell's design (`Notebooks/LocalToolService.md` 10.3).
 - **A fresh sandbox per run** where runs must not see each other: an agent trying two candidate edits (as

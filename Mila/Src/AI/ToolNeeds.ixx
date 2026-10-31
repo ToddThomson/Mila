@@ -1,6 +1,6 @@
 /**
  * @file ToolNeeds.ixx
- * @brief What a tool touches when it runs: files read or written, and the network.
+ * @brief What a tool touches when it runs: files read or written, the network, and programs it runs.
  */
 
 export module AI.ToolNeeds;
@@ -20,5 +20,9 @@ namespace Mila::AI
         bool reads_files{ false };
         bool writes_files{ false };
         bool uses_network{ false };
+
+        /// Runs programs through its grant's container (ContainedPrograms.md 4.1); what they reach is still the
+        /// folders and network the other needs give.
+        bool runs_programs{ false };
     };
 }

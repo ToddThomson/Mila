@@ -5,6 +5,7 @@
  */
 
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <span>
@@ -82,6 +83,108 @@ namespace Mila::Tests::AI
         {
             EXPECT_FALSE( isPublicAddress( pair.refused ) ) << pair.block << " is not public";
             EXPECT_TRUE( isPublicAddress( pair.allowed ) ) << "the address beside " << pair.block << " is public";
+        }
+    }
+
+    namespace
+    {
+        /// A range as nonPublicRanges writes it: dotted IPv4, or IPv6 as eight groups with no group left out.
+        struct Range
+        {
+            std::vector<std::uint8_t> address;
+            int bits;
+        };
+
+        Range parse( const std::string& text )
+        {
+            const auto slash = text.find( '/' );
+            const std::string address = text.substr( 0, slash );
+            Range range{ {}, std::stoi( text.substr( slash + 1 ) ) };
+            const bool v6 = address.find( ':' ) != std::string::npos;
+            std::size_t start = 0;
+
+            for ( ;; )
+            {
+                const auto end = address.find( v6 ? ':' : '.', start );
+                const auto value = std::stoul( address.substr( start, end - start ), nullptr, v6 ? 16 : 10 );
+
+                if ( v6 )
+                {
+                    range.address.push_back( static_cast<std::uint8_t>( value >> 8 ) );
+                }
+
+                range.address.push_back( static_cast<std::uint8_t>( value & 0xff ) );
+
+                if ( end == std::string::npos )
+                {
+                    break;
+                }
+
+                start = end + 1;
+            }
+
+            return range;
+        }
+
+        /// The range's first address, or its last.
+        std::vector<std::uint8_t> edge( const Range& range, bool last )
+        {
+            std::vector<std::uint8_t> address = range.address;
+
+            for ( int bit = range.bits; bit < static_cast<int>( address.size() * 8 ); ++bit )
+            {
+                const auto mask = static_cast<std::uint8_t>( 0x80u >> ( bit % 8 ) );
+                address[ bit / 8 ] = static_cast<std::uint8_t>( last ? address[ bit / 8 ] | mask : address[ bit / 8 ] & ~mask );
+            }
+
+            return address;
+        }
+
+        bool inRange( const Range& range, std::span<const std::uint8_t> address )
+        {
+            if ( address.size() != range.address.size() )
+            {
+                return false;
+            }
+
+            for ( int bit = 0; bit < range.bits; ++bit )
+            {
+                const auto mask = static_cast<std::uint8_t>( 0x80u >> ( bit % 8 ) );
+
+                if ( ( address[ bit / 8 ] & mask ) != ( range.address[ bit / 8 ] & mask ) )
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    }
+
+    // The ranges a filter that decides by range is given (ContainedPrograms.md 4.5) come from the same table.
+    TEST( PublicAddress, EveryRangeRefusedByRangeIsRefusedByAddressAndHoldsNoPublicAddress )
+    {
+        const std::vector<std::string> ranges = nonPublicRanges();
+
+        ASSERT_FALSE( ranges.empty() );
+
+        for ( const std::string& text : ranges )
+        {
+            const Range range = parse( text );
+
+            EXPECT_FALSE( isPublicAddress( edge( range, false ) ) ) << "the first address of " << text;
+            EXPECT_FALSE( isPublicAddress( edge( range, true ) ) ) << "the last address of " << text;
+            EXPECT_FALSE( inRange( range, ipv4( 8, 8, 8, 8 ) ) ) << text << " holds a public IPv4 address";
+            EXPECT_FALSE( inRange( range, ipv6( { 0x2606, 0x4700, 0, 0, 0, 0, 0, 0x1111 } ) ) ) << text << " holds a public IPv6 address";
+        }
+
+        // The forms that carry an IPv4 address are refused whole, whatever address they carry.
+        for ( const std::string carrying : { "0:0:0:0:0:ffff:808:808", "64:ff9b:0:0:0:0:808:808", "2002:808:808:0:0:0:0:1" } )
+        {
+            const Range address = parse( carrying + "/128" );
+
+            EXPECT_TRUE( std::ranges::any_of( ranges, [&]( const std::string& text ) { return inRange( parse( text ), address.address ); } ) )
+                << carrying << " lies in no range refused";
         }
     }
 

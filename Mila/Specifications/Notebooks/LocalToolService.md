@@ -148,9 +148,9 @@ Each phase's gate is written before its run.
 
 - **Phase 2:** arm A with the worker in an AppContainer, MCP framing and JSON parsing on both hops, and the broker
   in the middle. Gate: median under 100 us end to end.
-- **Phase 3:** the sandbox's escape paths on Windows. The WMI route out of a job object, network with no
-  capability granted, a file outside the granted folder, and a child process. Each must fail; each test is shown
-  to pass against an unsandboxed worker first.
+- **Phase 3:** the policy's conformance on Windows: a child started through WMI, which does not join the job
+  object, network with no capability granted, a file outside the granted folder, and a child process. The policy
+  must refuse each; each access is first shown to be accepted for a worker running without it.
 - **Phase 4:** the same on Linux, after reading the documentation in section 4's *Not read yet*.
 
 ## 8. 2026-10-23, later: the broker knows the user and the agent
@@ -265,7 +265,7 @@ under:
 ## 10. 2026-10-24, later: the folder grant, prior art, and a first release without a sandbox
 
 Phase 2 of `ToolBroker.md` section 9 set out to grant a worker's AppContainer one folder, take the grant back, and
-run four escape tests. Its documentation was read and the machine checked; the probe was not built, because the
+run four conformance checks. Its documentation was read and the machine checked; the probe was not built, because the
 discussion in 10.5 replaced the phase.
 
 ### 10.1 What was read for the folder grant
@@ -293,7 +293,7 @@ Microsoft Learn, read 2026-10-24: *Launch an AppContainer*, *AppContainer isolat
   sandboxed applications such as an AppContainer.
 - **Microsoft's two pages disagree on WMI.** *Job Objects* says children created through `Win32_Process.Create`
   are not associated with the job; the `Create` page says such processes are "limited by the job object unless
-  the CREATE_BREAKAWAY_FROM_JOB flag is specified". Only the escape test can settle which holds.
+  the CREATE_BREAKAWAY_FROM_JOB flag is specified". Only measuring whether the policy refuses such a child can settle which holds.
 
 On Todd's development machine (Windows 11 26H2, build 26300.9711): the root of D: grants nothing to *ALL
 APPLICATION PACKAGES*, so a plain AppContainer would already read nothing of `D:\Repos\Mila`; the firewall is on

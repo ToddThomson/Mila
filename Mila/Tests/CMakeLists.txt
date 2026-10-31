@@ -193,7 +193,14 @@ target_sources( MilaTests PRIVATE
 if(WIN32)
     target_sources( MilaTests PRIVATE
         "AI/ToolGrant.Files.cpp"
+        # What a program run through a grant reaches (ContainedPrograms.md); MXC's part skips unless
+        # MILA_MXC_LIBRARY names its library and the build has MILA_ENABLE_MXC on.
+        "AI/ToolGrant.Programs.cpp"
+        "AI/SecondNameWatch.cpp"
     )
+
+    # The program tests' loopback server, and the route to the local network's gateway.
+    target_link_libraries( MilaTests PRIVATE ws2_32 iphlpapi )
 
     if(MILA_ENABLE_LIBCURL)
         target_sources( MilaTests PRIVATE

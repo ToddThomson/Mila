@@ -479,6 +479,21 @@ the Chat console byte gate; the Mila app's session's drives; and `mila-session` 
 
 `Mila/Specifications/Direction.md` section 4.3
 
+#### A tool cannot run a program held to the folder it was given, so the Mila app has no shell
+
+`in progress` · `ai` · `apps` · `mila-src`
+
+Experimental in v0.21.0 and off by default (Todd, 2026-10-27). The grant runs a program through a container it
+holds, Microsoft's MXC on Windows: the grant's folders read-write and read-only, the network as granted, a desktop
+of Mila's own so the person's screen, windows, clipboard and input are not reached, and a file with a name outside
+the grant withheld before each run. Then the Mila app's `run_command` in Build & Code, always asked, under Windows
+PowerShell 5.1, behind a setting, with `mxc_ffi.dll` in the installer. Phases 1 to 3 of the design: measure what it
+still assumes (the thread's desktop, a denied file, what a run reads with no folder granted, the walk's cost), the
+library with a test per access refused beside the same access inside allowed, then the tool. If it has not landed by
+the release's date it moves to `Vnext.md`, and the criterion with it.
+
+`Mila/Specifications/ContainedPrograms.md` sections 4, 8 and 9
+
 #### Tool calling has never been driven end to end on Llama
 
 `open` · `llama` · `apps`

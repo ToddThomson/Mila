@@ -60,9 +60,10 @@ choice to leave the structure, not a way around it.
 
 - A name, a description, an input schema and, optionally, an output schema.
 - **A summary, written for the person,** which is what a question shows. The description is written for the model.
-- **Declared needs:** whether it reads files, writes files or uses the network. They are facts the person is
-  shown, the permissions of 3.3 decide on and a call's grant is narrowed to, not hints to the model. Which folders
-  are touched is the grant's, not the tool's.
+- **Declared needs:** whether it reads files, writes files, uses the network or runs programs. They are facts the
+  person is shown, the permissions of 3.3 decide on and a call's grant is narrowed to, not hints to the model. Which
+  folders are touched is the grant's, not the tool's. *Running programs added 2026-10-27 (Todd,
+  `ContainedPrograms.md`).*
 - **The source is a field,** shown to the person. *Decided 2026-10-26 (Todd):* the name the model reads is letters,
   digits, `_` and `-`, since Anthropic's tool names refuse a dot; two tools of one name are refused when the second
   is registered, so two sources cannot collide.
@@ -151,8 +152,18 @@ opened.
   `Untriaged.md`, unmeasured.
 - **What it holds.** A tool that works through its grant is held to it. One that opens files directly is not; an
   in-process tool is the application's own code, and that is the application's choice.
+- **Programs.** *Decided 2026-10-27 (Todd):* the grant also runs a program for a tool that declares it runs
+  programs, through a container the grant holds, as it holds its transport (`ContainedPrograms.md`). The program
+  and everything it starts reach the grant's folders, and the network as the grant gives it; no other of the
+  person's files by any name, nor their windows, screen, clipboard or input. Much of their registry under `HKCU` is
+  read, and nothing in the policy refuses it; that is a known gap, stated where the person turns the container on
+  (`ContainedPrograms.md` 4.9). On Windows the
+  container is Microsoft's MXC, experimental in v0.21.0 and off by default; a grant without one refuses to run a
+  program. MXC decides by the name a file is opened by, so before each run a file with a name outside the grant is
+  withheld from it; a name made from outside the container while a run is going is a known gap.
 - **Mila never claims containment it does not enforce.** A tool that would need more -- a shell, another party's
-  server, code an agent wrote -- is not offered until an implementation exists that enforces its whole grant.
+  server, code an agent wrote -- is not offered until an implementation exists that enforces its whole grant. The
+  container is that implementation for a shell, and only where it is on.
 
 The checks are the hard, security-critical part, so they are Mila's and not each application's: written once, and
 each tested by an access the grant refuses beside the same kind of access inside the grant, allowed. *Decided
@@ -207,8 +218,9 @@ operating-system sandbox's own measurement (`Vnext.md`), not to the grant's.
   let an application offer its tools to other agents.
 - **Tools in a process of their own** arrive with the client: such a tool is an MCP server Mila starts over stdio.
   The approval round trip MCP specifies for one -- its input-required result -- is `ToolBroker.md` section 5.
-- **A sandbox** under the same containment interface, enforcing a grant whole. Microsoft's execution containers are
-  kept out of Mila for now (Todd, 2026-10-25).
+- **A sandbox** under the same containment interface, enforcing a grant whole. *Reversed 2026-10-27 (Todd):*
+  Microsoft's execution containers, kept out on 2026-10-25, come into v0.21.0 as an experiment, a program run
+  through the grant (3.4, `ContainedPrograms.md`); MCP servers and code an agent writes run through it later.
 - **Remote servers' sign-in tokens,** held where neither the model nor the agent's text can reach them.
 
 ## 7. The broker

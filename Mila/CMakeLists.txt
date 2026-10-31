@@ -544,6 +544,10 @@ PUBLIC
         "Src/AI/GrantPath.ixx"
         "Src/AI/PublicAddress.ixx"
         "Src/AI/GrantFile.ixx"
+        "Src/AI/ProgramRequest.ixx"
+        "Src/AI/ProgramResult.ixx"
+        "Src/AI/ContainedRun.ixx"
+        "Src/AI/ProgramContainer.ixx"
         "Src/AI/ToolGrant.ixx"
         "Src/AI/Tool.ixx"
         "Src/AI/ToolQuestion.ixx"
@@ -1107,6 +1111,44 @@ else()
             TYPE CXX_MODULES FILES
                 "Src/AI/GrantFileSystem.Posix.ixx"
     )
+endif()
+
+# ----------------------------------------------------------------------------
+# Mila::AI -- the container a grant runs programs through (ContainedPrograms.md 4.11)
+#
+# AI.MxcProgramContainer has two candidate source files and exactly one is compiled. With
+# MILA_ENABLE_MXC on Windows, Microsoft's MXC is loaded at run time from a file the application
+# names, never linked; otherwise the container is always absent and nothing of MXC is built.
+# AI.SecondNameWatch and AI.ToolDesktop are plain Windows and build on Windows regardless.
+# ----------------------------------------------------------------------------
+if(WIN32)
+    target_sources(Mila
+        PUBLIC
+            FILE_SET module_files
+            TYPE CXX_MODULES FILES
+                "Src/AI/SecondNameWatch.ixx"
+                "Src/AI/ToolDesktop.ixx"
+    )
+endif()
+
+if(WIN32 AND MILA_ENABLE_MXC)
+    target_sources(Mila
+        PUBLIC
+            FILE_SET module_files
+            TYPE CXX_MODULES FILES
+                "Src/AI/MxcProgramContainer.Windows.ixx"
+    )
+
+    message(STATUS "Added program container: MXC, loaded at run time")
+else()
+    target_sources(Mila
+        PUBLIC
+            FILE_SET module_files
+            TYPE CXX_MODULES FILES
+                "Src/AI/MxcProgramContainer.Absent.ixx"
+    )
+
+    message(STATUS "Added program container: none")
 endif()
 
 # ----------------------------------------------------------------------------

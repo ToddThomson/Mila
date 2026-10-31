@@ -1027,21 +1027,18 @@ Gemma 4's drafter is not part of this: v0.21.0 ships it in each package, on by d
 
 `ROADMAP.md`, Future, v0.22.0 Deployment Planning · `Mila/Specifications/Deployment.md`
 
-## A tool runs as the user, so no tool Mila does not control can be offered
+## Other people's tool servers and code an agent writes cannot run held to a grant
 
 `ai`
 
-In v0.21.0 a tool runs in the application's process, held only by the grant it works through (`ToolCalling.md`
-3.4). A shell, other people's MCP servers and tools an agent writes need a sandbox that enforces a grant whole,
-under the same containment interface, and wait for one. Microsoft eXecution Container (MXC) was the first
-candidate (Todd, 2026-10-24: "quite promising for Windows, and a macOS, Linux equivalent") and is kept out of Mila
-for now (Todd, 2026-10-25). Its SDKs are Rust, .NET and Node; a C++ program calls its C library, `mxc_ffi.dll`
-(`mxc_run_json`, a policy in and the result out), which ran a shell command contained from C++23 on 2026-10-26.
+In v0.21.0 a tool runs in the application's process, held by the grant it works through (`ToolCalling.md` 3.4),
+and one kind of tool runs a program through the grant's container: the Mila app's shell, an experiment off by
+default (`BACKLOG.md`, `ContainedPrograms.md`, Todd 2026-10-27). What waits: other people's MCP servers started as
+processes, and tools an agent writes, through the same container (`ContainedPrograms.md` phase 4); and the
+container off Windows -- MXC's bubblewrap backend accepts and refuses on Linux as its Windows one does
+(`Notebooks/MxcConformance.md`), but the grant is Windows only, and macOS's Seatbelt backend is unmeasured.
 
-Before any sandbox is adopted: the four escape tests (a child started through WMI, the network with nothing
-granted, a file outside the granted folder, a child process), each first shown to pass unsandboxed.
-
-`Mila/Specifications/ToolCalling.md` section 6; `Notebooks/LocalToolService.md` sections 10.1 to 10.4
+`Mila/Specifications/ContainedPrograms.md` section 8; `Notebooks/MxcConformance.md`
 
 ## A program cannot reach a tool in a process of its own, or offer its tools to other agents
 
