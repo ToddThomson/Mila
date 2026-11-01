@@ -21,9 +21,9 @@ import Chat.Settings;
 import Chat.StreamingDisplay;
 import Chat.TextChannel;
 import Chat.ToolDecision;
-import Chat.Json;
 
 import Mila;
+import nlohmann.json;
 
 namespace Mila::ChatApp
 {
@@ -779,38 +779,37 @@ namespace Mila::ChatApp
             renderer_.printInfo( message );
         }
 
-        /// `/effort [1-5]`.
+        /// `/effort [level]`, in the levels the model's own template lists.
         void applyEffort( std::string_view cmd )
         {
-            if ( !session_.templateHasEffortLevels() )
+            const auto* effort = session_.effortVariable();
+
+            if ( effort == nullptr )
             {
-                renderer_.printInfo( std::format(
-                    "{}'s thinking has no effort levels: it is on or off (/thinking).", modelName() ) );
+                renderer_.printInfo( config().model_name.empty()
+                    ? std::string( "No model is loaded." )
+                    : std::format( "{}'s thinking has no effort levels: it is on or off (/thinking).", modelName() ) );
                 return;
             }
+
+            const std::string levels = ChatSession::effortLevelList( *effort );
 
             if ( cmd == "effort" )
             {
-                const ThinkingEffort& e = thinkingEffort( config().thinking_effort );
                 renderer_.printInfo( std::format(
-                    "Thinking effort: {} ({}, ~{} tokens). Set with /effort <1-5>.",
-                    config().thinking_effort, e.name, e.budget ) );
+                    "Thinking effort: {}. Set with /effort <level>: {}.", session_.effortInEffect(), levels ) );
                 return;
             }
 
-            const std::string_view arg = cmd.substr( 7 );
-            int level = 0;
-            const auto result = std::from_chars( arg.data(), arg.data() + arg.size(), level );
+            const std::string_view level = cmd.substr( 7 );
 
-            if ( result.ec != std::errc{} || !session_.setThinkingEffort( level ) )
+            if ( !session_.setThinkingEffort( level ) )
             {
-                renderer_.printInfo( "Usage: /effort <1-5>  (1 = minimal, 3 = balanced, 5 = exhaustive)." );
+                renderer_.printInfo( std::format( "Usage: /effort <level>, where the level is {}.", levels ) );
                 return;
             }
 
-            const ThinkingEffort& e = thinkingEffort( level );
-            renderer_.printInfo( std::format(
-                "Thinking effort set to {} ({}, ~{} tokens).", level, e.name, e.budget ) );
+            renderer_.printInfo( std::format( "Thinking effort set to {}.", level ) );
         }
 
         /**
@@ -964,7 +963,7 @@ namespace Mila::ChatApp
                 return;
             }
 
-            std::optional<QuantizationMode> requested_quantization;
+            std::optional<Dnn::WeightQuantization> requested_quantization;
 
             for ( std::size_t index = 1; index < args.size(); ++index )
             {
@@ -1279,8 +1278,6 @@ namespace Mila::ChatApp
                 return;
             }
 
-            const ThinkingEffort& effort = thinkingEffort( config().thinking_effort );
-
             std::cout << std::format( "  Model:          {}\n", modelName() );
 
             // Lineage before the deployment axes: a redistributed model's attribution belongs
@@ -1324,10 +1321,9 @@ namespace Mila::ChatApp
             {
                 std::cout << std::format( "  Thinking:       {}\n", config().show_thinking ? "on" : "off" );
 
-                if ( session_.templateHasEffortLevels() )
+                if ( session_.effortVariable() != nullptr )
                 {
-                    std::cout << std::format( "  Effort:         {} ({}, ~{} tokens)\n",
-                        config().thinking_effort, effort.name, effort.budget );
+                    std::cout << std::format( "  Effort:         {}\n", session_.effortInEffect() );
                 }
             }
 
@@ -1655,7 +1651,7 @@ namespace Mila::ChatApp
                 {
                     const std::string thinking_display = !config().show_thinking
                         ? "off"
-                        : session_.templateHasEffortLevels() ? std::string( thinkingEffort( config().thinking_effort ).name ) : "on";
+                        : session_.effortVariable() != nullptr ? session_.effortInEffect() : "on";
 
                     renderer_.printInfo( std::format( "  Model: {}  ·  Context window: {}  ·  Thinking: {}",
                         modelName(), context_display, thinking_display ) );
@@ -1689,7 +1685,7 @@ Available commands:
   /set                               Show the sampling the next reply uses
   /set <key> <value>|model           Set temperature, top_k, top_p or presence_penalty,
                                      or return it to the model's own
-  /effort [1-5]                      Show or set the thinking token-budget level
+  /effort [level]                    Show or set the thinking effort, in the model's own levels
   /verbose [off|thoughts|all]        Show or set display detail (reasoning, raw + logs)
   /stats                             Show per-round timing for the last turn
   /seed <n>                          Reseed the sampler for reproducible generation
@@ -1700,8 +1696,8 @@ Models:         a bare /model <name> reports; loading is spelled out, because it
 Quantization:   a name ending -fp4/-fp8/-q4_0 is already quantized. For an unquantized model,
                 /model load <name> fp4 quantizes it on load -- same weights, less
                 VRAM, but the full file is still read.
-Thinking:       Gemma's <|think|> mode. Toggling it does not reload weights. Effort
-                (length) is set with /effort 1-5.
+Thinking:       the model's reasoning mode. Toggling it does not reload weights. Where
+                the model has effort levels, /effort lists and sets them.
 Sampling:       each model opens at its publisher's recommended setting, which can differ
                 with thinking on and off. What you /set stays until you set it to model.
 Context:        the primary VRAM lever, and it sizes buffers at build time -- so /context
@@ -1721,7 +1717,7 @@ Examples:
 
             std::cout << R"(  /model list --online
   /thinking on
-  /effort 5
+  /effort
   /context auto
   /set temperature 0.6
 )" << "\n";

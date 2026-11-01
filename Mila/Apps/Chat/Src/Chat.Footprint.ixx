@@ -58,7 +58,7 @@ namespace Mila::ChatApp
      * cache is always named: it is the session's choice, not the package's.
      */
     export inline DeploymentRequest deploymentRequestFor(
-        QuantizationMode quantization, bool quantization_applied_at_load, int device_index, KvCache kv_cache )
+        Dnn::WeightQuantization quantization, bool quantization_applied_at_load, int device_index, Dnn::KvCacheCompression kv_cache )
     {
         DeploymentRequest request;
         request.withDevice( DeviceId{ DeviceType::Cuda, device_index } ).withKvCacheCompression( kv_cache );

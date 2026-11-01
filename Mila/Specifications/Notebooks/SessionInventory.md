@@ -98,3 +98,8 @@ All five agreed 2026-10-27 (Todd), as proposed.
    `Agent::sampling()` and `Agent::thinks()` made public so the app shows the sampling in effect without repeating
    the merge, and effort offered in the template's own values (`MilaApp.md` 3.7).
 3. `MilaChatSession` dissolved into Chat; `FamilyTraits`, `ModelSize`, the aliases and the Qwen mapping deleted.
+   Built in `+108`: `mila-chat` is one target, the two family checks are `Architectures::contains`, and Chat's
+   effort is the template's own levels (`/effort` and `thinking_effort` take them; a level the loaded template
+   does not list is said at the load and the template's default used). The context floor keeps one reasoning
+   room of 512 tokens, the former middle level's. A fixed context past the trained maximum is now refused by the
+   load, after the resident model is released, where the family table refused it first.

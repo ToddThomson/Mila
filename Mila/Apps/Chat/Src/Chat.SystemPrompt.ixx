@@ -9,7 +9,7 @@
 export module Chat.SystemPrompt;
 
 import std;
-import Chat.Json;
+import nlohmann.json;
 
 namespace Mila::ChatApp
 {

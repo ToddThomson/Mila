@@ -32,7 +32,8 @@ namespace Mila::Tests::Deployment
         constexpr std::size_t kRtx4070FreeBytes = 11645485056;
         constexpr std::size_t kRtx5060TiFreeBytes = 15908995072;
 
-        // What Chat searched below: its family ceilings (Chat.FamilyTraits.ixx), which the trained maximum caps.
+        // The ceilings these plans were recorded under: Chat's family ceilings, deleted at +108, which the trained
+        // maximum caps.
         constexpr dim_t kGemmaAndLlamaCeiling = 131072;
         constexpr dim_t kQwenCeiling = 262144;
 

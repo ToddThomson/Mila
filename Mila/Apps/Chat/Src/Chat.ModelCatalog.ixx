@@ -18,7 +18,6 @@ export import Chat.PublishedModel;
 
 import Chat.Ansi;
 import Chat.Config;
-import Chat.FamilyTraits;
 import Chat.Footprint;
 import Mila;
 import nlohmann.json;
@@ -254,7 +253,7 @@ namespace Mila::ChatApp
      */
     export ResolvedModel resolveModel(
         const std::string& requested_name,
-        std::optional<QuantizationMode> requested_quantization = std::nullopt,
+        std::optional<Dnn::WeightQuantization> requested_quantization = std::nullopt,
         RefusalAudience audience = RefusalAudience::Session )
     {
         // At the shell the remedy is a command to type. Inside a session it is said in words, because the session
@@ -329,7 +328,7 @@ namespace Mila::ChatApp
         // The library's own refusal of a family it cannot deploy, before the resident model is released.
         requirePlannable( *installed );
 
-        const std::optional<QuantizationMode> stored = installed->storedWeightQuantization();
+        const std::optional<Dnn::WeightQuantization> stored = installed->storedWeightQuantization();
 
         if ( !stored.has_value() )
         {
@@ -342,7 +341,6 @@ namespace Mila::ChatApp
         resolved.name = name;
         resolved.weights = installed->weightsPath();
         resolved.tokenizer = installed->tokenizerPath();
-        resolved.family = installed->family();
         resolved.instruct = capabilities.instruct;
         resolved.base_model = installed->stored().record.base_model;
         resolved.license = installed->license();
@@ -353,7 +351,7 @@ namespace Mila::ChatApp
         if ( requested_quantization.has_value() && *requested_quantization != *stored )
         {
             requireStoredQuantizationMatches( name, installed->weightsPath().string(),
-                *stored == QuantizationMode::None ? std::string{} : weightQuantizationName( *stored ),
+                *stored == Dnn::WeightQuantization::None ? std::string{} : weightQuantizationName( *stored ),
                 *requested_quantization );
 
             resolved.quantization = *requested_quantization;
@@ -438,12 +436,9 @@ namespace Mila::ChatApp
             return row;
         }
 
-        // Chat refuses a base model and a family it does not run at load, so planning one would price a load
-        // that cannot happen.
-        const ModelType family = model.family();
-
-        if ( !model.capabilities().instruct
-            || ( family != ModelType::Gemma && family != ModelType::Llama && family != ModelType::Qwen ) )
+        // Chat refuses a base model and an architecture this build cannot deploy at load, so planning one would
+        // price a load that cannot happen.
+        if ( !model.capabilities().instruct || !Architectures::contains( model.architecture() ) )
         {
             row.text = "not supported";
 
@@ -457,11 +452,10 @@ namespace Mila::ChatApp
         {
             request.withContextLength( fixed_context_length );
         } else {
-            request.withAutomaticContextLength( DeploymentRequest::kContextStep,
-                static_cast<Mila::Dnn::dim_t>( familyTraits( family ).max_context ) );
+            request.withAutomaticContextLength( DeploymentRequest::kContextStep );
         }
 
-        const std::optional<std::vector<QuantizationMode>> fitting =
+        const std::optional<std::vector<Dnn::WeightQuantization>> fitting =
             fittingWeightQuantizations<DeviceType::Cuda>( model, request );
 
         // Nothing fit, and the two reasons for that are not the same answer: planned-and-too-big is
@@ -661,7 +655,6 @@ namespace Mila::ChatApp
 
                     // Architecture, weight format and instruct are decided here with certainty, which is most of
                     // why a first install fails.
-                    const ModelType family = modelTypeFromString( manifest.architecture );
                     const auto quantization = parseWeightQuantization( manifest.weight_quantization );
 
                     row.license = manifest.license;
@@ -669,7 +662,7 @@ namespace Mila::ChatApp
                         ? std::string( quantizationName( *quantization ) )
                         : manifest.weight_quantization;
                     row.supported = manifest.capabilities.instruct
-                        && ( family == ModelType::Gemma || family == ModelType::Llama || family == ModelType::Qwen )
+                        && Architectures::contains( manifest.architecture )
                         && quantization.has_value();
                     row.manifest_read = true;
                 }

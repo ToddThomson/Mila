@@ -11,13 +11,12 @@ export module Chat.SettingsResolution;
 import std;
 import Chat.Config;
 import Chat.ConfigError;
-import Chat.FamilyTraits;
-import Chat.Json;
 import Chat.ModelCatalog;
 import Chat.ModelNotFound;
 import Chat.Settings;
 
 import Mila;
+import nlohmann.json;
 
 namespace Mila::ChatApp
 {
@@ -99,21 +98,20 @@ namespace Mila::ChatApp
      * still produce a Chat that can answer -- is this function. It carries the one key that has no
      * working value without it: a context of zero is not a small context, it is a failed load.
      *
-     * Takes no family, which is the shape of the layer rather than an omission: the per-family facts
-     * are in familyTraits(), and the one compiled SETTING is now the same for every architecture.
+     * Takes no model: what differs by model is the model's own to say -- its trained maximum to the
+     * planner, its effort levels in its template.
      *
-     * The sampler defaults are deliberately not here. They already have a working value in
-     * ChatConfig's member initializers, and repeating 0.8 in two places would be a second home for
-     * one number rather than a second layer.
+     * The sampler defaults are not here. They already have a working value in ChatConfig's member
+     * initializers, and repeating 0.8 in two places would be a second home for one number rather
+     * than a second layer.
      */
-    SettingsPatch familyInvariants()
+    SettingsPatch compiledDefaults()
     {
         nlohmann::json values;
 
         // "auto", not a number. No constant compiled into an adaptor can be right for an 8 GB card, a
         // 12 GB card and a 24 GB one, which is what the 512 this replaces actually was: a constant
-        // chosen to be wrong safely. The family's own default survives as the floor auto lands on
-        // when there is no device to measure -- see familyTraits().
+        // chosen to be wrong safely.
         values[ "context_length" ] = "auto";
 
         // The default persona, by NAME rather than by path, so it resolves the same from a checkout,
@@ -206,7 +204,7 @@ namespace Mila::ChatApp
         return { .present = true, .automatic = false, .length = value->get<std::size_t>() };
     }
 
-    /// A knob that may legitimately be zero -- top_k 0 disables it, thinking_effort is clamped.
+    /// A knob that may legitimately be zero -- top_k 0 disables it.
     std::optional<int> readInteger( const MergedSettings& settings, const std::string& key )
     {
         const nlohmann::json* value = findSetting( settings, key );
@@ -443,7 +441,7 @@ namespace Mila::ChatApp
 
         // Quantization is a deployment choice against unquantized weights, so it is settled
         // before the model resolves rather than being part of the name.
-        std::optional<QuantizationMode> requested_quantization;
+        std::optional<Dnn::WeightQuantization> requested_quantization;
 
         const std::string quantization = readString( chosen, "quantization" );
 
@@ -499,7 +497,7 @@ namespace Mila::ChatApp
 
         if ( resolved )
         {
-            settings.apply( familyInvariants() );
+            settings.apply( compiledDefaults() );
 
             // Layer 2 -- what this checkpoint recommends, once ModelRecord carries
             // default_context_length and maximum_context_length. Publishing a model must not require
@@ -514,7 +512,6 @@ namespace Mila::ChatApp
         if ( resolved )
         {
             config.model_name        = resolved->name;
-            config.model_type        = resolved->family;
             config.is_instruct       = resolved->instruct;
             config.base_model        = resolved->base_model;
             config.license           = resolved->license;
@@ -554,8 +551,6 @@ namespace Mila::ChatApp
         // layer 1 and gets the card measured. ChatConfiguration.md section 6.
         if ( const ContextRequest request = readContextLength( settings ); request.present )
         {
-            const FamilyTraits traits = familyTraits( config.model_type );
-
             // Carried into the session so /context can report where the number came from. Recorded
             // here because this is the only place that holds the merged document -- the origin knows
             // the FILE a layer wrote from, which the layer alone cannot say.
@@ -578,25 +573,18 @@ namespace Mila::ChatApp
 
                 if ( origin && origin->layer > SettingsLayer::ModelRecommendations )
                     config.configured_context_length = request.length;
-
-                // Clamped to what the architecture can address. One configuration serves every model
-                // the session may load, so a context chosen for one family reaches the next, and the
-                // ceilings differ by a factor of two between Gemma and Qwen.
-                if ( resolved && request.length > traits.max_context )
-                {
-                    std::cerr << std::format(
-                        "context_length {} ({}) exceeds what {} can address; using {}.\n",
-                        request.length, settings.describeOrigin( "context_length" ),
-                        config.model_name, traits.max_context );
-
-                    config.context_length = traits.max_context;
-                }
             }
         }
 
-        if ( const auto effort = readInteger( settings, "thinking_effort" ) )
+        // Checked against the template only once a model is loaded: one configuration serves every model the
+        // session may load, and only some templates have levels.
+        if ( const nlohmann::json* effort = findSetting( settings, "thinking_effort" ) )
         {
-            config.thinking_effort = *effort < 1 ? 1 : ( *effort > 5 ? 5 : *effort );
+            if ( !effort->is_string() )
+                throw badValue( settings, "thinking_effort", "one of the model's effort levels, as /effort lists them",
+                    *effort );
+
+            config.thinking_effort = effort->get<std::string>();
         }
 
         // "verbose" sets the display-detail level: a string (off/thoughts/all) or a bool

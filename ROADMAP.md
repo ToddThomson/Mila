@@ -349,9 +349,9 @@ rather than inferring it from the family.*
 It starts at the manifest. A model's capabilities — reasoning channel, context limits, modality and a
 draft model — are declared in its own record from v0.21.0, which is additive rather than breaking
 because the manifest already tolerates unknown fields and `instruct` proves the pattern. They are what
-a deployment selects from (Deployment Planning, below). Today
-`Chat.FamilyTraits.ixx` derives those same facts from the family, which is correct only while the set
-of families is the set it was written against. **Streaming is not one of them**: whether a display can
+a deployment selects from (Deployment Planning, below). Chat derived those same facts from the family
+until it read them from the record and the weights, which was correct only while the set of families
+was the set it was written against. **Streaming is not one of them**: whether a display can
 route a model's output token by token is a fact about the application that renders it, not about the
 weights, and it stays with the application.
 

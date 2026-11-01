@@ -14,8 +14,8 @@ namespace Mila::ChatApp
     /**
      * @brief Everything Chat needs to load a model, resolved from its store record.
      *
-     * The family, the stored format and the capabilities are the library's answer (InstalledModel); the rest
-     * is Chat's own: a quantization asked for on load.
+     * The stored format and the capabilities are the library's answer (InstalledModel); the rest is Chat's own:
+     * a quantization asked for on load.
      */
     export struct ResolvedModel
     {
@@ -24,8 +24,7 @@ namespace Mila::ChatApp
         std::filesystem::path weights;
         std::filesystem::path tokenizer;
 
-        ModelType family{ ModelType::Gemma };
-        QuantizationMode quantization{ QuantizationMode::None };
+        Dnn::WeightQuantization quantization{ Dnn::WeightQuantization::None };
 
         /// Lineage from the record. Carried because a license that requires attribution requires
         /// it wherever the model is presented, and the session is one of those places.

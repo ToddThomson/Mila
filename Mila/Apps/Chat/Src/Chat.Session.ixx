@@ -15,10 +15,7 @@ export import Chat.Message;
 export import Chat.RoundStats;
 export import Chat.SessionEvents;
 export import Chat.SystemPrompt;
-export import Chat.ThinkingEffort;
-import Chat.FamilyTraits;
 import Chat.Footprint;
-import Chat.Json;
 import Chat.ModelCatalog;
 import Chat.ParsedResponse;
 import Chat.Settings;
@@ -26,6 +23,7 @@ import Chat.TextChannel;
 import Chat.ToolDecision;
 
 import Mila;
+import nlohmann.json;
 
 namespace Mila::ChatApp
 {
@@ -313,15 +311,17 @@ namespace Mila::ChatApp
             return true;
         }
 
-        /// @return False outside 1-5, or where the template's thinking has no levels.
-        bool setThinkingEffort( int level )
+        /// @return False where the template's thinking has no levels, or does not list this one.
+        bool setThinkingEffort( std::string_view level )
         {
-            if ( !templateHasEffortLevels() || level < 1 || level > 5 )
+            const auto* effort = effortVariable();
+
+            if ( effort == nullptr || !std::ranges::contains( effort->values, level ) )
             {
                 return false;
             }
 
-            config_.thinking_effort = level;
+            config_.thinking_effort = std::string( level );
             applyTemplateVariables();
 
             return true;
@@ -340,7 +340,7 @@ namespace Mila::ChatApp
          * Quantizing on load is a deployment choice, not an identity: it lets BF16 weights too large for the card
          * run anyway. Pre-quantized weights are a different model with its own name, and refuse it.
          */
-        void loadModel( std::string_view requested_name, std::optional<QuantizationMode> requested_quantization )
+        void loadModel( std::string_view requested_name, std::optional<Dnn::WeightQuantization> requested_quantization )
         {
             // Folded before the comparison below, so `/model load LLAMA-3.2-3B-INSTRUCT-FP4`
             // against that same model resident is recognised rather than reloaded.
@@ -436,16 +436,6 @@ namespace Mila::ChatApp
          */
         void setContextLength( std::size_t length )
         {
-            const FamilyTraits traits = familyTraits( config_.model_type );
-
-            if ( modelIsResident() && length > traits.max_context )
-            {
-                events_.error( std::format(
-                    "{} addresses {} positions at most.", modelName(), traits.max_context ) );
-
-                return;
-            }
-
             const ContextFloor floor = contextFloor();
 
             if ( floor.minimum > 0 && length < floor.minimum )
@@ -556,7 +546,7 @@ namespace Mila::ChatApp
          *        switch would be a no-op reload.
          */
         bool isCurrentModel(
-            const std::string& name, std::optional<QuantizationMode> requested ) const
+            const std::string& name, std::optional<Dnn::WeightQuantization> requested ) const
         {
             // The name identifies the weights exactly -- it is unique across the store, which
             // the family/size/precision triple never was. Quantization still counts, because
@@ -603,16 +593,55 @@ namespace Mila::ChatApp
                 : last_turn_rounds_.back().finish_status;
         }
 
-        /// False where the model's template has no effort levels: Gemma's has a thinking switch alone, Llama's neither.
-        bool templateHasEffortLevels() const
+        /**
+         * @brief The template's effort variable, with the levels it lists and its default; null where the loaded
+         *        model's template has none, or nothing is loaded.
+         */
+        const Mila::Dnn::Conversation::TemplateVariable* effortVariable() const
         {
             if ( !agent_ )
             {
-                return true;
+                return nullptr;
             }
 
-            return std::ranges::any_of( agent_->model().protocol()->templateVariables(),
-                []( const auto& variable ) { return variable.name == "reasoning_effort"; } );
+            for ( const auto& variable : agent_->model().protocol()->templateVariables() )
+            {
+                if ( variable.name == "reasoning_effort" )
+                {
+                    return &variable;
+                }
+            }
+
+            return nullptr;
+        }
+
+        /// The levels as a person reads them: "low, medium or xhigh".
+        static std::string effortLevelList( const Mila::Dnn::Conversation::TemplateVariable& effort )
+        {
+            std::string list;
+
+            for ( std::size_t index = 0; index < effort.values.size(); ++index )
+            {
+                list += index == 0 ? "" : ( index + 1 == effort.values.size() ? " or " : ", " );
+                list += effort.values[ index ];
+            }
+
+            return list;
+        }
+
+        /// The level the next turn renders with: the one asked for where the template lists it, else its default.
+        std::string effortInEffect() const
+        {
+            const auto* effort = effortVariable();
+
+            if ( effort == nullptr )
+            {
+                return {};
+            }
+
+            return std::ranges::contains( effort->values, config_.thinking_effort )
+                ? config_.thinking_effort
+                : effort->default_value;
         }
 
         /**
@@ -639,9 +668,7 @@ namespace Mila::ChatApp
             // transcript with no user turn.
             floor.transcript = agent_->model().tokenizer().encode( agent_->prompt().text ).size();
 
-            floor.reasoning = ( config_.show_thinking && config_.thinking_capable )
-                ? static_cast<std::size_t>( thinkingEffort( config_.thinking_effort ).budget )
-                : 0;
+            floor.reasoning = ( config_.show_thinking && config_.thinking_capable ) ? kReasoningRoomTokens : 0;
 
             floor.minimum = floor.transcript + floor.reasoning + kAnswerHeadroomTokens;
 
@@ -652,6 +679,13 @@ namespace Mila::ChatApp
 
         /// Rounds in one turn: the four Chat has run since it first ran tools, a number no measurement has set.
         static constexpr int kToolRounds = 4;
+
+        /// Room the context floor leaves for reasoning while thinking is on: what Chat's former middle effort level
+        /// budgeted, kept as one number for every level. No measurement set it.
+        static constexpr std::size_t kReasoningRoomTokens = 512;
+
+        /// The context a fixed-context session opens at when no layer names one.
+        static constexpr std::size_t kDefaultContextLength = 4096;
 
         /// The resident agent's session, or the one held while nothing is resident.
         Mila::AI::Session& session() noexcept
@@ -1022,8 +1056,8 @@ namespace Mila::ChatApp
         /**
          * @brief The session's settings as the template's own variables.
          *
-         * Thinking is the template's switch. Effort is set only where the template has levels -- Qwen 3.8's
-         * three -- and Gemma 4 has none, so no layer writes one for it (ModelHandle.md 10.6).
+         * Thinking is the template's switch. Effort is set only where the template lists the level asked for, so a
+         * template with no levels, or a level it does not list, renders at its own default (ModelHandle.md 10.6).
          *
          * Tools go in the system message where the template can place them there. Llama 3.1's template puts
          * them in the first user message by default, under an instruction to answer with a call, and Llama 3.1
@@ -1041,10 +1075,10 @@ namespace Mila::ChatApp
                 {
                     variables[ variable.name ] = config_.show_thinking ? "true" : "false";
                 }
-                else if ( variable.name == "reasoning_effort" && config_.show_thinking )
+                else if ( variable.name == "reasoning_effort" && config_.show_thinking
+                    && std::ranges::contains( variable.values, config_.thinking_effort ) )
                 {
-                    variables[ variable.name ] = qwenEffortName(
-                        Mila::Dnn::Qwen::reasoningEffortFromScale( config_.thinking_effort ) );
+                    variables[ variable.name ] = config_.thinking_effort;
                 }
                 else if ( variable.name == "tools_in_user_message" && offers_tools )
                 {
@@ -1063,29 +1097,26 @@ namespace Mila::ChatApp
             }
         }
 
-        static std::string qwenEffortName( Mila::Dnn::Qwen::ReasoningEffort effort )
+        /// One configuration serves every model the session loads, so a level asked for may be one this model's
+        /// template does not list; said once, at the load, rather than left at the default unseen.
+        void reportUnlistedEffort()
         {
-            switch ( effort )
+            const auto* effort = effortVariable();
+
+            if ( effort == nullptr || !config_.thinking_capable || config_.thinking_effort.empty()
+                || std::ranges::contains( effort->values, config_.thinking_effort ) )
             {
-                case Mila::Dnn::Qwen::ReasoningEffort::Low:
-                    return "low";
-
-                case Mila::Dnn::Qwen::ReasoningEffort::Medium:
-                    return "medium";
-
-                case Mila::Dnn::Qwen::ReasoningEffort::Xhigh:
-                    return "xhigh";
+                return;
             }
 
-            return "xhigh";
+            events_.info( std::format( "{}'s effort levels are {}; '{}' is not one, so it thinks at {}.",
+                modelName(), effortLevelList( *effort ), config_.thinking_effort, effort->default_value ) );
         }
 
         void switchModel(
             const std::string& name,
-            std::optional<QuantizationMode> requested_quantization = std::nullopt )
+            std::optional<Dnn::WeightQuantization> requested_quantization = std::nullopt )
         {
-            const ModelType prev_type = config_.model_type;
-
             // A session that opened with nothing resident is loading, not switching, and the
             // closing message is the only part that can tell the difference.
             const bool had_model = modelIsResident();
@@ -1095,7 +1126,6 @@ namespace Mila::ChatApp
             const ResolvedModel resolved = resolveModel( name, requested_quantization );
 
             config_.model_name        = resolved.name;
-            config_.model_type        = resolved.family;
             config_.is_instruct       = resolved.instruct;
             config_.base_model        = resolved.base_model;
             config_.license           = resolved.license;
@@ -1110,18 +1140,6 @@ namespace Mila::ChatApp
             config_.model_path        = resolved.weights;
             config_.tokenizer_path    = resolved.tokenizer;
 
-            // Preserve context_length across same-architecture switches. On an architecture change
-            // the live value cannot carry (the ceilings differ), so fall back to what the merged
-            // configuration asked for, clamped to what the new architecture can address, and only
-            // to the new family's default when no layer above the defaults named a context.
-            //
-            // A zero is not a live value to preserve, and the architecture test alone does not
-            // catch it: a session that opened with NO model holds the default model_type, so
-            // loading a model of that same family skipped this and carried the zero into the load.
-            // That is the container failure -- no session config, then a Llama, then
-            // "context_length must be greater than zero". See ChatConfiguration.md section 2.
-            const FamilyTraits traits = familyTraits( config_.model_type );
-
             // Destroy the current model before allocating the replacement.
             // This returns VRAM to the CUDA pool before the new model is loaded,
             // avoiding a transient old+new peak that overflows the VRAM budget
@@ -1134,15 +1152,17 @@ namespace Mila::ChatApp
 
             // Under auto the load plans the context for the model being loaded, rather than carrying
             // a number derived for the one being replaced -- the defect configured_context_length
-            // exists to prevent, in the one shape that field cannot express.
-            if ( !config_.context_is_automatic
-                && ( prev_type != config_.model_type || config_.context_length == 0 ) )
+            // exists to prevent, in the one shape that field cannot express. A fixed context carries
+            // to the next model as it is, and one past that model's trained maximum is refused by its load.
+            //
+            // A zero is not a live value to carry: a session that opened with NO model holds one, and
+            // carrying it into the load was the container failure -- no session config, then a Llama,
+            // then "context_length must be greater than zero". See ChatConfiguration.md section 2.
+            if ( !config_.context_is_automatic && config_.context_length == 0 )
             {
                 const std::size_t configured = config_.configured_context_length;
 
-                config_.context_length = configured == 0
-                    ? traits.default_context
-                    : ( configured < traits.max_context ? configured : traits.max_context );
+                config_.context_length = configured == 0 ? kDefaultContextLength : configured;
             }
 
             loadActiveModel();
@@ -1296,11 +1316,12 @@ namespace Mila::ChatApp
             }
 
             events_.loadEnded();
+            reportUnlistedEffort();
         }
 
         /**
          * @brief The request this session's load sends: the model's formats, and the context either fixed
-         *        or left to the planner below the family's ceiling.
+         *        or left to the planner below the model's trained maximum.
          */
         DeploymentRequest activeDeploymentRequest() const
         {
@@ -1310,9 +1331,7 @@ namespace Mila::ChatApp
 
             if ( config_.context_is_automatic )
             {
-                request.withAutomaticContextLength(
-                    DeploymentRequest::kContextStep,
-                    static_cast<dim_t>( familyTraits( config_.model_type ).max_context ) );
+                request.withAutomaticContextLength( DeploymentRequest::kContextStep );
             }
             else
             {
@@ -1337,7 +1356,7 @@ namespace Mila::ChatApp
                     return std::format(
                         "its weights need {} and this GPU has {} free, so no context length fits.{}",
                         formatBytes( refusal.footprint().device_parameter_bytes ), free,
-                        config_.quantization_mode == QuantizationMode::None
+                        config_.quantization_mode == Dnn::WeightQuantization::None
                             ? std::string( " Quantized to fp4 as it loads, it needs less." ) : std::string{} );
 
                 case DeploymentRefusal::Reason::FixedContextDoesNotFit:

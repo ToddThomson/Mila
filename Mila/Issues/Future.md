@@ -277,15 +277,14 @@ builds `GqaState` by hand and sums them in a hand-written `getMemoryStats` list 
 under-counts silently when a tensor is added. Qwen and Gemma moved to `GqaWorkspace`; for Llama it is
 one member, one factory call, two accounting lines.
 
-## `FamilyTraits::default_context` is a compiled-in guess
+## Chat's default fixed context is a compiled-in guess
 
 `apps`
 
-`Chat.FamilyTraits.ixx:61` hard-codes 512 for Gemma, 4096 for Llama and 1024 for GPT-2, while
-`resolveAutomaticContext()` derives the answer in milliseconds and no VRAM.
+`kDefaultContextLength` (`Chat.Session.ixx`) is 4096 for every model, used when a session's context is
+fixed and no layer names one, while the planner derives what fits in milliseconds and no VRAM.
 
-Keep the constant only as the no-CUDA fallback, which is already the role `main.cpp:863` passes it
-in.
+Keep the constant only as the no-CUDA fallback.
 
 ## Chat's model-and-session commands have no tests
 

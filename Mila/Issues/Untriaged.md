@@ -10,6 +10,16 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Chat unloads its model before refusing a context longer than the model was trained for
+
+`Mila/Apps/Chat/Src/Chat.Session.ixx` `setContextLength`, `switchModel`; `Mila/Src/AI/Agent.ixx` `check` @ 0.21.0-dev+108
+
+Workaround chosen by Todd, 2026-10-31: kept for one change, to be fixed in Milo after the move. Since Chat's family
+ceilings were deleted, `/context 300000` on Llama 3.2 3B releases the model, then the planner refuses ("planDeployment:
+context length 300000 exceeds the trained maximum 131072"), leaving nothing loaded; before, Chat refused first and kept
+the model. The same holds for a fixed context carried across a model switch. Proposed fix: `Agent::check` refuses a
+fixed context past the trained maximum, before a program releases anything, in the library's words.
+
 ## A pnpm project may not build under the Mila app's commands, which tell Node to keep links as named
 
 `Mila/Apps/Assistant/Session/Src/Assistant.ProgramSetup.ixx` (`NODE_OPTIONS`) @ 7cf45bdd

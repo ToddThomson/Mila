@@ -253,7 +253,7 @@ also why the Mila app linked Chat's session library until `+105` (`MilaChatSessi
 a layer is a gap in `Mila::AI` (3.3). With the session in the library that layer has no reason to exist; each
 application keeps only its own concern, and what both need that a developer's program would need too is
 `Mila::AI`'s. Its family-specific code -- the `FamilyTraits` table and the mapping of an effort scale onto Qwen's
-levels -- is deleted rather than moved: the planner caps a context at the model's trained maximum, and the template
+levels -- was deleted rather than moved (`+108`): the planner caps a context at the model's trained maximum, and the template
 lists its own variables' values. What each piece becomes: `Notebooks/SessionInventory.md`.
 
 Rejected: `Agent::switchTo( name )`, since the old model must be released before the new one is planned, and a
@@ -290,14 +290,13 @@ on families with nothing left over. The ROADMAP carries that half and its criter
 
 The foundation of Mila.AI. It starts with the manifest: capabilities (reasoning channel, context
 limits, modality) are declared in the record, which is additive because the manifest tolerates unknown
-fields and `instruct` already proves the pattern. Today `Chat.FamilyTraits.ixx` derives them from the
-family. The factory then reads the record rather than switching on family. Design of record:
+fields and `instruct` already proves the pattern. Chat derived them from the family in a table of its own,
+deleted at `+108`. The factory then reads the record rather than switching on family. Design of record:
 [`ModelHandle.md`](ModelHandle.md), which finds that not every capability belongs in the manifest.
 
 **Streaming is not a manifest capability.** Whether a display can route a model's output token by
 token depends on whether the application has written that path for the model's markers, not on the
-weights; `Chat.FamilyTraits.ixx` records it as a fact about the display, and it stays with the
-application.
+weights; it is a fact about the display, and it stays with the application.
 
 *Success:* a new architecture is added in one place; MIS serves every architecture Chat does; no
 dispatch site carries a per-family branch.

@@ -149,11 +149,13 @@ configuration file may reach `std::terminate`.
 
 ## 5. Family Invariants versus Model Recommendations
 
-**Shipped.** The table is `Chat.FamilyTraits.ixx`, and `default_context` survives there as the
-fallback auto uses when no device can be measured. Gemma's value was **raised from 512 to 4096 on
-2026-08-17**: as a fallback it has to be a context that WORKS, and 512 is the balanced reasoning
-budget exactly, so a user with no config file got a context the reasoning consumed whole. The
-argument below is the record of why the value was wrong in the first place.
+**Superseded at `0.21.0-dev+108`: Chat has no family table.** The table shipped as
+`Chat.FamilyTraits.ixx` and is deleted (`Notebooks/SessionInventory.md`): a reasoning channel is the
+manifest's `thinking`, the highest context is the weights' trained maximum, which the planner caps an
+automatic context at and refuses a fixed one past, and the context a fixed-context session opens at
+with nothing configured is one Chat constant, 4096, for every model. Gemma's value had been **raised
+from 512 to 4096 on 2026-08-17**: a context that WORKS, where 512 was the old middle effort level's
+reasoning budget exactly. The argument below is the record of why the value was wrong in the first place.
 
 The code this section was written against filed a deployment judgement under architecture.
 `defaultContextFor` returned 512 for Gemma, and its own comment admitted the reason:
@@ -239,7 +241,7 @@ family layer, so existing published models keep working and can be republished l
 MIS and the Python binding read the same record, so the recommendation is shared rather than
 duplicated per adaptor. Their own sampling constants -- Chat's 0.8 / 40, the server's compiled 0.6 / 40 /
 0.9 and the Gemma setting its `.env` ships for every model -- are removed, not kept as a fallback. The family
-layer for sampling is the library's (`Distribution.FamilySampling`), not Chat's `FamilyTraits`, because all
+layer for sampling is the library's (`Distribution.FamilySampling`), never Chat's, because all
 three consumers fall back to it; the manifest's settings replace it whole, never knob by knob.
 
 ---
@@ -477,8 +479,9 @@ reports on would be the silent device override §3 rules out. A user who writes 
 **Below a floor it is refused, and the floor is derived rather than compiled.** The minimum is the
 rendered transcript, plus the reasoning budget when thinking is on, plus room to answer — every part
 a fact the session already holds. A compiled 512 or 1024 would be a figure the user has to take on
-faith and would be wrong in both directions: too small for a Gemma turn at high effort, too large for
-a short context on a card with no room for more. The refusal shows the arithmetic, so it is arguable rather than
+faith and would be wrong in both directions: too small for a long thinking turn, too large for
+a short context on a card with no room for more. The reasoning budget is one figure, 512 tokens, for
+every effort level, and no measurement set it. The refusal shows the arithmetic, so it is arguable rather than
 an assertion. **The chassis imposes no minimum of its own and should not** — `ModelConfig` and
 `LanguageModelConfig` reject only zero, and the window and score-width calculations already clamp to
 `min(context, …)`, so a short context degrades rather than breaking. A floor in `Mila/Src` would be
@@ -500,7 +503,7 @@ is a verb of its own:
 /model load <name> [quant]
 /model install <name>
 /model remove <name>
-/thinking [on|off]           /context [<n>|auto]     /set <key> <value>     /effort [1-5]
+/thinking [on|off]           /context [<n>|auto]     /set <key> <value>     /effort [level]
 ```
 
 Three decisions in that, each of which replaced something worse:

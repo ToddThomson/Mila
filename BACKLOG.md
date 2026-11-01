@@ -181,19 +181,18 @@ Q4_0 build, cost over BF16 by band, on a second book as well as 30312.
 
 `in progress` · `gemma`
 
-Gemma 4 12B's weights declare 262144 (`Gemma.md` §2). Chat caps it at 131072
-(`Chat.FamilyTraits.ixx:60`), but since `0.21.0-dev+7` the binding and the inference server plan
-against the weights, so on a card with room the same model can open at different contexts depending
-on which application loaded it: the binding opens it at 262144 on the RTX 5060 Ti, and Chat at 131072.
+Gemma 4 12B's weights declare 262144 (`Gemma.md` §2), and every application plans against the weights
+(Chat since its family ceilings were deleted, the binding and the inference server since `0.21.0-dev+7`), so on a
+card with room the planner opens it at 262144, as the binding does on the RTX 5060 Ti.
 
 Loss by context length on the RTX 5060 Ti, from 8K to 262144, over at least two PG-19 test books long
 enough to fill the whole window (`ModelFamilyParity.md` 8.2, G2, which holds the protocol and the gate).
 Measured on the published FP4 package, the loss rises from 16K; the gate's run is on the Q4_0 package
 (the entry above). The gate is three tests: the whole book predicts no worse than the sliding window alone
 at every length, the cost over BF16 stays within 0.05 nats per token to 32K, and Mila agrees with
-llama.cpp on Google's GGUF to 262144. The result decides `ModelHandle.md` 10.3: if all three hold, Chat's
-cap is deleted; if not, the ceiling comes down to the last band where they hold, in the library, not in an
-application.
+llama.cpp on Google's GGUF to 262144. The result decides `ModelHandle.md` 10.3: if all three hold, the
+weights' 262144 stands; if not, the ceiling comes down to the last band where they hold, in the library, not
+in an application.
 
 #### Gemma 4 packages do not carry Google's drafters, so no load can use them
 
@@ -341,9 +340,9 @@ Gate: the clean-room install passes from TestPyPI on the release-step-1 snapshot
 
 `in progress` · `distribution` · `apps` · `mila-src`
 
-`Chat.FamilyTraits.ixx:55` answers "does this model have a reasoning channel" and "how much context
-can it address" with a switch on the family, so two models of one family cannot differ and a new
-reasoning model of another family reads as having no channel. `instruct` is already declared in the
+A switch on the family answered "does this model have a reasoning channel" and "how much context
+can it address" (Chat's family table, now deleted), so two models of one family could not differ and a new
+reasoning model of another family read as having no channel. `instruct` is already declared in the
 record and proves the pattern, and the manifest tolerates unknown fields, so adding fields is
 additive.
 
@@ -353,7 +352,7 @@ modalities (text, image, video,
 audio -- only those Mila supports); MTP is reported where the package carries a drafter Mila supports; each can be
 turned off. Read through the installed-model path (Internal fixes, below). The context the model addresses comes
 from its weights, not the manifest. **Stays in Chat:** `streaming_capable`, a fact about the display rather than
-the weights, and `default_context`, layer 1 of Chat's own configuration. Gate: a manifest omitting every new field
+the weights, and the context a fixed-context session opens at, Chat's own setting. Gate: a manifest omitting every new field
 still loads; every published model republished with them.
 
 Also the root of Codex's "Model metadata not found" warning against `/v1/models` — all three
@@ -450,34 +449,6 @@ on Llama, Gemma and Qwen, with a real install and removal. The window starts it 
 scenarios 1 to 11 on Llama, Gemma and a real install; tool calls through `Mila::AI` and the theme's task remain.
 
 `Mila/Specifications/MilaApp.md` sections 6.1, 8
-
-#### A program that changes its model loses its tools, rules and conversation, so the Mila app borrows Chat's code to keep them
-
-`in progress` · `ai` · `apps` · `mila-src` · `breaking`
-
-An agent ends with its model, and everything set on it ends too. Chat's `ChatSession` keeps a copy of each --
-rules, grant, limits, prompt, tool handlers, a held conversation -- to give the next agent, in a library
-(`MilaChatSession`) that carries Chat's settings files and Chat's family-specific code with it (the `FamilyTraits`
-table, Qwen's effort mapping). Decided (`Direction.md` 4.3): an agent is a
-model and a `Mila::AI::Session`; changing the model gives the session back, releasing the model, and creates another
-agent from it.
-
-- `Session` in `Mila/Src/AI/`: prompt, tools, rules, grant, asker, limits, conversation and the tools allowed for
-  it (out of `ToolGate`). `Agent` keeps the handle, template variables, sampling and the response in flight.
-- Template variables and sampling not accepted by the new model's template are dropped and reported.
-- `MilaChatSession` dissolved: the Mila app's session builds on `Mila::AI` with a layer of its own, Chat keeps its
-  console and its configuration, and what both need that a developer's program would too is proposed for
-  `Mila::AI`. `ModelCatalog` and `Footprint` are sorted against `InstalledModel` and the planner first.
-- Every job of the shared library, and where it goes: `Notebooks/SessionInventory.md`. Built: `Session`,
-  `SamplingOverride`, `OpenRefusal` and `Agent::check`, and Chat's session holding a `Session` (its order's step
-  1); the Mila app's session on `Mila::AI` alone, with settings, prompts and store work of its own (step 2). Left:
-  `MilaChatSession` dissolved into Chat (step 3).
-
-Gate: library tests -- a session survives a change of model and of context, a failed load leaves the program
-holding it, a dropped template variable is reported, and one conversation carried through Gemma, Llama and Qwen;
-the Chat console byte gate; the Mila app's session's drives; and `mila-session` links no module of Chat's.
-
-`Mila/Specifications/Direction.md` section 4.3
 
 #### Tool calling has never been driven end to end on Llama
 

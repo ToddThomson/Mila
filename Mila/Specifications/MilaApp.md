@@ -550,13 +550,13 @@ conversation it holds -- so that v0.22.0 moves this code into Mila.AI rather tha
   commands, the console's in `/help`. A refusal at the shell (`RefusalAudience::Shell`) still names its
   `mila-store` command. A failed load, install or remove is the session's `error`, not its `info`, so the
   page shows a refusal where it happened.
-- **The session is a library target of its own, `MilaChatSession`,** which `mila-chat` and the session
-  process link. Nothing in it can import the renderer, so the build keeps the line. To be dissolved
-  (2026-10-27, Todd): an agent becomes a model and a session in `Mila::AI` (`Direction.md` 4.3), and each
-  application keeps only its own layer over it. Since `+105` the session process links none of it: it reads
-  settings of its own, which the Settings view writes, rather than Chat's files; its prompts live in
-  `Mila/Apps/Assistant/Prompts`; and it offers only its own tools, Chat's canned weather tool gone
-  (`Notebooks/SessionInventory.md` sections 5 and 6). Only `mila-chat` links `MilaChatSession` now.
+- **The session was a library target of its own, `MilaChatSession`,** which `mila-chat` and the session
+  process linked. Dissolved (2026-10-27, Todd): an agent is a model and a session in `Mila::AI`
+  (`Direction.md` 4.3), and each application keeps only its own layer over it. Since `+105` the session
+  process reads settings of its own, which the Settings view writes, rather than Chat's files; its prompts live
+  in `Mila/Apps/Assistant/Prompts`; and it offers only its own tools, Chat's canned weather tool gone. Since
+  `+108` Chat's session is part of `mila-chat` itself, with no family code (`Notebooks/SessionInventory.md`
+  sections 5 and 6).
 - **`turn.stop` is `ChatSession::stop()`,** on a stop source made fresh for each turn; the library ends a
   generate with `GenerateStatus::ClientCancelled` on it. A tool call not yet run is not run. Ctrl+C during
   a reply calls it -- the console installs its SIGINT handler for the turn only, so Ctrl+C at the prompt

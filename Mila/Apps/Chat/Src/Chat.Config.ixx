@@ -6,10 +6,10 @@
 export module Chat.Config;
 
 import std;
-export import Chat.ModelType;
-export import Chat.ModelSize;
-export import Chat.QuantizationMode;
-export import Chat.KvCache;
+export import Dnn.WeightQuantization;
+export import Dnn.KvCacheCompression;
+export import Chat.QuantizationKeyword;
+export import Chat.KvCacheKeyword;
 export import Chat.DetailLevel;
 export import Distribution.SamplingRecommendation;
 export import Dnn.SamplingParams;
@@ -24,7 +24,7 @@ namespace Mila::ChatApp
      *
      * ## model selection
      *
-     * model_type / is_instruct / quantization_mode / model_path / tokenizer_path are all resolved from one
+     * is_instruct / quantization_mode / model_path / tokenizer_path are all resolved from one
      * installed model's name (see Chat.ModelCatalog), either at startup (the session config "model" key) or by
      * the /model command. They are not set field-by-field and are never inferred from the weight filename.
      *
@@ -32,8 +32,8 @@ namespace Mila::ChatApp
      *
      * Maximum sequence length allocated at model build time, and the primary VRAM
      * lever. Resolved by merging the layers of ChatConfiguration.md section 3: the
-     * family default, then any file or flag that names the key, clamped to what the
-     * architecture can address.
+     * compiled default, then any file or flag that names the key. A length past the
+     * model's trained maximum is refused by the load.
      *
      * ## system_prompt_path
      *
@@ -43,8 +43,7 @@ namespace Mila::ChatApp
      */
     export struct ChatConfig
     {
-        ModelType             model_type{ ModelType::Llama };
-        QuantizationMode      quantization_mode{ QuantizationMode::None };
+        Dnn::WeightQuantization quantization_mode{ Dnn::WeightQuantization::None };
 
         /// True when quantization_mode is a load-time choice rather than what the weights
         /// already are. A pre-quantized model carries it in its name; a dynamic one does not,
@@ -57,7 +56,9 @@ namespace Mila::ChatApp
         /// cannot give Llama a channel it does not have, and offering one only ever misreported.
         bool                  thinking_capable{ false };
         bool                  show_thinking{ false };  ///< Reasoning surfaced. Follows thinking_capable.
-        int                   thinking_effort{ 3 };    ///< 1..5 token-budget scale for the reasoning (when thinking on).
+        /// One of the template's own effort levels, as its reasoning_effort lists them; empty for its default. A
+        /// level the loaded model's template does not list leaves it at its default.
+        std::string           thinking_effort;
         DetailLevel           detail{ DetailLevel::Off };  ///< Display verbosity: thoughts / tool calls / all.
         /// Catalog alias the current model came from. This, not the family/size/precision
         /// triple, is what identifies a model: two entries can share an architecture and
@@ -91,7 +92,7 @@ namespace Mila::ChatApp
         int                   device_index{ 0 };
 
         /// How the context is held: a deployment decision like device_index, kept across a model switch.
-        KvCache               kv_cache{ KvCache::None };
+        Dnn::KvCacheCompression kv_cache{ Dnn::KvCacheCompression::None };
 
         std::filesystem::path model_path;
         std::filesystem::path tokenizer_path;

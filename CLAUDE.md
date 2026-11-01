@@ -108,10 +108,10 @@ without prior agreement (they consume the runtime; they are not the runtime's pu
 change to the core Mila library (`Mila/Src/`) still requires explicit agreement first.
 
 Key files:
-- `Chat.Session.ixx` — `ChatSession`: the model as one `Mila::AI::Agent`, which runs every turn and its tool calls; model hot-switching, the round measurements; never draws or reads input, and reports through `SessionEvents` (library target `MilaChatSession`, `MilaApp.md` section 7)
+- `Chat.Session.ixx` — `ChatSession`: the model as one `Mila::AI::Agent`, which runs every turn and its tool calls; model hot-switching, the round measurements; never draws or reads input, and reports through `SessionEvents`
 - `Chat.ConsoleFrontEnd.ixx` — the console over the session: slash commands, tables, the live display, Ctrl+C stops a reply
 - `Chat.ModelCatalog.ixx` — resolves a store name to a loadable model, and owns the load refusals
-- `Chat.Config.ixx` — `ChatConfig`: the model a store name resolved to (`ModelType`, `QuantizationMode` none/fp8/fp4/codebook), its device, context length and sampling
+- `Chat.Config.ixx` — `ChatConfig`: the model a store name resolved to (its `WeightQuantization`), its device, context length, effort and sampling
 - `Chat.Footprint.ixx` — what a model would allocate at a context length, without allocating it
 - `Chat.Renderer.ixx` — `ConsoleRenderer` (standalone non-exported module): braille spinner, solid-color response blocks, word-wrap with leading-indent preservation, Unicode welcome box, ANSI stats line
 - `Chat.SettingsResolution.ixx` — the layered config resolution, compiled defaults included
