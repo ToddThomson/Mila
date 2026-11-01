@@ -47,17 +47,6 @@ add_executable( MilaTests
     # ==============================================================
     # Section 1 - Current test methodology (Specifications/Testing.md)
     # ==============================================================
-    # The gate every tool call passes and the grant it gives (ToolCalling.md 3.1 to 3.4). Needs no model.
-    "AI/ArgumentSchema.cpp"
-    "AI/GrantPath.cpp"
-    "AI/PublicAddress.cpp"
-    "AI/ToolRules.cpp"
-    "AI/ToolGate.cpp"
-    # What a program gives an agent, kept apart from its model (Direction.md 4.3). Needs no model.
-    "AI/Session.cpp"
-    # The Mila app's own settings file and activity prompts (MilaApp.md 3.1, 3.7). Needs no model.
-    "Apps/Assistant/SettingsFile.cpp"
-    "Apps/Assistant/PromptFile.cpp"
     "Data/Loaders/DataLoader.cpp"
     "Dnn/Components/Activations/Activation/ActivationConfig.cpp"
     "Dnn/Components/Activations/Gelu/GeluConfig.cpp"
@@ -187,27 +176,63 @@ target_sources( MilaTests PRIVATE
     "Deployment/InstalledModel.Cpu.cpp"
 )
 
-# What a tool's grant reaches (ToolCalling.md 3.4). Files only where a folder can be granted,
-# Windows; the network where this build has its own transport to check, and the local server's
-# sockets are Windows's.
-if(WIN32)
+# Milo, when it is built. The gate every tool call passes and the grant it gives (ToolCalling.md 3.1 to 3.4), and what a
+# program gives an agent, kept apart from its model (Direction.md 4.3), need no model; nor do Mila Desktop's own settings
+# file and activity prompts (MilaDesktop.md 3.1, 3.7), built here from its sources as DesktopHtmlTextTests builds its own.
+if(MILA_ENABLE_MILO)
     target_sources( MilaTests PRIVATE
-        "AI/ToolGrant.Files.cpp"
-        # What a program run through a grant reaches (ContainedPrograms.md); MXC's part skips unless
-        # MILA_MXC_LIBRARY names its library and the build has MILA_ENABLE_MXC on.
-        "AI/ToolGrant.Programs.cpp"
-        "AI/SecondNameWatch.cpp"
+        "Milo/ArgumentSchema.cpp"
+        "Milo/GrantPath.cpp"
+        "Milo/PublicAddress.cpp"
+        "Milo/ToolRules.cpp"
+        "Milo/ToolGate.cpp"
+        "Milo/Session.cpp"
+        "Apps/Desktop/SettingsFile.cpp"
+        "Apps/Desktop/PromptFile.cpp"
     )
 
-    # The program tests' loopback server, and the route to the local network's gateway.
-    target_link_libraries( MilaTests PRIVATE ws2_32 iphlpapi )
+    target_sources( MilaTests
+    PRIVATE
+        FILE_SET desktop_module_files
+        TYPE CXX_MODULES
+        BASE_DIRS "${CMAKE_SOURCE_DIR}/MilaDesktop/Session/Src"
+        FILES
+            "${CMAKE_SOURCE_DIR}/MilaDesktop/Session/Src/Desktop.Settings.ixx"
+            "${CMAKE_SOURCE_DIR}/MilaDesktop/Session/Src/Desktop.SettingsFile.ixx"
+            "${CMAKE_SOURCE_DIR}/MilaDesktop/Session/Src/Desktop.PromptTool.ixx"
+            "${CMAKE_SOURCE_DIR}/MilaDesktop/Session/Src/Desktop.PromptFile.ixx"
+    )
 
-    if(MILA_ENABLE_LIBCURL)
+    target_link_libraries( MilaTests PRIVATE Milo )
+
+    if(MILA_ENABLE_CUDA)
         target_sources( MilaTests PRIVATE
-            "AI/ToolGrant.Network.cpp"
+            "Milo/Agent.Cuda.cpp"
+        )
+    endif()
+
+    # What a tool's grant reaches (ToolCalling.md 3.4). Files only where a folder can be granted,
+    # Windows; the network where this build has its own transport to check, and the local server's
+    # sockets are Windows's.
+    if(WIN32)
+        target_sources( MilaTests PRIVATE
+            "Milo/ToolGrant.Files.cpp"
+            # What a program run through a grant reaches (ContainedPrograms.md); MXC's part skips unless
+            # MILO_MXC_LIBRARY names its library and the build has MILO_ENABLE_MXC on.
+            "Milo/ToolGrant.Programs.cpp"
+            "Milo/SecondNameWatch.cpp"
         )
 
-        target_link_libraries( MilaTests PRIVATE ws2_32 )
+        # The program tests' loopback server, and the route to the local network's gateway.
+        target_link_libraries( MilaTests PRIVATE ws2_32 iphlpapi )
+
+        if(MILA_ENABLE_LIBCURL)
+            target_sources( MilaTests PRIVATE
+                "Milo/ToolGrant.Network.cpp"
+            )
+
+            target_link_libraries( MilaTests PRIVATE ws2_32 )
+        endif()
     endif()
 endif()
 
@@ -229,8 +254,7 @@ if(MILA_ENABLE_CUDA)
         "Data/Loaders/DataLoader.Cuda.cpp"
         # The deployment planner (Deployment.md Phase 3): the objective, limits and refusals against readings the
         # test chooses, on synthetic geometries. Runs anywhere.
-        "AI/ModelHandle.Cuda.cpp"
-        "AI/Agent.Cuda.cpp"
+        "Deployment/ModelHandle.Cuda.cpp"
         "Deployment/DeploymentPlanner.Cuda.cpp"
         # G2: the readings Chat's automatic context saw, and what it picked, reproduced by the planner. Needs weights.
         "Deployment/DeploymentPlanner.G2.Cuda.cpp"
@@ -421,20 +445,6 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   )
 endif()
 
-# The Mila app's modules the model-free tests above read, built here from its sources as AssistantHtmlTextTests builds
-# its own.
-target_sources( MilaTests
-PRIVATE
-    FILE_SET assistant_module_files
-    TYPE CXX_MODULES
-    BASE_DIRS "${CMAKE_SOURCE_DIR}/Mila/Apps/Assistant/Session/Src"
-    FILES
-        "${CMAKE_SOURCE_DIR}/Mila/Apps/Assistant/Session/Src/Assistant.Settings.ixx"
-        "${CMAKE_SOURCE_DIR}/Mila/Apps/Assistant/Session/Src/Assistant.SettingsFile.ixx"
-        "${CMAKE_SOURCE_DIR}/Mila/Apps/Assistant/Session/Src/Assistant.PromptTool.ixx"
-        "${CMAKE_SOURCE_DIR}/Mila/Apps/Assistant/Session/Src/Assistant.PromptFile.ixx"
-)
-
 # MilaMeasurement: the log-likelihood harness and PG-19 reader, shared with Tools/ContextProfile.
 target_link_libraries( MilaTests PRIVATE Mila MilaMeasurement gtest )
 
@@ -475,8 +485,7 @@ gtest_discover_tests(MilaTests
 # cheapest test surface in the tree the slowest build in the tree. It runs anywhere,
 # including a CPU-only configure.
 #
-# The target lives here rather than under Apps/Chat because add_subdirectory(Tests)
-# runs after Apps, so the GoogleTest targets do not exist yet at that point.
+# The target lives here rather than under MilaChat: the tests are one place, and the GoogleTest targets are here.
 # ---------------------------------------------------------------------------
 add_executable( ChatRichTextTests
     "Apps/Chat/RichText.Cpu.cpp"
@@ -488,9 +497,9 @@ target_sources( ChatRichTextTests
 PUBLIC
     FILE_SET module_files
     TYPE CXX_MODULES
-    BASE_DIRS "${CMAKE_SOURCE_DIR}/Mila/Apps/Chat/Src"
+    BASE_DIRS "${CMAKE_SOURCE_DIR}/MilaChat/Src"
     FILES
-        "${CMAKE_SOURCE_DIR}/Mila/Apps/Chat/Src/Chat.RichText.ixx"
+        "${CMAKE_SOURCE_DIR}/MilaChat/Src/Chat.RichText.ixx"
 )
 
 set_target_properties( ChatRichTextTests PROPERTIES
@@ -509,33 +518,33 @@ gtest_discover_tests( ChatRichTextTests
 )
 
 # ---------------------------------------------------------------------------
-# The Mila app: a web page's HTML read as text.
+# Mila Desktop: a web page's HTML read as text.
 #
-# Its own executable for the reason ChatRichTextTests is: Assistant.HtmlText imports nothing of
+# Its own executable for the reason ChatRichTextTests is: Desktop.HtmlText imports nothing of
 # Mila's, so it builds and runs anywhere without the library.
 # ---------------------------------------------------------------------------
-add_executable( AssistantHtmlTextTests
-    "Apps/Assistant/HtmlText.Cpu.cpp"
+add_executable( DesktopHtmlTextTests
+    "Apps/Desktop/HtmlText.Cpu.cpp"
 )
 
-target_sources( AssistantHtmlTextTests
+target_sources( DesktopHtmlTextTests
 PUBLIC
     FILE_SET module_files
     TYPE CXX_MODULES
-    BASE_DIRS "${CMAKE_SOURCE_DIR}/Mila/Apps/Assistant/Session/Src"
+    BASE_DIRS "${CMAKE_SOURCE_DIR}/MilaDesktop/Session/Src"
     FILES
-        "${CMAKE_SOURCE_DIR}/Mila/Apps/Assistant/Session/Src/Assistant.HtmlText.ixx"
+        "${CMAKE_SOURCE_DIR}/MilaDesktop/Session/Src/Desktop.HtmlText.ixx"
 )
 
-set_target_properties( AssistantHtmlTextTests PROPERTIES
+set_target_properties( DesktopHtmlTextTests PROPERTIES
     CXX_STANDARD 23
     CXX_STANDARD_REQUIRED ON
     CXX_EXTENSIONS OFF
 )
 
-target_link_libraries( AssistantHtmlTextTests PRIVATE MilaStd gtest gtest_main )
+target_link_libraries( DesktopHtmlTextTests PRIVATE MilaStd gtest gtest_main )
 
-gtest_discover_tests( AssistantHtmlTextTests
+gtest_discover_tests( DesktopHtmlTextTests
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     PROPERTIES
         VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"

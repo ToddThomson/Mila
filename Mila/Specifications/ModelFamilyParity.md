@@ -854,7 +854,7 @@ left a 26 MiB margin, and the card read zero free after the load.
 
 **Q5 -- Prompt-prefix reuse by snapshot and restore.** The agent blocker: without it every turn re-prefills the whole
 conversation -- 6.3 s at 8K on FP4, 52 s at 32K on 2.82-bit, each turn. The per-block `snapshotState` /
-`restoreState` exist; a whole-model property does not (`BACKLOG.md`, Mila::AI, "Qwen refuses prompt-prefix reuse").
+`restoreState` exist; a whole-model property does not (`BACKLOG.md`, Milo, "Qwen refuses prompt-prefix reuse").
 
 **Q6 -- An FP8 KV cache.** A capacity item on 16 GB, not a nicety: 32 KiB a token saved across the 16 cached layers,
 about 1 GB at 32K, which is FP4's whole shortfall there (`BACKLOG.md`, Qwen 3.8 Complete).
@@ -1309,7 +1309,7 @@ streaming in Chat.
    foundation at the same time.
 4. **Llama 3.1's built-in tools.** In scope under section 1, but they are a tool-execution convention
    (`ipython`) as much as a grammar. Decide with the agent core's spec whether they are a Llama capability or
-   a `Mila::AI` one.
+   a `Milo` one.
 5. **Gemma's drafter and QAT implementations under the 16 GB rule.** Section 1 puts both in scope, but
    `ROADMAP.md`'s Gemma 4 Complete text makes only their measurements this release. Recommend keeping it
    that way: each measurement carries a stop condition that can decline the work, so admitting the

@@ -237,7 +237,7 @@ python Qwen/convert_weights.py --model Qwen/Qwen3.8-27B --max-layers 4 --output 
    convolution is depthwise, so two convolutions over a partition of the channels compute what one over
    all of them computes.
 4. **Norm weights are written RAW.** Qwen's stream norms scale by `(1 + weight)` with weights stored
-   zero-centered, and Mila applies the `+1` at the kernel — so stored weights stay identical to the
+   zero-centered, and Mila Desktoplies the `+1` at the kernel — so stored weights stay identical to the
    checkpoint. The DeltaNet mixer's gated norm (`linear_attn.norm`) is genuinely raw on both sides.
    **Both conventions live in one model**, and getting them the wrong way round is silent.
 

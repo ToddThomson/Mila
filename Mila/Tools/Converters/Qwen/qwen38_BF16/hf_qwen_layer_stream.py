@@ -273,7 +273,7 @@ class StreamedReference:
         """Capture q/k AFTER the rotary embedding, which no module boundary exposes.
 
         RoPE is a free function called inside `Qwen3_5Attention.forward`, so there is no
-        hook point. It also matters: Mila applies the rotation IN PLACE over the q_norm
+        hook point. It also matters: Mila Desktoplies the rotation IN PLACE over the q_norm
         output slot, so the slot a naive mapping compares holds post-RoPE values while the
         q_norm hook above holds pre-RoPE ones -- a comparison that reports a 36% divergence
         which is entirely the rotation. Patching the function is the only way to line the

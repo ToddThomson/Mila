@@ -43,9 +43,9 @@ never committed.
 ## Current release (v0.21.0)
 
 The families finished and measured, in the themes ROADMAP gives them. `Direction.md` section 5 — the
-handle, the deployment request, `Mila::AI` and the applications rebuilt on it — is v0.22.0, and its items
+handle, the deployment request, `Milo` and the applications rebuilt on it — is v0.22.0, and its items
 wait in [`Vnext.md`](Mila/Issues/Vnext.md); what tool calling stands on -- the model's tool grammar, the
-handle, `Mila::AI` and its tool loop -- comes forward under *The Desktop Agent* (Todd, 2026-10-25).
+handle, `Milo` and its tool loop -- comes forward under *The Desktop Agent* (Todd, 2026-10-25).
 
 ### Gemma 4 Complete
 
@@ -64,7 +64,7 @@ carries media, prefill chunks that never split an image's run, and prefix reuse 
 its token ids; the resize, matched to torchvision's; audio, a 40 ms framing and one projection; Chat accepting an
 image or a clip (`/image`, `/audio`, Todd 2026-10-04), the inference server's content blocks in both protocols,
 the binding; converter, manifest and footprint. In this release the applications pass media to the model
-directly; reaching it through `Mila::AI`, and selecting a modality in a deployment request, are v0.22.0's.
+directly; reaching it through `Milo`, and selecting a modality in a deployment request, are v0.22.0's.
 
 A deployment without a modality should not sample its markers. On 2026-09-28 the 12B sampled `<image|>` (258882)
 mid-sentence in a text-only Chat session, losing the rest of a pun. The sampler now never draws any of Gemma 4's
@@ -274,7 +274,7 @@ midnight; Phase 1 takes about 2.7 hours an arm, and the template takes a `date_s
 
 #### Nobody knows how deep into a conversation each model still finds a fact, obeys its instructions and calls a tool correctly
 
-`in progress` · `models` · `ai` · `gemma` · `llama` · `qwen` · `gate`
+`in progress` · `models` · `milo` · `gemma` · `llama` · `qwen` · `gate`
 
 The quality evidence Mila has is perplexity by context band (`ModelFamilyParity.md` 3.4, 8.2 G2) and
 two single-family instruction-retention tests (`Llama.InstructionRetention.Cuda.cpp`,
@@ -334,7 +334,7 @@ so what is missing is the release path itself:
 
 Gate: the clean-room install passes from TestPyPI on the release-step-1 snapshot.
 
-`Mila/Apps/Server/pyproject.toml` · `RELEASING.md` *Publishing the wheels*
+`MilaServer/pyproject.toml` · `RELEASING.md` *Publishing the wheels*
 
 #### What a model can do is inferred from its family name, not read from its manifest
 
@@ -361,7 +361,7 @@ validated flows pass regardless, so that is a symptom of this gap rather than se
 Found 2026-10-18 serving Qwen3.8-27B-fp4 from an install that predates the fields: `/v1/models` says
 `supports_reasoning: false` and `capabilities.tools: false` for a model that reasons by default and calls tools,
 because an absent field reads as false rather than unknown. Until every model is republished, each older install
-reports the wrong answer. `Mila/Apps/Server/src/mila_llm_server/protocols/openai/models.py:32`
+reports the wrong answer. `MilaServer/src/mila_llm_server/protocols/openai/models.py:32`
 
 #### The website does not tell a user how to run Chat, the inference server or the model store
 
@@ -375,12 +375,12 @@ build instructions. Admitted 2026-10-18 (Todd); the shape proposed the same day:
   the image), the inference server (`pip install`), and `mila-store` (installing a model is step one for both).
 - The server's page covers each harness it is tested with -- install, start the server, the harness's own settings,
   the models it is tested with and their limits. The harness instructions stay in one file,
-  `Mila/Apps/Server/docs/harnesses.md`, mounted into the site rather than copied.
+  `MilaServer/docs/harnesses.md`, mounted into the site rather than copied.
 - A Get started tab for a user who wants a local model behind a coding agent, pointing at the server's page.
 - End-user prose throughout (`CLAUDE.md` *End-User Prose*), written after the harness baselines so every tested
   version and limit it states is measured.
 
-`Web/hugo.toml` (navigation), `Web/layouts/index.html` (Get started tabs), `Mila/Apps/Server/docs/harnesses.md`
+`Web/hugo.toml` (navigation), `Web/layouts/index.html` (Get started tabs), `MilaServer/docs/harnesses.md`
 
 #### The inference server answers a request for any model name with the model it has loaded
 
@@ -392,7 +392,7 @@ requests naming `gemma-4-12b-it` were answered by Qwen 3.8 27B FP4 and the Gemma
 recorded both as passing. Not checked: what OpenAI and Anthropic return for an unknown model (OpenAI documents
 `model_not_found`), and whether every harness sends a name the server could match.
 
-`Mila/Apps/Server/src/mila_llm_server/`
+`MilaServer/src/mila_llm_server/`
 
 #### The inference server joins the text parts of one message with nothing between them
 
@@ -403,13 +403,13 @@ joined straight onto the second ("You are a Claude agent..."); Codex 0.162.1 sen
 as two parts of one `developer` message, joined the same way (found 2026-10-15 capturing the harnesses). Not
 checked: how Anthropic and OpenAI join a message's parts, or whether the billing line reaches Anthropic's models.
 
-`Mila/Apps/Server/src/mila_llm_server/conversation.py` `text_of`
+`MilaServer/src/mila_llm_server/conversation.py` `text_of`
 
 ### The Desktop Agent
 
 #### Nothing keeps a tool inside the folder it was given, or off local addresses
 
-`in progress` · `ai` · `gate`
+`in progress` · `milo` · `gate`
 
 `ToolCalling.md` section 3.4: the grant a tool opens files and makes connections through. On Windows one file has
 many names: `..`, links, junctions, mount points, short 8.3 names, case, alternate data streams, device names, the
@@ -417,7 +417,7 @@ many names: `..`, links, junctions, mount points, short 8.3 names, case, alterna
 and refuses the non-path forms before opening; it refuses private, loopback, link-local and unspecified addresses
 on the address actually connected to, and on every redirect. Gate: a test per route and per address kind, by name,
 by literal address and through a redirect, each refused, beside the same access inside the folder or to a public
-address allowed. Gates every item below that runs a tool. Built on Windows (`ToolGrant`, `Tests/AI/ToolGrant.*.cpp`);
+address allowed. Gates every item below that runs a tool. Built on Windows (`ToolGrant`, `Mila/Tests/Milo/ToolGrant.*.cpp`);
 what is left is the pair for short 8.3 names and the pair for mount points, which need a volume that makes short
 names and an administrator to create one.
 
@@ -427,28 +427,28 @@ names and an administrator to create one.
 
 `in progress` · `apps`
 
-The Mila app's own tools, written through grants (Mila ships none): reading a file or a range of its lines,
+Mila Desktop's own tools, written through grants (Mila ships none): reading a file or a range of its lines,
 listing a folder, finding files by name, searching text, writing a file and editing one exact passage, in the
 folder the person chose and its `.mila` folder; and fetching a web page as readable text, size-capped, from public
-addresses. Reads allowed by default, writes and fetches asked. The file tools exist (`Assistant.FileTools.ixx`, the
-`files` prompt, Build & Code's folder), and so does reading a web page (`Assistant.WebPageReader.ixx`, Research &
+addresses. Reads allowed by default, writes and fetches asked. The file tools exist (`Desktop.FileTools.ixx`, the
+`files` prompt, Build & Code's folder), and so does reading a web page (`Desktop.WebPageReader.ixx`, Research &
 Analyze), each through its call's grant; what is left is the rules -- every call is still asked, reads included --
 and the `.mila` folder.
 
 `Mila/Specifications/ToolCalling.md` section 5
 
-#### The Mila app runs only against a mock
+#### Mila Desktop runs only against a mock
 
 `in progress` · `apps`
 
-`MilaApp.md` phases 3 and 4: the session process that speaks section 4 over stdio on a real model, then the
-window starting it in place of the mock, with tool calls through `Mila::AI`. Gate: a script driving the session
+`MilaDesktop.md` phases 3 and 4: the session process that speaks section 4 over stdio on a real model, then the
+window starting it in place of the mock, with tool calls through `Milo`. Gate: a script driving the session
 process runs the equivalents of scenarios 1 to 8 and 11 on a real model; the window runs the theme's task on
 every published model that calls tools. The session process is built (`mila-session`) and its gate passes
 on Llama, Gemma and Qwen, with a real install and removal. The window starts it in place of the mock and runs
-scenarios 1 to 11 on Llama, Gemma and a real install; tool calls through `Mila::AI` and the theme's task remain.
+scenarios 1 to 11 on Llama, Gemma and a real install; tool calls through `Milo` and the theme's task remain.
 
-`Mila/Specifications/MilaApp.md` sections 6.1, 8
+`Mila/Specifications/MilaDesktop.md` sections 6.1, 8
 
 #### Tool calling has never been driven end to end on Llama
 
@@ -514,7 +514,7 @@ unchanged; `list`, `describe`, `pull` and Chat name the successor for it and say
 it; `mila-llm/gemma-4-12b-it-fp4` carries the field and the card line once `gemma-4-12B-it-q4_0` is published.
 
 `Mila/Src/Distribution/ModelManifest.ixx:330` · `Mila/Src/Distribution/ModelStore.ixx:1253` ·
-`Mila/Apps/Tools/Store/Store.ixx:346` · `Mila/Apps/Chat/Src/Chat.ModelCatalog.ixx:796` ·
+`Mila/Store/Store.ixx:346` · `MilaChat/Src/Chat.ModelCatalog.ixx:796` ·
 `Mila/Tools/Publishing/publish_model.py`
 
 ### Performance Next to llama.cpp
@@ -649,7 +649,7 @@ Claude Code 2.1.300's first request renders to about 20,400 tokens, and the 26B-
 one of the two models Mila calls agentic. Not measured: the 12B's room, or whether the 26B-A4B's context is held back
 for a full prefill chunk as Qwen's was.
 
-`Mila/Apps/Server/docs/harnesses.md` *Tested With*
+`MilaServer/docs/harnesses.md` *Tested With*
 
 #### The Python binding and Mila's context measurements render Qwen 3.8's prompt differently from its own template in six places
 
@@ -851,7 +851,7 @@ Gate: no app or the binding parses `architecture` or `variant`; a model loads or
 Chat, the binding and the inference server; `/model list` and `mila-store` report the planner's answer; a request
 naming no weight format loads every published variant.
 
-`Mila/Specifications/Deployment.md` 8.1 · `Mila/Apps/Chat/Src/Chat.ModelCatalog.ixx`
+`Mila/Specifications/Deployment.md` 8.1 · `MilaChat/Src/Chat.ModelCatalog.ixx`
 
 #### Chat and the inference server live under a directory named for what they are not, and Mila's commands follow three naming styles
 
@@ -860,9 +860,9 @@ naming no weight format loads every published variant.
 `Mila/Adaptors/` held Chat and the inference server, which are applications. The commands a user types are
 `mila-chat`, `mila-server`, `mila` and `ExportArtifact`. Decided 2026-10-11 (`MilaCommandLineReview.md` 4.1):
 
-- `Mila/Adaptors/Chat` to `Mila/Apps/Chat`, `Mila/Adaptors/Inference/Server` to `Mila/Apps/Server`, with the CMake
+- `Mila/Adaptors/Chat` to `MilaChat`, `Mila/Adaptors/Inference/Server` to `MilaServer`, with the CMake
   option, the wheel and image paths, `CLAUDE.md`, and the area tag in `Tags.md` (now `apps`) following.
-- The store tool leaves `Mila/Tools/Cli` for `Mila/Apps/Tools/Store` and is renamed `mila-store`: the website's Get
+- The store tool leaves `Mila/Tools/Cli` for `Mila/Store` and is renamed `mila-store`: the website's Get
   Started, Chat's shell hints, the image's link and `install` verb, and the image checks.
 - Every command a user types is lowercase with hyphens and the `mila-` prefix, the same on every platform.
   `ExportArtifact` keeps its name and place: it does not ship in v0.21.0 (notebook section 4.2).
@@ -870,7 +870,7 @@ naming no weight format loads every published variant.
 Gate: a clean configure of every preset, the full suite, the runtime image's checks, and no tracked file naming
 `Mila/Adaptors/` or the `mila` command except where it records the move.
 
-`Mila/Specifications/Notebooks/MilaCommandLineReview.md` 4.1 and 6 · `Mila/Apps/`
+`Mila/Specifications/Notebooks/MilaCommandLineReview.md` 4.1 and 6 · `MilaChat/` · `MilaServer/` · `Mila/Store/`
 
 #### Clang can no longer compile Chat, because every Mila module repeats the standard library's text
 
@@ -1033,4 +1033,4 @@ out of `Untriaged.md`.
 Gate: a client that resets an idle keep-alive connection leaves no error and no traceback in the server's log, and
 an exception in a request still logs one.
 
-`Mila/Apps/Server/src/mila_llm_server/app.py` (event loop)
+`MilaServer/src/mila_llm_server/app.py` (event loop)

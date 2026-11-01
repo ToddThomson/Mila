@@ -12,7 +12,7 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ## Chat unloads its model before refusing a context longer than the model was trained for
 
-`Mila/Apps/Chat/Src/Chat.Session.ixx` `setContextLength`, `switchModel`; `Mila/Src/AI/Agent.ixx` `check` @ 0.21.0-dev+108
+`MilaChat/Src/Chat.Session.ixx` `setContextLength`, `switchModel`; `Milo/Src/Agent.ixx` `check` @ 0.21.0-dev+108
 
 Workaround chosen by Todd, 2026-10-31: kept for one change, to be fixed in Milo after the move. Since Chat's family
 ceilings were deleted, `/context 300000` on Llama 3.2 3B releases the model, then the planner refuses ("planDeployment:
@@ -20,9 +20,9 @@ context length 300000 exceeds the trained maximum 131072"), leaving nothing load
 the model. The same holds for a fixed context carried across a model switch. Proposed fix: `Agent::check` refuses a
 fixed context past the trained maximum, before a program releases anything, in the library's words.
 
-## A pnpm project may not build under the Mila app's commands, which tell Node to keep links as named
+## A pnpm project may not build under Mila Desktop's commands, which tell Node to keep links as named
 
-`Mila/Apps/Assistant/Session/Src/Assistant.ProgramSetup.ixx` (`NODE_OPTIONS`) @ 7cf45bdd
+`MilaDesktop/Session/Src/Desktop.ProgramSetup.ixx` (`NODE_OPTIONS`) @ 7cf45bdd
 
 Measured 2026-10-31 (`Notebooks/MxcConformance.md` 7.1): in MXC's container Node's resolving of a script's real
 path stats the drive's root, which is refused, so every `node` and `npm` run failed; `--preserve-symlinks
@@ -34,7 +34,7 @@ installing a development certificate; where it lands is not measured.
 
 `Mila/Specifications/ContainedPrograms.md` decision 11; an absence -- no allow list by host name @ 7cf45bdd
 
-Todd, 2026-10-31: after phase 3 (network per call), a list of hosts allowed per project in the Mila app, and a
+Todd, 2026-10-31: after phase 3 (network per call), a list of hosts allowed per project in Mila Desktop, and a
 question for each new host. MXC's egress rules match address, protocol and port only; names are out of its scope
 (`docs/backends/process-container/networking.md`). Its proxy mode (`runtimeConfig.networkProxy`, "Model 2") sends
 WinHTTP traffic and `HTTP_PROXY`/`HTTPS_PROXY` to a loopback proxy the host runs, and asks for `egress.default: deny`
@@ -54,11 +54,11 @@ everyone first. Todd, 2026-10-27: report after the design spec; Todd files, unde
 
 Also measured 2026-10-27 (`ContainedPrograms.md` phase 1): with no folder granted, a contained process reads much of
 `HKCU` -- `Environment`, `Software`, `Software\Classes` -- and the policy has no registry field. Todd, 2026-10-31
-(`ContainedPrograms.md` decision 8): a known gap for the Mila app, and told to Microsoft with the other two.
+(`ContainedPrograms.md` decision 8): a known gap for Mila Desktop, and told to Microsoft with the other two.
 
 ## On NTFS a contained run walks its folders whole before every run
 
-`Mila/Src/AI/SecondNameWatch.ixx` (`watcher_reports_every_name_`) @ 7b5248a2
+`Milo/Src/SecondNameWatch.ixx` (`watcher_reports_every_name_`) @ 7b5248a2
 
 Todd, 2026-10-31 (`ContainedPrograms.md` decision 7, narrowed): `ReadDirectoryChangesW` on NTFS reports no name made
 outside for a file inside, so off ReFS every run walks the granted folders whole -- about 115 ms for 7,500 files,
@@ -67,7 +67,7 @@ outside for a file inside, so off ReFS every run walks the granted folders whole
 
 ## The grant refuses a file with a second name even when every name lies inside the folder
 
-`Mila/Src/AI/ToolGrant.ixx` (`requireOneName`) @ 7b5248a2
+`Milo/Src/ToolGrant.ixx` (`requireOneName`) @ 7b5248a2
 
 Todd, 2026-10-27 (`ContainedPrograms.md` decision 5): kept for v0.21.0. `FindFirstFileNameW` and
 `FindNextFileNameW` list a file's names, so the grant could accept a file whose names all lie within granted
@@ -80,43 +80,43 @@ whose files are linked between two of its own folders is refused today.
 
 Seen 2026-10-27: both list their capabilities as `instruct` alone, while the store's `gemma-4-26B-A4B-it-q4_0` and
 the scratch store's `gemma-4-12b-it-q4_0` list `thinking` too. `ModelCapabilities::thinking` is read from the
-record, so `Agent::thinks()` is false for both whatever the template's switch says, and Chat and the Mila app show
+record, so `Agent::thinks()` is false for both whatever the template's switch says, and Chat and Mila Desktop show
 no thinking switch for them. Likely packages installed before the manifest carried thinking; not checked against
 what the hub publishes now.
 
 ## In Get Things Done, Gemma 4 12B looks at the folder before it proposes a plan about half the time
 
-`D:\Claude\filetools\drive_tasks.py` (the session drive's "the first call proposes a plan" check); `Mila/Apps/Assistant/Prompts/tasks.json` (`Mila/Apps/Chat/Prompts/tasks.json` until +105) @ cc07f776
+`D:\Claude\filetools\drive_tasks.py` (the session drive's "the first call proposes a plan" check); `MilaDesktop/Prompts/tasks.json` (`MilaChat/Prompts/tasks.json` until +105) @ cc07f776
 
 Measured 2026-10-27 on Gemma 4 12B Q4_0 at the publisher's sampling: the first call was `list_folder` in 2 of 3 runs
 on `+103`'s session and 3 of 3 on the session change after it, `propose_plan` otherwise; the plan, its steps and the
 edit ran correctly every time. The same model chose both ways on one build, so the check measures the model's choice,
-not the session. On `+105`'s session (the Mila app on `Mila::AI` alone, same prompt and tool schemas byte for byte):
+not the session. On `+105`'s session (Mila Desktop on `Milo` alone, same prompt and tool schemas byte for byte):
 `list_folder` first in 4 of 6 runs, then a plan carried out correctly; `propose_plan` first in 1; and once no plan
 at all -- three edits, then an answer claiming a README change it never made. Whether the prompt should allow a look first, or the check should, is not decided.
 
 ## Off Windows a tool's grant holds no folder, so no file tool can run there
 
-`Mila/Src/AI/GrantFileSystem.Posix.ixx`; an absence -- no POSIX file checks behind the grant @ f42c0d95
+`Milo/Src/GrantFileSystem.Posix.ixx`; an absence -- no POSIX file checks behind the grant @ f42c0d95
 
 Todd, 2026-10-27: the grant is Windows-only for now (`ToolCalling.md` 3.4 *Where*). Every POSIX call refuses, so a
 grant of folders throws and a tool reaches none. The likely route is Linux's `openat2` with `RESOLVE_BENEATH` from
 a held folder descriptor (Linux 5.6, man7.org openat2(2)), which decides in the kernel rather than by a final path,
 plus a link-count check for hard links, which the man page does not mention. Unmeasured; macOS not looked at.
 
-## Neither Chat nor the Mila app shows the person what a tool call would reach
+## Neither Chat nor Mila Desktop shows the person what a tool call would reach
 
-`Mila/Apps/Chat/Src/Chat.Session.ixx` `askAboutCall`; an absence -- the question's needs and grant are not shown @ f42c0d95
+`MilaChat/Src/Chat.Session.ixx` `askAboutCall`; an absence -- the question's needs and grant are not shown @ f42c0d95
 
 `ToolCalling.md` 3.3 says the person is shown the tool's name and summary, every argument, and what it will touch.
 `ToolQuestion` carries all of it, the grant included since `+103`, but `askAboutCall` passes on only the name and
-the arguments, so the console line and the Mila app's approval card show neither the summary, the needs nor the
-folders and network the call would be given. The Mila app's card is `MilaApp.md` 4.5's schema, so showing them is a
+the arguments, so the console line and Mila Desktop's approval card show neither the summary, the needs nor the
+folders and network the call would be given. Mila Desktop's card is `MilaDesktop.md` 4.5's schema, so showing them is a
 protocol change too.
 
-## Nobody has read whether Tavily's terms let the Mila app keep search results in a saved conversation
+## Nobody has read whether Tavily's terms let Mila Desktop keep search results in a saved conversation
 
-`Mila/Apps/Assistant/Session/Src/Assistant.WebSearch.ixx`; an absence -- Tavily's terms of service not read @ da647c29
+`MilaDesktop/Session/Src/Desktop.WebSearch.ixx`; an absence -- Tavily's terms of service not read @ da647c29
 
 Found 2026-10-26 adding Tavily web search: a saved conversation keeps every tool result, search results included, and
 Tavily's credits page says nothing on keeping or showing results. Brave grants that only on some plans.
@@ -125,23 +125,23 @@ Tavily's credits page says nothing on keeping or showing results. Brave grants t
 
 `Mila/Src/Distribution/CurlHttpTransport.ixx` (`CURLOPT_USERAGENT`, "Mila/0.20") @ da647c29
 
-Found 2026-10-26 writing the Mila app's page reader, which fetches through it: the user agent is a written-in
+Found 2026-10-26 writing Mila Desktop's page reader, which fetches through it: the user agent is a written-in
 string from the 0.20 cycle, not `Version.txt`'s, so model installs and web pages alike are requested as Mila 0.20.
 
 ## A program names a compute precision to open a model whose precision its package already decides
 
-`Mila/Src/AI/Agent.ixx` (`Agent`, `BasicAgent`) and `Mila/Src/AI/ModelHandle.ixx` (`ModelHandle`) @ 793bddb5
+`Milo/Src/Agent.ixx` (`Agent`, `BasicAgent`) and `Mila/Src/Deployment/ModelHandle.ixx` (`ModelHandle`) @ 793bddb5
 
 Todd, 2026-10-26: `BasicAgent<Cuda, BF16>` reads as a BF16 model, but the same agent runs the FP4, FP8 and codebook
 packages -- BF16 is the compute precision, and the weight format comes from the package named. Every installed
 model's format runs at BF16 compute only (Qwen refuses another, `QwenModel.ixx` near 567); FP32 is used below
-`Mila::AI`, by the HuggingFace reference tests and GPT-2's training. Outlined to Todd: `BasicAgent<TDeviceType>`
+`Milo`, by the HuggingFace reference tests and GPT-2's training. Outlined to Todd: `BasicAgent<TDeviceType>`
 and `ModelHandle<TDeviceType>`, BF16 compute fixed inside; `Direction.md` 4.1 and `ModelHandle.md` 3 and 10.1 say
 the pair. A format that changes the compute itself (Vnext's NVFP4 W4A4) is the package's choice too.
 
 ## Two of the agent's answers to a stop or a cut have no test that fails without them
 
-`Mila/Src/AI/Agent.ixx` (`respond`, `dropIncompleteLastCharacter`) @ 6f077474
+`Milo/Src/Agent.ixx` (`respond`, `dropIncompleteLastCharacter`) @ 6f077474
 
 Found 2026-10-25 writing the limit tests: a round with several calls, stopped at its first, gives every call after
 it a stopped result -- the tests' model makes one call per round, so nothing reaches them. And a result cut between
@@ -158,9 +158,9 @@ opened through the model handle. The spec's proof that adding an architecture is
 
 ## Llama 3.1 8B FP4 answers as though a tool's result were made up
 
-`Mila/Tests/AI/Agent.Cuda.cpp` (`askForTheWeather`); scratch-store package `Llama-3.1-8B-Instruct-fp4` @ efa24591
+`Mila/Tests/Milo/Agent.Cuda.cpp` (`askForTheWeather`); scratch-store package `Llama-3.1-8B-Instruct-fp4` @ efa24591
 
-Measured 2026-10-25 through `Mila::AI::Agent`, the publisher's sampling, seeds 1 to 6, one question about the weather
+Measured 2026-10-25 through `Milo::Agent`, the publisher's sampling, seeds 1 to 6, one question about the weather
 in Paris and a tool returning "Sunny, 17 degrees Celsius." The rendered prompt is Meta's template: the result is an
 `ipython` turn, quoted as the template quotes a string. With the tools in the first user message, the template's
 default, it called once every time and then used the result once in six: "This is just an example response and may
@@ -171,7 +171,7 @@ twenty-four. Data `D:\Claude\agent\llama_sweep.txt`, `llama_sweep2.txt`.
 
 ## Llama 3.2 3B offered a tool in the system message says it will call it and does not
 
-`Mila/Apps/Chat/Prompts/tools-weather.json`; scratch-store package `Llama-3.2-3B-Instruct-fp4` @ e8df2aef
+`MilaChat/Prompts/tools-weather.json`; scratch-store package `Llama-3.2-3B-Instruct-fp4` @ e8df2aef
 
 Measured 2026-10-25 at temperature 0, ten questions that need no tool and six about the weather now. With the
 tools in the system message and the system prompt saying when to call, as Chat now renders them, 3B FP4 and BF16
@@ -197,7 +197,7 @@ used the result) and two answered empty. Data `D:\Claude\llama-tools\mis-8b-fp4-
 
 ## Chat's tool definitions are documented as written into the system prompt by Chat
 
-`Mila/Apps/Chat/Src/Chat.SystemPrompt.ixx` (`ToolDefinition`'s comment) @ 5e7de360
+`MilaChat/Src/Chat.SystemPrompt.ixx` (`ToolDefinition`'s comment) @ 5e7de360
 
 Since `+94` every family's template places the tools itself, and Chat writes none into the system turn; the
 comment still says Chat serializes them, with Llama's pythonic wording. Fixing it brings the module under the
@@ -207,19 +207,19 @@ one-type rule, and it holds five types.
 
 an absence -- no file in the repository or in `.internal/` names them @ a8f5360a
 
-Todd, 2026-10-20, while choosing the toolkit for Chat's desktop window (`Mila/Specifications/MilaApp.md`
+Todd, 2026-10-20, while choosing the toolkit for Chat's desktop window (`Mila/Specifications/MilaDesktop.md`
 section 9): "We do have a future for .NET bindings." Like the Python binding: a projection of the C++ API
 (`Mila/Bindings/`).
 
 Specified 2026-10-21 in `Mila/Specifications/DotNetBinding.md`: P/Invoke over a C ABI, experimental until
 v0.22.0 or later (Todd).
 
-## The Mila app's download is unsigned, has no updates and does not say it needs an NVIDIA GPU
+## Mila Desktop's download is unsigned, has no updates and does not say it needs an NVIDIA GPU
 
-`Mila/Specifications/MilaApp.md` section 9.4; an absence -- no signing, no update channel, no stated
+`Mila/Specifications/MilaDesktop.md` section 9.4; an absence -- no signing, no update channel, no stated
 requirement @ c8f71f60
 
-Todd, 2026-10-24: the Mila app is the end-user showcase. Since +101 its installer carries the session, the
+Todd, 2026-10-24: Mila Desktop is the end-user showcase. Since +101 its installer carries the session, the
 CUDA libraries it loads and the Visual C++ runtime, so no toolkit is needed. Still missing: the NVIDIA GPU
 requirement stated before the download, code signing (SmartScreen warns on an unsigned one), and updates.
 
@@ -227,18 +227,18 @@ requirement stated before the download, code signing (SmartScreen warns on an un
 
 `%LOCALAPPDATA%\Mila\models\qwen3.8-27b-fp4.json` capabilities; an absence -- no `thinking`, no `tools` @ c8f71f60
 
-Found 2026-10-24 driving the Mila app's session process: Todd's installed record declares `instruct` and `agentic`
-only, so Chat and the Mila app run Qwen 3.8 27B FP4 with no reasoning switch and no effort levels, and the
+Found 2026-10-24 driving Mila Desktop's session process: Todd's installed record declares `instruct` and `agentic`
+only, so Chat and Mila Desktop run Qwen 3.8 27B FP4 with no reasoning switch and no effort levels, and the
 console's status line has no Thinking clause (the phase 2 baseline shows the same). The fp4-cb3 package built
 with `--thinking --tools` declares both. Not checked: whether the published package's `mila.json` or only this
 install lacks them.
 
-Also Gemma 4 12B FP4 (2026-10-24, the Mila app's window): Todd's `gemma-4-12b-it-fp4.json`, installed 2026-10-03,
+Also Gemma 4 12B FP4 (2026-10-24, Mila Desktop's window): Todd's `gemma-4-12b-it-fp4.json`, installed 2026-10-03,
 has no `capabilities` block at all, so the session reports `thinking_capable: false` for a model that thinks.
 
-## A tool call ran in the Mila app's window without the person being asked, once
+## A tool call ran in Mila Desktop's window without the person being asked, once
 
-`Mila/Apps/Assistant/Session/Src/Assistant.SessionProcess.ixx` `approveToolCall` @ a9087567
+`MilaDesktop/Session/Src/Desktop.SessionProcess.ixx` `approveToolCall` @ a9087567
 
 2026-10-24, the first scripted window run over the real session (Llama 3.2 3B FP4, tools-weather, scratch
 store): the first turn's `get_weather` call ran and its result was stored, while the script clicked nothing; a
@@ -248,22 +248,22 @@ files were overwritten by the next, so what the page received is not known.
 
 ## A client that sends on `turn.end` is refused as busy
 
-`Mila/Apps/Assistant/Session/Src/Assistant.SessionProcess.ixx` `respond` @ a9087567
+`MilaDesktop/Session/Src/Desktop.SessionProcess.ixx` `respond` @ a9087567
 
 `turn.end` is sent from inside the turn and `busy` clears after it, so a `turn.send` written on reading
 `turn.end` gets "A reply is still being written" (seen 2026-10-24 from a stdio script). The page waits for
-`session.state`, so it does not hit this; `MilaApp.md` 4.1 does not say which message a client waits for.
+`session.state`, so it does not hit this; `MilaDesktop.md` 4.1 does not say which message a client waits for.
 
 ## The session sends a thought break when the model is not thinking
 
-`Mila/Apps/Assistant/Session/Src/Assistant.SessionProcess.ixx` `thoughtBreak` @ a9087567
+`MilaDesktop/Session/Src/Desktop.SessionProcess.ixx` `thoughtBreak` @ a9087567
 
 Gemma 4 12B Q4_0 with thinking off, 2026-10-24: `turn.thought_break` after the tool result, with no thought
-text before or after it. `MilaApp.md` 4.1 says it means the reasoning resumed. The page shows nothing for it.
+text before or after it. `MilaDesktop.md` 4.1 says it means the reasoning resumed. The page shows nothing for it.
 
-## The Mila app's Models view stays open after a load, and offers Load while one runs
+## Mila Desktop's Models view stays open after a load, and offers Load while one runs
 
-`Mila/Apps/Assistant/Ui/views/models.js` @ a9087567
+`MilaDesktop/Ui/views/models.js` @ a9087567
 
 2026-10-24, the window over the real session: choosing Load leaves the person on the Models view once the model
 is loaded, and the row's Load button stays during the load (progress shows above the list).
@@ -293,11 +293,11 @@ checks describe.
 Measured 2026-10-27 (`Specifications/Notebooks/MxcConformance.md`) and designed (`Specifications/ContainedPrograms.md`,
 draft): Todd decided the same day that MXC goes into v0.21.0 as an experiment, off by default.
 
-## No CI job builds the Mila app's installer
+## No CI job builds Mila Desktop's installer
 
-`.github/workflows/assistant.yml`; an absence -- the `windows-installer` job removed @ 793bddb5
+`.github/workflows/desktop.yml`; an absence -- the `windows-installer` job removed @ 793bddb5
 
-Removed 2026-10-26 when the installer began carrying the session (`MilaApp.md` 9.4): `npm run build:windows`
-refuses to run without `Window/session/` staged from a C++ build, and the app's workflow (`assistant.yml`) has no C++ build. Before
+Removed 2026-10-26 when the installer began carrying the session (`MilaDesktop.md` 9.4): `npm run build:windows`
+refuses to run without `Window/session/` staged from a C++ build, and the app's workflow (`desktop.yml`) has no C++ build. Before
 that the job's upload was an installer that ran only the mock. Nothing builds the installer now but a person
-with a Release build directory (`Mila/Apps/Assistant/README.md`, *Staging it for the window*).
+with a Release build directory (`MilaDesktop/README.md`, *Staging it for the window*).

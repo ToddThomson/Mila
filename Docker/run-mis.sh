@@ -18,7 +18,7 @@
 set -euo pipefail
 
 VENV=/build/mis-venv
-SERVER=/mila/Mila/Apps/Server
+SERVER=/mila/MilaServer
 
 if [ ! -x "${VENV}/bin/python" ]; then
     echo "MIS is not built. Build it first with: mila-build-mis" >&2

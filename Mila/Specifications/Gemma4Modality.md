@@ -190,9 +190,9 @@ The 26B's tower also prices its encoder's activations over 2,520 patches.
   Gemma's prompt through the library's template (since `+82`), which is what expands the runs.
 - **The inference server** accepts image and audio content blocks in both wire protocols.
 - **The Python binding** passes media with the prompt.
-- In v0.21.0 all three pass media to the model directly. Reaching it through `Mila::AI`, and selecting a
+- In v0.21.0 all three pass media to the model directly. Reaching it through `Milo`, and selecting a
   modality in a deployment request (5.3), are v0.22.0's (decided 2026-10-20, Todd: the release split of
-  2026-10-10 put `Mila::AI` and the deployment request in v0.22.0).
+  2026-10-10 put `Milo` and the deployment request in v0.22.0).
 
 ## 6. Gates
 

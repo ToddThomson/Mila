@@ -532,41 +532,9 @@ PUBLIC
         "Src/Deployment/InstalledModel.ixx"
         "Src/Deployment/InstalledModelPlanner.ixx"
 
-        # Mila::AI, the level applications are built on (Direction.md 3.2): above the model level, which never
-        # imports it.
-        "Src/AI/OpenRefusal.ixx"
-        "Src/AI/OpenRefusedError.ixx"
-        "Src/AI/ModelHandle.ixx"
-        "Src/AI/ToolNeeds.ixx"
-        "Src/AI/FolderAccess.ixx"
-        "Src/AI/GrantFolder.ixx"
-        "Src/AI/FolderEntry.ixx"
-        "Src/AI/GrantPath.ixx"
-        "Src/AI/PublicAddress.ixx"
-        "Src/AI/GrantFile.ixx"
-        "Src/AI/ProgramRequest.ixx"
-        "Src/AI/ProgramResult.ixx"
-        "Src/AI/ProgramFolders.ixx"
-        "Src/AI/ContainedRun.ixx"
-        "Src/AI/ProgramContainer.ixx"
-        "Src/AI/ToolGrant.ixx"
-        "Src/AI/Tool.ixx"
-        "Src/AI/ToolQuestion.ixx"
-        "Src/AI/ToolAnswer.ixx"
-        "Src/AI/ToolPermission.ixx"
-        "Src/AI/ArgumentCondition.ixx"
-        "Src/AI/ToolRule.ixx"
-        "Src/AI/ToolRules.ixx"
-        "Src/AI/ToolDecision.ixx"
-        "Src/AI/ToolOutcome.ixx"
-        "Src/AI/ArgumentSchema.ixx"
-        "Src/AI/ToolGate.ixx"
-        "Src/AI/AgentEvent.ixx"
-        "Src/AI/AgentLimits.ixx"
-        "Src/AI/Response.ixx"
-        "Src/AI/SamplingOverride.ixx"
-        "Src/AI/Session.ixx"
-        "Src/AI/Agent.ixx"
+        "Src/Deployment/ModelHandle.ixx"
+        "Src/Deployment/OpenRefusal.ixx"
+        "Src/Deployment/OpenRefusedError.ixx"
 
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.ixx"
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.Workspace.ixx"
@@ -1089,73 +1057,6 @@ else()
 endif()
 
 # ----------------------------------------------------------------------------
-# Mila::AI -- the file calls a tool's grant makes
-#
-# AI.GrantFileSystem has two candidate source files and exactly one is compiled, as
-# Distribution.HttpTransportBackend does. Windows holds a tool to its folders; elsewhere every call
-# refuses, so no folder can be granted where none can be enforced (ToolCalling.md 3.4).
-# ----------------------------------------------------------------------------
-if(WIN32)
-    target_sources(Mila
-        PUBLIC
-            FILE_SET module_files
-            TYPE CXX_MODULES FILES
-                "Src/AI/GrantFileSystem.Windows.ixx"
-    )
-
-    # NtCreateFile: creating a name inside a folder already opened, rather than by walking a path again.
-    target_link_libraries(Mila PRIVATE ntdll)
-else()
-    target_sources(Mila
-        PUBLIC
-            FILE_SET module_files
-            TYPE CXX_MODULES FILES
-                "Src/AI/GrantFileSystem.Posix.ixx"
-    )
-endif()
-
-# ----------------------------------------------------------------------------
-# Mila::AI -- the container a grant runs programs through (ContainedPrograms.md 4.11)
-#
-# AI.MxcProgramContainer has two candidate source files and exactly one is compiled. With
-# MILA_ENABLE_MXC on Windows, Microsoft's MXC is loaded at run time from a file the application
-# names, never linked; otherwise the container is always absent and nothing of MXC is built.
-# AI.SecondNameWatch and AI.ToolDesktop are plain Windows and build on Windows regardless.
-# ----------------------------------------------------------------------------
-if(WIN32)
-    target_sources(Mila
-        PUBLIC
-            FILE_SET module_files
-            TYPE CXX_MODULES FILES
-                "Src/AI/SecondNameWatch.ixx"
-                "Src/AI/ToolDesktop.ixx"
-    )
-endif()
-
-if(WIN32 AND MILA_ENABLE_MXC)
-    target_sources(Mila
-        PUBLIC
-            FILE_SET module_files
-            TYPE CXX_MODULES FILES
-                "Src/AI/MxcProgramContainer.Windows.ixx"
-    )
-
-    # The person's local application data folder, asked of the shell (SHGetKnownFolderPath).
-    target_link_libraries(Mila PRIVATE shell32 ole32)
-
-    message(STATUS "Added program container: MXC, loaded at run time")
-else()
-    target_sources(Mila
-        PUBLIC
-            FILE_SET module_files
-            TYPE CXX_MODULES FILES
-                "Src/AI/MxcProgramContainer.Absent.ixx"
-    )
-
-    message(STATUS "Added program container: none")
-endif()
-
-# ----------------------------------------------------------------------------
 # ROCm backend Modules
 # ----------------------------------------------------------------------------
 if(MILA_HAS_ROCM)
@@ -1287,9 +1188,10 @@ if(MILA_ENABLE_PYTHON_BINDINGS)
     add_subdirectory( Bindings )
 endif()
 
-# The apps over the library. Each is gated inside Apps/CMakeLists.txt (MILA_ENABLE_APPS, and
-# CUDA for Chat); the inference server is Python and not a CMake target.
-add_subdirectory( Apps )
+# mila-store, the model store from the shell. It needs only the store and the hub, so it builds on any backend.
+if(MILA_ENABLE_APPS)
+    add_subdirectory( Store )
+endif()
 
 if(MILA_ENABLE_PROFILING)
     add_subdirectory(Profiling)

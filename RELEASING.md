@@ -574,7 +574,7 @@ step below exists to prevent, and why it is not optional.
      It must be the **wheel** container (Ubuntu 24.04), not the dev container: `auditwheel` derives
      the manylinux tag from the build distro, so 26.04 would produce a wheel that locks out the
      current LTS.
-   - The server: `python -m build --wheel --outdir out/wheel Mila/Apps/Server`, from a
+   - The server: `python -m build --wheel --outdir out/wheel MilaServer`, from a
      configured tree — its version is the `VERSION` file the configure writes. It is pure Python, one
      `py3-none-any` file, and it requires `mila-llm` at exactly its own version, so it is never
      uploaded without the four wheels it names.

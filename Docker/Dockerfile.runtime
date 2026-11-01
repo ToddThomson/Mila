@@ -101,6 +101,10 @@ ARG MILA_CLEAN_BUILD=0
 COPY CMakeLists.txt Version.txt License.md /src/
 COPY cmake /src/cmake
 COPY Mila /src/Mila
+COPY Milo /src/Milo
+COPY MilaChat /src/MilaChat
+COPY MilaDesktop /src/MilaDesktop
+COPY MilaServer /src/MilaServer
 
 # APPS on for mila-chat and mila-store, PYTHON_BINDINGS on for MilaPy (which MIS imports). Samples,
 # tests, profiling and docs are off: none of them ship, and each is build time a user
@@ -184,7 +188,7 @@ COPY --from=builder /out/licenses /usr/share/doc/mila
 # The binding package tree carries the extension MilaPy's POST_BUILD staged into it, so
 # an editable install here points at a real .so rather than fetching one from PyPI.
 COPY --from=builder /src/Mila/Bindings/Package /opt/mila/binding-package
-COPY --from=builder /src/Mila/Apps/Server /opt/mila/server-package
+COPY --from=builder /src/MilaServer /opt/mila/server-package
 
 # THE EXTENSION COMES FROM THE BUILD, NOT FROM THE SOURCE TREE. MilaPy's POST_BUILD stages a
 # copy into Mila/Bindings/Package/src/mila, but that is a side-effect a cache-warm compile
@@ -327,10 +331,10 @@ RUN cp /opt/mila/build/python/mila/_mila*.so /src/Mila/Bindings/Package/src/mila
     && /opt/mila/venv/bin/pip install --no-cache-dir --no-deps --ignore-requires-python \
         /src/Mila/Bindings/Package \
     && /opt/mila/venv/bin/pip install --no-cache-dir --no-deps --ignore-requires-python \
-        /src/Mila/Apps/Server \
+        /src/MilaServer \
     && /opt/mila/venv/bin/python -c "import mila"
 
-# `mila-store` is a real binary here (Mila/Apps/Tools/Store), not the entrypoint script: it
+# `mila-store` is a real binary here (Mila/Store), not the entrypoint script: it
 # reaches the store through Distribution directly, so `install` needs no Python and cannot be
 # broken by a binding that failed to stage.
 #

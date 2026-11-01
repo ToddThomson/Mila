@@ -2,8 +2,8 @@
 
 Specification and implementation plan for the one place a model's name becomes the object that runs it:
 the concrete type that loads its weights, the tokenizer that reads its text, the grammar it was trained on,
-and what it can do. The handle is the foundation `Mila::AI` is built on (`Direction.md` 3.2, 5.1); this
-document stops at the handle, and `Mila::AI` and the agent core get their own.
+and what it can do. The handle is the foundation `Milo` is built on (`Direction.md` 3.2, 5.1); this
+document stops at the handle, and `Milo` and the agent core get their own.
 
 Written 2026-09-25 at `0.21.0-dev+7`. The capabilities (Phase 1) and the protocol (Phase 2) are built, the
 protocol finished at `+94`; the architecture list, the handle and the factory (Phase 3) at `+96`, all but
@@ -256,7 +256,7 @@ the template puts after a reply that ended in calls -- from the marker the reply
 to where the model resumes -- which is what the agent's splice appends to the reply as generated
 (`ToolCalling.md` section 4). Each is tested to be the tail of the template's own rendering of that history. The existing free functions (`Gemma::formatPrompt`,
 `Qwen::parseToolCall`, and the rest) stay, and the implementations call them; the binding's
-`qwen_format_prompt` and its siblings keep working until the binding moves onto `Mila::AI`.
+`qwen_format_prompt` and its siblings keep working until the binding moves onto `Milo`.
 
 **A reply is read as it streams, by one reader** (`0.21.0-dev+94`). Each template declares a `ReplyGrammar` --
 its reasoning, call and result markers, the label a reasoning span opens with, a call written with no marker
@@ -341,7 +341,7 @@ the template, the template wins and the difference is recorded as a finding.
 ### 3.5 The handle, in the Mila library
 
 ```cpp
-// Src/AI/ModelHandle.ixx, module AI.ModelHandle, namespace Mila::AI
+// Mila/Src/Deployment/ModelHandle.ixx, module Deployment.ModelHandle, namespace Mila::Deployment
 template<DeviceType TDeviceType, TensorDataType TPrecision>
 class ModelHandle
 {
@@ -367,13 +367,13 @@ public:
   including observation, and `as<GemmaModel<Cuda, BF16>>()` reaches the typed model and its components. A
   wrong type is null, never undefined behaviour.
 - **A base model has no protocol.** `instruct` false means there is no template to render, so `protocol()` is
-  null and `Mila::AI` refuses to converse with it -- by reading the handle, not by a family check.
-- **The handle is small and holds no conversation.** It is what a model *is*; `Mila::AI` is what a program
+  null and `Milo` refuses to converse with it -- by reading the handle, not by a family check.
+- **The handle is small and holds no conversation.** It is what a model *is*; `Milo` is what a program
   does with one.
 
-**`Mila::AI` is part of the Mila library, not a library of its own** (`Direction.md` decision 2, revised
-2026-10-25): `Src/AI/` is built into the Mila target, above the model level, which never imports it, so the
-wheel and a `FetchContent` consumer receive it with everything else. The `MilaAI` target that held the broker's
+**The handle is Mila's; Milo is a library of its own on Mila** (`Direction.md` decision 2, Todd, 2026-10-31): the
+handle and its refusals are in `Mila/Src/Deployment/`, since opening a model by name is the model level's, and a program
+that wants a model and no agent links Mila alone. Mila never imports Milo. The `MilaAI` target that held the broker's
 client, built to the design `ToolCalling.md` replaced, was deleted with the broker at `+100`.
 
 ### 3.6 The factory
@@ -416,7 +416,7 @@ what `plan()` returns for a model the planner did not load is open (10.4), and `
 
 ### 3.8 A model deployed for a use case
 
-*Direction, decided 2026-10-04 (Todd); not built.* "`Mila::AI` can deploy a model for a specific use case; we
+*Direction, decided 2026-10-04 (Todd); not built.* "`Milo` can deploy a model for a specific use case; we
 should have full control of the model features loaded." A handle is a model **and the features its use case
 selected**, with nothing else resident. The capabilities in 3.2 are what a package offers; a deployment request
 selects from them (`Deployment.md` 2.1) -- modalities, the draft model, context and cache format -- and the
@@ -428,7 +428,7 @@ not a new instantiation and the build cost does not multiply with combinations. 
 watch: it reads the network's embedding table, its final-normed hidden state and the caches of its last
 sliding and last global layer (`Gemma4Mtp.md`).
 
-`Mila::AI` names use cases over this -- a coding agent, a vision assistant, a long-document reader -- each a
+`Milo` names use cases over this -- a coding agent, a vision assistant, a long-document reader -- each a
 selection with measured defaults (a context from the model's profile, a draft model where its speedup is
 measured), overridable before creation, and never a second path: a preset produces an ordinary request.
 
@@ -441,7 +441,7 @@ by one per family and precision. The base class already erases the family.
 
 **Erase device and precision too.** A handle over `LanguageModel<Cuda, BF16>` and `<Cuda, FP32>` behind
 one interface would make precision a run-time value, against Mila's first design rule. The handle stays a
-template; `Mila::AI` fixes the pair a program uses.
+template; `Milo` fixes the pair a program uses.
 
 **Capabilities in the manifest, all of them.** What `Direction.md` 3.2 first said. Prefix reuse and the
 context ceiling are not facts a publisher can state (3.2); a manifest that claimed prefix reuse for a Llama
@@ -451,7 +451,7 @@ would be a lie the library then believed.
 is being retired from; a missing family is then a run-time miss rather than a compile error.
 
 **The protocol in `Mila/AI/`.** It would make the grammar the agent layer's, and the binding's
-`qwen_format_prompt` would then depend on `Mila.AI` for a template. The grammar is the model's.
+`qwen_format_prompt` would then depend on `Milo` for a template. The grammar is the model's.
 
 **A concept for the protocol.** Needs a variant to hold one chosen at run time; see 3.4.
 
@@ -469,7 +469,7 @@ is being retired from; a missing family is then a run-time miss rather than a co
 - **C1128.** The factory instantiates every family's `load` in one translation unit, which is the shape that
   has crossed 65535 sections before (`ExportArtifact` at 61393). Measure the factory's TU under
   RelWithDebInfo before it grows; split per architecture if it nears the limit.
-- **`import Mila.AI` in an ordinary `.cpp`** will meet the MSVC defect that `import Mila;` does (C2079 with std
+- **`import Milo` in an ordinary `.cpp`** will meet the MSVC defect that `import Mila;` does (C2079 with std
   headers). The binding's wrapper pattern -- a module implementation unit behind a std-only interface --
   already works around it.
 - **The manifest default for `reasoning` must be the architecture's**, not false. False would silently turn
@@ -518,7 +518,7 @@ switches yet. Built through `+94`.
 
 **Phase 3 -- identity, handle and factory.** The architecture list, the descriptors, `ModelHandle` in the Mila
 library (3.5), `open`, `planFor`, `adopt`. *Exit:* H1, H2, H5, H6, N1, N2. Built at `+96` but `adopt` and H6,
-which wait on 10.4 and are `Vnext.md`'s. `Tests/AI/ModelHandle.Cuda.cpp` holds H1, N1 and N2; H1 compares on every CUDA device that
+which wait on 10.4 and are `Vnext.md`'s. `Mila/Tests/Deployment/ModelHandle.Cuda.cpp` holds H1, N1 and N2; H1 compares on every CUDA device that
 holds the model, and on 2026-10-25 did so for Gemma 4 12B FP4 and Llama 3.2 3B FP4 on both cards and Qwen 3.8
 27B FP4 on the 16 GB one. Each gate was made to fail once: `as<>` without its type check, a request's context
 ignored, a list that matches any name, the tokenizer read before the template's refusal, Gemma not drafting.
@@ -527,7 +527,7 @@ returns, so the call is the same one): 256 greedy tokens after a 64-token prompt
 three runs each, Gemma 4 12B FP4 54.60-54.65 tok/s through the handle and 54.52-54.55 typed, Llama 3.1 8B FP4
 81.23-81.25 and 81.22.
 
-The applications move in the Applications theme, onto `Mila::AI` rather than onto the handle, so each moves
+The applications move in the Applications theme, onto `Milo` rather than onto the handle, so each moves
 once (`ROADMAP.md`, "one release rather than three"). The criterion "no dispatch site outside the handle
 carries a per-family branch" is therefore met when they do, and `ModelVariant`, the per-family session
 classes, `ModelFamily`, `FamilyTraits`' two weight facts, and Chat's and MIS's grammar copies are deleted
@@ -540,7 +540,7 @@ there.
 - Choosing a package for a base-model name, or naming an intent (`Direction.md` 6.5).
 - Opening a loose weights file with no store record. `Direction.md` 4.2 rule 7: in v0.22.0 a model is named.
 - Erasing device or precision (4).
-- Conversation state, tool dispatch, the splice, and the autonomy policy: `Mila::AI` and the agent core.
+- Conversation state, tool dispatch, the splice, and the autonomy policy: `Milo` and the agent core.
 
 ---
 
@@ -558,8 +558,8 @@ there.
 
 ## 10. Open Decisions
 
-1. **The class name.** *Decided 2026-10-25 (Todd): `ModelHandle`.* `Mila::AI::Model` reads better in a program
-   and collides in reading, not in code, with `Mila::Dnn::Model`; revisit when `Mila::AI`'s own object shows how
+1. **The class name.** *Decided 2026-10-25 (Todd): `ModelHandle`.* `Milo::Model` reads better in a program
+   and collides in reading, not in code, with `Mila::Dnn::Model`; revisit when `Milo`'s own object shows how
    often a program types it.
 2. **Chat's FP32 Llama.** *Settled by events: retired.* Chat's variant holds three BF16 types and no FP32 one.
 3. **The context ceiling's one source.** Recommend the weights header (3.2), with `ChatConfiguration.md`'s
@@ -574,10 +574,10 @@ there.
    it. Options: the handle's plan is optional, null for an adopted model; `adopt` takes the network unbuilt, with a
    request and the facts the planner reads, and builds what it plans; or `adopt` takes the plan the developer
    made. `adopt` and H6 wait on this, and both moved to `Vnext.md` (Todd, 2026-10-25): v0.21.0 finishes the
-   Mila app, which opens only installed models.
+   Mila Desktop, which opens only installed models.
 5. **The Python projection of descent.** `mila.AI` projects the contract; how far `model()` reaches from
    Python -- the `LanguageModel` surface, or also observation -- is `PythonBinding.md`'s to decide with
-   `Mila::AI`'s spec.
+   `Milo`'s spec.
 6. **Gemma's effort scale.** *Decided 2026-10-14 (Todd): deleted.* "Mila chat should not impose a made up
    setting", and the same for the inference server. Chat's five-step scale and its Gemma sentences go, and
    its reasoning setting becomes the loaded model's own template variables (3.4). What replaces the server's fixed

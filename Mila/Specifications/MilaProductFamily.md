@@ -8,9 +8,10 @@ forward by reference. **That includes the word "adaptor" itself** — this docum
 noun. `Direction.md` §10 retires it in favour of "application", which answers the standing concern
 that "adaptor" is a GoF pattern name fitting MIS and not Chat: the axis was sound, the word was
 not, and it goes at v0.21.0 rather than being renamed inside v0.20. It went on 2026-10-11: the
-directory is `Mila/Apps/`, the gate `MILA_ENABLE_APPS`, and the paths below were updated with it
-(`Notebooks/MilaCommandLineReview.md` section 4.1); the text that uses the word stands as written.
-**Component:** whole-project positioning (`Mila/Src`, `Mila/Apps/Server`, `Mila/Apps/Chat`, future agent)
+gate is `MILA_ENABLE_APPS`, and the paths below were updated with it (`Notebooks/MilaCommandLineReview.md` section 4.1);
+since 2026-10-31 (Todd) there are five projects at the top of the one repository: Mila, the library and `mila-store`;
+Milo, the agentic library on it; and Mila Chat, Mila Desktop and Mila Server, each in a folder of that name. The text that uses the word stands as written.
+**Component:** whole-project positioning (`Mila/Src`, `MilaServer`, `MilaChat`, future agent)
 
 ## Definition
 
@@ -153,7 +154,7 @@ which is why it is not owned by either: the MIS server imports it, and the Huggi
 converter tooling imports it directly (it is `GemmaSession`'s primary consumer). Decided
 2026-07-07 to promote it out of `Adaptors/Inference` to a first-class `Mila/Bindings`.
 
-### MIS — wire adaptor (`Mila/Apps/Server`)
+### MIS — wire adaptor (`MilaServer`)
 
 Owns only what is genuinely wire-specific: HTTP/SSE transport, OpenAI/Anthropic block shapes
 (Responses items, Anthropic `tool_use`/`tool_result`), per-request statelessness, protocol
@@ -172,7 +173,7 @@ and prefills only the delta — O(new tokens) per turn, not O(context). This is 
 quantifiable advantage the wire cannot match, and it is structurally unavailable to a stateless
 protocol.
 
-### Chat — human adaptor (`Mila/Apps/Chat`)
+### Chat — human adaptor (`MilaChat`)
 
 Native agent core + human gate (tool approval) + TUI (`ConsoleRenderer`, channel-aware streaming).
 Supervised: a person judges done-ness and catches thrash.
@@ -301,7 +302,7 @@ that would validate it is shared. See Honest Risk.
    (Agentic's viability, Chat's thinness, the "at the metal" positioning) already assumed this
    answer; it is now explicit. String-level parse/format helpers still exist as the first
    deliverable and as the surface MIS consumes via pybind — the splice is the depth they are built
-   on, not an alternative to them. Delivered at `0.21.0-dev+99` in `Mila::AI::Agent`
+   on, not an alternative to them. Delivered at `0.21.0-dev+99` in `Milo::Agent`
    (`ToolCalling.md` section 4, measured in `Direction.md` 5.3).
 
    **How the structural claim gets measured** (added 2026-08-12): same model, same tools, two loops

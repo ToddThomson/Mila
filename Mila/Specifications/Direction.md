@@ -5,8 +5,8 @@ builds on; it is not revised by this document.
 
 Written 2026-09-19; adopted 2026-09-23, when section 5 became v0.21.0 and its open decisions were
 settled (section 8). On 2026-10-10 section 5 became v0.22.0 (Todd): v0.21.0 ships the families finished and
-measured first, and section 5 builds on them. On 2026-10-25 tool calling was placed in `Mila::AI`, a level of
-the Mila library, by `ToolCalling.md` (3.2, 8). Supersedes `MilaProductFamily.md` for everything after the v0.20 tag. That spec
+measured first, and section 5 builds on them. On 2026-10-25 tool calling was placed in a level of the Mila
+library by `ToolCalling.md` (3.2, 8), and on 2026-10-31 that level became Milo, a library of its own on Mila. Supersedes `MilaProductFamily.md` for everything after the v0.20 tag. That spec
 remains the definition v0.20 ships under. Releases step by one minor at a time; section 6 is the
 releases after v0.21.0, numbered as each is scheduled.
 
@@ -37,9 +37,9 @@ Mila is built from explicit components, and developers build with them: `Linear`
 normalization and the rest compose into a network in ordinary C++, which can then be trained, run and
 inspected. That is what Mila is made of, and it stays a first-class way to use Mila in every release.
 
-`Mila::AI` adds an entry at the top. It does not replace the one at the bottom. A developer can harness
-a published model through `Mila::AI`, or build a network from components, and **the two paths meet**:
-a model composed from components can be put to work through `Mila::AI` on the same terms as a published
+`Milo` adds an entry at the top. It does not replace the one at the bottom. A developer can harness
+a published model through `Milo`, or build a network from components, and **the two paths meet**:
+a model composed from components can be put to work through `Milo` on the same terms as a published
 one. Components are a public building surface, documented, tested and taught; they are never
 demoted to an implementation detail of the models Mila ships.
 
@@ -55,9 +55,9 @@ researcher." Speed beside llama.cpp is evidence that the work is professional, n
 
 ### 1.3 Two audiences, one brand
 
-Decided 2026-10-24 (Todd): "Mila is the brand name. [The Mila app] IS the showcase agentic application
+Decided 2026-10-24 (Todd): "Mila is the brand name. [Mila Desktop] IS the showcase agentic application
 for end users. Mila C++23 library is the dev target audience." The trait above is the library's, and the
-library's reader is the developer. The Mila app (`MilaApp.md`) is for the person who
+library's reader is the developer. Mila Desktop (`MilaDesktop.md`) is for the person who
 runs local models: it shows them what Mila can do, an agent at work with the conversation as its face. It
 is judged as an end-user product -- installed without a toolkit, written in end-user prose -- and beside
 other desktop apps for local models its case is the quality of the models it runs and the agent, not
@@ -74,7 +74,7 @@ describes the reader and not the builder.
 | | v0.20 | v0.21 | After v0.21 |
 |---|---|---|---|
 | The developer | reads Mila | builds on Mila | delegates tasks to Mila |
-| Enters at | a model: `GemmaModel<...>::load`, or components | `Mila::AI`, or components | `Mila::AI` with tools and a policy, or components |
+| Enters at | a model: `GemmaModel<...>::load`, or components | `Milo`, or components | `Milo` with tools and a policy, or components |
 | Headline claim | a 27B model on a 16 GB card, and you can read it (the 2.82-bit build that would make it 12 GB is held for the next release — `ROADMAP.md`) | a local model at work in your program in ten lines, and one call from there to the kernel | an agent finishes a multi-step task in your process without re-reading its history, and every step is auditable |
 
 **What does not change.** Validation stays token-for-token against the reference implementation.
@@ -91,18 +91,18 @@ v0.21.0, and not before.
 ## 3. Layering
 
 "Adaptor" is retired as a concept. It named Chat and MIS by what they were not (the library) and
-sorted them by who closes the generation loop. From v0.21.0 the loop closes inside `Mila::AI`, and
+sorted them by who closes the generation loop. From v0.21.0 the loop closes inside `Milo`, and
 Chat and MIS are applications built on it, in the same position as any developer's program.
 
 ```
-Applications   Mila (assistant) Chat   MIS (wire)   your program   Python / other languages
+Applications   Mila Desktop   Chat   MIS (wire)   your program   Python / other languages
                     \            |         |             |              /
                      +-----------+---------+-------------+-------------+
                                          |
-Mila library   Mila::AI      conversation, tool calling, agent core, autonomy policy
-                             Model handle + factory (architecture -> concrete type, from the manifest)
+Milo library   conversation, tool calling, agent core, autonomy policy
                                          |
-               model level   planDeployment -> DeploymentPlan -> load
+Mila library   Model handle + factory (architecture -> concrete type, from the manifest)
+               planDeployment -> DeploymentPlan -> load
                (Mila/Src)    Models, Components, Operations, Tensors, Compute
                                          |
                    CUDA / CPU
@@ -113,55 +113,57 @@ Mila library   Mila::AI      conversation, tool calling, agent core, autonomy po
 Unchanged in role. It owns everything model-intrinsic and consumer-blind: the model as composable C++,
 generation, sampling, the KV cache, the model's native grammar including its tool calls and the token-level
 splice, and deployment planning. It knows nothing about conversations, tools, agents or applications;
-conversations, tools and agents are the library's one level up, in `Mila::AI` (3.2), which this level never
-imports. Its components remain a public surface a developer builds with directly (1.1), not only the material
+conversations, tools and agents are one level up, in Milo (3.2), which this level never imports, and Mila builds
+without it. Its components remain a public surface a developer builds with directly (1.1), not only the material
 the shipped models are made from.
 
-### 3.2 Mila.AI
+### 3.2 Milo
 
-The level of the Mila library above the model: it depends on the model level, which never imports it, and a
-developer links one library (Todd, 2026-10-25). This is the "native agent core" `MilaProductFamily.md` left as an
+The library above the model, a project of its own beside Mila (`Milo/`, namespace `Milo`; Todd, 2026-10-31, replacing a
+level inside the Mila library of 2026-10-25): it depends on Mila, which never imports it, and a developer links it
+beside Mila. This is the "native agent core" `MilaProductFamily.md` left as an
 open decision, grown to own the application contract. It holds:
 
-- **The model handle and factory.** The one place an architecture name becomes a concrete type, reading
-  capabilities (reasoning channel, vision, prefix reuse) from the model's manifest, never from its
-  family (5.1). It replaces the erasures that exist today: the binding's per-family session classes and MIS's
-  family enum. Chat's `ModelVariant` went when Chat moved onto the agent.
-- **The agent, `Mila::AI::Agent`.** The application-facing object.
+- **The model handle and factory it stands on stay in Mila** (`Mila::Deployment`): opening a model by name is the
+  model level's. The handle is the one place an architecture name becomes a concrete type, reading capabilities
+  (reasoning channel, vision, prefix reuse) from the model's manifest, never from its family (5.1). It replaces the
+  erasures that exist today: the binding's per-family session classes and MIS's family enum. Chat's `ModelVariant`
+  went when Chat moved onto the agent.
+- **The agent, `Milo::Agent`.** The application-facing object.
 - **The agent core and tool calling** (`ToolCalling.md`, Todd, 2026-10-25): the tool type, the permissions every
   call passes with the application's hook for asking the person, the grant that holds a tool to its folders and
   network, and the loop that parses a call, runs it, splices the result into the open turn and continues.
-  Through `Mila::AI` the application never runs a call itself. Every tool comes from the application; Mila ships
+  Through `Milo` the application never runs a call itself. Every tool comes from the application; Mila ships
   none.
 - **The autonomy policy** (after v0.21.0).
 
 `MilaProductFamily.md`'s standing rule, that there is no "runtime services" layer, still holds for
-the model level. Mila.AI is that layer, built on purpose as a level of its own, so that the model level never
+the model level. Milo is that layer, built on purpose as a level of its own, so that the model level never
 acquires it one convenience class at a time.
 
 ### 3.3 Applications
 
-The Mila app, Chat, MIS, a developer's program and a Python script are the same kind of thing: a
-consumer of `Mila::AI`. What makes each distinct is its own concern and nothing more. For the Mila app
+Mila Desktop, Chat, MIS, a developer's program and a Python script are the same kind of thing: a
+consumer of `Milo`. What makes each distinct is its own concern and nothing more. For Mila Desktop
 that is the window, its conversations and the person's approval of each tool call; for Chat it is
 terminal rendering and the human approval gate; for MIS it is the HTTP wire shapes and per-request
 statelessness.
 
-The v0.20 rule carries over with a new subject: **a gap between what `Mila::AI` can do and what an
+The v0.20 rule carries over with a new subject: **a gap between what `Milo` can do and what an
 application reaches is a defect in the application.** Nothing an application needs may be private to
-it. If Chat does something a developer's program cannot, it belongs in Mila.AI.
+it. If Chat does something a developer's program cannot, it belongs in Milo.
 
 MIS keeps its second job as the conformance oracle, and it becomes the control arm of the autonomy
 measurement (section 6).
 
 ---
 
-## 4. `Mila::AI`
+## 4. `Milo`
 
 ### 4.1 Shape
 
 ```cpp
-auto agent = Mila::AI::Agent::create( "gemma-4-12b-it-fp4" );
+auto agent = Milo::Agent::create( "gemma-4-12b-it-fp4" );
 
 auto response = agent.respond( "Explain transformer attention." );
 std::cout << response.text;
@@ -170,10 +172,10 @@ std::cout << response.text;
 With tools, streaming, and a look underneath:
 
 ```cpp
-Mila::AI::Session session;
+Milo::Session session;
 session.withTool( readFile ).withTool( runTests ).onAsk( askThePerson );
 
-auto agent = Mila::AI::Agent::create( "Qwen3.8-27B-fp4", {}, std::move( session ) );
+auto agent = Milo::Agent::create( "Qwen3.8-27B-fp4", {}, std::move( session ) );
 
 agent.respond( "Why does the parser test fail?", onEvent );
 
@@ -184,11 +186,11 @@ auto& model = agent.model();                 // the handle; from here, the typed
 Another model, with the same tools and the same conversation:
 
 ```cpp
-if ( auto refusal = Mila::AI::Agent::check( "gemma-4-12b-it-q4_0" ) )
+if ( auto refusal = Milo::Agent::check( "gemma-4-12b-it-q4_0" ) )
     return say( *refusal );                  // nothing released: the agent still answers
 
 auto held = std::move( agent ).release();    // the model is freed before the next is planned
-agent = Mila::AI::Agent::create( "gemma-4-12b-it-q4_0", {}, std::move( held ) );
+agent = Milo::Agent::create( "gemma-4-12b-it-q4_0", {}, std::move( held ) );
 ```
 
 `Agent` is `BasicAgent<Cuda, BF16>`, the pair every published model runs in; a program that wants another names the
@@ -196,11 +198,11 @@ template.
 
 ### 4.2 Rules
 
-1. **Small.** `Mila::AI` is a contract, not a catalogue: create, respond (whole or streamed), the
+1. **Small.** `Milo` is a contract, not a catalogue: create, respond (whole or streamed), the
    session it holds -- its tools and its conversation (4.3) --, `plan()`, `model()`. A capability one model has and another lacks is
    discovered from the handle, never added as a method that throws on the others.
 2. **It never decides a deployment.** Creation calls the planner and keeps the plan. There is one
-   decision site, `Deployment.md`'s, and `Mila::AI` exposes its result rather than deriving one.
+   decision site, `Deployment.md`'s, and `Milo` exposes its result rather than deriving one.
 3. **Descent is one call.** `plan()` and `model()` are part of the contract, not a debugging aid. From
    the handle a developer reaches the typed model, and from the typed model everything v0.20 already
    exposes, including Observability's named activations.
@@ -211,7 +213,7 @@ template.
    and the same plan. The per-family session classes are retired. A .NET projection, if it comes,
    follows the same rule.
 6. **A composed model is a first-class model.** The handle's contract is one a network built from
-   components can meet, so `Mila::AI` can be created over a developer's own model as well as over a
+   components can meet, so `Milo` can be created over a developer's own model as well as over a
    store name. The factory is a convenience for published models, never the only way in.
 7. **A model is named.** In v0.21.0 creation takes a store name. Naming a base model and letting Mila
    pick the package, and naming an intent, are later questions (section 6.5).
@@ -219,8 +221,8 @@ template.
 ### 4.3 An agent is a model and a session
 
 Decided 2026-10-27 (Todd), for v0.21.0 under *The Desktop Agent* (decision 5), and built the same day
-(`Mila/Src/AI/Session.ixx`, `Agent.ixx`); Chat's session holds one, and since `+105` the Mila app holds its own. The type
-is `Mila::AI::Session`: "context" in Mila is the model's window
+(`Milo/Src/Session.ixx`, `Agent.ixx`); Chat's session holds one, and since `+105` Mila Desktop holds its own. The type
+is `Milo::Session`: "context" in Mila is the model's window
 (`contextLength()`), and 6.4 already speaks of an agent saving its session.
 
 **The session** is everything a program gives an agent, and the conversation: the system prompt, the tool gate
@@ -249,10 +251,10 @@ empty optional, never an agent's.
 Why: an agent today ends with its model, and everything set on it ends too. Chat's `ChatSession` keeps a copy of
 each -- rules, grant, limits, prompt, tool handlers and a held conversation -- only to give them to the next
 agent, and any program that changes model would have to do the same. That copy, with the loading around it, is
-also why the Mila app linked Chat's session library until `+105` (`MilaChatSession`, `MilaApp.md` 7): two applications sharing
-a layer is a gap in `Mila::AI` (3.3). With the session in the library that layer has no reason to exist; each
+also why Mila Desktop linked Chat's session library until `+105` (`MilaChatSession`, `MilaDesktop.md` 7): two applications sharing
+a layer is a gap in `Milo` (3.3). With the session in the library that layer has no reason to exist; each
 application keeps only its own concern, and what both need that a developer's program would need too is
-`Mila::AI`'s. Its family-specific code -- the `FamilyTraits` table and the mapping of an effort scale onto Qwen's
+`Milo`'s. Its family-specific code -- the `FamilyTraits` table and the mapping of an effort scale onto Qwen's
 levels -- was deleted rather than moved (`+108`): the planner caps a context at the model's trained maximum, and the template
 lists its own variables' values. What each piece becomes: `Notebooks/SessionInventory.md`.
 
@@ -268,7 +270,7 @@ effect, and the rest are the publisher's. The agent says what that comes to -- `
 thinking it keys on -- so a program shows the settings in effect without working them out again (`+105`).
 
 **A conversation crosses to another model.** Its turns are structured and each template renders them its own way,
-and the Mila app already reopens a stored conversation on whichever model is loaded. The library carries it and
+and Mila Desktop already reopens a stored conversation on whichever model is loaded. The library carries it and
 the application chooses: Chat clears it, as it does today. Untested across families, so a test that carries one
 conversation through Gemma, Llama and Qwen comes before anything relies on it.
 
@@ -288,7 +290,7 @@ on families with nothing left over. The ROADMAP carries that half and its criter
 
 ### 5.1 One model handle
 
-The foundation of Mila.AI. It starts with the manifest: capabilities (reasoning channel, context
+The foundation of Milo. It starts with the manifest: capabilities (reasoning channel, context
 limits, modality) are declared in the record, which is additive because the manifest tolerates unknown
 fields and `instruct` already proves the pattern. Chat derived them from the family in a table of its own,
 deleted at `+108`. The factory then reads the record rather than switching on family. Design of record:
@@ -312,7 +314,7 @@ reproduced by the planner on the measured models before Chat's own code is delet
 
 ### 5.3 The agent core, with token-level splice
 
-The in-process loop, extracted from Chat into Mila.AI, with the delivered splice that
+The in-process loop, extracted from Chat into Milo, with the delivered splice that
 `MilaProductFamily.md` decided on and deferred: tool-result tokens appended to the live cache, no
 re-render and no re-tokenize. Which kind of prefix reuse a model offers -- a rewind to any position,
 or for Qwen a return to a position whose recurrent state it saved -- is a model property the core reads
@@ -322,13 +324,13 @@ from the handle (decided 2026-10-03, Todd; `ModelFamilyParity.md` 8.3, Q5).
 prefills only the results it adds, and the next message prefills only what the template requires --
 what it renders differently from what the model holds, such as the reasoning it drops. Restated
 2026-10-25 (Todd) from "prefill tokens per turn equal the tokens the turn added", which no template
-that drops earlier reasoning can meet. Met at `0.21.0-dev+99` (`Tests/AI/Agent.Cuda.cpp`): a second
+that drops earlier reasoning can meet. Met at `0.21.0-dev+99` (`Mila/Tests/Milo/Agent.Cuda.cpp`): a second
 round prefilled 20 tokens of 21 its results added on Gemma 4 26B-A4B, 24 of 25 on Qwen 3.8 27B and 19
 of 19 on Llama 3.1 8B -- the first is the token the reply stopped at, already in the cache when the
 reply ends on the token the results open with -- and Qwen's next message resumed from the end of the
 last round's prompt.
 
-### 5.4 `Mila::AI`
+### 5.4 `Milo`
 
 The object in section 4, on the handle, the plan and the core.
 
@@ -338,8 +340,8 @@ calling a tool; `plan()` and `model()` reach the objects that actually ran; and 
 
 ### 5.5 Chat and MIS rebuilt as applications
 
-Both consume `Mila::AI` and nothing beneath it except through `model()`. Their directories are
-`Mila/Apps/Chat` and `Mila/Apps/Server`, moved there from `Mila/Adaptors/` in v0.21.0.
+Both consume `Milo` and nothing beneath it except through `model()`. Their directories are
+`MilaChat` and `MilaServer`, moved there from `Mila/Adaptors/` in v0.21.0.
 
 *Success:* neither contains model-specific code; MIS's tool flows (the v0.20 foreign-harness criteria)
 still pass unchanged against Codex and Claude Code.
@@ -372,11 +374,11 @@ decided when each is scheduled, in `ROADMAP.md`.
 
 ### 6.1 Autonomy
 
-The agent is `Mila::AI` with tools and an autonomy policy. It is not a separate product. The design is
+The agent is `Milo` with tools and an autonomy policy. It is not a separate product. The design is
 already written in `MilaProductFamily.md` (Agentic) and carries over as specified: the policy is a
 runtime object, not a template parameter; loop detection by repeated call identity and by no
 observable delta; the shell as one built-in tool behind one guarded door; escalate-to-human as a tool;
-interrupts on turn boundaries only; a persisted, versioned trace. Chat becomes `Mila::AI` under the
+interrupts on turn boundaries only; a persisted, versioned trace. Chat becomes `Milo` under the
 policy "escalate before every tool", so Chat and an agent differ by one value.
 
 *Success:* the two-loop measurement from `MilaProductFamily.md` Decided 1 — the same model and tools
@@ -434,15 +436,15 @@ model name resolves to the same package the objective ranks first.
   remarkable; an application developer will not. v0.20's toolchain (VS 2026 18.6.2+, CUDA 13, C++23
   modules, an NVIDIA card) is unchanged. C++23 module interfaces are not portable between compilers,
   so a prebuilt C++ distribution is not available the way a C library's is. Source consumption through
-  CMake is the v0.21.0 answer; whether a C ABI at the `Mila::AI` boundary is needed is decision 3.
+  CMake is the v0.21.0 answer; whether a C ABI at the `Milo` boundary is needed is decision 3.
 - **The field above the model is crowded.** "Create an assistant, give it tools" exists elsewhere. Mila
-  is distinct only through section 1's three properties together. A v0.21.0 that shipped `Mila::AI`
+  is distinct only through section 1's three properties together. A v0.21.0 that shipped `Milo`
   without the splice, the plan or the descent would be one more wrapper, and every workstream's success
   bar is written to prevent that.
 - **The top of the stack takes the attention.** A new entry point draws the documentation, the samples
   and the public message toward itself, and the component path can erode by neglect without anyone
   deciding it should. 1.1 is the guard: each release's QuickStarts and samples keep a component-built
-  path, and the tests for components are not traded for tests of `Mila::AI`.
+  path, and the tests for components are not traded for tests of `Milo`.
 - **Autonomy amplifies model weakness.** Carried from `MilaProductFamily.md` unchanged: guardrails and
   loop detection are what make an edge-sized model survivable unsupervised, not polish.
 - **One developer.** Each release is sized to one maintainer. v0.21.0 completes the families and v0.22.0 is
@@ -456,29 +458,30 @@ model name resolves to the same package the objective ranks first.
 
 Settled 2026-09-23, each on the leaning this section recorded, when section 5 became v0.21.0.
 
-1. **The name of the object: `Mila::AI::Agent`,** in module `AI.Agent` (revised 2026-10-25, Todd). It was
-   `Mila::AI`, which is now the namespace of the whole level, so the object takes the name `ToolCalling.md`
+1. **The name of the object: `Milo::Agent`,** in module `Milo.Agent` (revised 2026-10-25, Todd). It was
+   the namespace's name, which is now that of the whole library, so the object takes the name `ToolCalling.md`
    already gave it.
-2. **Where Mila.AI lives: in the Mila library,** above the model level, which never imports it; the wheel and a
-   `FetchContent` consumer both get it (revised 2026-10-25, Todd; it was a library of its own at `Mila/AI/`). Its
-   directory is `Mila/Src/AI/`; whether its tool pieces become a target of their own, so a program wanting tools
-   alone needs no GPU stack, is `ToolCalling.md` decision 4.
-3. **A C ABI at the `AI` boundary: decided during v0.21.0** against the QuickStart experience, shipped
+2. **Where Milo lives: a library of its own on Mila,** which never imports it (Todd, 2026-10-31; a library at
+   `Mila/AI/` until 2026-10-25, then a level inside the Mila target). Its directory is `Milo/Src/`. The build's
+   `MILA_ENABLE_MILO` is on for a top-level build and off for an embedding consumer, who turns it on to have it, and
+   for a wheel, which has no use for it. Whether its tool pieces become a target of their own, so a program wanting
+   tools alone needs no GPU stack, is `ToolCalling.md` decision 4.
+3. **A C ABI at the `Milo` boundary: decided during v0.21.0** against the QuickStart experience, shipped
    no earlier than the release after it. It would make .NET and other compilers' C++ straightforward,
-   and `Mila::AI`'s rule 1 keeps it small enough to be cheap. Its first form, over today's binding surface
+   and `Milo`'s rule 1 keeps it small enough to be cheap. Its first form, over today's binding surface
    and experimental, is `DotNetBinding.md` (2026-10-21).
-4. **Where Chat and MIS live: `Mila/Apps/Chat` and `Mila/Apps/Server`.** Samples stay
+4. **Where Chat and MIS live: `MilaChat` and `MilaServer`.** Samples stay
    teaching code; these stay maintained products. Renamed from `Applications` and brought forward to v0.21.0 on
    2026-10-11 (Todd), with the shipped utilities under `Mila/Apps/Tools/` (`Notebooks/MilaCommandLineReview.md` 4.1).
 5. **Sequencing against the ROADMAP: section 5 is v0.22.0,** after v0.21.0 completes Qwen 3.8 and Gemma 4
    (moved 2026-10-10, Todd; it was v0.21.0 with them), before any new chassis — which agrees with the rule that the handle is a precondition
    for every new model. Muse Glimmer follows in ROADMAP's Future. One piece comes forward (Todd, 2026-10-24):
-   v0.21.0 ships the Mila app as an agent harness with tool calling. Its tool calling is designed in
+   v0.21.0 ships Mila Desktop as an agent harness with tool calling. Its tool calling is designed in
    `ToolCalling.md` (2026-10-25), which replaced the tool broker's design. So does the session the agent holds
-   (4.3; Todd, 2026-10-27), with Chat and the Mila app each built on it and Chat's family-specific types gone.
+   (4.3; Todd, 2026-10-27), with Chat and Mila Desktop each built on it and Chat's family-specific types gone.
 6. **Tool registration: a compiled-in registry** — a callable plus a schema, registered on the `AI`.
    Declarative subprocess tools alongside it remain open for section 6, carried from
-   `MilaProductFamily.md` Open Decision 5. **Tool calling is `Mila::AI`'s structure** (Todd, 2026-10-25,
+   `MilaProductFamily.md` Open Decision 5. **Tool calling is `Milo`'s structure** (Todd, 2026-10-25,
    `ToolCalling.md`): every call passes its permissions and runs under a grant, every tool comes from the
    application, and Mila ships none. MCP and tools in processes of their own come later. A per-user tool broker
    (`ToolBroker.md`, 2026-10-24) is at most an application built on those pieces, needed only when the rules must
@@ -495,19 +498,18 @@ Settled 2026-09-23, each on the leaning this section recorded, when section 5 be
 
 ## 9. Non-Goals Through Section 6
 
-- A remote or hosted model behind `Mila::AI`. Every `AI` is backed by Mila running locally.
+- A remote or hosted model behind `Milo`. Every agent is backed by Mila running locally.
 - Serving many users: batching, scheduling, multi-tenancy.
 - A model zoo. Selection stays the agentic-workflow-on-your-hardware rule.
 - A throughput race. Speed remains evidence.
-- Training through `Mila::AI`. Training stays at the component and model level.
+- Training through `Milo`. Training stays at the component and model level.
 
 ---
 
 ## 10. Vocabulary
 
 - **Library**, never runtime, engine, framework or substrate.
-- **`Mila::AI`** is the level of the library applications are built on; **the agent** is its application
-  object. **Model**, **weights** and **package** keep their meanings from `CLAUDE.md`.
+- **Milo** is the library applications are built on; **the agent** is its application object. **Model**, **weights** and **package** keep their meanings from `CLAUDE.md`.
 - **Application** replaces adaptor.
 - **Harness** is a verb in the trait. As a noun it keeps its industry meaning (Codex, Claude Code), so
   Chat stops being "the chat harness" and becomes Chat, the application.
@@ -524,7 +526,7 @@ Settled 2026-09-23, each on the leaning this section recorded, when section 5 be
 - `ModelFamilyParity.md` — the definition of a finished family, which 5's "families that are finished"
   is held to, and the 16 GB reference card.
 - `LayerSplit.md` — after v0.21.0 (6.3).
-- `ModelDistribution.md` — the store `Mila::AI::create` names models from.
+- `ModelDistribution.md` — the store `Milo::create` names models from.
 - `Observability.md` — part of what "reachable" means.
 - `.internal/Marketing/Positioning.md` — governs v0.20's public surfaces; section 5.7 replaces it at
   v0.21.0.

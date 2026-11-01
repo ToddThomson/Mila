@@ -8,7 +8,7 @@ It is a peer of the runtime, **not an app**. It is consumer-blind: everything it
 exposes is model-intrinsic (`Tokenizer`, `LlamaSession` / `GemmaSession`: load, `generate`,
 `generateStreaming`, `getConfig`) or store-intrinsic (`ModelStoreHandle`), and none of it
 knows about chat, agents, or any wire protocol. That is why it lives here beside `Src`
-rather than under `Apps/`.
+rather than in an app's project.
 
 It does carry HTTP *types* — `HttpResponseInfo`, `HttpFetchDelegate` — and that is not a
 contradiction: the delegate exists so a build with no HTTP client at all can still pull,
@@ -17,7 +17,7 @@ token, which digest); the binding projects a byte pipe, not a protocol.
 
 Two consumers today, which is the point:
 
-- **MIS** (`Mila/Apps/Server`) — the inference server imports `mila` to serve the
+- **MIS** (`MilaServer`) — the inference server imports `mila` to serve the
   model over an OpenAI/Anthropic-compatible API.
 - **Parity / converter tooling** (`Mila/Tools/Converters/...`) — the HuggingFace token-for-token
   parity harness imports `mila` directly; it is in fact `GemmaSession`'s primary consumer.

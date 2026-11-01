@@ -4,7 +4,7 @@
 # norm, router scale and layer_scalar away from 1, so a misplaced norm or scale cannot hide behind an
 # identity. The model is saved as a HuggingFace checkpoint and converted with Gemma/convert_weights.py at
 # FP32 and BF16, so one capture holds the converter's names and the block's wiring together. The logits
-# recorded are HuggingFace's before the final softcap, which Mila applies at the sampler. No network, no GPU.
+# recorded are HuggingFace's before the final softcap, which Mila Desktoplies at the sampler. No network, no GPU.
 #
 # It also records the log-probability HuggingFace assigns to each next token of the whole sequence, taken
 # after the softcap as HuggingFace's own loss takes it -- the reference for GemmaTransformer's

@@ -27,6 +27,11 @@ build/
 **/*.pyc
 TestResults/
 
+# Mila Desktop's installed packages and packaged output: the image builds no window.
+**/node_modules/
+MilaDesktop/Window/dist/
+MilaDesktop/Window/session/
+
 # Version control and CI metadata
 .git/
 .github/

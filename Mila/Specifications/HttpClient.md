@@ -118,7 +118,7 @@ Three obligations, and they are the whole contract:
 Nothing security-relevant is left to a transport. It cannot leak a token because it is never told
 one -- it is handed headers that the client has already decided are safe for that exact host.
 
-**A body makes the request a POST** (2026-10-26, for the Mila app's web search, whose provider takes only POST). The
+**A body makes the request a POST** (2026-10-26, for Mila Desktop's web search, whose provider takes only POST). The
 model store never sends one, and `HttpClient` has no body to pass; a caller with one goes to the transport directly. A
 transport that cannot send a body -- the Python binding's delegate, whose signature carries none -- answers such a
 request as a transport failure rather than sending it as a GET.

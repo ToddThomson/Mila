@@ -204,8 +204,7 @@ the precision at load.
 ## Apps
 
 The library plus a small family of apps, each closing the generation loop for a different
-consumer, and `mila-store`, which installs and removes the models they run. See
-[Mila/Apps/README.md](https://github.com/ToddThomson/Mila/blob/dev/Mila/Apps/README.md).
+consumer, and `mila-store`, which installs and removes the models they run.
 
 ### Chat — a human at a prompt
 
@@ -215,7 +214,7 @@ Mila: It stores the key and value tensors from earlier tokens so each new token 
       over them instead of recomputing the whole sequence each step.
 ```
 
-Located under `Mila/Apps/Chat`. An instruction-following chat harness that closes the
+Located under `MilaChat`. An instruction-following chat harness that closes the
 loop in-process with a human at the prompt — models load through the two-phase (prefill + decode)
 KV-cache pipeline, with model hot-switching (`/model load <name> [quant]`) and tool calling. Models
 come from the local store, and a fresh store has none: `/model list --online` lists what Mila
@@ -224,7 +223,7 @@ what each costs in memory. On a 12 GB card, Gemma 4 12B FP4 runs a large context
 
 ### Mila Inference Server (MIS) — an agent harness over the wire
 
-Located under `Mila/Apps/Server`. Serves the generation loop over OpenAI- and Anthropic-compatible
+Located under `MilaServer`. Serves the generation loop over OpenAI- and Anthropic-compatible
 APIs, so an agent harness you did not write — Codex, Claude Code — can drive Mila from another
 process.
 

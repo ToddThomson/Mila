@@ -24,7 +24,7 @@ The user builds exclusively inside **Visual Studio 2026**. Ninja is required —
 
 **The C++23 modules constrain the compiler:** MSVC (VS 2026 18.6.2+ — earlier 2026 builds have a module regression that breaks Mila) or Clang 22+ with a standard library that ships a `std` module (libstdc++ 15, libc++ 17). Every module does `import std;` -- never `std.compat`; C names are written `std::size_t`, `std::uint32_t` -- from `MilaStd`, the library's own `std` module target (`cmake/StdModule.cmake`); Clang 21 rejects libstdc++'s `shared_ptr` friends once `std` is reachable (LLVM #156604). On MSVC a translation unit that does `import Mila;` keeps its standard `#include`s before it. **GCC is not supported:** 14.2 and the GCC 15 on Ubuntu 25.04 failed to compile the modules (GitHub issue #2), and GCC 16 has never been tried. Never write that GCC 16 works — that claim shipped in v0.20.0 unmeasured. In CUDA builds the C++ compiler handles the module units while nvcc uses a separate host compiler for `.cu` files, so an older host GCC is fine in that role. Cross-compiler builds surface missing `#include`s that MSVC resolves transitively — those are real portability fixes, not Clang being difficult.
 
-Presets are in `CMakePresets.json`; output is always `out/build/<preset-name>`. VS 2026 shows each preset's `displayName`, not its `name` (`x64-validate` appears as "x64 Release (full validation - run before committing)"). The unit tests build into **one binary**, `Mila/Tests/MilaTests` — narrow with `--gtest_filter`; `ChatRichTextTests` and `AssistantHtmlTextTests` are the separate targets, each for an app module that imports nothing of Mila.
+Presets are in `CMakePresets.json`; output is always `out/build/<preset-name>`. VS 2026 shows each preset's `displayName`, not its `name` (`x64-validate` appears as "x64 Release (full validation - run before committing)"). The unit tests build into **one binary**, `Mila/Tests/MilaTests` — narrow with `--gtest_filter`; `ChatRichTextTests` and `DesktopHtmlTextTests` are the separate targets, each for an app module that imports nothing of Mila.
 
 ---
 
@@ -33,14 +33,14 @@ Presets are in `CMakePresets.json`; output is always `out/build/<preset-name>`. 
 Browse the tree for what is where. What the tree does not tell you:
 
 - **`Mila/Src/`** is the runtime. `Components/`, `Compute/`, `Models/`, `Quantization/`, `Tensors/`, `Serialization/`. `Models/` and `Components/Transformers/` are split per family (`Gemma`, `Gpt`, `LlaMa`, `Qwen`) — a family owns its model, config and chat protocol together.
-- **`Mila::AI`** is the level of the Mila library applications are built on (`Direction.md` 3.2), above the model
-  level, which never imports it. Tool calling is its structure and every tool is the application's
-  (`ToolCalling.md`). It is part of the Mila library, not a library of its own: `Mila/Src/AI/` holds the model
-  handle (`ModelHandle.md`), the agent, `Mila::AI::Agent` (`Direction.md` 4), the `Session` it holds -- what the
-  program gave it and the conversation, which outlives the model (4.3) -- and `ToolGate`, the one path a
-  model's call takes to a tool: the arguments checked, the person's rules and question, the call's limits.
+- **`Milo/`** is the agentic library applications are built on (`Direction.md` 3.2), a project of its own on top of
+  Mila, which builds without it. Tool calling is its structure and every tool is the application's
+  (`ToolCalling.md`). `Milo/Src/` holds the agent, `Milo::Agent` (`Direction.md` 4), the `Session` it holds -- what
+  the program gave it and the conversation, which outlives the model (4.3) -- and `ToolGate`, the one path a model's
+  call takes to a tool: the arguments checked, the person's rules and question, the call's limits. The model handle
+  (`ModelHandle.md`) stays in Mila, in `Mila/Src/Deployment/`: opening a model by name is the model level's.
 - **`Mila/Bindings/`** is the Python projection, and is **consumer-blind**: it knows nothing about Chat or MIS. Session depth only, never components.
-- **`Mila/Apps/`** are first-class consumers, not samples — `Chat/` (`mila-chat`, human gate), `Assistant/` (Mila, the end-user assistant app: Electron window, page, and `mila-session`, a `Mila::AI` agent and its session, with settings and prompts of its own), `Server/` (MIS, `mila-server`, which imports the binding) and `Tools/Store/` (`mila-store`, the model store from the shell). Everything under it ships; every command a user types is lowercase-hyphenated with the `mila-` prefix. See `Specifications/MilaProductFamily.md` and `Specifications/Notebooks/MilaCommandLineReview.md`.
+- **The apps are projects of their own at the top level**, first-class consumers, not samples — `MilaChat/` (`mila-chat`, human gate), `MilaDesktop/` (Mila Desktop, the end-user app: Electron window, page, and `mila-session`, a `Milo` agent and its session, with settings and prompts of its own) and `MilaServer/` (MIS, `mila-server`, which imports the binding). `Mila/Store/` is `mila-store`, the model store from the shell. All of them ship; every command a user types is lowercase-hyphenated with the `mila-` prefix. See `Specifications/MilaProductFamily.md`. Specifications, Issues and the one test binary stay under `Mila/`.
 - **`Mila/Samples/`** is teaching code and must run in any user's environment. `QuickStart/Cpp` and `QuickStart/Python` are the paths the website's Get Started tabs link to, so they are a published surface.
 - **`Mila/Tools/`** is developer tooling and **none of it ships** — the wheel excludes it and a FetchContent consumer never configures it. `Tools/README.md` is the index.
 - **`Data/`** holds weights, packages and corpora, all gitignored; only directory READMEs are tracked.
@@ -98,17 +98,16 @@ Quantize-on-load is a **supported user path** for FP8 and FP4 (decided 2026-09-1
 
 ---
 
-## Chat Harness (`Mila/Apps/Chat/Src/`)
+## Chat Harness (`MilaChat/Src/`)
 
-Chat is a first-class app (peer of MIS under `Mila/Apps/`), not a throwaway sample — a
+Chat is a first-class app (peer of MIS and Mila Desktop), not a throwaway sample — a
 maintained surface that gains tests and rigor over time.
 
-**API Boundary:** Files under `Mila/Apps/Chat/Src/` are application code and may be edited
-without prior agreement (they consume the runtime; they are not the runtime's public API). Any
-change to the core Mila library (`Mila/Src/`) still requires explicit agreement first.
+**API Boundary:** every top-level project's source needs Todd's direction before it changes: `Mila/Src/`, `Milo/Src/`,
+`MilaChat/`, `MilaDesktop/` and `MilaServer/` alike (Todd, 2026-10-31).
 
 Key files:
-- `Chat.Session.ixx` — `ChatSession`: the model as one `Mila::AI::Agent`, which runs every turn and its tool calls; model hot-switching, the round measurements; never draws or reads input, and reports through `SessionEvents`
+- `Chat.Session.ixx` — `ChatSession`: the model as one `Milo::Agent`, which runs every turn and its tool calls; model hot-switching, the round measurements; never draws or reads input, and reports through `SessionEvents`
 - `Chat.ConsoleFrontEnd.ixx` — the console over the session: slash commands, tables, the live display, Ctrl+C stops a reply
 - `Chat.ModelCatalog.ixx` — resolves a store name to a loadable model, and owns the load refusals
 - `Chat.Config.ixx` — `ChatConfig`: the model a store name resolved to (its `WeightQuantization`), its device, context length, effort and sampling

@@ -5,7 +5,7 @@
  * The smallest complete program that runs a local LLM with Mila -- load a model from the
  * store, encode a prompt, and stream the reply as it is produced. Single-shot by design:
  * there is no conversation history and no REPL, because neither teaches anything about
- * Mila. The chat harness (Mila/Apps/Chat) is where multi-turn, channel routing and
+ * Mila. The chat harness (MilaChat) is where multi-turn, channel routing and
  * tool calls live.
  *
  * The Python counterpart at ../Python/generate.py does the same thing, with the same

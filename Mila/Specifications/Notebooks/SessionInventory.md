@@ -3,7 +3,7 @@
 Every job `MilaChatSession` does, who uses it, and where it goes once an agent is a model and a session
 (`Direction.md` 4.3; `BACKLOG.md` *The Desktop Agent*). Read 2026-10-27 at `0.21.0-dev+103`, from
 `Mila/Apps/Chat/Src/` and the desktop session's imports of it. A notebook: the decisions it leads to are carried to
-`Direction.md` 4.3, `MilaApp.md` and `ChatConfiguration.md`.
+`Direction.md` 4.3, `MilaDesktop.md` and `ChatConfiguration.md`.
 
 ## 1. What the desktop app reaches
 
@@ -96,7 +96,7 @@ All five agreed 2026-10-27 (Todd), as proposed.
 2. The desktop session onto `Mila::AI` alone: its own settings, prompts, store commands and event mapping. Gated by
    the session drives and the window drive, and `mila-session` linking no module of Chat's. Built in `+105`, with
    `Agent::sampling()` and `Agent::thinks()` made public so the app shows the sampling in effect without repeating
-   the merge, and effort offered in the template's own values (`MilaApp.md` 3.7).
+   the merge, and effort offered in the template's own values (`MilaDesktop.md` 3.7).
 3. `MilaChatSession` dissolved into Chat; `FamilyTraits`, `ModelSize`, the aliases and the Qwen mapping deleted.
    Built in `+108`: `mila-chat` is one target, the two family checks are `Architectures::contains`, and Chat's
    effort is the template's own levels (`/effort` and `thinking_effort` take them; a level the loaded template

@@ -64,8 +64,8 @@ loop visible, as `Samples/QuickStart/Python/chat.py` does for Python.
 - **The surface becomes its own target** (phase 1b). It is compiled into `MilaPy` today. It moves to a
   static library, `MilaBindingSurface`, that `MilaPy` and `MilaNative` both link. Its files keep their
   `Mila_py.` names until a rename commit of their own (`Specifications/README.md` rule 4).
-- **At v0.22.0 the surface is re-pointed at `Mila::AI`** (phase 2). The ABI's model handle is already the
-  shape `Mila::AI`'s is (section 3.4), so the C# library does not change when it is.
+- **At v0.22.0 the surface is re-pointed at `Milo`** (phase 2). The ABI's model handle is already the
+  shape `Milo`'s is (section 3.4), so the C# library does not change when it is.
 
 ## 3. The C ABI (`Mila/Bindings/Native/mila.h`)
 
@@ -191,7 +191,7 @@ typedef void ( *mila_token_callback )( int32_t token, void* user_data );
 - **One model handle, not three -- the bend of rule 5.** The surface has a session class per family and
   Python projects each. The ABI opens one `mila_model` by store name and picks the session from the record's
   `family`, which is the selection `ChatProtocolHandle::forInstalledModel` already makes for the template.
-  It adds no capability: the three sessions have one `generate` signature. It is the shape `Mila::AI`
+  It adds no capability: the three sessions have one `generate` signature. It is the shape `Milo`
   takes at v0.22.0 (`Direction.md` 4, rules 1 and 7), so the C# library is written once. Decided in
   section 8, item 1.
 
@@ -268,7 +268,7 @@ Mila/Bindings/DotNet/
 
 A C17 implementation of all of `mila.h` with no Mila behind it, built by its own small `CMakeLists.txt`
 into `MilaNative` -- the same name, so the C# library loads it unchanged. It is what phase 1a is built and
-tested against, as Chat's desktop window was built against its mock session (`MilaApp.md` 5).
+tested against, as Chat's desktop window was built against its mock session (`MilaDesktop.md` 5).
 
 - **A fixed store** of two models, `mock-gemma-it` (family `gemma`) and `mock-llama-it` (family `llama`),
   and one name that is installed but incomplete, `mock-incomplete`, which refuses to load.
@@ -328,7 +328,7 @@ configures and builds the mock with CMake first, so opening `Mila.slnx` and runn
      built in `x64-profile`, and section 6's dependency question answered. Done when the C# sample
      streams a reply from an installed Gemma 4 12B on the GPU, unchanged from 1a, and from one Llama and
      one Qwen model.
-2. **Re-pointed at `Mila::AI`** (v0.22.0). The surface's sessions give way to the handle; the ABI keeps
+2. **Re-pointed at `Milo`** (v0.22.0). The surface's sessions give way to the handle; the ABI keeps
    `mila_model`, and the C# library changes only where the handle gains what the sessions lacked.
 3. **A NuGet package** (open decision 3).
 

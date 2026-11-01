@@ -3,11 +3,11 @@
 **Status:** Draft, 2026-10-03. Agreed in discussion with Todd the same day. Section 9 decided the same day. Phase 1 in
 progress from `+34`.
 Admitted to v0.21 the same day for every family in `ModelFamilyParity.md` (Todd): Phases 1 and 2, for every model the
-release publishes (`ROADMAP.md`, the family themes' success criteria; `Mila::AI` moved to v0.22.0 on
+release publishes (`ROADMAP.md`, the family themes' success criteria; `Milo` moved to v0.22.0 on
 2026-10-10, and compaction there reads these profiles).
 
 **Area:** measuring what a model configuration is worth to an agent at each context length it can hold, and what
-it costs there. Its uses: the reliable depth at which `Mila::AI` compacts a conversation; choosing between Gemma 4
+it costs there. Its uses: the reliable depth at which `Milo` compacts a conversation; choosing between Gemma 4
 26B-A4B and Qwen 3.8 27B for agentic work on the 16 GB card; and the measured reason K = V needs before it is built
 (`RopeInAttention.md`) -- storing the 26B-A4B's global keys once raises what fits from 80K to 128K, which is worth
 discussing only if the profile's reliable depth runs past 80K (Todd, 2026-10-03).
@@ -32,7 +32,7 @@ two models at equal fit answers which is the better agent on that card.
 still obeys its system instructions, against the thresholds the profile states. A configuration's useful context is
 the lower of what fits and its reliable depth, and the two can differ by a factor of two: Llama 3.1 8B fits 131072 on
 the 16 GB card and drops its system rule at 65536 (`Untriaged.md`, HuggingFace reproducing it). The reliable depth is
-also where a long session compacts (`ROADMAP.md`, Mila::AI), so the profile is what makes that trigger a measurement
+also where a long session compacts (`ROADMAP.md`, Milo), so the profile is what makes that trigger a measurement
 rather than a guess.
 
 ## 2. Why one tool

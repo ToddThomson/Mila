@@ -15,7 +15,7 @@ PROJECT_BRIEF          = "Deep Neural Network Library"
 OUTPUT_DIRECTORY       = build/docs
 
 # --- Inputs: the public API is the README mainpage + the C++23 module units ---
-INPUT                  = README.md Mila/Src
+INPUT                  = README.md Mila/Src Milo/Src
 USE_MDFILE_AS_MAINPAGE = README.md
 RECURSIVE              = YES
 FILE_PATTERNS          = *.ixx

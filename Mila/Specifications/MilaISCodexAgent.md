@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-15
 **Status:** Proven / Experimental
-**Component:** `Mila/Apps/Server`
+**Component:** `MilaServer`
 
 ## Overview
 

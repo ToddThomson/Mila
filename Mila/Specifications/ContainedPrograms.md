@@ -1,7 +1,7 @@
 # Contained Programs
 
 How a tool runs a program held to its grant, through Microsoft eXecution Container (MXC), and the first tool that
-does: the Mila app's shell in Build & Code.
+does: Mila Desktop's shell in Build & Code.
 
 **Status:** agreed 2026-10-27 (Todd, decisions 1 to 6 of section 9); phase 1 measured the same day; decisions 7
 to 10 agreed 2026-10-31, and phase 2, the library, built that day; the tool (phase 3) not begun. Decided before it (Todd, 2026-10-27): MXC goes into
@@ -115,7 +115,7 @@ whose walk passes a bound is refused, saying why (decision 7).
   whole before every run (decision 7). An outside name removed is not named, so the files withheld
   from the last run are read again before each run with those the watcher named.
 - **Its load, measured 2026-10-31:** with a 64 KB buffer nothing was lost writing 20,000 files in under a second,
-  installing the Mila app's npm packages, or rebuilding every Mila target with the whole repository watched
+  installing Mila Desktop's npm packages, or rebuilding every Mila target with the whole repository watched
   (18,123 events in 350 s); a 4 KB buffer overflowed 19 times in that build. So a walk after the first is rare.
 - **The bound** (Todd, 2026-10-31): no count of files. A walk, the first or one after an overflow,
   is part of the run and counts against the call's own time; a walk that does not finish within it refuses the run,
@@ -171,7 +171,7 @@ and system variables -- whatever a person keeps there, a token included. The lis
 - Then the application's own variables (`ProgramFolders`, 4.6), refused at the grant when one is a name above.
 
 The project is the first folder granted to write; a grant with none refuses to run a program. Measured: with
-these and the Mila app's variables, `git status` and `git commit`, a CMake + Ninja + `cl` build, `npm run build`
+these and Mila Desktop's variables, `git status` and `git commit`, a CMake + Ninja + `cl` build, `npm run build`
 and `dotnet build` finish (`MxcConformance.md` 7.1).
 
 ### 4.8 Time, stop and output
@@ -196,7 +196,7 @@ grant reads what the person keeps under `HKCU`, which no grant gives. It is a kn
 ### 4.10 The library behind it
 
 - **`mxc_ffi.dll` is loaded at run time** from the application's folder, never linked, so a build without it still
-  runs and a machine without it offers no program-running tool. The Mila app's installer carries the v1.0.1 file
+  runs and a machine without it offers no program-running tool. Mila Desktop's installer carries the v1.0.1 file
   (MIT, about 6 MB) beside `mila-session`.
 - **The version is pinned.** MXC publishes no C header (microsoft/mxc#1449), so Mila mirrors the `repr(C)` layouts of
   one version, checks `mxc_version()` on load, and refuses any other.
@@ -217,7 +217,7 @@ grant reads what the person keeps under `HKCU`, which no grant gives. It is a kn
 
 ## 5. The first tool: running a command in Build & Code
 
-- **`run_command`**, the Mila app's own (Mila ships no tools): arguments `command`, an optional time, and an optional
+- **`run_command`**, Mila Desktop's own (Mila ships no tools): arguments `command`, an optional time, and an optional
   `network`, false unless the model sets it; needs: reads and writes files, runs programs, uses the network. The
   conversation's grant holds the network, and the tool narrows it away for every call that does not ask for it, so
   a call never reaches more than its grant (4.1). With the network, a command reaches public addresses only (4.5).
@@ -229,7 +229,7 @@ grant reads what the person keeps under `HKCU`, which no grant gives. It is a kn
   model's text changes the command line and errors come back as text, with execution policy bypassed for that
   process alone so `npm.ps1` runs. `cmd`'s `dir` is refused in a granted folder (phase 1), so the prompt names
   PowerShell's own commands.
-- **What the Mila app gives a command** (`Assistant.ProgramSetup`, found once when the setting is turned on): the
+- **What Mila Desktop gives a command** (`Desktop.ProgramSetup`, found once when the setting is turned on): the
   folders of Git, CMake, Ninja, Node and .NET on the person's `PATH`; Visual Studio's x64 setup, run once on the host,
   for `INCLUDE`, `LIB`, `LIBPATH`, the folders they name and the folders under Visual Studio and the Windows SDK it adds
   to `PATH`; `NODE_OPTIONS=--preserve-symlinks --preserve-symlinks-main`, since Node resolves a script's real path
@@ -252,22 +252,22 @@ run (4.3), and the registry under `HKCU` read (4.9) -- are stated where the sett
 
 ## 7. Modules
 
-One type each, in `Mila/Src/AI/` unless named:
+One type each, in `Milo/Src/` unless named:
 
 | Module | Type |
 |---|---|
-| `AI.ProgramRequest` | `ProgramRequest` |
-| `AI.ProgramResult` | `ProgramResult` |
-| `AI.ProgramFolders` | `ProgramFolders`, the application's program folders and variables (4.6), and the names it may not give |
-| `AI.ContainedRun` | `ContainedRun`, what the grant hands its container: the command and every folder by its final path |
-| `AI.ProgramContainer` | `ProgramContainer`, the interface |
-| `AI.MxcProgramContainer` | the MXC implementation, and its always-absent twin, two candidate files |
-| `AI.ToolDesktop` | the desktop of 4.4, created once and closed with the container |
-| `AI.SecondNameWatch` | the walk and watcher of 4.3 for one granted folder: the files with a name elsewhere |
-| `AI.ToolNeeds`, `AI.ToolGrant` | changed: `runs_programs`; `runProgram`, the program folders and the container |
-| `AI.PublicAddress` | changed: `nonPublicRanges()`, the deny list of 4.5 drawn from its own table |
-| `Mila/Apps/Assistant/Session/Src/Assistant.CommandTool.ixx` | `run_command` |
-| `Mila/Apps/Assistant/Session/Src/Assistant.ProgramSetup.ixx` | the build tools' folders and variables of section 5 |
+| `Milo.ProgramRequest` | `ProgramRequest` |
+| `Milo.ProgramResult` | `ProgramResult` |
+| `Milo.ProgramFolders` | `ProgramFolders`, the application's program folders and variables (4.6), and the names it may not give |
+| `Milo.ContainedRun` | `ContainedRun`, what the grant hands its container: the command and every folder by its final path |
+| `Milo.ProgramContainer` | `ProgramContainer`, the interface |
+| `Milo.MxcProgramContainer` | the MXC implementation, and its always-absent twin, two candidate files |
+| `Milo.ToolDesktop` | the desktop of 4.4, created once and closed with the container |
+| `Milo.SecondNameWatch` | the walk and watcher of 4.3 for one granted folder: the files with a name elsewhere |
+| `Milo.ToolNeeds`, `Milo.ToolGrant` | changed: `runs_programs`; `runProgram`, the program folders and the container |
+| `Milo.PublicAddress` | changed: `nonPublicRanges()`, the deny list of 4.5 drawn from its own table |
+| `MilaDesktop/Session/Src/Desktop.CommandTool.ixx` | `run_command` |
+| `MilaDesktop/Session/Src/Desktop.ProgramSetup.ixx` | the build tools' folders and variables of section 5 |
 
 ## 8. Phases
 
@@ -275,7 +275,7 @@ One type each, in `Mila/Src/AI/` unless named:
    thread's desktop holds; a denied file is refused, its folder still listed; the streaming surface stops a run in
    40 ms and caps its output; the environment is set by Mila; telemetry stays off; and two findings changed the
    design -- the walk's cost (4.3, decision 7) and the registry (4.9, decision 8).
-2. **The library.** Built 2026-10-31 (`Tests/AI/ToolGrant.Programs.cpp`, `Tests/AI/SecondNameWatch.cpp`). The
+2. **The library.** Built 2026-10-31 (`Mila/Tests/Milo/ToolGrant.Programs.cpp`, `Mila/Tests/Milo/SecondNameWatch.cpp`). The
    watcher of 4.3 measured first, outside the repository. Then section 7's types, the walk and its watcher, and
    the grant's `runProgram`, with tests that each pair an access the grant's
    container refuses with the same access inside it accepted -- a file outside, a name inside of a file outside, a
@@ -297,7 +297,7 @@ One type each, in `Mila/Src/AI/` unless named:
 All six decided 2026-10-27 (Todd, "Agreed to 1..6"), each as recommended:
 
 1. **v0.21.0's scope.** `ROADMAP.md` *The Desktop Agent* carries the criterion: *with the experimental setting on,
-   on Windows 11 26H2, the Mila app runs a command in the chosen folder, asked first, and every phase 2 check
+   on Windows 11 26H2, Mila Desktop runs a command in the chosen folder, asked first, and every phase 2 check
    refuses its access beside the same access inside allowed*; `BACKLOG.md` carries the item. The item's date is the
    release's, so it drains to `Vnext.md` if it does not land, and the criterion with it.
 2. **A withheld file is denied for the run, not the run refused** (4.3), and the result names it.
@@ -346,5 +346,5 @@ Decided 2026-10-31 (Todd, "off by default", then "Yes to your 2 step plan"):
   here (2026-10-27).
 - **`ToolBroker.md` 6.3** and **`Notebooks/LocalToolService.md` 10.4** first named MXC; `Vnext.md`'s sandbox entry
   holds what phase 4 leaves.
-- **`MilaApp.md`** 3.1 (Build & Code's tools) and 9.4 (what the installer carries) change in phase 3.
+- **`MilaDesktop.md`** 3.1 (Build & Code's tools) and 9.4 (what the installer carries) change in phase 3.
 - **`Notebooks/MxcConformance.md`** holds the measurements this design rests on.

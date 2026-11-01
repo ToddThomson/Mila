@@ -36,7 +36,7 @@ a script can do and check.
 
 ## 2. Root Cause of the Container Failures
 
-`Mila/Apps/Chat/Src/main.cpp:112` resolves the default config next to the executable when
+`MilaChat/Src/main.cpp:112` resolves the default config next to the executable when
 it is not present relative to the working directory. Its comment states the intent: this
 "makes the default model independent of the process working directory."
 
@@ -588,7 +588,7 @@ makes macOS a real target.
 
 ## 8. Prompt Files, and the End of `Data/`
 
-`Mila/Apps/Chat/Data/` is a relic of Chat's first weeks and holds two unrelated kinds of
+`MilaChat/Data/` is a relic of Chat's first weeks and holds two unrelated kinds of
 file: four `session*.json` configurations, which §3 through §7 replace outright, and four
 `assistant*.json` system prompts, which are **content** and survive. Once the configurations
 leave, `Data/` is a directory named after nothing.

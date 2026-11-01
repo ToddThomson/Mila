@@ -346,46 +346,10 @@ export import Dnn.Models.ChatProtocolForArchitecture;
 export import Deployment.InstalledModel;
 export import Deployment.InstalledModelPlanner;
 
-// ============================================================================
-// AI - the level applications are built on (Specifications/Direction.md 3.2)
-// ============================================================================
 // An opened model, whatever its family (ModelHandle.md), and why a name would not open.
-export import AI.OpenRefusal;
-export import AI.OpenRefusedError;
-export import AI.ModelHandle;
-
-// A model at work in a program: its conversation, its tools and the loop that runs their calls (ToolCalling.md).
-export import AI.ToolNeeds;
-export import AI.FolderAccess;
-export import AI.GrantFolder;
-export import AI.FolderEntry;
-export import AI.GrantPath;
-export import AI.PublicAddress;
-export import AI.GrantFile;
-export import AI.ProgramRequest;
-export import AI.ProgramResult;
-export import AI.ProgramFolders;
-export import AI.ContainedRun;
-export import AI.ProgramContainer;
-export import AI.MxcProgramContainer;
-export import AI.ToolGrant;
-export import AI.Tool;
-export import AI.ToolQuestion;
-export import AI.ToolAnswer;
-export import AI.ToolPermission;
-export import AI.ArgumentCondition;
-export import AI.ToolRule;
-export import AI.ToolRules;
-export import AI.ToolDecision;
-export import AI.ToolOutcome;
-export import AI.ArgumentSchema;
-export import AI.ToolGate;
-export import AI.AgentEvent;
-export import AI.AgentLimits;
-export import AI.Response;
-export import AI.SamplingOverride;
-export import AI.Session;
-export import AI.Agent;
+export import Deployment.OpenRefusal;
+export import Deployment.OpenRefusedError;
+export import Deployment.ModelHandle;
 
 // ============================================================================
 // Dnn - Optimizers

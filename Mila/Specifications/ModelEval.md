@@ -284,7 +284,7 @@ short of it.
 | BFCL `multi_turn` collection | this spec | A task carried across turns, scored on the state it leaves |
 | RULER, bands to 64K | this spec | Retrieval and tracing at the length agentic work runs at |
 | Recall, retention and a tool call at depth, to 64K | `ContextProfile.md` | The reliable depth the `agentic` capability is granted on |
-| Claude Code, Codex and Hermes Agent through the inference server | `Apps/Server/docs/harnesses.md` | A real session finishes; for Claude Code, at 64K without compacting every turn |
+| Claude Code, Codex and Hermes Agent through the inference server | `MilaServer/docs/harnesses.md` | A real session finishes; for Claude Code, at 64K without compacting every turn |
 
 The first three are arms of this spec: the two quantized builds, the 2.82-bit build paired against the FP4 build,
 and each measured teacher-forced against the BF16 reference (decision 1). The last two are about the 16 GB card

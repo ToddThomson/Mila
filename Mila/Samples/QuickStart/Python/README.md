@@ -136,12 +136,12 @@ Stated here because the limits are documentation, not an omission from it.
 - **No training.** Inference sessions only.
 - **No batching, and one request at a time.** A model instance is not thread-safe;
   serialize calls through a single worker thread (the Inference Server under
-  `Mila/Apps/Server` is the worked example).
+  `MilaServer` is the worked example).
 - **Text in, text out.** No embeddings, logits, or hidden-state access.
 
 ## Related
 
-- `Mila/Apps/Server` — the OpenAI/Anthropic-protocol server built on
+- `MilaServer` — the OpenAI/Anthropic-protocol server built on
   this same binding: what the loop in `chat.py` grows into.
 - `Mila/Specifications/PythonBinding.md` — why the binding is shaped this way and
   what is planned next.

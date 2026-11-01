@@ -680,7 +680,7 @@ continuation indent, so the hanging indent a list needs cannot be expressed.
 
 `apps` · `build`
 
-`Mila/Apps/Chat/Src/Json.ixx` duplicates `Mila/Src/Utils/json.ixx`, both including the same
+`MilaChat/Src/Json.ixx` duplicates `Mila/Src/Utils/json.ixx`, both including the same
 header from their global module fragment. Chat then imports one in two translation units
 (`Chat.Session.ixx`, `Chat.SystemPrompt.ixx`) and the other in two (`Chat.ModelCatalog.ixx`, `Chat.Settings.ixx`), so the same types arrive under two
 module names in one binary.
@@ -1019,7 +1019,7 @@ them, each fixed or left to the planner; the planner prices the selection exactl
 holds a selection as it holds the rest -- and refuses it naming the feature and what fits without it; a
 feature not selected is not built and allocates nothing. Each feature is a component built or not, never
 a template axis of the core blocks, so a selection is not a new instantiation. Raised by Todd 2026-09-27
-(modality as an axis of the request) and decided 2026-10-04 ("Mila::AI can deploy a model for a specific
+(modality as an axis of the request) and decided 2026-10-04 ("Milo can deploy a model for a specific
 use case; full control of the model features loaded").
 
 Gemma 4's drafter is not part of this: v0.21.0 ships it in each package, on by default where it pays
@@ -1029,10 +1029,10 @@ Gemma 4's drafter is not part of this: v0.21.0 ships it in each package, on by d
 
 ## Other people's tool servers and code an agent writes cannot run held to a grant
 
-`ai`
+`milo`
 
 In v0.21.0 a tool runs in the application's process, held by the grant it works through (`ToolCalling.md` 3.4),
-and one kind of tool runs a program through the grant's container: the Mila app's shell, an experiment off by
+and one kind of tool runs a program through the grant's container: Mila Desktop's shell, an experiment off by
 default (`BACKLOG.md`, `ContainedPrograms.md`, Todd 2026-10-27). What waits: other people's MCP servers started as
 processes, and tools an agent writes, through the same container (`ContainedPrograms.md` phase 4); and the
 container off Windows -- MXC's bubblewrap backend accepts and refuses on Linux as its Windows one does
@@ -1042,9 +1042,9 @@ container off Windows -- MXC's bubblewrap backend accepts and refuses on Linux a
 
 ## A program cannot reach a tool in a process of its own, or offer its tools to other agents
 
-`ai` · `api`
+`milo` · `api`
 
-`Mila::AI` starts with in-process tools only (Todd, 2026-10-25). An MCP client would add local servers started as
+`Milo` starts with in-process tools only (Todd, 2026-10-25). An MCP client would add local servers started as
 processes over stdio and remote servers over HTTP, their tools joining the same registry so the loop and the
 permissions treat them alike; everything a server says is untrusted, and a changed tool list withdraws its
 approvals. An MCP server would let an application offer its tools to other agents. Remote servers' sign-in
@@ -1055,12 +1055,12 @@ specifies is the one `ToolBroker.md` section 5 built.
 
 ## A conversation that fills its context stops, and nothing carries it forward
 
-`ai` · `apps`
+`milo` · `apps`
 
 Chat ends a reply at the context limit ("finish: context_limit") and nothing shortens the history, so a
-long tool session cannot continue. Admitted 2026-10-03 with a `Mila::AI` success
+long tool session cannot continue. Admitted 2026-10-03 with a `Milo` success
 criterion added the same day (Todd): scope grown by decision, not found in passing. Two levels, both
-mechanism in `Mila::AI`: reasoning from earlier turns dropped at turn boundaries -- kept within a turn,
+mechanism in `Milo`: reasoning from earlier turns dropped at turn boundaries -- kept within a turn,
 which is the opposite of the failure in "Gemma loses its own reasoning between tool calls in a turn" --
 and text compaction, the history summarized into a fresh context with instructions kept verbatim,
 reusing the system prompt's cached prefix. It triggers at the configuration's reliable depth, which
@@ -1069,26 +1069,26 @@ saved at the end of each prompt (`savePosition`, `+33`). Compaction in the cache
 this item (`.internal/Ideas/AgentStreams.md`). The loop it extends is built in v0.21.0 (`BACKLOG.md`, *The
 Desktop Agent*).
 
-`ROADMAP.md`, Future, v0.22.0 Mila::AI · `Mila/Specifications/ContextProfile.md`
+`ROADMAP.md`, Future, v0.22.0 Milo · `Mila/Specifications/ContextProfile.md`
 
 ## A program cannot ask for a model set up for its use case
 
-`ai` · `api`
+`milo` · `api`
 
 Choosing a model's features -- an image path, a draft model, a context and a cache format -- is a
 decision every program would make again, and the right defaults are measurements, not guesses: what
 context a model is reliable to (its context profile), what a draft model buys (its measured speedup).
-`Mila::AI` names use cases -- a coding agent, a vision assistant, a long-document reader -- as
+`Milo` names use cases -- a coding agent, a vision assistant, a long-document reader -- as
 selections over the deployment request, each overridable before creation. A preset is a convenience,
 never a second path: it produces an ordinary request, and the plan it produced reads like any other.
 
 The finding is an absence; nothing selects features yet (the entry under Deployment Planning).
 
-`ROADMAP.md`, Future, v0.22.0 Mila::AI
+`ROADMAP.md`, Future, v0.22.0 Milo
 
 ## A program that skips Mila's initialization is told its GPU reports no memory
 
-`ai` · `api` · `mila-src`
+`milo` · `api` · `mila-src`
 
 `Mila::initialize` (`Mila.ixx:443`) sets the log sink and the random seed, which have defaults, and discovers the
 devices by constructing `DeviceRegistrar`, which nothing else does. A program that skips it fails silently
@@ -1106,14 +1106,14 @@ still names the retired operation registry as part of it (`Gelu.ixx:58`, `Residu
 Gate: the ten-line program and the Python QuickStart run with no initialization call, and a device that cannot be
 read is refused naming why.
 
-`ROADMAP.md`, Future, v0.22.0 Mila::AI and A Developer Can Start
+`ROADMAP.md`, Future, v0.22.0 Milo and A Developer Can Start
 
 ## The inference server holds code that knows which model it is running
 
 `apps` · `build` · `breaking`
 
-Rebuilt as a consumer of `Mila::AI`, reaching anything beneath it only through `model()`: the server keeps the
-wire shapes and per-request statelessness. The move to `Mila/Apps/` is not part of this: it is v0.21.0 work
+Rebuilt as a consumer of `Milo`, reaching anything beneath it only through `model()`: the server keeps the
+wire shapes and per-request statelessness. The move out of `Mila/Adaptors/` is not part of this: it is v0.21.0 work
 (`BACKLOG.md`, Internal fixes). Nor is Chat, whose tool calling and model-specific code go in v0.21.0
 (`BACKLOG.md`, *The Desktop Agent*; Chat's half moved there 2026-10-27, Todd). Gate: the server contains no
 model-specific code, and the Codex CLI and Claude Code CLI tool flows still pass unchanged.
@@ -1356,7 +1356,7 @@ larger one at low bits on the same tasks. Open: the use cases, their thresholds,
 
 Raised 2026-10-18 (Todd): publish the results on the website, and give end users a tool that reproduces them. Today
 the evaluations live in `Tools/Evaluation`, which never ships, and the results only in specs and `Data/Evaluation`.
-A shipped tool is a new app under `Mila/Apps/` with a `mila-` command, help text and tests; the lm-eval, bfcl-eval and
+A shipped tool is a new app with a `mila-` command, help text and tests; the lm-eval, bfcl-eval and
 inspect-ai arms bring heavy dependencies and the hf and llama.cpp arms need transformers or a llama.cpp build, while
 the Hermes task set is standard library only and talks only to the server. Not decided: which suites the tool
 carries.
@@ -1383,7 +1383,7 @@ Once per task Hermes 0.22.2 sends a Chat Completions request with `response_form
 2026-10-18 in the Hermes task-set runs). The task itself goes on; not checked what Hermes does with the session after
 the refusal.
 
-`Mila/Apps/Server/src/mila_llm_server/routes/factory.py`
+`MilaServer/src/mila_llm_server/routes/factory.py`
 
 ## Mila's website, README and marketing do not yet say what Mila is
 
@@ -1405,17 +1405,17 @@ the other marketing docs from it.
 
 `Web/` · `README.md` · model cards
 
-## A network a developer composed cannot be put to work through `Mila::AI`
+## A network a developer composed cannot be put to work through `Milo`
 
-`ai` · `api` · `architecture`
+`milo` · `api` · `architecture`
 
 The model handle opens an installed model by name (`0.21.0-dev+96`); a network built from components has no way
 in. `adopt` was to take it, and its shape waits on one question: what `plan()` is for a model the planner did not
 load. The planner needs the package's weights metadata and trained maximum, which a composed network lacks, and a
 network handed over already built has been priced against nothing. Options and the finding are in
 `ModelHandle.md` 10.4; gate H6 (a test composes a small `LanguageModel`, adopts it with no registration, and
-generates through the handle). Moved out of v0.21.0 by Todd, 2026-10-25, so that release finishes the Mila app,
-which opens only installed models; the two ROADMAP criteria and the `Mila::AI` object's gate clause that promised
+generates through the handle). Moved out of v0.21.0 by Todd, 2026-10-25, so that release finishes Mila Desktop,
+which opens only installed models; the two ROADMAP criteria and the `Milo` object's gate clause that promised
 it went with it.
 
-`Mila/Src/AI/ModelHandle.ixx` · `Mila/Specifications/ModelHandle.md` 3.7, 10.4 · `Direction.md` decision 7
+`Mila/Src/Deployment/ModelHandle.ixx` · `Mila/Specifications/ModelHandle.md` 3.7, 10.4 · `Direction.md` decision 7

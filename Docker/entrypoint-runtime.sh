@@ -19,7 +19,7 @@
 set -euo pipefail
 
 # The ENTRYPOINT of the `runtime` tag, installed as /usr/local/bin/mila-entrypoint. It is NOT
-# the `mila-store` command: that is the Mila/Apps/Tools/Store binary in both tags, which reaches
+# the `mila-store` command: that is the Mila/Store binary in both tags, which reaches
 # the store directly and starts nothing. The verbs here are the IMAGE's interface, and the
 # image is where they belong -- it knows where it put the binaries, so it needs none of the
 # discovery a native front door would. MILA_APP_DIR lets the devel tag point at its build tree,

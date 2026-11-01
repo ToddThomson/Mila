@@ -73,7 +73,7 @@ option(MILA_ENABLE_TESTING "Enable Mila Library tests." ${PROJECT_IS_TOP_LEVEL})
 option(MILA_ENABLE_PYTHON_BINDINGS "Build the MilaPy pybind11 extension module." ${PROJECT_IS_TOP_LEVEL})
 option(MILA_ENABLE_PROFILING "Enable Mila Library profiling." ${PROJECT_IS_TOP_LEVEL})
 option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." ${PROJECT_IS_TOP_LEVEL})
-option(MILA_ENABLE_APPS "Build the Mila apps (mila-chat, mila-store)." ${PROJECT_IS_TOP_LEVEL})
+option(MILA_ENABLE_APPS "Build the Mila Desktops (mila-chat, mila-store)." ${PROJECT_IS_TOP_LEVEL})
 # Developer tooling: tokenize, ExportArtifact, the measurement tools. None of it ships -- the
 # wheel excludes it and an embedding consumer just wants the library -- so this follows the same
 # rule as the extras above rather than the bare PROJECT_IS_TOP_LEVEL it used to carry, which
@@ -103,13 +103,9 @@ option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)
 # See Specifications/ModelDistribution.md.
 option(MILA_ENABLE_LIBCURL "Build Mila's libcurl HTTP transport." ON)
 
-# A tool's programs run in Microsoft's MXC container, loaded at run time; experimental in v0.21.0 and
-# Windows only. Off, a grant runs no programs. See Specifications/ContainedPrograms.md 4.11.
-option(MILA_ENABLE_MXC "Run a tool's programs in Microsoft's MXC container (Windows, experimental)." OFF)
-
-# MXC's library, v1.0.1, as Microsoft's release ships it: copied beside mila-session and carried by its
-# installer, with the LICENSE.md beside it when that is there. Empty, the Mila app runs no commands.
-set(MILA_MXC_LIBRARY "" CACHE FILEPATH "mxc_ffi.dll from MXC v1.0.1, carried beside mila-session (MILA_ENABLE_MXC).")
+# Milo, the agentic library on Mila. Like the extras above, on for a top-level build and off for an embedding
+# consumer, who turns it on to have it. Mila builds without it; Chat and Mila Desktop do not.
+option(MILA_ENABLE_MILO "Build Milo, the agentic library on Mila." ${PROJECT_IS_TOP_LEVEL})
 
 option(MILA_ENABLE_CUDA "Enable CUDA compute backend" ON)
 
@@ -352,6 +348,30 @@ endif()
 
 # The Mila library and Doxygen docs
 add_subdirectory( Mila )
+
+if( MILA_ENABLE_MILO )
+    add_subdirectory( Milo )
+endif()
+
+# The apps Mila ships to the people who run it (see MilaProductFamily.md): Mila Chat, a human at a prompt, and Mila
+# Desktop, whose session process is built here. Both run models on Milo, and CUDA is the only compute backend. Gated on
+# MILA_ENABLE_APPS so a consumer embedding Mila builds neither. mila-app packages the session with the window and page,
+# which are Node.
+if( MILA_ENABLE_APPS AND MILA_ENABLE_MILO AND MILA_ENABLE_CUDA )
+    add_subdirectory( MilaChat )
+    add_subdirectory( MilaDesktop )
+elseif( MILA_ENABLE_APPS )
+    message( STATUS "MILA_ENABLE_MILO or MILA_ENABLE_CUDA is OFF - skipping mila-chat and mila-session" )
+endif()
+
+# Mila Server is not a CMake target -- it consumes the Mila Python binding, which is built from Mila/Bindings.
+#
+# CMake does write its version, for the same reason it writes the binding's: the server ships as
+# mila-llm-server, and a hand-maintained number in pyproject.toml is the shape that had already
+# drifted 18 builds for the binding. One SemVer -> PEP 440 mapping serves both
+# (cmake/MilaVersion.cmake); generated, so it is gitignored and a `python -m build` on an
+# unconfigured checkout fails loudly rather than publishing a stale number.
+file( WRITE "${CMAKE_CURRENT_SOURCE_DIR}/MilaServer/VERSION" "${MILA_PEP440_VERSION}\n" )
 
 if( PROJECT_IS_TOP_LEVEL AND MILA_ENABLE_COMMIT_CHECKS )
     find_package( Python3 COMPONENTS Interpreter REQUIRED )

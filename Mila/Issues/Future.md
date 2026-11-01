@@ -639,7 +639,7 @@ distinguishing the runs. `ProgressCallback` is `(received, total)` only (`HttpCl
 CLI cannot label what it is drawing.
 
 Adding the file name, or an (index, count) pair, is a library signature change. The sub-megabyte
-manifest is already suppressed in `Mila/Apps/Tools/Store/Store.ixx`.
+manifest is already suppressed in `Mila/Store/Store.ixx`.
 
 ## `main.cpp` re-checks what the store already guarantees
 
@@ -728,7 +728,7 @@ ROCm and Metal; `DeviceType::Rocm` / `::Metal` are reserved and unimplemented.
 
 Metal, 2026-09-29: aspirational, gated on hardware -- Todd is trying to get an Apple M1, for a Metal backend running
 Llama. As of 2026-10-20 an M1-or-later loaner is expected at the end of October or early November, and macOS is also
-wanted for Chat's desktop window (`MilaApp.md` section 9). What exists is scaffolding --
+wanted for Chat's desktop window (`MilaDesktop.md` section 9). What exists is scaffolding --
 `Compute/Devices/Metal/` has a device, memory resource, execution context and plugin, and no ops. The order that
 follows from the tree: Mila has never been built on ARM (the next entry), so a CPU-only build on the M1 comes first,
 and with `Vnext.md` "Llama 3.2 runs on the CPU backend" it already runs Llama there; then the Llama op set in Metal,
@@ -847,10 +847,10 @@ flash. Either is measured on the G2/L3 protocol against the FP8 cache.
 
 ## Compacted turns stay retrievable
 
-`ai`
+`milo`
 
 Raised 2026-10-03 by Luca (ctx, `github.com/ctxrs/ctx`) about agent harnesses built on Mila: a summary keeps the
-conclusion and loses the evidence -- why an approach failed, what a number was measured on. `Mila::AI` holds the
+conclusion and loses the evidence -- why an approach failed, what a number was measured on. `Milo` holds the
 conversation it compacts, so the original turns could stay addressable afterwards, for example through a tool the
 model calls to search them. A policy over v0.21's compaction, which leaves what a summary keeps to the application.
 
@@ -869,13 +869,13 @@ format at equal or fewer bytes serves them better is unmeasured. `Quantization.m
 
 Raised by Todd 2026-09-27: a GUI whose core comes from Chat, laid out as a sidebar of conversations and a main pane
 (2026-10-20), for media and saved conversations, and as a showcase to developers of what Mila can build -- not an
-end-user product. It needs nothing from `Mila::AI`: Chat's session is split from its console at the presentation
+end-user product. It needs nothing from `Milo`: Chat's session is split from its console at the presentation
 line v0.22.0 also draws, the session runs as its own C++ process speaking a JSON-lines schema on stdio, and the
 window is an HTML page in an Electron client of that process -- one presentation layer for Windows, macOS and Linux
 (Todd, 2026-10-20). Phase 1, the page and the Electron window against a mock session, is to be built by a cloud
 session. Open: the names, and which release takes phases 2 to 4.
 
-`Mila/Specifications/MilaApp.md`
+`Mila/Specifications/MilaDesktop.md`
 
 ## Qwen 3.8 27B FP4 at 64K would need part of its cache in host memory
 
@@ -960,11 +960,11 @@ against. Separate from, and needed alongside, the families having no CPU path (g
 
 ## An agent system around one main model with worker agents across several cards has no design
 
-`ai` · `architecture`
+`milo` · `architecture`
 
 Raised 2026-10-18 (Todd): a system built around a main model that directs worker agents, each on its own card, in a
 multi-card machine -- the counterpart to trading time for quality with one large model on a 16 GB card. Related: the
-layer split across devices (`LayerSplit.md`), `Mila::AI`'s agent core, NVIDIA Dynamo's KV-as-agent-resource framing.
+layer split across devices (`LayerSplit.md`), `Milo`'s agent core, NVIDIA Dynamo's KV-as-agent-resource framing.
 Not designed: which model directs and which work, what crosses between cards, and how a worker's context is managed.
 Todd 2026-10-19: Future or Vnext.
 
@@ -978,7 +978,7 @@ this job too. Only text crosses -- a task in, a summary out -- so it is two serv
 is in the orchestration: when to delegate, how far a worker's summary is trusted. Measured as the Hermes set is:
 main model alone against main model with a worker, pass rate and wall time.
 
-`Mila/Specifications/LayerSplit.md` · `Mila/Src/AI/`
+`Mila/Specifications/LayerSplit.md` · `Milo/Src/`
 
 ## Mila runs no image-generation model
 

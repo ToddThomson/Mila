@@ -39,7 +39,7 @@ map (`common.expand_qwen_tensor_map`) so a quantizing packer rearranges identica
      computes. The singleton axis is torch's Conv1d input-group axis and is dropped.
 
   4. Write norm weights RAW. Qwen's stream norms scale by (1 + weight) with weights
-     stored zero-centered, and Mila applies the +1 at the kernel
+     stored zero-centered, and Mila Desktoplies the +1 at the kernel
      (RmsNormConfig::withUnitOffset), so stored weights stay identical to the
      checkpoint. Do NOT pre-add 1. `linear_attn.norm` -- the DeltaNet mixer's gated
      norm -- is genuinely raw on both sides and needs no distinction here, but the two

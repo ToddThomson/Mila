@@ -136,7 +136,7 @@ both bridges, `prompt.py` and every `loaded.family` branch are deleted. A new fa
 and a new API needs only its parser and formatter.
 
 How the server obtains the protocol depends on the release (10.1): a binding object over the library's
-`Protocol` in v0.21, or the handle's `protocol()` once the server consumes `Mila::AI`. The endpoint code is the
+`Protocol` in v0.21, or the handle's `protocol()` once the server consumes `Milo`. The endpoint code is the
 same either way, which is what makes doing it before the handle worthwhile.
 
 ### 3.4 One generation path
@@ -374,13 +374,13 @@ functions (`gemma_format_prompt`, `qwen_parse_tool_call` and the rest).
 ## 10. Open Decisions
 
 1. **The release.** v0.21.0's Applications Ship asks that the server run every published model *correctly*;
-   v0.22.0's Applications asks that it contain no model-specific code, once it consumes `Mila::AI`. The second
+   v0.22.0's Applications asks that it contain no model-specific code, once it consumes `Milo`. The second
    is where the server is going -- Mila as a family-blind harness over models (Todd, 2026-10-13) -- so v0.21's
    correctness is reached on that road, not beside it. Phases 1-3 meet both, and the endpoint code is the same
    either side of the handle (3.3). Recommend Phases 1-3 in v0.21.0, Phase 4 in v0.22.0. The alternative --
    patch Chat Completions now and do this in v0.22.0 -- is the rejected alternative in section 4.
 2. **Where the server gets the protocol in v0.21.** A binding object per loaded model (Phase 2), or the free
-   functions behind one family-neutral binding call. Recommend the object: it is what `Mila::AI` will hand
+   functions behind one family-neutral binding call. Recommend the object: it is what `Milo` will hand
    out.
 3. **`tool_choice` beyond `auto` and `none`.** `required` and a named function can be asked of the model in the
    prompt, or enforced, which needs constrained decoding. Asking is not doing (3.6). Recommend refusing them

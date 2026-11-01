@@ -1,13 +1,13 @@
 # Tool Calling
 
-How a model's tool calls run through `Mila::AI`: what the Mila library provides and what an application brings.
+How a model's tool calls run through Milo: what the library provides and what an application brings.
 
 **Status:** design, agreed 2026-10-25 (Todd), conceptually and with no release attached. Built to it at `+97`:
-`Mila::AI::Agent` (`Mila/Src/AI/Agent.ixx`) with tools registered as a callable and a schema, the ask hook and its
+`Milo::Agent` (`Milo/Src/Agent.ixx`) with tools registered as a callable and a schema, the ask hook and its
 three answers, no hook meaning deny, a call of a tool not offered or a tool that throws answered with an error result,
 and a stopped reply running no waiting call. Built at `+98`: section 4's limits per response (`AgentLimits` --
 rounds, time, reply tokens, none set by default), a stop or the time running out asking a running call to stop, and
-a result the context cannot hold cut to what fits and the model told so; Chat and the Mila app's session run
+a result the context cannot hold cut to what fits and the model told so; Chat and Mila Desktop's session run
 their calls through the agent and hold no loop of their own. Built at `+99`: section 4's splice -- within a response
 each round continues from the reply as generated and the results as the template frames them
 (`Protocol::continueWithToolResults`), and Qwen continues from the state its last generation left. Built at
@@ -24,19 +24,19 @@ is refit to this one. Open decisions are in section 9.
 
 ## 1. The rule
 
-**The Mila library provides everything a developer needs to build an application like the Mila app**
-(`MilaApp.md`). An agent's tools are the core of that app, so tool calling is the library's. Leaving it to
-each application would either give the Mila app a capability the library lacks (`Direction.md` 3.3) or require a
+**The Mila library provides everything a developer needs to build an application like Mila Desktop**
+(`MilaDesktop.md`). An agent's tools are the core of that app, so tool calling is the library's. Leaving it to
+each application would either give Mila Desktop a capability the library lacks (`Direction.md` 3.3) or require a
 second harness library, which would be Mila under another name.
 
 Two further reasons put it in the library and not in a harness across a wire. A tool result's tokens can be
 appended to the live KV cache, with no re-render and no re-tokenize (section 4), only when the loop runs in the
 process that holds the model. And how each model writes a call and expects a result is the model's own grammar.
 
-There are two pieces: **the Mila library**, which the application links, with `Mila::AI` a namespace and API inside
-it on top of the model; and, at most later, a process outside it (section 7).
+There are two pieces: **Milo**, which the application links beside Mila, a library on top of the model; and, at most
+later, a process outside it (section 7).
 
-**Through `Mila::AI`, the application never runs a model's tool call itself.** It supplies tools and a way to ask
+**Through `Milo`, the application never runs a model's tool call itself.** It supplies tools and a way to ask
 the person; Mila parses the call, checks it, runs it and puts the result back into the turn. An application that
 wants to run calls its own way works at the model level (`Mila::Dnn` and the handle) and does so there: an explicit
 choice to leave the structure, not a way around it.
@@ -51,7 +51,7 @@ choice to leave the structure, not a way around it.
   arguments, never a family. Whether a model calls tools, or several at once, is a declared capability
   (`ModelHandle.md`). The inference server works at this level: it parses a call and returns it, since the outside
   harness owns its tools.
-- **The agent, in `Mila::AI`:** the loop of section 4 and the four pieces of section 3. Every call it parses runs
+- **The agent, in `Milo`:** the loop of section 4 and the four pieces of section 3. Every call it parses runs
   through them.
 
 ## 3. The four pieces
@@ -92,7 +92,7 @@ How a call reaches the tool. **Initially in-process only:** a function of the ap
 
 ### 3.3 Permissions
 
-A gate that every call passes; inside `Mila::AI` there is no path to execution around it.
+A gate that every call passes; inside `Milo` there is no path to execution around it.
 
 - **In:** the agent, the tool, the arguments and the tool's declared needs. **Out:** allow, ask or deny, and with
   allow a **grant** -- which folders, read-only or read-write, and whether the network -- and the call's time and
@@ -202,7 +202,7 @@ operating-system sandbox's own measurement (`Vnext.md`), not to the grant's.
 
 ## 5. What the application brings
 
-- **The tools.** Mila ships none (Todd, 2026-10-25). The Mila app's tools for files and the web are its own
+- **The tools.** Mila ships none (Todd, 2026-10-25). Mila Desktop's tools for files and the web are its own
   code, the first written through grants, and a developer's program could write the same.
 - **Its default rules,** and where the person's rules are kept and how they are edited: a file, a settings page, a
   command.
@@ -247,8 +247,8 @@ system's file and socket calls for the grant; HTTP, TLS and process launching co
    transport (`ToolGrant::transport`), libcurl with each connection's address checked before it is made, so every
    connection, a redirect's included, is checked. A transport the application supplies, such as the Python
    binding's, is never a grant's.
-4. **Where `Mila::AI` sits in the build.** *Directory decided 2026-10-25 (Todd): `Mila/Src/AI/`, built into the
-   Mila target* (`ModelHandle.md` 3.5). Still open: whether the tool pieces become a target of their own, so a
+4. **Where Milo sits in the build.** *Decided 2026-10-31 (Todd), replacing a directory built into the Mila target of
+   2026-10-25: a library of its own, `Milo/Src/`, target `Milo`* (`Direction.md` decision 2). Still open: whether the tool pieces become a target of their own, so a
    program wanting tools alone needs no GPU stack -- asked when such a program exists.
 5. **The record of a call.** *Decided 2026-10-26 (Todd):* the event of each call answered carries the decision and
    who made it (`ToolDecision`), how long the tool ran and the size of what it returned; it carries the call, so
@@ -258,7 +258,7 @@ system's file and socket calls for the grant; HTTP, TLS and process launching co
 
 - `Direction.md` 3 and 8 -- the layering and decision 6, which point here.
 - `ModelHandle.md` -- the handle the grammar of section 2 lives on, and its declared capabilities.
-- `MilaApp.md` 4.5 -- the Mila app's question and answers, which this design's hook presents.
+- `MilaDesktop.md` 4.5 -- Mila Desktop's question and answers, which this design's hook presents.
 - `ToolBroker.md` -- the earlier design; its approval round trip informs section 6, its checks are section 3.4's.
 - `Notebooks/LocalToolService.md` -- the reading behind both: placement, identity, secrets, the round trip
   measured, and prior art.
