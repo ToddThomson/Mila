@@ -423,11 +423,11 @@ section 9.1) (`Desktop.SessionProcess.ixx`, `Desktop.ConversationStore.ixx`):
   app's: the planner caps it at the model's trained maximum (`Notebooks/SessionInventory.md` decision 1).
 - **Activities** (3.1, 2026-10-26). A conversation is Ask & Explore, with the `ask` prompt and no tools, at the
   limits of a chat (four rounds, a reply of 2,048 tokens), or Build & Code, with the `files` prompt beside the
-  program -- the activities' prompts are in `MilaDesktop/Prompts`, read by `Desktop.PromptFile.ixx` -- and the file tools over the conversation's
-  folder (`Desktop.FileTools.ixx`): `list_folder`, `read_file`, `find_files`, `search_text`, `write_file` and
+  program -- the activities' prompts are in `MilaDesktop/Prompts`, read by `Desktop.PromptFile.ixx`, naming each tool Milo provides and describing each of the app's own -- and the file tools over the conversation's
+  folder (`Milo.FileTools`): `list_folder`, `read_file`, `find_files`, `search_text`, `write_file` and
   `edit_file`, paths relative to the folder; or Research & Analyze, with the `research` prompt and `read_web_page`
-  (`Desktop.WebPageReader.ixx`): a page fetched over Mila's own HTTP transport, following at most five redirects and
-  only to http and https, cut at 4 MiB, and read as text (`Desktop.HtmlText.ixx`, its own test target) in parts of
+  (`Milo.WebPageReader`): a page fetched over Mila's own HTTP transport, following at most five redirects and
+  only to http and https, cut at 4 MiB, and read as text (`Milo.HtmlText`, its own test target) in parts of
   40,000 characters. The model stays resident across the change: the session gives the agent
   the activity's prompt and tools (`Session::withSystemPrompt`, over `Session::withoutTools`), and its grant
   (`Session::withGrant`, `ToolCalling.md` 3.4): none for Ask & Explore, the folder read-write for Build & Code,

@@ -6,12 +6,12 @@
 #include <gtest/gtest.h>
 #include <string>
 
-import Desktop.HtmlText;
+import Milo.HtmlText;
 
-namespace Mila::Tests::Desktop
+namespace Mila::Tests::Milo
 {
-    using Mila::Desktop::pageTitle;
-    using Mila::Desktop::readableText;
+    using ::Milo::pageTitle;
+    using ::Milo::readableText;
 
     TEST( HtmlText, ParagraphsAreSeparatedByABlankLineAndSpacesCollapse )
     {

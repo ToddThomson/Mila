@@ -176,7 +176,8 @@ operating-system sandbox's own measurement (`Vnext.md`), not to the grant's.
   and continue the same turn, until the model gives its answer.
 - **Limits per turn:** the most tool rounds, the total time, the reply budget. Stopping a reply cancels a call that
   is waiting or running. *Decided 2026-10-25 (Todd):* the library sets none by default -- the context bounds a
-  response that has none -- and an application sets its own; Chat keeps the four rounds it has always run, a number
+  response that has none -- and an application sets its own; Chat keeps the four rounds it has always run, except
+  with the tools Milo provides, whose work takes more, where it sets none, as Build & Code does; a number
   no measurement set. The reply budget counts every round's tokens. The time the person takes to answer a question
   is not the response's. The calls of the last round allowed are answered as not run, since no round would read
   their results. A running call is asked to stop through a `std::stop_token`; an in-process tool can only
@@ -202,8 +203,13 @@ operating-system sandbox's own measurement (`Vnext.md`), not to the grant's.
 
 ## 5. What the application brings
 
-- **The tools.** Mila ships none (Todd, 2026-10-25). Mila Desktop's tools for files and the web are its own
-  code, the first written through grants, and a developer's program could write the same.
+- **Which tools it offers, and any of its own.** Mila ships none. *Decided 2026-11-01 (Todd), replacing "the tools are
+  all the application's" of 2026-10-25:* Milo provides the tools two applications offer, since neither may be built
+  from the other's code: the six file tools (`FileTools`) and reading a web page (`WebPageReader`), each carrying its
+  name, description, schema, summary and needs, each written through its grant. Offering one is the application's
+  act: a prompt file names it, and the application gives the folder or network it works through. A tool only one
+  application has stays its own: Mila Desktop's command, plan and web search tools. A tool moves into Milo when a
+  second application needs it.
 - **Its default rules,** and where the person's rules are kept and how they are edited: a file, a settings page, a
   command.
 - **How a question looks:** a window, a console line, or nothing for a headless program.

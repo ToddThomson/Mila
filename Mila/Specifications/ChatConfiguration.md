@@ -642,6 +642,12 @@ this codebase and most others marks a file a user wrote and git ignores.
 | `Data/assistant-tools.json` | `Prompts/tools.json` | full tool set |
 | `Data/assistant-tools-one.json` | `Prompts/tools-single.json` | one-tool variant |
 | `Data/session*.json` | (deleted) | every key they held is now a default or a measurement, §7 |
+| (new, 2026-11-01) | `Prompts/files.json` | the file tools Milo provides, in the folder `folder` names |
+| (new, 2026-11-01) | `Prompts/web.json` | reading a web page, which Milo provides, when `web` is true |
+
+A prompt offers a tool Milo provides by naming it, `"tools": [ "read_file" ]`, and describes any other. A prompt naming
+one with nothing to work through is refused, and so is a `folder` or `web` given to a prompt that offers no tool to use
+it, each saying what to add; so neither can leave a person thinking a session can do what it cannot.
 
 The default prompt is then the one whose name says default, and the name that reads like a user
 override belongs to a user. `Data/` is removed rather than emptied.
@@ -674,6 +680,8 @@ user types rather than for its build target.
 | `--context-length` | integer or `auto` | spelled as the key it overrides |
 | `--device` | integer, 0 or more | the CUDA ordinal; spelled as the key it overrides |
 | `--system-prompt` | name or path | resolved against the working directory, per §8 |
+| `--folder` | path | the folder the file tools work in; the key `folder`, a relative path resolving as §8's does |
+| `--web` | — | lets the web tool read public pages; the key `web`, true or false |
 | `--output-format` | `text` (default) or `json` | meaningful only in one shot (`-p` or `--prompt-file`) |
 | `--version` | — | |
 | `--help`, `-h` | — | |

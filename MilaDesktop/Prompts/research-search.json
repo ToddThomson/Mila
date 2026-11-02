@@ -22,26 +22,6 @@
         ]
       }
     },
-    {
-      "name": "read_web_page",
-      "description": "Read a web page as text. Links on the page are shown with their addresses, so you can read on from them. A long page is read in parts.",
-      "summary": "Reading {url}",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "url": {
-            "type": "string",
-            "description": "The page's address, starting http:// or https://."
-          },
-          "start": {
-            "type": "integer",
-            "description": "The character to start from, to read on in a long page. Default 0."
-          }
-        },
-        "required": [
-          "url"
-        ]
-      }
-    }
+    "read_web_page"
   ]
 }

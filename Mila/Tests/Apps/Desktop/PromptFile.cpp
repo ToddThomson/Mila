@@ -5,6 +5,7 @@
  */
 
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <atomic>
 #include <filesystem>
 #include <format>
@@ -18,6 +19,7 @@
 
 import Desktop.PromptTool;
 import Desktop.PromptFile;
+import Milo;
 
 namespace Mila::Tests::Apps::Desktop
 {
@@ -82,8 +84,11 @@ namespace Mila::Tests::Apps::Desktop
     TEST( PromptFileShipped, EveryActivitysPromptLoadsWithItsTools )
     {
         const std::vector<std::pair<std::string_view, std::size_t>> expected{
-            { "ask.json", 0 }, { "files.json", 6 }, { "research.json", 1 }, { "research-search.json", 2 },
-            { "tasks.json", 9 }, { "tasks-search.json", 10 } };
+            { "ask.json", 0 }, { "files.json", 6 }, { "files-commands.json", 7 }, { "research.json", 1 },
+            { "research-search.json", 2 }, { "tasks.json", 9 }, { "tasks-search.json", 10 } };
+
+        std::vector<Milo::Tool> provided = Milo::FileTools::tools();
+        provided.push_back( Milo::WebPageReader::tool() );
 
         for ( const auto& [name, tools] : expected )
         {
@@ -94,6 +99,14 @@ namespace Mila::Tests::Apps::Desktop
 
             for ( const PromptTool& tool : prompt.tools )
             {
+                // A tool the file only names is one Milo provides; the session takes the rest from Milo.
+                if ( tool.description.empty() )
+                {
+                    EXPECT_NE( std::ranges::find( provided, tool.name, &Milo::Tool::name ), provided.end() ) << name << " " << tool.name;
+
+                    continue;
+                }
+
                 EXPECT_TRUE( tool.parameters.starts_with( R"({"type":"object")" ) ) << name << " " << tool.name;
                 EXPECT_FALSE( tool.summary.empty() ) << name << " " << tool.name;
             }
@@ -109,6 +122,15 @@ namespace Mila::Tests::Apps::Desktop
         ASSERT_EQ( prompt.tools.size(), 1u );
         EXPECT_EQ( prompt.tools.front().parameters,
             R"({"type":"object","properties":{"zebra":{"type":"string","description":"Last."},"apple":{"type":"string","description":"First."}},"required":["zebra"]})" );
+    }
+
+    TEST_F( PromptFileTest, AToolNamedByAStringHasOnlyItsName )
+    {
+        const PromptFile prompt = PromptFile::load( store( R"({ "system_prompt": "Help.", "tools": [ "read_file" ] })" ) );
+
+        ASSERT_EQ( prompt.tools.size(), 1u );
+        EXPECT_EQ( prompt.tools.front().name, "read_file" );
+        EXPECT_TRUE( prompt.tools.front().description.empty() );
     }
 
     TEST_F( PromptFileTest, APromptWithNoSystemPromptIsRefused )

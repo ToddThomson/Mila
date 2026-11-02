@@ -217,7 +217,7 @@ grant reads what the person keeps under `HKCU`, which no grant gives. It is a kn
 
 ## 5. The first tool: running a command in Build & Code
 
-- **`run_command`**, Mila Desktop's own (Mila ships no tools): arguments `command`, an optional time, and an optional
+- **`run_command`**, Mila Desktop's own, not one of the tools Milo provides (`ToolCalling.md` 5): arguments `command`, an optional time, and an optional
   `network`, false unless the model sets it; needs: reads and writes files, runs programs, uses the network. The
   conversation's grant holds the network, and the tool narrows it away for every call that does not ask for it, so
   a call never reaches more than its grant (4.1). With the network, a command reaches public addresses only (4.5).

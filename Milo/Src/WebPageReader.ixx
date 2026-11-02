@@ -1,19 +1,21 @@
 /**
- * @file Desktop.WebPageReader.ixx
- * @brief Mila Desktop's web tool: a page fetched over HTTP or HTTPS and given to the model as readable text
- *        (ToolCalling.md section 5).
+ * @file WebPageReader.ixx
+ * @brief The web tool both applications offer: a page fetched over HTTP or HTTPS and given to the model as readable
+ *        text (ToolCalling.md section 5).
  */
 
-export module Desktop.WebPageReader;
+export module Milo.WebPageReader;
 
 import std;
 import nlohmann.json;
-import Desktop.HtmlText;
+import Distribution.HttpClient;
+import Distribution.HttpTransport;
+import Milo.HtmlText;
+import Milo.Tool;
+import Milo.ToolGrant;
+import Milo.ToolNeeds;
 
-import Mila;
-import Milo;
-
-namespace Mila::Desktop
+namespace Milo
 {
     using Mila::Distribution::HttpFetch;
     using Mila::Distribution::HttpResponse;
@@ -31,11 +33,43 @@ namespace Mila::Desktop
     {
     public:
 
-        /// The tool's name, as the research prompt defines it.
-        static constexpr std::string_view kName = "read_web_page";
+        /// The tool, with what the model is told, what the person is shown and what it needs.
+        [[nodiscard]] static Tool tool()
+        {
+            Tool tool;
+            tool.name = "read_web_page";
+            tool.description = "Read a web page as text. Links on the page are shown with their addresses, so you can read on from them. A long page is read in parts.";
 
-        /// `url`, and optionally `start`, the character the part read begins at.
-        [[nodiscard]] static std::string read( const std::string& arguments_text, const Milo::ToolGrant& grant )
+            // Ordered, so the schema reaches the model with its keys as written here.
+            tool.parameters = nlohmann::ordered_json::parse( R"json({
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string",
+                      "description": "The page's address, starting http:// or https://."
+                    },
+                    "start": {
+                      "type": "integer",
+                      "description": "The character to start from, to read on in a long page. Default 0."
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ]
+                })json" ).dump();
+            tool.run = []( std::string_view arguments, const ToolGrant& grant, std::stop_token )
+                {
+                    return read( std::string( arguments ), *grant.transport() );
+                };
+            tool.source = "Milo";
+            tool.summary = "Reading {url}";
+            tool.needs.uses_network = true;
+
+            return tool;
+        }
+
+        /// `url`, and optionally `start`, the character the part read begins at; fetched through this transport.
+        [[nodiscard]] static std::string read( const std::string& arguments_text, const IHttpTransport& transport )
         {
             const auto arguments = nlohmann::json::parse( arguments_text );
             const std::string url = arguments.at( "url" ).get<std::string>();
@@ -45,7 +79,7 @@ namespace Mila::Desktop
             if ( !isWebAddress( url ) )
                 throw std::runtime_error( std::format( "'{}' is not a web address; give one starting http:// or https://", url ) );
 
-            const auto [final_url, body] = fetch( url, *grant.transport() );
+            const auto [final_url, body] = fetch( url, transport );
             std::string title;
             std::string text;
 

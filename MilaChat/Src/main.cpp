@@ -302,6 +302,14 @@ static CommandLine parseCommandLine( int argc, char* argv[] )
             line.overrides[ "system_prompt_path" ] =
                 std::string( requireValue( argc, argv, i, arg ) );
         }
+        else if ( arg == "--folder" )
+        {
+            line.overrides[ "folder" ] = std::string( requireValue( argc, argv, i, arg ) );
+        }
+        else if ( arg == "--web" )
+        {
+            line.overrides[ "web" ] = true;
+        }
         else if ( arg == "-p" )
         {
             if ( line.one_shot )
@@ -361,6 +369,9 @@ static void printUsage( const char* prog_name )
         << "  --system-prompt <name> A prompt name, or a path to a JSON file holding a\n"
         << "                         system_prompt and optional tools. A path resolves\n"
         << "                         against the working directory.\n"
+        << "  --folder <path>        The folder the file tools work in. With --system-prompt files.\n"
+        << "                         You are asked before each call, and shown what it can reach.\n"
+        << "  --web                  Let the web tool read public web pages. With --system-prompt web.\n"
         << "  --settings <path>      A JSON config file, read as part of this run.\n"
         << "  --output-format <fmt>  text (default) or json. With -p only.\n"
         << "  --version              Print the Mila version and exit.\n"
@@ -389,9 +400,13 @@ static void printUsage( const char* prog_name )
         << "                     (Qwen 3.8: low, medium, xhigh). Left out, the model's default.\n"
         << "                     Reasoning is surfaced whenever the model has that channel.\n"
         << "  verbose            display detail: off | thoughts | all (default off).\n"
-        << "  system_prompt_path A prompt name (assistant, tools, tools-weather,\n"
+        << "  system_prompt_path A prompt name (assistant, files, web, tools, tools-weather,\n"
         << "                     tools-single), or a path. A relative path resolves against\n"
         << "                     the directory of the file that set it.\n"
+        << "  folder             The folder the file tools work in. A relative path resolves as\n"
+        << "                     system_prompt_path's does. Needs a prompt that offers them.\n"
+        << "  web                true to let the web tool read public web pages. Needs a prompt\n"
+        << "                     that offers it.\n"
         << "  temperature, top_k, top_p, presence_penalty\n"
         << "                     Sampling. Each one you leave out follows the model's\n"
         << "                     recommended setting, which changes with /thinking.\n"

@@ -54,6 +54,9 @@ namespace Mila::ChatApp
         // {location}"). Empty falls back to a generic "Calling <name>" line. This is
         // display-only; it is never sent to the model.
         std::string summary;
+
+        // A tool Milo provides, which the file only names: Milo's own description, schema and summary are used.
+        bool named{ false };
     };
 
     /**
@@ -94,7 +97,8 @@ namespace Mila::ChatApp
      * }
      * @endcode
      *
-     * The tools array is optional. system_prompt is required.
+     * The tools array is optional. system_prompt is required. A tool Milo provides is named by a string in the
+     * array, "read_file", rather than described.
      */
     export class SystemPromptLoader
     {
@@ -158,6 +162,15 @@ namespace Mila::ChatApp
             const nlohmann::json& j,
             const std::filesystem::path& path )
         {
+            if ( j.is_string() )
+            {
+                ToolDefinition named;
+                named.name = j.get<std::string>();
+                named.named = true;
+
+                return named;
+            }
+
             if ( !j.contains( "name" ) || !j[ "name" ].is_string() )
             {
                 throw std::runtime_error(

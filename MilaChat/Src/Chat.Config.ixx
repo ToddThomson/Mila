@@ -128,6 +128,12 @@ namespace Mila::ChatApp
         bool                  context_is_automatic{ false };
 
         std::optional<std::filesystem::path> system_prompt_path;
+
+        /// The folder the file tools work in, when a person named one; with none, a prompt naming them is refused.
+        std::optional<std::filesystem::path> tool_folder;
+
+        /// Whether the web tool may reach the network; with false, a prompt naming it is refused.
+        bool tool_web{ false };
     };
 
     /**

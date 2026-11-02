@@ -644,6 +644,36 @@ namespace Mila::ChatApp
                 settings.describeOrigin( "system_prompt_path" ) );
         }
 
+        if ( const std::string folder = readString( settings, "folder" ); !folder.empty() )
+        {
+            // As system_prompt_path: a relative path set by a file resolves against that file, and one typed on the
+            // command line against the working directory. A file holds UTF-8; a flag holds the system's code page.
+            const auto origin = settings.originOf( "folder" );
+            const bool from_file = origin && !origin->file.empty();
+            std::filesystem::path resolved = from_file
+                ? std::filesystem::path( std::u8string( folder.begin(), folder.end() ) )
+                : std::filesystem::path( folder );
+
+            if ( resolved.is_relative() && from_file )
+                resolved = origin->file.parent_path() / resolved;
+
+            if ( !std::filesystem::is_directory( resolved ) )
+            {
+                throw ConfigError( std::format( "folder ({}): no such folder: {}",
+                    settings.describeOrigin( "folder" ), std::filesystem::absolute( resolved ).string() ) );
+            }
+
+            config.tool_folder = std::filesystem::absolute( resolved );
+        }
+
+        if ( const nlohmann::json* web = findSetting( settings, "web" ) )
+        {
+            if ( !web->is_boolean() )
+                throw badValue( settings, "web", "true or false", *web );
+
+            config.tool_web = web->get<bool>();
+        }
+
         return config;
     }
 }

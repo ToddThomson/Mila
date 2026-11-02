@@ -10,7 +10,6 @@ import std;
 import nlohmann.json;
 import Desktop.CommandTool;
 import Desktop.ConversationStore;
-import Desktop.FileTools;
 import Desktop.Models;
 import Desktop.PromptFile;
 import Desktop.ProgramSetup;
@@ -21,7 +20,6 @@ import Desktop.SearchKeyFile;
 import Desktop.Settings;
 import Desktop.SettingsFile;
 import Desktop.TaskPlan;
-import Desktop.WebPageReader;
 import Desktop.WebSearch;
 
 import Mila;
@@ -142,23 +140,12 @@ namespace Mila::Desktop
                     return result;
                 } );
 
-            Milo::ToolNeeds network;
-            network.uses_network = true;
-
-            registerTool( std::string( WebPageReader::kName ), network,
-                []( const std::string& arguments, const Milo::ToolGrant& grant, std::stop_token )
-                {
-                    return WebPageReader::read( arguments, grant );
-                } );
+            useMiloTool( Milo::WebPageReader::tool() );
 
             // Registered once; each call reaches the folder of the conversation it belongs to, through its grant.
-            for ( const std::string_view name : FileTools::kNames )
+            for ( Milo::Tool& tool : Milo::FileTools::tools() )
             {
-                registerTool( std::string( name ), FileTools::needsOf( name ),
-                    [name]( const std::string& arguments, const Milo::ToolGrant& grant, std::stop_token )
-                    {
-                        return FileTools::run( name, arguments, grant );
-                    } );
+                useMiloTool( std::move( tool ) );
             }
 
             if ( const std::optional<std::string> key = search_key_file_.read() )
@@ -1062,6 +1049,29 @@ namespace Mila::Desktop
 
             session().withSystemPrompt( std::move( prompt.system_prompt ) );
             prompt_tools_ = std::move( prompt.tools );
+
+            for ( PromptTool& named : prompt_tools_ )
+            {
+                if ( !named.description.empty() )
+                {
+                    continue;
+                }
+
+                const auto tool = std::ranges::find( milo_tools_, named.name, &Milo::Tool::name );
+
+                if ( tool == milo_tools_.end() )
+                {
+                    const std::u8string file = path.u8string();
+
+                    throw std::runtime_error( std::format( "the prompt {} names a tool Milo does not have: {}",
+                        std::string( file.begin(), file.end() ), named.name ) );
+                }
+
+                named.description = tool->description;
+                named.parameters = tool->parameters;
+                named.summary = tool->summary;
+            }
+
             offerTools();
         }
 
@@ -1078,6 +1088,18 @@ namespace Mila::Desktop
         void registerTool( std::string name, Milo::ToolNeeds needs, Handler handler )
         {
             handlers_.insert_or_assign( std::move( name ), std::pair{ needs, std::move( handler ) } );
+        }
+
+        /// A tool Milo provides, which a prompt names rather than describes.
+        void useMiloTool( Milo::Tool tool )
+        {
+            registerTool( tool.name, tool.needs,
+                [run = tool.run]( const std::string& arguments, const Milo::ToolGrant& grant, std::stop_token stop )
+                {
+                    return run( arguments, grant, stop );
+                } );
+
+            milo_tools_.push_back( std::move( tool ) );
         }
 
         /**
@@ -2202,6 +2224,7 @@ namespace Mila::Desktop
 
         // The tools the activity's prompt describes, for the line each call is shown with.
         std::vector<PromptTool> prompt_tools_;
+        std::vector<Milo::Tool> milo_tools_;
 
         // Set while the person has given a search key; the web_search tool is offered only then.
         std::optional<WebSearch> web_search_;

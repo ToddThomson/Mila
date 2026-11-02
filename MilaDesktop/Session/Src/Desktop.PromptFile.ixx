@@ -15,11 +15,12 @@ namespace Mila::Desktop
      * @brief One activity's prompt file, shipped beside the session in Prompts (MilaDesktop.md 3.1).
      *
      * @code
-     * { "system_prompt": "...", "tools": [ { "name": "read_file", "description": "...", "summary": "Reading {path}",
-     *   "parameters": { "type": "object", ... } } ] }
+     * { "system_prompt": "...", "tools": [ "read_file", { "name": "propose_plan", "description": "...",
+     *   "summary": "Proposing a plan", "parameters": { "type": "object", ... } } ] }
      * @endcode
      *
-     * The tools are optional; each needs a name and a description, and parameters, when given, an object.
+     * The tools are optional. A tool Milo provides is named by a string; one of the session's own needs a name and a
+     * description, and parameters, when given, an object.
      */
     export struct PromptFile
     {
@@ -78,6 +79,14 @@ namespace Mila::Desktop
 
         static PromptTool readTool( const nlohmann::ordered_json& stored, const std::string& file )
         {
+            if ( stored.is_string() )
+            {
+                PromptTool named;
+                named.name = stored.get<std::string>();
+
+                return named;
+            }
+
             if ( !stored.is_object() || !stored.contains( "name" ) || !stored[ "name" ].is_string() )
             {
                 throw std::runtime_error( std::format( "a tool in the prompt {} has no name", file ) );

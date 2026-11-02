@@ -104,16 +104,6 @@ grant of folders throws and a tool reaches none. The likely route is Linux's `op
 a held folder descriptor (Linux 5.6, man7.org openat2(2)), which decides in the kernel rather than by a final path,
 plus a link-count check for hard links, which the man page does not mention. Unmeasured; macOS not looked at.
 
-## Neither Chat nor Mila Desktop shows the person what a tool call would reach
-
-`MilaChat/Src/Chat.Session.ixx` `askAboutCall`; an absence -- the question's needs and grant are not shown @ f42c0d95
-
-`ToolCalling.md` 3.3 says the person is shown the tool's name and summary, every argument, and what it will touch.
-`ToolQuestion` carries all of it, the grant included since `+103`, but `askAboutCall` passes on only the name and
-the arguments, so the console line and Mila Desktop's approval card show neither the summary, the needs nor the
-folders and network the call would be given. Mila Desktop's card is `MilaDesktop.md` 4.5's schema, so showing them is a
-protocol change too.
-
 ## Nobody has read whether Tavily's terms let Mila Desktop keep search results in a saved conversation
 
 `MilaDesktop/Session/Src/Desktop.WebSearch.ixx`; an absence -- Tavily's terms of service not read @ da647c29

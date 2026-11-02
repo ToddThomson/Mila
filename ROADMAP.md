@@ -241,8 +241,9 @@ from v0.22.0 what tool calling stands on: the model's tool grammar on the model 
 let one loop drive every family, and `Milo` itself, whose tool loop appends each result's tokens to the live
 cache instead of reading the conversation again. On it: tools that declare what they touch, permissions every call
 passes, with the app's hook for asking the person, and a grant through which a tool opens files and makes
-connections, which holds it to the folder and to public addresses. Mila ships no tools: Mila Desktop's file and
-web tools are its own code, the first written through grants. And an agent holds a session -- what the program
+connections, which holds it to the folder and to public addresses. Mila ships no tools. Milo provides the file and web
+tools both apps offer, written through grants, and Chat offers them as Mila Desktop does: a person names a folder or
+allows the web, and is asked before each call and shown what it can reach. And an agent holds a session -- what the program
 gave it and the conversation -- apart from its model, so a program changes model or context without losing either;
 Mila Desktop and Chat each build on the library alone for that, with no family-specific code of their own (`Direction.md` 4.3, Todd, 2026-10-27). One program-running tool comes in as an
 experiment, off by default: the grant runs a program in Microsoft's execution container, held to the folder, the
@@ -258,7 +259,8 @@ a tool working through its grant cannot read or write outside the chosen folder 
 reaches no private or local address by name, by literal address or through a redirect, shown by a test per kind of
 name and address that is refused; Mila Desktop and Chat run every tool call through `Milo`,
 and neither runs a call itself nor holds a model's tool grammar; the console Chat asks before a tool runs, as the
-window does; a program built against the library alone registers a tool and runs it under `Milo`'s permissions
+window does, and edits a file in a folder the person named and reads a web page through the same tools the window
+offers; a program built against the library alone registers a tool and runs it under `Milo`'s permissions
 on Gemma, Llama and Qwen by changing only the model's name, `plan()` and `model()` reaching the objects that ran;
 the agent level is a library of its own, Milo, built on Mila, and Mila builds without it; a program changes its model, or its context, and keeps its tools, rules, grant and conversation; Mila Desktop and
 Chat each build on `Milo` alone, neither linking the other's code, and neither holds code that knows which family

@@ -21,14 +21,11 @@ PUBLIC
         "Src/Desktop.Models.ixx"
         "Src/Desktop.RoundTimer.ixx"
         "Src/Desktop.ConversationStore.ixx"
-        "Src/Desktop.FileTools.ixx"
         "Src/Desktop.CommandTool.ixx"
         "Src/Desktop.ProgramSetup.ixx"
-        "Src/Desktop.HtmlText.ixx"
         "Src/Desktop.TaskPlan.ixx"
         "Src/Desktop.SearchKeyFile.ixx"
         "Src/Desktop.WebSearch.ixx"
-        "Src/Desktop.WebPageReader.ixx"
 )
 
 # The session builds the model templates of every family it can open, past MSVC's section limit (C1128) without it.

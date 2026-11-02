@@ -1,14 +1,14 @@
 /**
- * @file Desktop.HtmlText.ixx
+ * @file HtmlText.ixx
  * @brief A web page's HTML as the text a model reads: headings, paragraphs, lists, tables and links kept, scripts,
  *        styles and page furniture dropped. Imports nothing of Mila's, so it is tested on its own.
  */
 
-export module Desktop.HtmlText;
+export module Milo.HtmlText;
 
 import std;
 
-namespace Mila::Desktop
+namespace Milo
 {
     namespace HtmlTextDetail
     {

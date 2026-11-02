@@ -81,8 +81,10 @@ namespace Mila::ChatApp
          * @brief The model called a tool the person has not allowed for this conversation: run it?
          *
          * The reply waits on the answer (MilaDesktop.md section 4.5).
+         *
+         * @param reach What the call could reach if allowed, a line each; empty for a tool that reaches nothing.
          */
-        virtual ToolDecision approveToolCall( const ToolCall& call ) = 0;
+        virtual ToolDecision approveToolCall( const ToolCall& call, std::span<const std::string> reach ) = 0;
 
         /// A tool call was answered, by its tool or by the person declining it. The model reads @p result.
         virtual void toolCalled( const ToolCall& call, std::string_view result, bool is_error ) = 0;

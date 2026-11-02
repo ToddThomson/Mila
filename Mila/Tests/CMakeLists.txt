@@ -178,7 +178,7 @@ target_sources( MilaTests PRIVATE
 
 # Milo, when it is built. The gate every tool call passes and the grant it gives (ToolCalling.md 3.1 to 3.4), and what a
 # program gives an agent, kept apart from its model (Direction.md 4.3), need no model; nor do Mila Desktop's own settings
-# file and activity prompts (MilaDesktop.md 3.1, 3.7), built here from its sources as DesktopHtmlTextTests builds its own.
+# file and activity prompts (MilaDesktop.md 3.1, 3.7), built here from its sources.
 if(MILA_ENABLE_MILO)
     target_sources( MilaTests PRIVATE
         "Milo/ArgumentSchema.cpp"
@@ -187,6 +187,7 @@ if(MILA_ENABLE_MILO)
         "Milo/ToolRules.cpp"
         "Milo/ToolGate.cpp"
         "Milo/Session.cpp"
+        "Milo/WebPageReader.cpp"
         "Apps/Desktop/SettingsFile.cpp"
         "Apps/Desktop/PromptFile.cpp"
     )
@@ -217,6 +218,7 @@ if(MILA_ENABLE_MILO)
     if(WIN32)
         target_sources( MilaTests PRIVATE
             "Milo/ToolGrant.Files.cpp"
+            "Milo/FileTools.cpp"
             # What a program run through a grant reaches (ContainedPrograms.md); MXC's part skips unless
             # MILO_MXC_LIBRARY names its library and the build has MILO_ENABLE_MXC on.
             "Milo/ToolGrant.Programs.cpp"
@@ -518,33 +520,33 @@ gtest_discover_tests( ChatRichTextTests
 )
 
 # ---------------------------------------------------------------------------
-# Mila Desktop: a web page's HTML read as text.
+# Milo: a web page's HTML read as text.
 #
-# Its own executable for the reason ChatRichTextTests is: Desktop.HtmlText imports nothing of
+# Its own executable for the reason ChatRichTextTests is: Milo.HtmlText imports nothing of
 # Mila's, so it builds and runs anywhere without the library.
 # ---------------------------------------------------------------------------
-add_executable( DesktopHtmlTextTests
-    "Apps/Desktop/HtmlText.Cpu.cpp"
+add_executable( MiloHtmlTextTests
+    "Milo/HtmlText.Cpu.cpp"
 )
 
-target_sources( DesktopHtmlTextTests
+target_sources( MiloHtmlTextTests
 PUBLIC
     FILE_SET module_files
     TYPE CXX_MODULES
-    BASE_DIRS "${CMAKE_SOURCE_DIR}/MilaDesktop/Session/Src"
+    BASE_DIRS "${CMAKE_SOURCE_DIR}/Milo/Src"
     FILES
-        "${CMAKE_SOURCE_DIR}/MilaDesktop/Session/Src/Desktop.HtmlText.ixx"
+        "${CMAKE_SOURCE_DIR}/Milo/Src/HtmlText.ixx"
 )
 
-set_target_properties( DesktopHtmlTextTests PROPERTIES
+set_target_properties( MiloHtmlTextTests PROPERTIES
     CXX_STANDARD 23
     CXX_STANDARD_REQUIRED ON
     CXX_EXTENSIONS OFF
 )
 
-target_link_libraries( DesktopHtmlTextTests PRIVATE MilaStd gtest gtest_main )
+target_link_libraries( MiloHtmlTextTests PRIVATE MilaStd gtest gtest_main )
 
-gtest_discover_tests( DesktopHtmlTextTests
+gtest_discover_tests( MiloHtmlTextTests
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     PROPERTIES
         VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"

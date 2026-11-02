@@ -1,24 +1,21 @@
 /**
- * @file Desktop.FileTools.ixx
- * @brief Mila Desktop's file tools: reading, listing, finding, searching, writing and editing files in the folder
- *        the person chose (ToolCalling.md section 5).
+ * @file FileTools.ixx
+ * @brief The file tools both applications offer: reading, listing, finding, searching, writing and editing files in
+ *        the folder a person granted (ToolCalling.md section 5).
  */
 
-export module Desktop.FileTools;
+export module Milo.FileTools;
 
 import std;
 import nlohmann.json;
+import Milo.FolderEntry;
+import Milo.GrantFile;
+import Milo.Tool;
+import Milo.ToolGrant;
+import Milo.ToolNeeds;
 
-import Mila;
-import Milo;
-
-namespace Mila::Desktop
+namespace Milo
 {
-    using Milo::FolderEntry;
-    using Milo::GrantFile;
-    using Milo::ToolGrant;
-    using Milo::ToolNeeds;
-
     // Not exported, and of module linkage rather than internal, since the exported class's members use them.
     namespace FileToolsDetail
     {
@@ -242,42 +239,171 @@ namespace Mila::Desktop
     {
     public:
 
-        /// Each tool's name, as the files prompt defines it.
-        static constexpr std::array<std::string_view, 6> kNames{
-            "read_file", "list_folder", "find_files", "search_text", "write_file", "edit_file" };
-
-        /// What a tool of that name touches: the first four read files, the last two write them.
-        [[nodiscard]] static ToolNeeds needsOf( std::string_view name )
+        /**
+         * @brief The six tools: the four that read, then the two that write.
+         *
+         * Each comes with what the model is told, what the person is shown and what it needs. A summary names the
+         * call's arguments in braces, {path}, for an application to fill in.
+         */
+        [[nodiscard]] static std::vector<Tool> tools()
         {
-            ToolNeeds needs;
-            needs.reads_files = true;
-            needs.writes_files = name == "write_file" || name == "edit_file";
+            std::vector<Tool> all;
 
-            return needs;
+            all.push_back(
+                fileTool( "list_folder",
+                    "List the files and folders in a folder of the project. Folders end with /.",
+                    "Listing {path}", false, listFolder,
+                    R"json({
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "description": "The folder, relative to the project folder; . for the project folder itself."
+                        }
+                      },
+                      "required": [
+                        "path"
+                      ]
+                    })json" ) );
+
+            all.push_back(
+                fileTool( "read_file",
+                    "Read a text file of the project, or a range of its lines.",
+                    "Reading {path}", false, readFile,
+                    R"json({
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "description": "The file, relative to the project folder."
+                        },
+                        "start_line": {
+                          "type": "integer",
+                          "description": "The first line to read, from 1. Default 1."
+                        },
+                        "line_count": {
+                          "type": "integer",
+                          "description": "How many lines to read. Default 400, at most 2000."
+                        }
+                      },
+                      "required": [
+                        "path"
+                      ]
+                    })json" ) );
+
+            all.push_back(
+                fileTool( "find_files",
+                    "Find files of the project by name. * matches any characters in a name and ? one; ** matches any folders. A pattern with no / matches a file name in any folder.",
+                    "Finding {pattern}", false, findFiles,
+                    R"json({
+                      "type": "object",
+                      "properties": {
+                        "pattern": {
+                          "type": "string",
+                          "description": "The pattern, such as *.cpp or src/**/*.h."
+                        }
+                      },
+                      "required": [
+                        "pattern"
+                      ]
+                    })json" ) );
+
+            all.push_back(
+                fileTool( "search_text",
+                    "Find the lines of the project's text files that contain some text, exactly as written. Each match is shown as path:line: text.",
+                    "Searching for {text}", false, searchText,
+                    R"json({
+                      "type": "object",
+                      "properties": {
+                        "text": {
+                          "type": "string",
+                          "description": "The text to find, matched exactly, case included."
+                        },
+                        "path": {
+                          "type": "string",
+                          "description": "A file or folder to search in, relative to the project folder; leave out for the whole project."
+                        }
+                      },
+                      "required": [
+                        "text"
+                      ]
+                    })json" ) );
+
+            all.push_back(
+                fileTool( "write_file",
+                    "Create a file of the project, or replace one whole, with the content given. Folders on its path are made as needed.",
+                    "Writing {path}", true, writeFile,
+                    R"json({
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "description": "The file, relative to the project folder."
+                        },
+                        "content": {
+                          "type": "string",
+                          "description": "The file's whole new content."
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "content"
+                      ]
+                    })json" ) );
+
+            all.push_back(
+                fileTool( "edit_file",
+                    "Change one passage of a file of the project: old_text, which must appear exactly once, becomes new_text.",
+                    "Editing {path}", true, editFile,
+                    R"json({
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "description": "The file, relative to the project folder."
+                        },
+                        "old_text": {
+                          "type": "string",
+                          "description": "The passage to change, copied exactly from the file."
+                        },
+                        "new_text": {
+                          "type": "string",
+                          "description": "What the passage becomes."
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "old_text",
+                        "new_text"
+                      ]
+                    })json" ) );
+
+            return all;
         }
 
-        /// Runs the tool of that name, one of kNames.
-        [[nodiscard]] static std::string run( std::string_view name, const std::string& arguments, const ToolGrant& grant )
+    private:
+
+        using Run = std::string ( * )( const std::string& arguments, const ToolGrant& grant );
+
+        static Tool fileTool( std::string name, std::string description, std::string summary, bool writes, Run run,
+            std::string_view parameters )
         {
-            if ( name == "read_file" )
-                return readFile( arguments, grant );
+            Tool tool;
+            tool.name = std::move( name );
+            tool.description = std::move( description );
 
-            if ( name == "list_folder" )
-                return listFolder( arguments, grant );
+            // Ordered, so the schema reaches the model with its keys as written here.
+            tool.parameters = nlohmann::ordered_json::parse( parameters ).dump();
+            tool.run = [run]( std::string_view arguments, const ToolGrant& grant, std::stop_token )
+                {
+                    return run( std::string( arguments ), grant );
+                };
+            tool.source = "Milo";
+            tool.summary = std::move( summary );
+            tool.needs.reads_files = true;
+            tool.needs.writes_files = writes;
 
-            if ( name == "find_files" )
-                return findFiles( arguments, grant );
-
-            if ( name == "search_text" )
-                return searchText( arguments, grant );
-
-            if ( name == "write_file" )
-                return writeFile( arguments, grant );
-
-            if ( name == "edit_file" )
-                return editFile( arguments, grant );
-
-            throw std::invalid_argument( std::format( "there is no file tool named '{}'", name ) );
+            return tool;
         }
 
         /// `path`, and optionally `start_line` (from 1) and `line_count`.

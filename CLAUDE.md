@@ -24,7 +24,7 @@ The user builds exclusively inside **Visual Studio 2026**. Ninja is required —
 
 **The C++23 modules constrain the compiler:** MSVC (VS 2026 18.6.2+ — earlier 2026 builds have a module regression that breaks Mila) or Clang 22+ with a standard library that ships a `std` module (libstdc++ 15, libc++ 17). Every module does `import std;` -- never `std.compat`; C names are written `std::size_t`, `std::uint32_t` -- from `MilaStd`, the library's own `std` module target (`cmake/StdModule.cmake`); Clang 21 rejects libstdc++'s `shared_ptr` friends once `std` is reachable (LLVM #156604). On MSVC a translation unit that does `import Mila;` keeps its standard `#include`s before it. **GCC is not supported:** 14.2 and the GCC 15 on Ubuntu 25.04 failed to compile the modules (GitHub issue #2), and GCC 16 has never been tried. Never write that GCC 16 works — that claim shipped in v0.20.0 unmeasured. In CUDA builds the C++ compiler handles the module units while nvcc uses a separate host compiler for `.cu` files, so an older host GCC is fine in that role. Cross-compiler builds surface missing `#include`s that MSVC resolves transitively — those are real portability fixes, not Clang being difficult.
 
-Presets are in `CMakePresets.json`; output is always `out/build/<preset-name>`. VS 2026 shows each preset's `displayName`, not its `name` (`x64-validate` appears as "x64 Release (full validation - run before committing)"). The unit tests build into **one binary**, `Mila/Tests/MilaTests` — narrow with `--gtest_filter`; `ChatRichTextTests` and `DesktopHtmlTextTests` are the separate targets, each for an app module that imports nothing of Mila.
+Presets are in `CMakePresets.json`; output is always `out/build/<preset-name>`. VS 2026 shows each preset's `displayName`, not its `name` (`x64-validate` appears as "x64 Release (full validation - run before committing)"). The unit tests build into **one binary**, `Mila/Tests/MilaTests` — narrow with `--gtest_filter`; `ChatRichTextTests` and `MiloHtmlTextTests` are the separate targets, each for a module that imports nothing of Mila.
 
 ---
 
@@ -34,8 +34,9 @@ Browse the tree for what is where. What the tree does not tell you:
 
 - **`Mila/Src/`** is the runtime. `Components/`, `Compute/`, `Models/`, `Quantization/`, `Tensors/`, `Serialization/`. `Models/` and `Components/Transformers/` are split per family (`Gemma`, `Gpt`, `LlaMa`, `Qwen`) — a family owns its model, config and chat protocol together.
 - **`Milo/`** is the agentic library applications are built on (`Direction.md` 3.2), a project of its own on top of
-  Mila, which builds without it. Tool calling is its structure and every tool is the application's
-  (`ToolCalling.md`). `Milo/Src/` holds the agent, `Milo::Agent` (`Direction.md` 4), the `Session` it holds -- what
+  Mila, which builds without it. Tool calling is its structure, and Milo provides the tools both apps offer, for
+  files and web pages; an application chooses which to offer, and every other tool is its own (`ToolCalling.md` 5,
+  Todd, 2026-11-01). `Milo/Src/` holds the agent, `Milo::Agent` (`Direction.md` 4), the `Session` it holds -- what
   the program gave it and the conversation, which outlives the model (4.3) -- and `ToolGate`, the one path a model's
   call takes to a tool: the arguments checked, the person's rules and question, the call's limits. The model handle
   (`ModelHandle.md`) stays in Mila, in `Mila/Src/Deployment/`: opening a model by name is the model level's.

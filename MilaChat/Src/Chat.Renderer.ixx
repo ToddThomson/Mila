@@ -468,7 +468,7 @@ namespace Mila::ChatApp
          * The arguments are shown whole, whatever the detail level, since they are what the person is approving.
          * The cursor is left after the choices for the answer.
          */
-        void printToolApproval( std::string_view summary, std::string_view arguments ) const
+        void printToolApproval( std::string_view summary, std::span<const std::string> reach, std::string_view arguments ) const
         {
             const int max_width = std::max( 20, std::min( consoleWidth() - 6, 80 ) );
 
@@ -477,6 +477,12 @@ namespace Mila::ChatApp
             const std::string intent = std::string( "? " ) + std::string( summary );
             for ( const auto& line : RichText::wordWrap( intent, max_width ) )
                 std::cout << fg( 220, 190, 110 ) << "  " << line << reset() << '\n';
+
+            for ( const std::string& reached : reach )
+            {
+                for ( const auto& line : RichText::wordWrap( reached, max_width ) )
+                    std::cout << fg( 220, 190, 110 ) << "    " << line << reset() << '\n';
+            }
 
             for ( const auto& line : RichText::wordWrap( arguments, max_width ) )
                 std::cout << fg( 160, 150, 120 ) << "    " << line << reset() << '\n';

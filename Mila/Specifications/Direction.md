@@ -482,8 +482,8 @@ Settled 2026-09-23, each on the leaning this section recorded, when section 5 be
 6. **Tool registration: a compiled-in registry** — a callable plus a schema, registered on the `AI`.
    Declarative subprocess tools alongside it remain open for section 6, carried from
    `MilaProductFamily.md` Open Decision 5. **Tool calling is `Milo`'s structure** (Todd, 2026-10-25,
-   `ToolCalling.md`): every call passes its permissions and runs under a grant, every tool comes from the
-   application, and Mila ships none. MCP and tools in processes of their own come later. A per-user tool broker
+   `ToolCalling.md`): every call passes its permissions and runs under a grant, Mila ships no tools, and Milo
+   provides those two applications offer, each offered by the application's choice (Todd, 2026-11-01). MCP and tools in processes of their own come later. A per-user tool broker
    (`ToolBroker.md`, 2026-10-24) is at most an application built on those pieces, needed only when the rules must
    hold against the application itself.
 7. **How a composed model meets the handle: a C++ concept** the model satisfies — no registration,

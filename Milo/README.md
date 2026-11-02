@@ -15,7 +15,10 @@ An agent holds a `Milo::Session`: what your program gave it and the conversation
 a program changes model or context and keeps its tools, rules and conversation.
 
 Every call a model makes passes one gate: its arguments are checked, your rules allow it, ask the person or refuse it,
-and it runs under a grant that holds it to the folders and network it was given. Milo ships no tools; they are yours.
+and it runs under a grant that holds it to the folders and network it was given.
+
+Milo provides tools for files (`FileTools::tools()`) and web pages (`WebPageReader::tool()`), each with what the model
+is told and what the person is shown; you choose which to offer, and any other tool is yours.
 The grant's checks are Windows first: on any other platform a grant holds no folder.
 
 ## Using it

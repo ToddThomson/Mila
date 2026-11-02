@@ -15,6 +15,7 @@ export import Chat.Message;
 export import Chat.RoundStats;
 export import Chat.SessionEvents;
 export import Chat.SystemPrompt;
+import Chat.ConfigError;
 import Chat.Footprint;
 import Chat.ModelCatalog;
 import Chat.ParsedResponse;
@@ -51,6 +52,7 @@ namespace Mila::ChatApp
          * show something first.
          *
          * @throws std::runtime_error on system prompt load failure.
+         * @throws ConfigError when the prompt's tools and the folder and network given do not go together.
          */
         ChatSession( ChatConfig config, SessionEvents& events )
             : config_( std::move( config ) ), events_( events )
@@ -60,6 +62,7 @@ namespace Mila::ChatApp
             // Set once: it goes with the session to every model it is given to.
             held_session_.onAsk( [this]( const Milo::ToolQuestion& question ) { return askAboutCall( question ); } );
             held_session_.withSystemPrompt( system_prompt_config_.system_prompt );
+            useMiloTools();
         }
 
         ChatSession( const ChatSession& ) = delete;
@@ -747,7 +750,7 @@ namespace Mila::ChatApp
 
             for ( const auto& tool : system_prompt_config_.tools )
             {
-                if ( tool_handlers_.contains( tool.name ) )
+                if ( tool_handlers_.contains( tool.name ) || milo_tools_.contains( tool.name ) )
                     active.push_back( tool );
             }
 
@@ -770,6 +773,11 @@ namespace Mila::ChatApp
         /// A tool the system prompt describes and a handler runs, as the agent offers it; nothing for any other name.
         std::optional<Milo::Tool> agentTool( const std::string& name ) const
         {
+            if ( const auto provided = milo_tools_.find( name ); provided != milo_tools_.end() )
+            {
+                return provided->second;
+            }
+
             const auto definition = std::ranges::find( system_prompt_config_.tools, name, &ToolDefinition::name );
             const auto handler = tool_handlers_.find( name );
 
@@ -1051,7 +1059,113 @@ namespace Mila::ChatApp
         Milo::ToolAnswer askAboutCall( const Milo::ToolQuestion& question )
         {
             return toolAnswer( events_.approveToolCall(
-                ToolCall{ std::string( question.name ), std::string( question.arguments ) } ) );
+                ToolCall{ std::string( question.name ), std::string( question.arguments ) }, reachOf( question.grant ) ) );
+        }
+
+        /// What a call could reach, from its grant as the gate narrowed it to the tool, a line each.
+        static std::vector<std::string> reachOf( const Milo::ToolGrant& grant )
+        {
+            std::vector<std::string> reach;
+
+            for ( const Milo::GrantFolder& folder : grant.folders() )
+            {
+                const std::u8string path = folder.folder.u8string();
+
+                reach.push_back( std::format( "Can {} files in {}",
+                    folder.access == Milo::FolderAccess::ReadWrite ? "read and change" : "read",
+                    std::string( path.begin(), path.end() ) ) );
+            }
+
+            if ( grant.network() )
+            {
+                reach.emplace_back( "Can connect to public web addresses" );
+            }
+
+            return reach;
+        }
+
+        /**
+         * @brief Take the tools Milo provides that the prompt names, and the grant they work through.
+         *
+         * A folder or network given to no tool is refused as a prompt's tool with neither is: either would otherwise
+         * leave a person thinking a session can do what it cannot. Limits become none, as a tool's work takes more
+         * rounds than Chat's four: listing, reading and editing leave one to answer in.
+         *
+         * @throws ConfigError saying which option or prompt is missing.
+         */
+        void useMiloTools()
+        {
+            std::vector<Milo::Tool> provided = Milo::FileTools::tools();
+            provided.push_back( Milo::WebPageReader::tool() );
+
+            bool names_file_tool = false;
+            bool names_web_tool = false;
+
+            for ( ToolDefinition& named : system_prompt_config_.tools )
+            {
+                if ( !named.named )
+                {
+                    continue;
+                }
+
+                const auto tool = std::ranges::find( provided, named.name, &Milo::Tool::name );
+
+                if ( tool == provided.end() )
+                {
+                    throw ConfigError( std::format( "The prompt names a tool Mila Chat does not have: {}.", named.name ) );
+                }
+
+                if ( tool->needs.uses_network && !config_.tool_web )
+                {
+                    throw ConfigError( std::format( "The prompt offers {}, which reads web pages. Add --web to allow it.", named.name ) );
+                }
+
+                if ( !tool->needs.uses_network && !config_.tool_folder )
+                {
+                    throw ConfigError( std::format( "The prompt offers {}, which works in a folder. Add --folder <path>.", named.name ) );
+                }
+
+                names_web_tool = names_web_tool || tool->needs.uses_network;
+                names_file_tool = names_file_tool || !tool->needs.uses_network;
+
+                named.description = tool->description;
+                named.summary = tool->summary;
+                milo_tools_.insert_or_assign( named.name, *tool );
+            }
+
+            if ( config_.tool_folder && !names_file_tool )
+            {
+                throw ConfigError( "--folder gives the file tools a folder, and this prompt offers none. Add --system-prompt files." );
+            }
+
+            if ( config_.tool_web && !names_web_tool )
+            {
+                throw ConfigError( "--web lets the web tool read pages, and this prompt does not offer it. Add --system-prompt web." );
+            }
+
+            if ( milo_tools_.empty() )
+            {
+                return;
+            }
+
+            std::vector<Milo::GrantFolder> folders;
+
+            if ( config_.tool_folder )
+            {
+                folders.push_back( { *config_.tool_folder, Milo::FolderAccess::ReadWrite } );
+            }
+
+            try
+            {
+                held_session_.withGrant( Milo::ToolGrant( std::move( folders ), config_.tool_web ) );
+            }
+            catch ( const std::invalid_argument& error )
+            {
+                throw ConfigError( std::format( "The tools cannot work in that folder: {}.", error.what() ) );
+            }
+
+            limits_ = Milo::AgentLimits{};
+            offerTools();
         }
 
         /**
@@ -1451,6 +1565,9 @@ namespace Mila::ChatApp
         // Each tool's declared needs, and its handler.
         std::unordered_map<std::string, std::pair<Milo::ToolNeeds,
             std::function<std::string( const std::string&, const Milo::ToolGrant& )>>> tool_handlers_;
+
+        // The tools Milo provides that the prompt names, and that the folder and network given let run.
+        std::unordered_map<std::string, Milo::Tool> milo_tools_;
 
         // Set by a front end that runs its own limits; Chat's own when empty.
         std::optional<Milo::AgentLimits> limits_;

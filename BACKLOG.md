@@ -427,11 +427,11 @@ names and an administrator to create one.
 
 `in progress` · `apps`
 
-Mila Desktop's own tools, written through grants (Mila ships none): reading a file or a range of its lines,
+Tools written through grants, which Milo provides (Mila ships none): reading a file or a range of its lines,
 listing a folder, finding files by name, searching text, writing a file and editing one exact passage, in the
 folder the person chose and its `.mila` folder; and fetching a web page as readable text, size-capped, from public
-addresses. Reads allowed by default, writes and fetches asked. The file tools exist (`Desktop.FileTools.ixx`, the
-`files` prompt, Build & Code's folder), and so does reading a web page (`Desktop.WebPageReader.ixx`, Research &
+addresses. Reads allowed by default, writes and fetches asked. The file tools exist (`Milo.FileTools`, the
+`files` prompt, Build & Code's folder), and so does reading a web page (`Milo.WebPageReader`, Research &
 Analyze), each through its call's grant; what is left is the rules -- every call is still asked, reads included --
 and the `.mila` folder.
 

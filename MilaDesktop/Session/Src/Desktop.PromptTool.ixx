@@ -12,6 +12,8 @@ namespace Mila::Desktop
 {
     /**
      * @brief A tool an activity's prompt offers, as written in its file; the session gives it the code that runs it.
+     *
+     * A tool Milo provides is only named in the file, and has no description until the session takes Milo's.
      */
     export struct PromptTool
     {
