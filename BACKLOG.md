@@ -2,15 +2,15 @@
 
 **Work committed to the release in flight, and nothing else.** Narrative and success criteria are in
 [ROADMAP.md](ROADMAP.md); everything upstream of the commitment is in
-[`Mila/Issues/`](Mila/Issues/README.md). Completed work is in the git history.
+[`Issues/`](Issues/README.md). Completed work is in the git history.
 
 **Admission:** name the ROADMAP success criterion that fails if this never ships. If you cannot,
-it belongs in `Mila/Issues/`.
+it belongs in `Issues/`.
 
 Each `###` bucket is a theme of the release in flight, its name matching the ROADMAP section — the
 only join. **This file describes a publish (a minor); a patch tag has no backlog.**
 
-**Entry shape**, one level deeper than the same shape in `Mila/Issues/`:
+**Entry shape**, one level deeper than the same shape in `Issues/`:
 
 ```markdown
 #### Llama throws away its long-context scaling factor
@@ -24,7 +24,7 @@ unclear. 3.1 8B cannot reach the context length it advertises.
 
 The **heading states the problem** and has to read cold: no term that exists only inside Mila.
 The **metadata line** carries status — `open`, `in progress`, `done` — then area tags from
-[Tags.md](Mila/Issues/Tags.md); status never appears in the prose. The **body** carries whatever
+[Tags.md](Issues/Tags.md); status never appears in the prose. The **body** carries whatever
 detail the work needs and ends in an anchor, unless the finding is an absence, in which case say so
 rather than inventing a location.
 
@@ -32,7 +32,7 @@ rather than inventing a location.
 addition is paired with a removal, or it is a deliberate admission that scope grew. **What bounds
 this file is the release it describes and the date that release carries, not a fixed number.**
 The release's date and what drains first are in [ROADMAP.md](ROADMAP.md). Whatever has not landed by that date
-goes back to [`Vnext.md`](Mila/Issues/Vnext.md) and the release ships narrowed, rather than the date moving to
+goes back to [`Vnext.md`](Issues/Vnext.md) and the release ships narrowed, rather than the date moving to
 accommodate the list. A backlog that grows while the date holds is the signal to drain it early.
 
 **Done means deleted**, in the same commit as the work — `done` is a working-tree marker and is
@@ -42,10 +42,9 @@ never committed.
 
 ## Current release (v0.21.0)
 
-The families finished and measured, in the themes ROADMAP gives them. `Direction.md` section 5 — the
-handle, the deployment request, `Milo` and the applications rebuilt on it — is v0.22.0, and its items
-wait in [`Vnext.md`](Mila/Issues/Vnext.md); what tool calling stands on -- the model's tool grammar, the
-handle, `Milo` and its tool loop -- comes forward under *The Desktop Agent* (Todd, 2026-10-25).
+The families finished and measured, and a developer's program putting a model to work, in the themes ROADMAP gives
+them. What remains of `Direction.md` section 5 -- a deployment's features, use cases and the inference server rebuilt
+on the agents API -- is v0.22.0, and its items wait in [`Vnext.md`](Issues/Vnext.md).
 
 ### Gemma 4 Complete
 
@@ -64,7 +63,7 @@ carries media, prefill chunks that never split an image's run, and prefix reuse 
 its token ids; the resize, matched to torchvision's; audio, a 40 ms framing and one projection; Chat accepting an
 image or a clip (`/image`, `/audio`, Todd 2026-10-04), the inference server's content blocks in both protocols,
 the binding; converter, manifest and footprint. In this release the applications pass media to the model
-directly; reaching it through `Milo`, and selecting a modality in a deployment request, are v0.22.0's.
+directly; reaching it through `Mila::Agents`, and selecting a modality in a deployment request, are v0.22.0's.
 
 A deployment without a modality should not sample its markers. On 2026-09-28 the 12B sampled `<image|>` (258882)
 mid-sentence in a text-only Chat session, losing the rest of a pun. The sampler now never draws any of Gemma 4's
@@ -74,7 +73,7 @@ its own markers out of that list.
 Gate: embedder parity against HuggingFace, then token for token on an image prompt and on an audio
 prompt; Chat answers about an attached image and an attached clip.
 
-`ROADMAP.md`, Gemma 4 Complete success criteria · `Mila/Specifications/Gemma4Modality.md`
+`ROADMAP.md`, Gemma 4 Complete success criteria · `Specifications/Gemma4Modality.md`
 
 #### The 26B-A4B's vision tower is dropped when it loads
 
@@ -88,7 +87,7 @@ selected by a deployment rather than always built, and the memory levers are wha
 selecting. First to drain if the date presses. Gate: tower parity against HuggingFace, then an image
 prompt token-for-token, at a context the plan states.
 
-`ROADMAP.md`, Gemma 4 Complete success criteria · `Mila/Specifications/Gemma4Modality.md` section 4
+`ROADMAP.md`, Gemma 4 Complete success criteria · `Specifications/Gemma4Modality.md` section 4
 
 #### Gemma caches each global layer's keys and values separately, though its checkpoint makes them equal
 
@@ -106,7 +105,7 @@ today -- so the bytes buy the 96K it is good for, or its vision tower at a usefu
 Gate: G2's books and recall at depth equal to storing both; the 26B-A4B plans its measured reliable
 depth on the 16 GB card.
 
-`ROADMAP.md`, Gemma 4 Complete success criteria · `Mila/Specifications/RopeInAttention.md`
+`ROADMAP.md`, Gemma 4 Complete success criteria · `Specifications/RopeInAttention.md`
 
 #### A Gemma reply longer than about 1,024 tokens costs the next turn a full prefill
 
@@ -131,7 +130,7 @@ tokens equal to a fresh prefill's.
 
 `in progress` · `gemma` · `distribution`
 
-Landed in `Mila/Src` during rc.1 — the router and expert bank, wired into `GemmaModel` with FP4 and Q4_0
+Landed in `Lib/Src` during rc.1 — the router and expert bank, wired into `GemmaModel` with FP4 and Q4_0
 expert banks and a streaming converter, gated against HuggingFace at BF16, FP4 and Q4_0. It appears in no README
 capability row, no CLAUDE.md target and no release note, because no published package uses it, so no end user
 can install it.
@@ -145,7 +144,7 @@ the model run through Chat, the inference server and the Python binding, tool ca
 Codex and Hermes (`+79`, `+80`) and Chat (`+82`) have run it live; the binding is not checked. Then the
 package, its card and the capability row. A first publish, so it is not held for the 12B's.
 
-`Mila/Specifications/ModelFamilyParity.md` §8.2, G6
+`Specifications/ModelFamilyParity.md` §8.2, G6
 
 #### Gemma 4 12B at 4 bits predicts worse the longer the context, and Mila cannot run the weights Google trained to prevent it
 
@@ -175,7 +174,7 @@ it (`ModelDistribution.md`, *A model replaced by another*).
 Gate: every Q4_0 tensor bit-identical to `google/gemma-4-12B-it-qat-q4_0-gguf`; then G2 re-run in Mila on the
 Q4_0 build, cost over BF16 by band, on a second book as well as 30312.
 
-`Mila/Specifications/ModelFamilyParity.md` §9, item 14 · `Mila/Specifications/Quantization.md`, "Q4_0"
+`Specifications/ModelFamilyParity.md` §9, item 14 · `Specifications/Quantization.md`, "Q4_0"
 
 #### Gemma's quality has not been gated across the 262144 tokens the planner may choose
 
@@ -216,7 +215,7 @@ Gate: each Gemma 4 package exported on this tree carries its drafter as a manife
 token-for-token as without it, at the measured speedup, wherever the planned context fits with it resident;
 `PlanEqualsBuild` holds with it; and Chat's setting turns it off.
 
-`ROADMAP.md`, Gemma 4 Complete success criteria · `Mila/Specifications/Gemma4Mtp.md` 4.7
+`ROADMAP.md`, Gemma 4 Complete success criteria · `Specifications/Gemma4Mtp.md` 4.7
 
 ### Qwen 3.8 Complete
 
@@ -238,7 +237,7 @@ profile criteria name this build.
 Gate: `https://huggingface.co/api/models/mila-llm/<its repository>` answers 200 anonymously, and a clean store
 installs and runs it at 64K on the 16 GB card.
 
-`ROADMAP.md`, Qwen 3.8 Complete success criteria · `Mila/Specifications/Qwen3.8.md` section 5
+`ROADMAP.md`, Qwen 3.8 Complete success criteria · `Specifications/Qwen3.8.md` section 5
 
 ### Llama 3 Measured
 
@@ -269,18 +268,18 @@ recorded before 2026-10-18 with thinking off are under `Data/Evaluation/qwen38-*
 template writes today's date into every prompt, so `compare_arms.py` refuses a pair whose arms start either side of
 midnight; Phase 1 takes about 2.7 hours an arm, and the template takes a `date_string` when one is given.
 
-`Mila/Specifications/ModelEval.md` · `Mila/Tools/Evaluation/README.md` · `reference_server.py:138` ·
+`Specifications/ModelEval.md` · `Lib/Tools/Evaluation/README.md` · `reference_server.py:138` ·
 `run_arm.py` `lm_eval_arguments`
 
 #### Nobody knows how deep into a conversation each model still finds a fact, obeys its instructions and calls a tool correctly
 
-`in progress` · `models` · `milo` · `gemma` · `llama` · `qwen` · `gate`
+`in progress` · `models` · `agents` · `gemma` · `llama` · `qwen` · `gate`
 
 The quality evidence Mila has is perplexity by context band (`ModelFamilyParity.md` 3.4, 8.2 G2) and
 two single-family instruction-retention tests (`Llama.InstructionRetention.Cuda.cpp`,
 `Gemma.InstructionRetention.Cuda.cpp`). None of it says where an agent fails, and no family is measured
 across the contexts its planner can choose. Admitted 2026-10-03 for every family in the parity matrix
-(Todd); the design is `ContextProfile.md`, a tool under `Mila/Tools/ContextProfile`.
+(Todd); the design is `ContextProfile.md`, a tool under `Lib/Tools/ContextProfile`.
 
 In scope: Phase 1 (fit, loss by band, recall at depth) and Phase 2 (instruction retention, tool-call
 fidelity), for every model the release publishes -- Llama 3.2 3B and 3.1 8B, Gemma 4 12B and 26B-A4B
@@ -299,7 +298,7 @@ exposed a flash prefill defect -- a masked key's zero probability multiplied unw
 fresh memory -- fixed in the same change. The recall arm's answer score forces the value through decode
 steps rather than differencing two of those scores (`ContextProfile.md` 4.3).
 
-Llama's tool-call arm can ask its question now that Llama's grammar is in `Mila/Src` and the scratch packages
+Llama's tool-call arm can ask its question now that Llama's grammar is in `Lib/Src` and the scratch packages
 declare their version (`+94`). Turn cost and the llama.cpp column (Phases 3 and
 4) are not required by the criterion. Storing Gemma's global keys once (K = V, `RopeInAttention.md`)
 waited on the 26B-A4B's profile, to return for discussion only if its reliable depth ran past the 80K that
@@ -313,7 +312,7 @@ Llama 3.1 8B loses a system instruction by 65536 in BF16 and FP8 cache alike, an
 loses it the same way (`Quantization.md` Part III, decision 6's behavioral arm), while its planner may choose up to
 131072. It is the model's, so its profile is where a Llama user is told it.
 
-`ROADMAP.md`, each family's success criteria · `Mila/Specifications/ContextProfile.md`
+`ROADMAP.md`, each family's success criteria · `Specifications/ContextProfile.md`
 
 ### Applications Ship
 
@@ -334,7 +333,7 @@ so what is missing is the release path itself:
 
 Gate: the clean-room install passes from TestPyPI on the release-step-1 snapshot.
 
-`MilaServer/pyproject.toml` · `RELEASING.md` *Publishing the wheels*
+`Apps/Server/pyproject.toml` · `RELEASING.md` *Publishing the wheels*
 
 #### What a model can do is inferred from its family name, not read from its manifest
 
@@ -361,7 +360,7 @@ validated flows pass regardless, so that is a symptom of this gap rather than se
 Found 2026-10-18 serving Qwen3.8-27B-fp4 from an install that predates the fields: `/v1/models` says
 `supports_reasoning: false` and `capabilities.tools: false` for a model that reasons by default and calls tools,
 because an absent field reads as false rather than unknown. Until every model is republished, each older install
-reports the wrong answer. `MilaServer/src/mila_llm_server/protocols/openai/models.py:32`
+reports the wrong answer. `Apps/Server/src/mila_llm_server/protocols/openai/models.py:32`
 
 #### The website does not tell a user how to run Chat, the inference server or the model store
 
@@ -375,12 +374,12 @@ build instructions. Admitted 2026-10-18 (Todd); the shape proposed the same day:
   the image), the inference server (`pip install`), and `mila-store` (installing a model is step one for both).
 - The server's page covers each harness it is tested with -- install, start the server, the harness's own settings,
   the models it is tested with and their limits. The harness instructions stay in one file,
-  `MilaServer/docs/harnesses.md`, mounted into the site rather than copied.
+  `Apps/Server/docs/harnesses.md`, mounted into the site rather than copied.
 - A Get started tab for a user who wants a local model behind a coding agent, pointing at the server's page.
 - End-user prose throughout (`CLAUDE.md` *End-User Prose*), written after the harness baselines so every tested
   version and limit it states is measured.
 
-`Web/hugo.toml` (navigation), `Web/layouts/index.html` (Get started tabs), `MilaServer/docs/harnesses.md`
+`Web/hugo.toml` (navigation), `Web/layouts/index.html` (Get started tabs), `Apps/Server/docs/harnesses.md`
 
 #### The inference server answers a request for any model name with the model it has loaded
 
@@ -392,7 +391,7 @@ requests naming `gemma-4-12b-it` were answered by Qwen 3.8 27B FP4 and the Gemma
 recorded both as passing. Not checked: what OpenAI and Anthropic return for an unknown model (OpenAI documents
 `model_not_found`), and whether every harness sends a name the server could match.
 
-`MilaServer/src/mila_llm_server/`
+`Apps/Server/src/mila_llm_server/`
 
 #### The inference server joins the text parts of one message with nothing between them
 
@@ -403,13 +402,13 @@ joined straight onto the second ("You are a Claude agent..."); Codex 0.162.1 sen
 as two parts of one `developer` message, joined the same way (found 2026-10-15 capturing the harnesses). Not
 checked: how Anthropic and OpenAI join a message's parts, or whether the billing line reaches Anthropic's models.
 
-`MilaServer/src/mila_llm_server/conversation.py` `text_of`
+`Apps/Server/src/mila_llm_server/conversation.py` `text_of`
 
 ### The Desktop Agent
 
 #### Nothing keeps a tool inside the folder it was given, or off local addresses
 
-`in progress` · `milo` · `gate`
+`in progress` · `agents` · `gate`
 
 `ToolCalling.md` section 3.4: the grant a tool opens files and makes connections through. On Windows one file has
 many names: `..`, links, junctions, mount points, short 8.3 names, case, alternate data streams, device names, the
@@ -417,38 +416,38 @@ many names: `..`, links, junctions, mount points, short 8.3 names, case, alterna
 and refuses the non-path forms before opening; it refuses private, loopback, link-local and unspecified addresses
 on the address actually connected to, and on every redirect. Gate: a test per route and per address kind, by name,
 by literal address and through a redirect, each refused, beside the same access inside the folder or to a public
-address allowed. Gates every item below that runs a tool. Built on Windows (`ToolGrant`, `Mila/Tests/Milo/ToolGrant.*.cpp`);
+address allowed. Gates every item below that runs a tool. Built on Windows (`ToolGrant`, `Tests/Agents/ToolGrant.*.cpp`);
 what is left is the pair for short 8.3 names and the pair for mount points, which need a volume that makes short
 names and an administrator to create one.
 
-`Mila/Specifications/ToolCalling.md` section 3.4
+`Specifications/ToolCalling.md` section 3.4
 
 #### A model has no tools to read or edit files or to read a web page
 
 `in progress` · `apps`
 
-Tools written through grants, which Milo provides (Mila ships none): reading a file or a range of its lines,
+Tools written through grants, which Mila::Agents provides (Mila ships none): reading a file or a range of its lines,
 listing a folder, finding files by name, searching text, writing a file and editing one exact passage, in the
 folder the person chose and its `.mila` folder; and fetching a web page as readable text, size-capped, from public
-addresses. Reads allowed by default, writes and fetches asked. The file tools exist (`Milo.FileTools`, the
-`files` prompt, Build & Code's folder), and so does reading a web page (`Milo.WebPageReader`, Research &
+addresses. Reads allowed by default, writes and fetches asked. The file tools exist (`Agents.FileTools`, the
+`files` prompt, Build & Code's folder), and so does reading a web page (`Agents.WebPageReader`, Research &
 Analyze), each through its call's grant; what is left is the rules -- every call is still asked, reads included --
 and the `.mila` folder.
 
-`Mila/Specifications/ToolCalling.md` section 5
+`Specifications/ToolCalling.md` section 5
 
 #### Mila Desktop runs only against a mock
 
 `in progress` · `apps`
 
 `MilaDesktop.md` phases 3 and 4: the session process that speaks section 4 over stdio on a real model, then the
-window starting it in place of the mock, with tool calls through `Milo`. Gate: a script driving the session
+window starting it in place of the mock, with tool calls through `Mila::Agents`. Gate: a script driving the session
 process runs the equivalents of scenarios 1 to 8 and 11 on a real model; the window runs the theme's task on
 every published model that calls tools. The session process is built (`mila-session`) and its gate passes
 on Llama, Gemma and Qwen, with a real install and removal. The window starts it in place of the mock and runs
-scenarios 1 to 11 on Llama, Gemma and a real install; tool calls through `Milo` and the theme's task remain.
+scenarios 1 to 11 on Llama, Gemma and a real install; tool calls through `Mila::Agents` and the theme's task remain.
 
-`Mila/Specifications/MilaDesktop.md` sections 6.1, 8
+`Specifications/MilaDesktop.md` sections 6.1, 8
 
 #### Tool calling has never been driven end to end on Llama
 
@@ -458,6 +457,128 @@ Gemma 4 is validated through both applications across plain-chat, single-tool an
 3.1 8B has never been driven through a single tool call, from Chat or over the wire; the framework is family-neutral,
 and what is missing is the evidence that Llama's grammar reaches it. Moved from `Vnext.md`, where moving it out had
 narrowed the Models criterion and `README.md`'s Llama section; the theme's criterion now restates it.
+
+### A Developer Can Start
+
+#### A conversation that fills its context stops, and nothing carries it forward
+
+`open` · `agents` · `apps`
+
+Chat ends a reply at the context limit ("finish: context_limit") and nothing shortens the history, so a long tool
+session cannot continue. Two levels, both mechanism in `Mila::Agents`: reasoning from earlier turns dropped at turn
+boundaries -- kept within a turn, which is the opposite of the failure in "Gemma loses its own reasoning between tool
+calls in a turn" -- and text compaction, the history summarized into a fresh context with instructions kept verbatim,
+reusing the system prompt's cached prefix. It triggers at the configuration's reliable depth, which ContextProfile
+measures, so it needs that tool's first profiles; Qwen resumes from the position it saved at the end of each prompt
+(`savePosition`, `+33`). Compaction in the cache itself (deleting spans in place) is research, outside this item
+(`.internal/Ideas/AgentStreams.md`).
+
+`Lib/Src/Agents/Agent.ixx` · `Specifications/ContextProfile.md`
+
+#### A program that skips Mila's initialization is told its GPU reports no memory
+
+`open` · `agents` · `api` · `mila-src`
+
+`Mila::initialize` (`Mila.ixx:443`) sets the log sink and the random seed, which have defaults, and discovers the
+devices by constructing `DeviceRegistrar`, which nothing else does. A program that skips it fails silently
+everywhere but `DeviceRegistry::getDevice`: `getDeviceCount` is `noexcept` and returns 0, and `DeviceReading::take`
+swallows why it could not read the device, so the planner refuses with `DeviceDoesNotReportMemory`. From Python,
+`mila.GemmaModel.from_store( name, "auto", 1 )` without `mila.initialize()` says the device "does not report its
+free memory" and advises passing a number, on both cards; with `initialize` first the same call opens at 262144.
+Found by `Tools/ContextProfile` (2026-10-03) and through the binding (`Mila_py.Wrappers.cpp:447`).
+
+Discovery is a ceremony because of an import cycle: `CudaDevice` imports `DeviceRegistry` to register into it, so
+the registry cannot import the registrar. The shape discussed with Todd: the registry runs discovery once, on first
+request, through a function the registrar module installs, leaving `initialize` as configuration only. Stale Doxygen
+still names the retired operation registry as part of it (`Gelu.ixx:58`, `Residual.ixx:8`).
+
+Gate: the ten-line program and the Python QuickStart run with no initialization call, and a device that cannot be
+read is refused naming why.
+
+`Lib/Src/Mila.ixx` · `Lib/Src/Dnn/Compute/Registry/DeviceRegistry.ixx`
+
+#### A Python program cannot create an agent, or give one a Python function as a tool
+
+`open` · `binding` · `api` · `agents`
+
+The binding projects per-family sessions and nothing of `Mila::Agents`, and the wheel presets build with
+`MILA_ENABLE_AGENTS` off. `mila.Agent` projects the agent's contract and its plan, the wheel builds the agents API, and
+a Python function can be registered as a tool, which runs under the same gate as a C++ one. The binding stays
+consumer-blind and gains no component-level surface. The per-family sessions stay beside it, because the inference
+server runs on them; removing them is v0.22.0's (`Vnext.md`). The grant holds folders on Windows alone, so a Linux wheel
+says so where it refuses. What the agents API adds to the wheel's size has not been measured. Gate: a program that
+installs `mila-llm` alone creates an agent, runs a Python tool under its permissions and reads the plan.
+
+`Lib/Bindings/` · `CMakePresets.json` · `Specifications/Direction.md` decision 2
+
+#### Neither QuickStart shows a program putting a model to work
+
+`open` · `docs` · `binding`
+
+`Samples/QuickStart/Cpp` loads a typed model and `Samples/QuickStart/Python` opens a per-family
+session; neither creates an object, calls a tool or shows what was decided about the deployment. Both
+are published surfaces the website's Get Started tabs link to.
+
+The C++ one becomes a `FetchContent` project that creates an agent, calls a tool and prints the plan;
+the Python one moves to `mila.Agent`. Each keeps a path that builds a network from components
+(`Direction.md` §7). Gate: both run from a clean machine with only the documented prerequisites.
+
+One risk to the C++ one, not yet reproduced: where CMake's feature table lacks `cxx_std_23` (Clang 21.x), the
+exported `Mila` target falls back to advertising `cxx_std_20` (`Lib/CMakeLists.txt:71-75`), and a consumer
+compiles Mila's module units under it, though they use C++23 library facilities (`std::ranges::fold_left`,
+`Tensor.ixx:806`). A `FetchContent` consumer receives the same interface features, so the QuickStart is checked
+on that compiler before it is declared clean.
+
+`Lib/Samples/QuickStart/`
+
+#### Every public surface describes Mila as a reference implementation first
+
+`open` · `docs`
+
+`README.md`, the website under `Web/` and `getting-started.md` lead with the v0.20 message, and
+several use "adaptor". They move to the trait — a library for developers to harness intelligence — in
+this release and not before, which means written against what the tag actually ships
+(`Direction.md` §5.7; `.internal/Marketing/Positioning.md` is superseded by it).
+
+The landing page's four claims -- Explicit, Validated, Fast, and the type is the configuration -- each gain a
+link to a page that explains the claim fully. Each claim's one line still stands without the click, and each
+link names its topic, not "Read more" alone. Explicit and the type is the configuration go to their sections of
+the Design page (`Web/content/docs.md`), expanded: the decode recording explained as a cache of the explicit
+calls, with its off switch (`DecodeGraph.md`), and the typed configuration of components told apart from a load
+mapping a package's declared format to its type -- the section says today that the converter always writes BF16
+and quantization happens on load, which published packages no longer do. Validated gets a page of its own:
+what is checked, against what, at which precision and length, for every model including Qwen 3.8 -- replacing a
+"token-for-token" claim that is wider than what the parity tests check. Fast's page belongs to the llama.cpp
+entry below. `hugo.toml`'s comment that the claims carry no links is replaced with the reason these do. Written
+late in the cycle, on the numbers the tag ships. The blog post `mis-with-claude-code-and-codex.md` (2026-05-14)
+announces under "What's Coming: Tool Calling" a pybind11 `ToolCallParser` and a `MILA_TOOL_CALLING_ENABLED` flag that
+were never built; the same pass gives it a dated note pointing at the tool calling that shipped. Gate: no public surface describes Mila as a reference
+implementation first, or uses "adaptor", and every landing-page claim links to a page that states exactly what
+backs it.
+
+The site's own paths move with this item, because the site publishes by hand from `dev` and its readers see `master`
+until the tag: the link to `Lib/Samples/QuickStart/Cpp` in `Web/layouts/index.html` and the source paths in
+`Web/content/blog/`.
+
+#### Mila's website, README and marketing do not yet say what Mila is
+
+`open` · `docs`
+
+Raised 2026-10-19 (Todd): "This message needs to be published to the Mila website in the next 2 releases ... It is
+the whole Mila positioning message written for the end user. We've refined what Mila is over the last number of
+months and I feel it now consistent and achievable by 0.22. The website, README and other marketing messages need to
+catch up." The message as refined: a C++ library for compiling modern transformer architecture recipes; only a few
+models represent the best of local AI -- Gemma 4 and Qwen 3.8, then Qwen 4 -- and Mila serves those few deeply rather
+than many thinly; each published model carries a small set of measured builds; agentic use is quality-first on a 16
+GB card with 64K context as the floor, pushed up along a measured quality curve; developers building on Mila can
+choose their own build; the 0.22 harness serves a model, a card and a workload with the best build the measurements
+support. Copy claims only what the release it ships in can do, follows the end-user prose rules and the site's
+marketing voice. Todd, same day: "Each model card should have our quality measurements and the reasoning for our
+final model recipe" -- the measurements answer "is it any good", the recipe and what it holds on 16 GB "will it run",
+the reasoning under its own heading below the first screen; `.internal/Marketing/Positioning.md` is revised first,
+the other marketing docs from it.
+
+`Web/` · `README.md` · model cards
 
 ### Upgrades Keep Your Models
 
@@ -487,7 +608,7 @@ by confirming that nothing it carries changed.
 
 A pull refuses when the manifest on `main` needs a newer Mila (`requireCompatibleMilaVersion`,
 `ModelManifest.ixx:267`), even when an earlier commit in the same repository holds a build this Mila
-reads. Two halves. `Mila/Tools/Publishing/publish_model.py` tags the commit it replaces
+reads. Two halves. `Lib/Tools/Publishing/publish_model.py` tags the commit it replaces
 `mila-<major>.<minor>`, after that commit's own minimum, before uploading a package that raises it. The
 pull lists the repository's tags on that refusal and installs the highest one its version satisfies;
 `IModelHub` has no query for a repository's tags today (`ModelHub.ixx:93` lists models only).
@@ -513,9 +634,9 @@ Gate: a manifest carrying `superseded_by` is read by this tree and by v0.20.0's 
 unchanged; `list`, `describe`, `pull` and Chat name the successor for it and say nothing for a model without
 it; `mila-llm/gemma-4-12b-it-fp4` carries the field and the card line once `gemma-4-12B-it-q4_0` is published.
 
-`Mila/Src/Distribution/ModelManifest.ixx:330` · `Mila/Src/Distribution/ModelStore.ixx:1253` ·
-`Mila/Store/Store.ixx:346` · `MilaChat/Src/Chat.ModelCatalog.ixx:796` ·
-`Mila/Tools/Publishing/publish_model.py`
+`Lib/Src/Distribution/ModelManifest.ixx:330` · `Lib/Src/Distribution/ModelStore.ixx:1253` ·
+`Lib/Store/Store.ixx:346` · `Apps/Chat/Src/Chat.ModelCatalog.ixx:796` ·
+`Lib/Tools/Publishing/publish_model.py`
 
 ### Performance Next to llama.cpp
 
@@ -526,7 +647,7 @@ it; `mila-llm/gemma-4-12b-it-fp4` carries the field and the card line once `gemm
 The page is evidence of quality: performance as good as llama.cpp's, measured the same way, is what shows Mila is
 professional work. The site's Fast claim is a 4070 measurement against llama.cpp under LM Studio at Q4_K_M, from
 before this release's kernels. The measurements that replace it come from the comparison script
-(`Mila/Profiling/Benchmarks/benchmark_comparison.py`), which runs Llama 3.1 8B and Gemma 4 12B today; the
+(`Lib/Profiling/Benchmarks/benchmark_comparison.py`), which runs Llama 3.1 8B and Gemma 4 12B today; the
 Llama 3.2 3B row needs its Q4_0 GGUF and the Qwen 3.8 rows a GGUF of their own (llama.cpp knows the
 architecture).
 
@@ -596,7 +717,7 @@ same conversations, so the level is the model's own on this text; transformers' 
 both agree with that reference. Not measured: BF16 laid end to end at 8K and 16K, which is what says whether the rise
 with context is the model's or FP4's.
 
-`Mila/Tests/Dnn/Models/Qwen/QwenModel.Load.Cuda.cpp` `DISABLED_QualityGateAcrossContextLengths`
+`Tests/Dnn/Models/Qwen/QwenModel.Load.Cuda.cpp` `DISABLED_QualityGateAcrossContextLengths`
 
 #### Qwen 3.8 27B at four bits predicts a long text worse with all of it in context than with its last 1,024 tokens
 
@@ -638,7 +759,7 @@ different text.
 What is left is a gate that judges Mila against FP32 relative to HuggingFace's own BF16, and the ratio it allows.
 The FP32 reference has to exist wherever the test runs.
 
-`Mila/Tests/Dnn/Models/Qwen/QwenModel.Parity.Cuda.cpp` `kHiddenStateTolerance`
+`Tests/Dnn/Models/Qwen/QwenModel.Parity.Cuda.cpp` `kHiddenStateTolerance`
 
 #### The Gemma 4 26B-A4B leaves Claude Code about 7,000 tokens of working room on a 16 GB card
 
@@ -649,7 +770,7 @@ Claude Code 2.1.300's first request renders to about 20,400 tokens, and the 26B-
 one of the two models Mila calls agentic. Not measured: the 12B's room, or whether the 26B-A4B's context is held back
 for a full prefill chunk as Qwen's was.
 
-`MilaServer/docs/harnesses.md` *Tested With*
+`Apps/Server/docs/harnesses.md` *Tested With*
 
 #### The Python binding and Mila's context measurements render Qwen 3.8's prompt differently from its own template in six places
 
@@ -664,7 +785,7 @@ and Chat (since `+82`) render through it; the binding's wrappers (`Mila_py.Wrapp
 `Tools/ContextProfile` (`ContextProfile.ixx:379`, `:885`) still call the free functions, so a context profile is
 measured on a prompt the model's template would not write. Not measured: how far each moves the model's behaviour.
 
-`Mila/Src/Dnn/Models/Qwen/Qwen.Protocol.ixx` `formatPrompt`, `formatTurn`, `serializeToolSignatures`
+`Lib/Src/Dnn/Models/Qwen/Qwen.Protocol.ixx` `formatPrompt`, `formatTurn`, `serializeToolSignatures`
 
 #### The Python binding and Mila's context measurements cut a Gemma tool result down to one field, where Google's template gives the model the whole text
 
@@ -685,7 +806,7 @@ any turn (found 2026-10-20 in a Codex session on the 26B-A4B, thinking on). Mila
 llama.cpp rendered Gemma prompts byte-identically on 2026-10-19. Not checked: whether Google's own serving renders
 it this way, and whether moving the text before the call, or dropping it, changes Gemma's agentic results.
 
-`Mila/Src/Dnn/Models/Gemma/Gemma.Protocol.ixx` `formatToolResponse`
+`Lib/Src/Dnn/Models/Gemma/Gemma.Protocol.ixx` `formatToolResponse`
 
 #### Gemma 4 12B's greedy reply changes early with its drafter on the RTX 4070
 
@@ -696,7 +817,7 @@ Pinned by UUID, the same build at `+68` (a change that touches no model code) pa
 at token 402, measured 2026-10-05. Not checked: on which card that was measured, and the token at which they part on
 the 4070.
 
-`Mila/Tests/Dnn/Models/Gemma/Gemma.DraftModel.Cuda.cpp:367` `Gemma4_12B_GreedyGenerationIsUnchanged`
+`Tests/Dnn/Models/Gemma/Gemma.DraftModel.Cuda.cpp:367` `Gemma4_12B_GreedyGenerationIsUnchanged`
 
 ### Internal fixes
 
@@ -720,7 +841,7 @@ each allocation a load or a decode step makes under the plan's price.
 Gate: free memory after a load and the first decode steps is at least the margin the plan states, on Qwen at both
 builds and on Gemma 4 12B; `PlanEqualsBuild` covers the context's own allocations.
 
-`Mila/Specifications/ModelFamilyParity.md` 8.3, Q4
+`Specifications/ModelFamilyParity.md` 8.3, Q4
 
 #### The FP8 batched path rounds every weight before it scales
 
@@ -736,7 +857,7 @@ reproduced to four digits by a model of it. Every per-channel FP8 Linear at more
 Decided 2026-09-26 (Todd): scale after the dot product, as its own change. Gate: a Linear-level test against exact
 FP64, and `Gemma.LogLikelihood.Cuda.cpp`'s window bound set back from 2e-3 to 1e-3.
 
-`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Fp8Prefill/CudaFp8Prefill.cu:79`
+`Lib/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Fp8Prefill/CudaFp8Prefill.cu:79`
 
 #### A model under a Windows path with characters outside the ANSI code page cannot be opened
 
@@ -752,7 +873,7 @@ its mapping, since faulting a large model through the mapped view throttles belo
 
 Gate: a model installed under a store path with characters outside the code page loads.
 
-`Mila/Src/Dnn/Serialization/WeightsReader.ixx:193` · `Mila/Src/Dnn/Serialization/SafeTensors.ixx:188`
+`Lib/Src/Dnn/Serialization/WeightsReader.ixx:193` · `Lib/Src/Dnn/Serialization/SafeTensors.ixx:188`
 
 #### The published binaries and images are built on CUDA 13.3 while 13.4 is current
 
@@ -813,7 +934,7 @@ be finished in this release.
 
 Gate: v0.21.0 is released by the script, from one command, with Todd's approvals the only manual steps.
 
-`scripts/release/release.py` · `Mila/Specifications/ReleaseAutomation.md` · `RELEASING.md`
+`scripts/release/release.py` · `Specifications/ReleaseAutomation.md` · `RELEASING.md`
 
 #### The deployment types repeat their namespace in their names
 
@@ -827,7 +948,7 @@ migration. `DeviceReading` is not part of this: its replacement name waits on `D
 
 Gate: the types, the binding's projection and `Deployment.md` use the short names.
 
-`Mila/Src/Deployment/`
+`Lib/Src/Deployment/`
 
 #### The same installed model loads through one app and is refused through another, because each app decides for itself how to load it
 
@@ -851,7 +972,7 @@ Gate: no app or the binding parses `architecture` or `variant`; a model loads or
 Chat, the binding and the inference server; `/model list` and `mila-store` report the planner's answer; a request
 naming no weight format loads every published variant.
 
-`Mila/Specifications/Deployment.md` 8.1 · `MilaChat/Src/Chat.ModelCatalog.ixx`
+`Specifications/Deployment.md` 8.1 · `Apps/Chat/Src/Chat.ModelCatalog.ixx`
 
 #### Chat and the inference server live under a directory named for what they are not, and Mila's commands follow three naming styles
 
@@ -860,9 +981,9 @@ naming no weight format loads every published variant.
 `Mila/Adaptors/` held Chat and the inference server, which are applications. The commands a user types are
 `mila-chat`, `mila-server`, `mila` and `ExportArtifact`. Decided 2026-10-11 (`MilaCommandLineReview.md` 4.1):
 
-- `Mila/Adaptors/Chat` to `MilaChat`, `Mila/Adaptors/Inference/Server` to `MilaServer`, with the CMake
+- `Mila/Adaptors/Chat` to `Apps/Chat`, `Mila/Adaptors/Inference/Server` to `Apps/Server`, with the CMake
   option, the wheel and image paths, `CLAUDE.md`, and the area tag in `Tags.md` (now `apps`) following.
-- The store tool leaves `Mila/Tools/Cli` for `Mila/Store` and is renamed `mila-store`: the website's Get
+- The store tool leaves `Lib/Tools/Cli` for `Lib/Store` and is renamed `mila-store`: the website's Get
   Started, Chat's shell hints, the image's link and `install` verb, and the image checks.
 - Every command a user types is lowercase with hyphens and the `mila-` prefix, the same on every platform.
   `ExportArtifact` keeps its name and place: it does not ship in v0.21.0 (notebook section 4.2).
@@ -870,7 +991,7 @@ naming no weight format loads every published variant.
 Gate: a clean configure of every preset, the full suite, the runtime image's checks, and no tracked file naming
 `Mila/Adaptors/` or the `mila` command except where it records the move.
 
-`Mila/Specifications/Notebooks/MilaCommandLineReview.md` 4.1 and 6 · `MilaChat/` · `MilaServer/` · `Mila/Store/`
+`Specifications/Notebooks/MilaCommandLineReview.md` 4.1 and 6 · `Apps/Chat/` · `Apps/Server/` · `Lib/Store/`
 
 #### Clang can no longer compile Chat, because every Mila module repeats the standard library's text
 
@@ -926,7 +1047,7 @@ Gate: both images build and pass their checks; every target builds on MSVC and C
 passing; `QuickStart/Cpp` builds through FetchContent with no `import std` setting of its own; `CLAUDE.md`,
 `getting-started.md` and the images state the new Clang floor.
 
-`Mila/CMakeLists.txt` · GitHub #30
+`Lib/CMakeLists.txt` · GitHub #30
 
 #### A 64-bit sampling seed keeps only its low 32 bits
 
@@ -936,7 +1057,7 @@ passing; `QuickStart/Cpp` builds through FetchContent with no `import std` setti
 apart -- and OpenAI's -1 and 4294967295 -- give the same stream while the API says each is a different seed. A
 `std::seed_seq` of both halves would keep all 64.
 
-`Mila/Src/Dnn/Samplers/TokenSampler.ixx` `reseed`
+`Lib/Src/Dnn/Samplers/TokenSampler.ixx` `reseed`
 
 #### A greedy reply through the inference server can depend on the request before it
 
@@ -948,7 +1069,7 @@ at a near-tie its reply depends on what the server ran before -- the case an eng
 server is in. Not checked: how often greedy flips on real prompts, and whether greedy calls should also prefill
 whole.
 
-`Mila/Bindings/Mila_py.Wrappers.cpp` (reuse off only with a seed) · `Mila/Specifications/PromptCaching.md` section 5
+`Lib/Bindings/Mila_py.Wrappers.cpp` (reuse off only with a seed) · `Specifications/PromptCaching.md` section 5
 
 #### Library doc comments still describe the retired operation registry and the removed operation bases
 
@@ -969,11 +1090,11 @@ This is the bounded part of `Vnext.md`'s "Public Doxygen still describes a world
 Retired code is deleted and git history is the archive (Todd, 2026-10-11). Wholly retired files, out of the build:
 `Gqa.Decode.Bf16.cu`, `Gqa.Flash.Wmma.cu`, `Gqa.Flash.Bf16.cu`, `CudaRopeOp.Cache.ixx`, `MLP.Dispatch.ixx`,
 Chat's `Chat.GemmaToolCallParser.ixx` and `Chat.QwenProtocol.ixx`, and the tests `CudaRopeOp.Calculated.Cuda.cpp` and `Gemma.DelegatedFeedForward.Cuda.cpp`, with
-their commented-out entries in `Mila/CMakeLists.txt:276` and `Mila/Tests/CMakeLists.txt:253`. Retired functions
+their commented-out entries in `Lib/CMakeLists.txt:276` and `Tests/CMakeLists.txt:253`. Retired functions
 inside live modules: `Tools/Quantization/pack_qwen.py:162` and `artifact.py:181`. Specs that cite a retired file as a
 reference are reread when it goes.
 
-`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/`
+`Lib/Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/`
 
 #### A consumer build on Clang warns that a random-fill operation uses a cudaMalloc local to another translation unit
 
@@ -984,7 +1105,7 @@ Building QuickStart inside the devel image with Clang 22 (2026-10-13) gives four
 `cudaMalloc<float>`, the CUDA runtime header's template, which the module's global fragment declares. Not checked:
 whether Clang 21 warned too, and whether it is only a warning or a real ODR hazard.
 
-`Mila/Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Random.ixx:266`
+`Lib/Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Random.ixx:266`
 
 #### CI never compiles the CUDA build, so Clang portability defects in the code users run go unseen
 
@@ -1017,7 +1138,7 @@ leaves no file.
 Gate: the full suite passes with the 26B's BF16 weights absent, partial and complete, and a conversion killed part
 way leaves no file at its destination.
 
-`Mila/Tests/Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Load.Cuda.cpp:76` · `Mila/Tools/Converters/Gemma/`
+`Tests/Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Load.Cuda.cpp:76` · `Lib/Tools/Converters/Gemma/`
 
 #### The inference server logs a client's dropped connection on Windows as an error with a traceback
 
@@ -1033,4 +1154,4 @@ out of `Untriaged.md`.
 Gate: a client that resets an idle keep-alive connection leaves no error and no traceback in the server's log, and
 an exception in a request still logs one.
 
-`MilaServer/src/mila_llm_server/app.py` (event loop)
+`Apps/Server/src/mila_llm_server/app.py` (event loop)

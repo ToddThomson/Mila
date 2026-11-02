@@ -1,0 +1,568 @@
+# CMake project for testing the Mila Library
+#
+# enable_testing() is NOT called here: the top-level CMakeLists already enables CTest
+# (gated on PROJECT_IS_TOP_LEVEL) before adding this directory. A second call here would be
+# pure redundancy.
+#
+# Test source organization (see Specifications/Testing.md):
+#   Section 1 - revised to the current test methodology.
+#   Section 2 - active, not yet revisited (pre-methodology).
+#   Section 3 - commented, awaiting revival (retired in place, not deleted).
+# Within each section, entries are sorted by their Src module path. CPU-agnostic
+# units live in the add_executable() list below; CUDA-only units (*.Cuda.cpp /
+# Cuda*.cpp) live in the MILA_ENABLE_CUDA block at the bottom, organized the same
+# way, so the MILA_ENABLE_CUDA=OFF build never compiles a CUDA translation unit.
+
+set(CMAKE_CXX_SCAN_FOR_MODULES ON)
+
+include(FetchContent)
+   FetchContent_Declare(
+   googletest
+     URL https://github.com/google/googletest/archive/refs/tags/v1.17.0.zip
+)
+
+# For Windows: Prevent overriding the parent project's compiler/linker settings
+set( gtest_force_shared_crt ON CACHE BOOL "" FORCE )
+
+FetchContent_MakeAvailable( googletest )
+include( GoogleTest )
+
+# Set global C++ and CUDA standard
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CUDA_STANDARD 20)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+
+if(MILA_ENABLE_CUDA)
+    find_package(CUDAToolkit REQUIRED)
+
+    # Default to building for the GPU on the current system
+    if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+      set(CMAKE_CUDA_ARCHITECTURES native)
+    endif()
+endif()
+
+add_executable( MilaTests
+    "main.cpp"
+
+    # ==============================================================
+    # Section 1 - Current test methodology (Specifications/Testing.md)
+    # ==============================================================
+    "Data/Loaders/DataLoader.cpp"
+    "Dnn/Components/Activations/Activation/ActivationConfig.cpp"
+    "Dnn/Components/Activations/Gelu/GeluConfig.cpp"
+    "Dnn/Components/Attention/GQA/GqaConfig.cpp"
+    "Dnn/Components/Attention/MHA/MultiHeadAttentionConfig.cpp"
+    "Dnn/Components/Connections/GatedResidualConfig.cpp"
+    "Dnn/Components/Connections/ResidualConfig.cpp"
+    "Dnn/Components/Convolutions/CausalConv1dConfig.cpp"
+    "Dnn/Components/Embeddings/TokenEmbeddingConfig.cpp"
+    "Dnn/Components/Encodings/Lpe/LpeConfig.cpp"
+    "Dnn/Components/Encodings/Rope/RopeConfig.cpp"
+    "Dnn/Components/FFN/GatedMLP/GatedMLPConfig.cpp"
+    "Dnn/Components/FFN/MLP/MLPConfig.cpp"
+    "Dnn/Components/FFN/Swiglu/SwigluConfig.cpp"
+    "Dnn/Components/Linear/LinearConfig.cpp"
+    "Dnn/Components/MixtureOfExperts/MixtureOfExpertsConfig.cpp"
+    "Dnn/Components/MixtureOfExperts/RouterConfig.cpp"
+    "Dnn/Components/Normalization/LayerNorm/LayerNormConfig.cpp"
+    "Dnn/Components/Normalization/RmsNorm/RmsNormConfig.cpp"
+    "Dnn/Components/Normalization/SoftmaxConfig.cpp"
+    "Dnn/Components/Transformers/Gpt/Gpt.Presets.cpp"
+    "Dnn/Components/Transformers/Gpt/GptBlock.Config.cpp"
+    "Dnn/Components/Transformers/Llama/Llama.Presets.cpp"
+    "Dnn/Components/Transformers/Gemma/Gemma.Config.cpp"
+    "Dnn/Components/Transformers/Qwen/Qwen.Config.cpp"
+    "Dnn/Components/Transformers/Qwen/Qwen.PrecisionPlan.cpp"
+    "Dnn/Components/Transformers/Qwen/Qwen.Fp4Codebook3PrecisionPlan.cpp"
+    "Dnn/Compute/Operations/OperationTraits.cpp"
+    "Dnn/Core/Component.cpp"
+    "Dnn/Core/ComponentConfig.cpp"
+    "Dnn/Core/CompositeComponent.cpp"
+    # The stored-weights quantization rule: one shared refusal, four families, and a
+    # failure mode that loads and runs rather than erroring.
+    "Dnn/Core/LanguageModelConfig.cpp"
+    "Dnn/Models/Gemma/Gemma.Protocol.cpp"
+    "Dnn/Models/Qwen/Qwen.Protocol.cpp"
+    # Each template's protocol against the checkpoint's own chat_template.jinja (ModelHandle.md P1).
+    "Dnn/Models/ChatProtocolForArchitecture.cpp"
+    "Dnn/Models/Conversation.ReplyReader.cpp"
+    "Dnn/Models/QuantizationDispatch.cpp"
+    "Dnn/Models/Gemma/Gemma.ChatProtocol.cpp"
+    "Dnn/Models/LlaMa/Llama.ChatProtocol.cpp"
+    "Dnn/Models/Qwen/Qwen.ChatProtocol.cpp"
+    # Covers both containers WeightsReader accepts, including a hand-built
+    # MILA file that guards the legacy .bin path no fixture-free test could reach.
+    "Dnn/Serialization/SafeTensors.Cpu.cpp"
+    "Dnn/Tensors/Tensor.Constructors.cpp"
+    "Dnn/Tensors/Tensor.DataAccess.cpp"
+    "Dnn/Tensors/Tensor.DataPointers.cpp"
+    "Dnn/Tensors/Tensor.Identity.cpp"
+    "Dnn/Tensors/Tensor.Io.cpp"
+    "Dnn/Tensors/Tensor.MemoryProperties.cpp"
+    "Dnn/Tensors/Tensor.Properties.cpp"
+    "Dnn/Tensors/Tensor.ShapeTransform.cpp"
+    "Dnn/Tensors/TensorOps/Fill.Cpu.cpp"
+    "Dnn/Tensors/TensorOps/Math.Cpu.cpp"
+    "Dnn/Tensors/TensorOps/Random.Cpu.cpp"
+    "Dnn/Tensors/TensorOps/Zero.Cpu.cpp"
+    "Dnn/Quantization/CodebookOracle.Cpu.cpp"
+    "Dnn/Quantization/CodebookPacking.Cpu.cpp"
+    "Dnn/Quantization/Int4Packing.Cpu.cpp"
+    "Dnn/Quantization/Int6Packing.Cpu.cpp"
+    "Dnn/Quantization/PrecisionPlan.Cpu.cpp"
+
+    # ==============================================================
+    # Section 2 - Active, not yet revisited (pre-methodology)
+    # ==============================================================
+    "Data/Loaders/TokenSequenceLoader.cpp"
+    "Data/Tokenizers/Bpe/BpeTokenizer.cpp"
+    "Data/Tokenizers/Bpe/BpeTokenizer.Gpt2.cpp"
+    "Data/Tokenizers/Bpe/BpeTokenizer.Llama32.cpp"
+    "Data/Tokenizers/Bpe/BpeTokenizer.Gemma.cpp"
+    "Data/Tokenizers/Bpe/BpeTokenizer.Qwen.cpp"
+    "Data/Tokenizers/Bpe/BpeTrainer.cpp"
+    "Data/Tokenizers/Bpe/BpeVocabulary.cpp"
+    "Data/Tokenizers/Char/CharTokenizer.cpp"
+    "Data/Tokenizers/Char/CharTrainer.cpp"
+    "Data/Tokenizers/Char/CharVocabulary.cpp"
+    "Dnn/Components/Transformers/Llama/Llama.Config.cpp"
+    "Dnn/Compute/DeviceId.cpp"
+    "Dnn/Compute/DeviceTypes.cpp"
+    "Dnn/Compute/Devices/Cpu/CpuDevice.cpp"
+    "Dnn/Compute/Devices/Registry/DeviceRegistrar.cpp"
+    "Dnn/Compute/Devices/Registry/DeviceRegistry.cpp"
+    "Dnn/Compute/Devices/Registry/DeviceRegistryHelpers.cpp"
+    "Dnn/Compute/ExecutionContext/CpuExecutionContext.cpp"
+    "Dnn/Compute/ExecutionContext/ExecutionContext.cpp"
+    "Dnn/Compute/Operations/OperationBase.cpp"
+    "Dnn/Tensors/TensorBuffer.cpp"
+    "Dnn/Tensors/TensorOps/TensorOps.Transfer.cpp"
+
+    # ==============================================================
+    # Section 3 - Disabled, by disposition (see Specifications/Testing.md s1)
+    # ==============================================================
+    # -- DELETE (redundant op-layer mirror): backend ops are implementation detail
+    #    (not in import Mila;) and their numerics are reachable through the component,
+    #    so these op tests duplicate the component suite. The only legitimate op-layer
+    #    coverage is the quantization white-box, which is net-new (the "quantization
+    #    backfill" BACKLOG item), not a revival of these. Files kept on disk pending
+    #    an explicit delete.
+    #
+    # -- REVIVE later (MNIST/training spine): thin Core/Network delta beyond the
+    #    container coverage in CompositeComponent.cpp.
+    #"Dnn/Core/Network.cpp"
+    #
+    # -- PARK (loss-on-device milestone): both samples compute loss host-side.
+    #"Dnn/Components/Losses/CrossEntropy.Config.cpp"
+    #
+    # -- PARK (serialization WIP; Model-abstraction target source not current):
+    #"Dnn/Model.cpp"
+    #"Dnn/Serialization/ModelArchive.cpp"
+    #"Dnn/Serialization/ZipSerializer.cpp"
+    #"Dnn/Tensors/TensorBuffer.Tracking.cpp"
+)
+
+# Everything that does not move bytes, which is nearly all of distribution: the store, pull,
+# packaging, and HuggingFace's own parsing. Each takes its transport as an injected callable --
+# the store a fetcher, the resolver an IModelHub, the hub an IHttpTransport -- so these run
+# offline, and they compile whether or not this build has an HTTP client.
+target_sources( MilaTests PRIVATE
+    "Distribution/ModelStore.Cpu.cpp"
+    "Distribution/ModelPackage.Cpu.cpp"
+    "Distribution/ModelResolver.Cpu.cpp"
+    "Distribution/ModelHub.Cpu.cpp"
+    "Distribution/HttpClient.Cpu.cpp"
+    # An installed model by name and the manifest fields it answers from (Deployment.md 8.1). Offline.
+    "Deployment/InstalledModel.Cpu.cpp"
+)
+
+# Mila::Agents, when it is built. The gate every tool call passes and the grant it gives (ToolCalling.md 3.1 to 3.4), and what a
+# program gives an agent, kept apart from its model (Direction.md 4.3), need no model; nor do Mila Desktop's own settings
+# file and activity prompts (MilaDesktop.md 3.1, 3.7), built here from its sources.
+if(MILA_ENABLE_AGENTS)
+    target_sources( MilaTests PRIVATE
+        "Agents/ArgumentSchema.cpp"
+        "Agents/GrantPath.cpp"
+        "Agents/PublicAddress.cpp"
+        "Agents/ToolRules.cpp"
+        "Agents/ToolGate.cpp"
+        "Agents/Session.cpp"
+        "Agents/WebPageReader.cpp"
+        "Apps/Desktop/SettingsFile.cpp"
+        "Apps/Desktop/PromptFile.cpp"
+    )
+
+    target_sources( MilaTests
+    PRIVATE
+        FILE_SET desktop_module_files
+        TYPE CXX_MODULES
+        BASE_DIRS "${CMAKE_SOURCE_DIR}/Apps/Desktop/Session/Src"
+        FILES
+            "${CMAKE_SOURCE_DIR}/Apps/Desktop/Session/Src/Desktop.Settings.ixx"
+            "${CMAKE_SOURCE_DIR}/Apps/Desktop/Session/Src/Desktop.SettingsFile.ixx"
+            "${CMAKE_SOURCE_DIR}/Apps/Desktop/Session/Src/Desktop.PromptTool.ixx"
+            "${CMAKE_SOURCE_DIR}/Apps/Desktop/Session/Src/Desktop.PromptFile.ixx"
+    )
+
+    target_link_libraries( MilaTests PRIVATE MilaAgents )
+
+    if(MILA_ENABLE_CUDA)
+        target_sources( MilaTests PRIVATE
+            "Agents/Agent.Cuda.cpp"
+        )
+    endif()
+
+    # What a tool's grant reaches (ToolCalling.md 3.4). Files only where a folder can be granted,
+    # Windows; the network where this build has its own transport to check, and the local server's
+    # sockets are Windows's.
+    if(WIN32)
+        target_sources( MilaTests PRIVATE
+            "Agents/ToolGrant.Files.cpp"
+            "Agents/FileTools.cpp"
+            # What a program run through a grant reaches (ContainedPrograms.md); MXC's part skips unless
+            # MILA_MXC_LIBRARY names its library and the build has MILA_ENABLE_MXC on.
+            "Agents/ToolGrant.Programs.cpp"
+            "Agents/SecondNameWatch.cpp"
+        )
+
+        # The program tests' loopback server, and the route to the local network's gateway.
+        target_link_libraries( MilaTests PRIVATE ws2_32 iphlpapi )
+
+        if(MILA_ENABLE_LIBCURL)
+            target_sources( MilaTests PRIVATE
+                "Agents/ToolGrant.Network.cpp"
+            )
+
+            target_link_libraries( MilaTests PRIVATE ws2_32 )
+        endif()
+    endif()
+endif()
+
+# Nothing under Distribution is gated any more. HttpClient's policy -- redirect hops, the
+# cross-host token drop, Range and the 200-versus-206 rule -- runs against a scripted
+# transport, so the rules that matter are pinned in every build rather than only where
+# libcurl happens to be compiled.
+
+# CUDA-only test translation units. These exercise CUDA memory resources,
+# execution contexts, and kernels directly and have no CPU-only meaning, so they
+# are compiled only when the CUDA backend is enabled. New *.Cuda.cpp / Cuda*.cpp
+# test files belong in this block, not in the add_executable list above. The same
+# three-section organization applies here.
+if(MILA_ENABLE_CUDA)
+    target_sources( MilaTests PRIVATE
+        # ----------------------------------------------------------
+        # Section 1 - Current test methodology
+        # ----------------------------------------------------------
+        "Data/Loaders/DataLoader.Cuda.cpp"
+        # The deployment planner (Deployment.md Phase 3): the objective, limits and refusals against readings the
+        # test chooses, on synthetic geometries. Runs anywhere.
+        "Deployment/ModelHandle.Cuda.cpp"
+        "Deployment/DeploymentPlanner.Cuda.cpp"
+        # G2: the readings Chat's automatic context saw, and what it picked, reproduced by the planner. Needs weights.
+        "Deployment/DeploymentPlanner.G2.Cuda.cpp"
+        # Plan, then execute, through the public entry points; N4. Needs weights.
+        "Deployment/DeploymentPlanner.Load.Cuda.cpp"
+        # G1 on the real models: every rung the rule can pick builds what it prices. Needs exported weights.
+        # Separate from the synthetic cases because together they crossed MSVC's section limit (C1128).
+        "Deployment/PlanEqualsBuild.Cuda.cpp"
+        # The build executes the prefill chunk it is given, at every rung (Deployment.md G1 and N1), on a
+        # synthetic geometry per family. Runs anywhere.
+        "Deployment/PrefillChunkRule.Cuda.cpp"
+        "Dnn/Components/Activations/Activation/Activation.Cuda.cpp"
+        "Dnn/Components/Activations/Gelu/Gelu.Cuda.cpp"
+        "Dnn/Components/Attention/GQA/GroupedQueryAttention.Cuda.cpp"
+        "Dnn/Components/Attention/GQA/CudaGqaOp.Cuda.cpp"
+        "Dnn/Components/Attention/GQA/CudaGqaOp.Fp8Cache.Cuda.cpp"
+        "Dnn/Components/Attention/GQA/CudaGqaOp.KeyBounds.Cuda.cpp"
+        "Dnn/Models/LlaMa/Llama.InstructionRetention.Cuda.cpp"
+        "Dnn/Components/Attention/MHA/MultiHeadAttention.Cuda.cpp"
+        "Dnn/Components/Connections/Residual.Cuda.cpp"
+        "Dnn/Components/Connections/GatedResidual.Cuda.cpp"
+        "Dnn/Components/Embeddings/NgramEmbedding.Cuda.cpp"
+        "Dnn/Components/Convolutions/CausalConv1d.Cuda.cpp"
+        "Dnn/Components/DeltaNet/GatedDeltaRule.Cuda.cpp"
+        "Dnn/Components/Embeddings/TokenEmbedding.Cuda.cpp"
+        "Dnn/Components/Embeddings/TokenEmbedding.Int6.Cuda.cpp"
+        "Dnn/Components/Encodings/Lpe/Lpe.Cuda.cpp"
+        "Dnn/Components/Encodings/Rope/Rope.Cuda.cpp"
+        # CudaRopeOp.Calculated.Cuda.cpp retired 2026-10-01 with the table it compared against.
+        "Dnn/Components/FFN/GatedMLP/GatedMLP.Cuda.cpp"
+        "Dnn/Components/MixtureOfExperts/MixtureOfExperts.Cuda.cpp"
+        "Dnn/Components/MixtureOfExperts/Router.Cuda.cpp"
+        "Dnn/Components/FFN/MLP/MLP.Cuda.cpp"
+        "Dnn/Components/FFN/Swiglu/Swiglu.Cuda.cpp"
+        "Dnn/Components/Linear/Linear.Cuda.cpp"
+        "Dnn/Components/Normalization/LayerNorm/LayerNorm.Cuda.cpp"
+        "Dnn/Components/Normalization/RmsNorm/RmsNorm.Cuda.cpp"
+        "Dnn/Components/Normalization/Softmax.Cuda.cpp"
+        "Dnn/Components/Transformers/Gpt/GptBlock.Cuda.cpp"
+        "Dnn/Components/Transformers/Gpt/GptTransformer.Cuda.cpp"
+        "Dnn/Components/Transformers/Llama/Llama.Cuda.cpp"
+        "Dnn/Components/Transformers/Llama/Llama.HuggingFaceReference.Cuda.cpp"
+        "Dnn/Components/Transformers/Gemma/Gemma.Block.Cuda.cpp"
+        "Dnn/Components/Transformers/Gemma/Gemma.Cuda.cpp"
+        # -- RETIRED (ModelFamilyParity.md 8.2, G4): a dense network with a delegated feed-forward, the
+        #    pair it compared, is no longer a type. Kept on disk as the recipe for G4's second change.
+        #"Dnn/Components/Transformers/Gemma/Gemma.DelegatedFeedForward.Cuda.cpp"
+        "Dnn/Components/Transformers/Gemma/Gemma.MixtureOfExperts.Cuda.cpp"
+        "Dnn/Components/Transformers/Qwen/Qwen.Block.Cuda.cpp"
+        "Dnn/Components/Transformers/Qwen/Qwen.DeltaNetBlock.Cuda.cpp"
+        "Dnn/Components/Transformers/Qwen/Qwen.Cuda.cpp"
+        "Dnn/Compute/Operations/OperationTraits.Cuda.cpp"
+        "Dnn/Components/Linear/CodebookGemv.Cuda.cpp"
+        "Dnn/Components/Linear/CudaLinearOp.Codebook.Cuda.cpp"
+        "Dnn/Components/Linear/CudaLinearOp.Int4.Cuda.cpp"
+        "Dnn/Components/Linear/CudaLinearOp.Int6.Cuda.cpp"
+        "Dnn/Components/Linear/Linear.Decode.Cuda.cpp"
+        "Dnn/Components/Attention/GQA/CudaGqaOp.DecodeTokens.Cuda.cpp"
+        "Dnn/Models/DecodeTokens.Cuda.cpp"
+        # The saveParameterToArchive staging branch needs a device-only dtype (BF16),
+        # so it is unreachable from the CPU companion in Dnn/Core/Component.cpp.
+        "Dnn/Core/Component.Cuda.cpp"
+        "Dnn/Modeling/Network.Cuda.cpp"
+        "Dnn/Models/Gemma/GemmaModel.Parity.Cuda.cpp"
+        # Gemma 4 26B-A4B against a layer-streamed HuggingFace reference: 47 GiB of BF16 weights fit no card,
+        # so one block is resident at a time. Skips without the weights and both references.
+        "Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Parity.Cuda.cpp"
+        # The same model quantized to FP4 on load: footprint against the driver and the spec, greedy tokens
+        # against HuggingFace. Needs the BF16 weights and a 16 GiB card.
+        "Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Load.Cuda.cpp"
+        # Gate B: the reported footprint against cudaMemGetInfo. Both skip without a real
+        # checkpoint, so neither runs in CI -- see Specifications/MemoryFootprint.md 7.
+        "Dnn/Models/Gemma/GemmaModel.Footprint.Cuda.cpp"
+        # Rates, all DISABLED: they exist so Qwen's have a comparator on the same card by
+        # the same subtraction. Common/GenerationRates.h is the one implementation.
+        "Dnn/Models/Gemma/GemmaModel.Rates.Cuda.cpp"
+        # Sequence log-likelihood on the published FP4 weights, DISABLED: window 1 against window 64 and
+        # argmax against greedy -- ModelFamilyParity.md 8.2, G1. Measurement/LogLikelihoodHarness.h builds the network.
+        "Dnn/Models/Gemma/Gemma.LogLikelihood.Cuda.cpp"
+        # Decision 6's behavioral arm on Gemma, DISABLED: an instruction at position 0 after a book, BF16 against
+        # the FP8 global cache.
+        "Dnn/Models/Gemma/Gemma.DraftModel.Cuda.cpp"
+        "Dnn/Models/Gemma/Gemma.InstructionRetention.Cuda.cpp"
+        # A turn needing two calls makes both and stops at Gemma's own <|tool_response>. Needs exported weights.
+        "Dnn/Models/Gemma/Gemma.ToolCallStop.Cuda.cpp"
+        "Dnn/Models/LlaMa/LlamaModel.Footprint.Cuda.cpp"
+        "Dnn/Models/LlaMa/LlamaModel.Generation.Cuda.cpp"
+        # The most fewer launches can buy a decode step -- ModelFamilyParity.md 8.4, L5.
+        "Dnn/Models/DecodeLaunch.Cuda.cpp"
+        # Decode logits against a reference an earlier build dumped -- DecodeGraph.md gate A1.
+        "Dnn/Models/DecodeReference.Cuda.cpp"
+        # A replayed decode step against the called one -- DecodeGraph.md gates B2-B5.
+        "Dnn/Models/DecodeReplay.Cuda.cpp"
+        "Dnn/Models/SequenceLogLikelihoodFrom.Cuda.cpp"
+        "Dnn/Models/LlaMa/Llama.LogLikelihood.Cuda.cpp"
+        # A load that fits BF16 weights settles at its exported form's footprint: the load staging is freed.
+        # Needs both weights of each model -- see Specifications/MemoryFootprint.md Phase 6 step 1.
+        "Dnn/Models/QuantizeOnLoad.Footprint.Cuda.cpp"
+        # A built model reserves the scratch its footprint predicts and generation stays inside it.
+        # Needs exported weights -- see Specifications/MemoryFootprint.md Phase 6 step 2.
+        "Dnn/Models/ScratchReservation.Cuda.cpp"
+        # With KV prefix reuse off, a seeded reply does not depend on the prompt run before it -- PromptCaching.md
+        # section 5. Needs exported weights.
+        "Dnn/Models/PrefixReuse.Cuda.cpp"
+        # Qwen against a TRUNCATED real artifact -- the full 27B is 50 GiB at BF16 and fits
+        # no card here, so 4 layers (both block kinds) is what can be exercised. Skips
+        # without the fixture; see the file header for how to produce it.
+        "Dnn/Models/Qwen/QwenModel.Load.Cuda.cpp"
+        "Dnn/Models/Qwen/QwenModel.Parity.Cuda.cpp"
+        # The packed codebook path against the same 4-layer fixture decoded to BF16; skips without both files.
+        "Dnn/Models/Qwen/QwenModel.Codebook.Cuda.cpp"
+        "Dnn/Models/Qwen/Qwen.InstructionRetention.Cuda.cpp"
+        # Observability's whole-model cost criterion. NOT under Models/: publication is a
+        # Component facility, so the two chassis it runs on are two samples of one
+        # measurement. DISABLED, and skips without a real checkpoint.
+        "Dnn/Observation/ObservationCost.Cuda.cpp"
+        "Dnn/Models/Gpt/GptModel.Cuda.cpp"
+        "Dnn/Optimizers/AdamW.Cuda.cpp"
+        # The FP32 master-parameter path, which AdamW.Cuda.cpp does not reach.
+        "Dnn/Optimizers/AdamW.MixedPrecision.Cuda.cpp"
+        "Dnn/Samplers/Sampling.Cuda.cpp"
+        "Dnn/Core/SequenceLogLikelihood.Cuda.cpp"
+        "Dnn/Compute/DeviceArena.Cuda.cpp"
+        "Dnn/Tensors/Tensor.Constructors.Cuda.cpp"
+        "Dnn/Tensors/Tensor.DataAccess.Cuda.cpp"
+        "Dnn/Tensors/Tensor.MemoryProperties.Cuda.cpp"
+        "Dnn/Tensors/Tensor.ShapeTransform.Cuda.cpp"
+        "Dnn/Tensors/TensorOps/Fill.Cuda.cpp"
+        "Dnn/Tensors/TensorOps/Math.Cuda.cpp"
+        "Dnn/Tensors/TensorOps/Random.Cuda.cpp"
+        # split() is CUDA-only (no CpuTensorOps::split), so there is no .Cpu.cpp peer.
+        "Dnn/Tensors/TensorOps/Structural.Cuda.cpp"
+        "Dnn/Tensors/TensorOps/Zero.Cuda.cpp"
+
+        # ----------------------------------------------------------
+        # Section 2 - Active, not yet revisited (pre-methodology)
+        # ----------------------------------------------------------
+        "Dnn/Compute/Devices/Cuda/CudaDeviceRegistrar.cpp"
+        "Dnn/Compute/ExecutionContext/CudaExecutionContext.cpp"
+
+        # ----------------------------------------------------------
+        # Section 3 - Disabled, by disposition (see Specifications/Testing.md s1)
+        # ----------------------------------------------------------
+        # -- DELETE (redundant op-layer mirror; see the CPU Section 3 note): these
+        #    re-check GEMM / attention numerics reachable through Linear.Cuda /
+        #    MultiHeadAttention.Cuda. They also carry the stale pre-move path
+        #    "Dnn/Compute/Operations/Cuda/..." (files now live at
+        #    "Dnn/Compute/Devices/Cuda/Operations/..."). The one op test that SHOULD
+        #    exist is a newly-written CudaLinearOp quantization white-box (FP8/FP4
+        #    scales + nibble packing), tracked as the quantization backfill BACKLOG
+        #    item -- not a revival of these.
+        #
+        # -- PARK (loss-on-device milestone):
+        #"Dnn/Components/Losses/SoftmaxCrossEntropy.Cuda.cpp"
+        #
+        # -- PARK (infra value-type test; group with the Section 2 infra tests):
+        #"Dnn/Compute/Devices/Cuda/CudaDevice.cpp"
+    )
+endif()
+
+target_compile_definitions( MilaTests PRIVATE TEST_DATA_DIR="${MILA_DATA_DIR}" )
+
+# Shared, non-module test helpers (e.g. Common/GradientCheck.h) are included from
+# the Tests root so any test file can reference them as "Common/<helper>.h".
+target_include_directories( MilaTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" )
+
+target_compile_features( MilaTests PUBLIC cxx_std_23 )
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+  # Test translation units cannot use <fstream>: MSVC C++23 raises C2079 on
+  # basic_istream::sentry when stream I/O meets `import Mila;` in a .cpp, so the four test
+  # files doing file I/O are on std::fopen by necessity rather than by choice. The library
+  # itself needs no such exemption -- its module units use <fstream>. Revisit when the
+  # C2079 defect is fixed; the test files can then follow.
+  target_compile_definitions( MilaTests PRIVATE _CRT_SECURE_NO_WARNINGS )
+
+  # The model tests instantiate every family at every weight format, and the heaviest test
+  # translation units sit within a few percent of MSVC's 65535-section object limit (C1128)
+  # under RelWithDebInfo. /bigobj widens the COFF section count; it changes no code generation.
+  target_compile_options( MilaTests PRIVATE /bigobj )
+endif()
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  target_compile_options(MilaTests PRIVATE
+    -fno-implicit-modules
+    -fno-implicit-module-maps
+    -fmodules
+  )
+endif()
+
+# MilaMeasurement: the log-likelihood harness and PG-19 reader, shared with Tools/ContextProfile.
+target_link_libraries( MilaTests PRIVATE Mila MilaMeasurement gtest )
+
+if(MILA_ENABLE_CUDA)
+    # No NVML. The Gate B tests once used it to find a device driving no display, so an absolute
+    # bound on unmodelled memory could be asserted on a quiet card. That question needed a
+    # particular machine; the question the tests ask now -- given the VRAM this card actually has
+    # free, does Mila decide correctly whether the model loads -- treats the card's circumstances
+    # as an input and needs none. Linking CUDA::nvml also put the driver's libnvidia-ml.so.1 in
+    # this binary's load-time dependencies, so a machine with a Toolkit but no driver could not
+    # start the suite at all.
+    target_link_libraries( MilaTests PRIVATE CUDA::cudart )
+endif()
+
+# Visual Studio native C++ code coverage instruments only binaries linked with
+# /PROFILE. Mila is a STATIC library linked into MilaTests, so instrumenting the
+# test exe covers the Mila code the tests exercise -- the library target needs no
+# change. Gated (default OFF) because /PROFILE forces /INCREMENTAL:NO, which slows
+# the relink in the normal TDD loop. Turn ON in a symbol-bearing config
+# (x64-debug or x64-profile), build, then Test > Analyze Code Coverage.
+option(MILA_ENABLE_COVERAGE "Link MilaTests with /PROFILE for Visual Studio native code coverage." OFF)
+
+if(MILA_ENABLE_COVERAGE AND MSVC)
+    target_link_options( MilaTests PRIVATE /PROFILE )
+endif()
+
+gtest_discover_tests(MilaTests
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"  # Set working directory to project root
+    PROPERTIES
+        VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+
+# ---------------------------------------------------------------------------
+# Chat: the rich-text formatter.
+#
+# Its own executable rather than a file in MilaTests, because Chat.RichText imports
+# nothing -- no Mila, no CUDA -- and linking it against the library would give the
+# cheapest test surface in the tree the slowest build in the tree. It runs anywhere,
+# including a CPU-only configure.
+#
+# The target lives here rather than under Apps/Chat: the tests are one place, and the GoogleTest targets are here.
+# ---------------------------------------------------------------------------
+add_executable( ChatRichTextTests
+    "Apps/Chat/RichText.Cpu.cpp"
+)
+
+# BASE_DIRS is explicit because a module file set otherwise roots itself at this
+# directory, and the module being tested lives in the app it belongs to.
+target_sources( ChatRichTextTests
+PUBLIC
+    FILE_SET module_files
+    TYPE CXX_MODULES
+    BASE_DIRS "${CMAKE_SOURCE_DIR}/Apps/Chat/Src"
+    FILES
+        "${CMAKE_SOURCE_DIR}/Apps/Chat/Src/Chat.RichText.ixx"
+)
+
+set_target_properties( ChatRichTextTests PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+# MilaStd for `import std;`: the module under test links nothing else of Mila's.
+target_link_libraries( ChatRichTextTests PRIVATE MilaStd gtest gtest_main )
+
+gtest_discover_tests( ChatRichTextTests
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    PROPERTIES
+        VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+
+# ---------------------------------------------------------------------------
+# Mila::Agents: a web page's HTML read as text.
+#
+# Its own executable for the reason ChatRichTextTests is: Agents.HtmlText imports nothing of
+# Mila's, so it builds and runs anywhere without the library.
+# ---------------------------------------------------------------------------
+add_executable( AgentsHtmlTextTests
+    "Agents/HtmlText.Cpu.cpp"
+)
+
+target_sources( AgentsHtmlTextTests
+PUBLIC
+    FILE_SET module_files
+    TYPE CXX_MODULES
+    BASE_DIRS "${CMAKE_SOURCE_DIR}/Lib/Src/Agents"
+    FILES
+        "${CMAKE_SOURCE_DIR}/Lib/Src/Agents/HtmlText.ixx"
+)
+
+set_target_properties( AgentsHtmlTextTests PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+target_link_libraries( AgentsHtmlTextTests PRIVATE MilaStd gtest gtest_main )
+
+gtest_discover_tests( AgentsHtmlTextTests
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    PROPERTIES
+        VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+
+# Packaging gates: the FetchContent subproject consumer against the local tree, and the
+# opt-in CPM-by-tag consumer against a published release. Defined here, with the tests,
+# rather than at the root: it is meaningful only when MILA_ENABLE_TESTING is on, and that
+# dependency is now structural -- this file is reached only through the
+# MILA_ENABLE_TESTING-gated add_subdirectory(Tests). Default OFF because each gate is a
+# full subproject reconfigure + rebuild (up to 1800s); unit-test runs should not pay that.
+# The x64-validate preset (and CI) turns it on.
+option(MILA_ENABLE_PACKAGING_TEST "Build the packaging gates (embed Mila via FetchContent and build a consumer against it)." OFF)
+
+if(MILA_ENABLE_PACKAGING_TEST)
+    add_subdirectory(Packaging)
+endif()

@@ -1,0 +1,1331 @@
+# Gemma 4 26B-A4B — Notebook
+
+## Overview
+
+The notebook for `google/gemma-4-26B-A4B-it`: the phases, the gate each must pass, written before its
+run, and what each phase actually found. **It is not the design.** The model's design of record is
+`Gemma.md` §10 — configuration, weight inventory, topology, format, memory, the bar and sequencing —
+and the MoE path it runs on is `MixtureOfExperts.md`. This notebook points at their sections rather
+than restating them. Where a phase finds that a design is wrong, the design is corrected in the same
+change and the evidence is recorded here.
+
+Committed to v0.21.0 under `ROADMAP.md`'s *Gemma 4 Complete*, with the bar `Gemma.md` §10.7 states:
+parity with every other published Mila model. The stages that remain are `ModelFamilyParity.md` §8.2,
+G4 to G6, and this notebook gains a phase as each is designed.
+
+**Phases 1-8 ran on Mila's own FP4, and the model publishes in Q4_0.** Phase 8 decided
+`PerGroupFp4<64>`; Phase 9 moves the expert bank to the Q4_0 Google trained the model for
+(`Gemma.md` §10.4). NVFP4 does not belong to this model (`MixtureOfExperts.md` §7): its activation
+quantizer lands on a dense model whose token parity is already known, so that a fault in the router,
+the expert dispatch and FP4 activations is never debugged all at once with no working arm to bisect
+against.
+
+**Section numbers before 2026-09-29.** Phases 1-8 cite `MixtureOfExperts.md` as it stood when each
+ran, when it was the design of both the MoE path and this model. It was split that day. Sections 3, 5,
+6 and 7.1-7.5 kept their numbers there; the rest moved or were renumbered:
+
+| Cited here as `MixtureOfExperts.md` | Now |
+|---|---|
+| §1 configuration, §2 weight inventory | `Gemma.md` §10.1, §10.2 |
+| §4 block topology | `Gemma.md` §10.3 (routing in general: `MixtureOfExperts.md` §4) |
+| §7.6 the Q4_0 format | `Gemma.md` §10.4 |
+| §8 memory footprint | `Gemma.md` §10.5 |
+| §8.1 expert residency | `MixtureOfExperts.md` §8 |
+| §9 chassis deltas | `Gemma.md` §10.6 |
+| §10 validation | `MixtureOfExperts.md` §10; the model's bar `Gemma.md` §10.7 |
+| §11 sequencing | `Gemma.md` §10.8 |
+| §12 open decisions | `Gemma.md` §10.9; the path's own `MixtureOfExperts.md` §11 |
+
+---
+
+## Phasing
+
+Phases map one-to-one onto the steps of `Gemma.md` §10.8. Each is independently buildable, and
+nothing is scheduled.
+
+**Phase 1 — resolve the block topology** (step 1). No code, no card. *Exit:* every tensor in one
+global and one sliding layer has a named consumer and a verified shape. **Done 2026-09-12.**
+
+**Phase 2 — delegate `GemmaBlock`'s FFN to `GatedMLP`** (step 2). No MoE code. Split in two,
+because the nested component renames every published FFN tensor (`tf_layer_i.fc_gate_up` becomes
+`tf_layer_i.mlp.fc_gate_up`) and rc.1 would pay a republish of a published model for work that
+ships after 0.20.0:
+
+- **2a — the component and the block wiring, now.** `GatedMLP` gains the block's weight
+  quantization, pooled activation slots and a footprint prediction, and is proven equal to the
+  block's inline chain. `GemmaBlock` and `GemmaTransformer` gain a trailing
+  `bool kDelegatedFeedForward = false`; set, every block's FFN is a `GatedMLP` child named `mlp`.
+  `GemmaModel` never sets it, so no published surface moves. *Exit:* `GatedMLP.Cuda.cpp` green,
+  including bit-identical output against `Linear -> Swiglu<Gelu> -> Linear` at BF16 and
+  `PerGroupFp4<128>`; and `Gemma.DelegatedFeedForward.Cuda.cpp` green — a sliding plus a global
+  layer, one saved weight set loaded into both wirings, bit-identical prefill and decode logits at
+  FP32, BF16 and `PerGroupFp4<128>`, an unchanged and correctly predicted footprint, and a flat
+  vocabulary that differs from the inline one only by the FFN projections moving under `mlp`.
+  **Done 2026-09-12**, every gate green on the RTX 4070 and the RTX 5060 Ti, each pinned by UUID, and
+  forced to fail once.
+- **2b — the switch, after the 0.20.0 tag.** Flip the default, delete the inline branch and the
+  flag together, and move Llama in the same pass so both families republish once. *Exit:* Gemma 4
+  12B token parity unchanged under `GemmaModel.Parity.Cuda.cpp`, footprint drift gates unchanged,
+  packages re-exported and republished, full suite green. **Not started. Moved 2026-09-26 into
+  `ModelFamilyParity.md` §8.2 G4**, as the first step of making the feed-forward sublayer a type,
+  with G4's gate replacing this one; Llama's half moves to Llama's pass (§9 item 8 there), since
+  each family now republishes once on its own pass.
+
+**Phase 3 — bounded-KV `TKvCachePolicy` sibling** (step 3). *Exit:* `SlidingWindowKvCache.md`'s own
+gates. **Already landed** before this record began: `GemmaModel` routes `SlidingWindowKvCache` to
+the local layers (`GemmaModel.ixx:98`), and the 26B reuses that chassis.
+
+**Phase 4 — footprint sparse-layer term** (step 4). *Exit:* `MemoryStats` carries resident and
+active parameter bytes separately, predicted equal to built for `MixtureOfExperts`; every dense
+family's report is unchanged. Reporting it through `Chat.Footprint.ixx` moves to Phase 8, the first
+phase with an MoE configuration to report.
+
+**Phase 5 — `Router` + `RouterOp`** (step 5). *Exit:* on fixed hidden states and real layer
+weights, expert indices agree exactly with `Gemma4TextRouter` and combine weights agree within a
+tolerance written down before the run. **Done 2026-09-12**, CPU and CUDA, CUDA on both cards — see
+Phase 5 below.
+
+**Phase 6 — `MixtureOfExperts` + `MoeOp` prefill** (step 6). *Exit:* matches a loop of `GatedMLP`
+over the same stacked weights, on CPU. **Done 2026-09-12**, CPU and CUDA, CUDA on both cards —
+against HuggingFace's eager `Gemma4TextExperts` and a definition in the test instead, because
+`GatedMLP<Cpu>` does not compile (see Phase 6 below). The CUDA kernel is the simple two-pass one; the
+grouped GEMM is an optimization to gate against it later.
+
+**Phase 7 — `MoeOp` decode gather-matvec** (step 7). *Exit:* matches Phase 6 at `M == 1`. The
+Phase 6 CUDA kernel already reads each token's selected expert rows in place, which is the
+gather-matvec shape, so Phase 7 reduces to its exit. **Done 2026-09-12**, bit-identical on both cards —
+see Phase 7 below.
+
+**Phase 8 — converter + `loadImpl`** (step 8). *Exit:* hidden-state parity against the HF
+reference on a short prompt at BF16, then a `PerGroupFp4<64>` load on the 16 GiB 5060 Ti with
+measured VRAM inside the `MixtureOfExperts.md` §8 row it was built for, and coherent generation.
+The BF16 model is ~47 GiB and fits neither card, so both the HF reference and the Mila side run
+layer-streamed — `Qwen3.8.md` §8 is the method. The FP4 load needs an FP4 expert bank, which this
+phase builds, and group 64 rather than 128, which this phase decides (see Phase 8 below).
+**Done 2026-09-13 except the fit**: correct at BF16 and FP4, 83.8 MiB short of the card at context
+8192 once RoPE's tables were sized to the built context. The fit is `ModelFamilyParity.md` G5.
+
+**Phase 9 — Q4_0 expert bank** (`MixtureOfExperts.md` §7.7). The expert bank, and with it the whole
+model, in the format Google trained it for. *Exit:* written before the phase's first run; see Phase 9
+below for what is known.
+
+---
+
+## Phase 1 — Block Topology (2026-09-12)
+
+### Sources
+
+- `transformers` **5.12.1**, `models/gemma4/modeling_gemma4.py` (the converter venv's copy):
+  `Gemma4TextDecoderLayer`, `Gemma4TextRouter`, `Gemma4TextExperts`, `Gemma4TextAttention`,
+  `Gemma4RMSNorm`.
+- Tensor **shapes** from the safetensors headers of both shards, for layer 5 (global) and layer 6
+  (sliding), read by HTTP range request.
+- `config.json` `text_config`.
+- **Values** of `layer_scalar` for all 30 layers and of `router.per_expert_scale` for layer 5, read
+  from the weights.
+
+`MixtureOfExperts.md` §4 named the class to read `Gemma4MoEDecoderLayer`. There is no such class:
+the MoE layer is `Gemma4TextDecoderLayer` with `enable_moe_block` set.
+
+### Unknown 1 — the five feed-forward norms
+
+```
+residual = h                                          post-attention residual stream
+d = post_feedforward_layernorm_1( mlp( pre_feedforward_layernorm( residual ) ) )
+e = post_feedforward_layernorm_2( experts( pre_feedforward_layernorm_2( residual ), router( residual ) ) )
+h = residual + post_feedforward_layernorm( d + e )
+h = h * layer_scalar
+```
+
+`post_feedforward_layernorm_1` is the **dense branch's** post-norm. The unsuffixed
+`post_feedforward_layernorm` belongs to neither branch: it normalizes the **sum**. So the §4
+accounting ("pre/post per branch, plus a fifth") had the wrong shape, not just a missing entry —
+there are two norms per branch plus one on the join.
+
+This is the cheap outcome for Mila. The unsuffixed norm sits exactly where the dense 12B block
+already runs `post_ffn_norm_` (`Gemma.Block.ixx:236`), between the FFN output and `res2_`. The MoE
+layer keeps that norm, its position and its converter mapping, and inserts a two-branch sum in
+front of it. The three new norms are `pre_feedforward_layernorm_2`, `post_feedforward_layernorm_1`
+and `post_feedforward_layernorm_2`.
+
+### Unknown 2 — `router.per_expert_scale`
+
+```
+x    = rms_norm_without_scale( residual ) * router.scale * 2816^-0.5
+p    = softmax( router.proj( x ) )              over all 128 experts
+w, i = topk( p, 8 )
+w    = w / sum( w )
+w    = w * per_expert_scale[ i ]
+```
+
+`per_expert_scale` multiplies each **selected** expert's combine weight, after renormalization. It
+runs after `topk`, so it never changes which experts run — only how much each contributes — and
+the final combine weights do **not** sum to 1.
+
+Layer 5 values: min **0.9805**, max **1.0234**, mean **1.0007**, std 0.012 — within about 2% of 1.
+Omitting it therefore moves each expert's contribution by at most ~2%: small enough that no
+per-layer tolerance would notice and the post-sum norm would absorb most of it, and exactly the kind
+of error that only token parity catches.
+
+> **Corrected 2026-09-12.** This section first recorded 1.870-1.878 (mean 1.874) and concluded that
+> omitting the scale would halve the routed branch. Those numbers came from a hand-written decoder
+> that read the bytes as IEEE float16 (5-bit exponent) when the tensor is bfloat16 (8-bit exponent).
+> The values above are torch's decode, captured by the Phase 5 reference script. The `layer_scalar`
+> table below had the same error.
+
+The softmax is over **all 128** logits before selection, not a softmax over the top 8. `RouterOp`
+must reproduce that order; at 128 wide the cost is negligible.
+
+Two details a `RouterOp` implementer would otherwise guess:
+
+- The router and `pre_feedforward_layernorm_2` both read the **same** unnormalized residual. The
+  router applies its own **unscaled** RMSNorm; `pre_feedforward_layernorm_2` has a learned weight.
+  They are two different norms of one input, not a shared one.
+- `router.scale` is a `[2816]` vector, not a scalar.
+
+**Open, not decided:** because an expert's output is linear in its combine weight,
+`per_expert_scale[e]` folds exactly into row `e` of `experts.down_proj`, offline, before
+quantization. That would leave `RouterOp` a pure selection operation. Against it: the exported
+weights would no longer equal the checkpoint tensor-for-tensor, which is what the Phase 5 and
+Phase 6 oracles compare. Keep it in `RouterOp` through Phase 5; decide at Phase 8.
+
+### Unknown 3 — `layer_scalar`
+
+It multiplies the whole layer output, after the second residual add. That is the operation the
+dense Gemma 4 chassis already runs — `Gemma.Block.ixx:241` (prefill) and `:315` (decode), loaded to
+a host float at `:586`, written FP32 by the converter. **It is not a chassis delta.**
+
+| Layers | `layer_scalar` (torch decode) |
+|---|---|
+| 0 | 0.0703 |
+| 1-2 | 0.2031, 0.1699 |
+| 3-28 | 0.5156-0.8164 |
+| 29 | 0.1953 |
+
+The first and last layers are scaled down hardest, so the dense 12B's "varies wildly per layer"
+(`convert_weights.py`) holds here too.
+
+### Unknown 4 — does a global layer carry `v_proj`
+
+**No.** From the index and headers:
+
+| Tensor | Layer 5 (global) | Layer 6 (sliding) |
+|---|---|---|
+| `q_proj` | `[8192, 2816]` | `[4096, 2816]` |
+| `k_proj` | `[1024, 2816]` | `[2048, 2816]` |
+| `v_proj` | **absent** | `[2048, 2816]` |
+| `o_proj` | `[2816, 8192]` | `[2816, 4096]` |
+| `q_norm`, `k_norm` | `[512]` | `[256]` |
+
+`V = v_norm(k_proj(x))` and `K = RoPE(k_norm(k_proj(x)))` — the identity the dense chassis already
+implements (`Gemma.Block.ixx:206`), with the converter already writing `[Q | K]` for global layers
+(`convert_weights.py:285`). **Not a chassis delta either.**
+
+It does correct `MixtureOfExperts.md` §8, which offered that `k_eq_v` might halve the global KV
+cache. It cannot: K passes through `k_norm` and RoPE, V through `v_norm`, so they differ and both
+are cached. `k_eq_v` saves the `v_proj` weights and nothing else.
+
+### Also established
+
+**Expert tensor layout.** `experts.gate_up_proj` is `[128, 1408, 2816]` and `experts.down_proj` is
+`[128, 2816, 704]` — PyTorch's `[experts, out, in]`. `MixtureOfExperts.md` §2 had both transposed;
+corrected there. `gate_up_proj` chunks **gate first, then up**, and the activation applies to the
+gate half — the same `[gate | up]` order the converter already writes for `fc_gate_up`. Each row of
+the stacked tensor is therefore laid out exactly like the dense block's fused projection.
+
+**Norm convention.** `Gemma4RMSNorm` multiplies by the **raw** weight; there is no `1 +` offset.
+Mila already runs every Gemma norm at unit offset 0 (`Gemma.Block.ixx:838`), so the three new norms
+convert raw like the rest. `MixtureOfExperts.md` §9 item 7 said the `1 +` convention would need
+extending to them; that was wrong, and it was inherited from three stale comments claiming the
+offset — the converter's module docstring, `_rmsnorm_to_numpy`, and `Gemma.Block.ixx`'s file
+header — all corrected in the same change.
+
+**Global attention parameters.** A global layer's attention is **49.0M**, not the 34.6M §8 used
+for every layer. The total moves from 25.16B to **25.23B** and the non-expert mass from 2.32B to
+**2.40B**; the §8 residency table is recomputed. No fit verdict changes.
+
+**What `config.json` rules out.** `hidden_size_per_layer_input = 0` (no per-layer-input branch),
+`num_kv_shared_layers = 0` (no KV sharing), `attention_bias = false`, `tie_word_embeddings = true`.
+`layer_types` is `sssssF` five times, so the global layers are **5, 11, 17, 23 and 29**.
+`use_bidirectional_attention = "vision"` affects image tokens only; the text path is causal. The
+checkpoint also carries `model.vision_tower.*`, which the text model does not read.
+
+### The chassis delta after Phase 1
+
+Of the eight items in `MixtureOfExperts.md` §9, one disappears (`layer_scalar`) and two shrink (the
+norms, the converter). Attention — both kinds — the embedding, `v_norm` and `layer_scalar` are
+reused from the dense chassis untouched.
+
+### Not answered by Phase 1
+
+- **Which experts implementation the HF reference ran.** `Gemma4TextExperts` is wrapped in
+  `@use_experts_implementation`, which can substitute a batched kernel for the loop in the source.
+  Phases 5-8 must record which implementation produced their reference, or a numerics difference
+  between HF's own paths reads as a Mila defect.
+- **Routing locality** (`MixtureOfExperts.md` §8.1). Needs a corpus run through the router weights.
+
+---
+
+## Phase 4 — Footprint sparse-layer term
+
+### Design (2026-09-12)
+
+**The term is bytes on `MemoryStats`, not a parameter count on `Component`.** The footprint
+pre-flight asks a constructed, unbuilt graph, and there `getRequiredMemory` answers while a
+composite's `parameterCount()` throws. `MemoryStats` gains `device_inactive_parameter_bytes`: the
+part of `device_parameter_bytes` a single token does not read. It is a subset, never a separate
+allocation, so `totalDeviceBytes()` is unchanged, and `activeDeviceParameterBytes()` is the
+difference. `operator+=` sums it, so it reaches a transformer through the existing aggregation.
+
+`MixtureOfExperts` is the only component that sets it: of `E` equal expert rows a token reads
+`top_k`, so `(E - top_k) / E` of the bank's bytes are inactive. Every dense component leaves it zero.
+
+**Split from its Chat half.** No model configuration carries an MoE layer until Phase 8, so
+`Chat.Footprint.ixx` has nothing to report yet; its wiring moves to Phase 8.
+
+### Gate, written before any run
+
+- **Component, CUDA BF16:** predicted equals built for the new field, and the built value is one
+  expert's bytes for a top-2-of-3 bank — 48 of 144 parameter bytes — with 96 active.
+- **Dense families unchanged:** every existing footprint drift gate passes untouched, and the full
+  suite stays green.
+- **The gate can fail:** reporting `top_k / E` as inactive instead of `(E - top_k) / E` fails the
+  component gate.
+
+### Result (2026-09-12)
+
+RTX 5060 Ti, pinned by UUID. `MixtureOfExperts.Cuda.cpp`'s BF16 footprint test: predicted equals built
+for the new field, and the built bank reports **144** parameter bytes, **48** inactive, **96** active.
+All 23 MoE tests pass. **Full suite 1933 run, 1932 pass / 0 fail / 1 skipped** (the long-standing
+Swiglu BF16 backward skip), with Gemma 4 12B's HuggingFace token parity passing — the dense families'
+reports did not move.
+
+**The gate can fail.** With `inactiveBytes` returning the `top_k` share, the CUDA test reports 96
+inactive and 48 active and fails on both. Predicted still equals built — one helper feeds both paths —
+so the literal byte counts, not the drift comparison, are what bound this defect; the CPU footprint
+test, which compares only predicted to built, stayed green. **Reverted.**
+
+---
+
+## Phase 5 — Router
+
+### Design (2026-09-12)
+
+- **`RouterOp` is selection only**: from `[N, 128]` router logits to top-8 expert indices (INT32)
+  and combine weights. Softmax over all 128, top-8, renormalize, multiply by
+  `per_expert_scale[index]`, which the op receives through `setParameters`. It has a CPU and a
+  CUDA specialization. The discrete part of routing lives here, and it is what the gate below
+  exercises hardest.
+- **`Router` orchestrates** the unscaled norm, the projection and the selection. The projection is
+  a `Linear` child named `proj`, so `router.proj.weight` loads under its checkpoint name, and it
+  stays unquantized — the router is a precision holdout (`MixtureOfExperts.md` §7.5).
+- **Open: where the unscaled norm and `router.scale` live — and `Testing.md` constrains it.** A CPU
+  op may only be tested through its component (`Testing.md` §1: CPU op tests are mirrors, and an
+  unreachable component is a component bug). So the CPU `RouterOp` is legitimate only if
+  `Router<Cpu>` compiles, and `RmsNormOp` has no CPU row (`OperationTraits.Cpu.ixx:23`).
+  (a) An `RmsNorm` child whose weight is `scale * 2816^-0.5`, CUDA-only: the reference gate runs in
+  a `.Cuda.cpp` and never in CI, and the CPU `RouterOp` has no reason to exist.
+  (b) The norm and scale move into `RouterOp`: `Router<Cpu>` is `Linear<Cpu>` plus `RouterOp`, so the
+  gate runs on CPU in CI, at the cost of a second RMS kernel on CUDA.
+  (c) (a) plus a CPU `RmsNormOp`, the open Llama-lineage contributor gap: the clean decomposition
+  and a CI gate, at the cost of `RmsNorm<Cpu>` and its component test.
+  **Decided (c), 2026-09-12.**
+
+### Reference and gate
+
+The reference is HF's `Gemma4TextRouter` run standalone on one layer's real router tensors, read by
+HTTP range request — no checkpoint download, no card. It records the router logits as well as the
+outputs, so the selection op is gated on its own before the norm and projection join it.
+
+**Precision trap, written down before any run.** HF takes the softmax and the top-k on probabilities
+held at model precision. Softmax is monotone, so ranking by logits and ranking by probabilities
+agree — except where BF16 rounding makes two probabilities equal, and `torch.topk`'s tie order
+decides. An op that ranks in FP32 is then correct and still disagrees on an index. So the reference
+is captured at both precisions, and the gate is:
+
+- **The selected set** — the eight (expert, weight) pairs of a row — is what is compared, never the
+  order: the combine is a sum over the eight, so an op that returns the right experts in another
+  order is correct, and an exact tie gives `torch.topk` no order worth matching.
+- **Expert indices**: the selected set equals the FP32 reference exactly. Against the BF16 reference,
+  a disagreement counts only where the reference probabilities tie.
+- **Weights**: FP32 op within `1e-6` absolute of the FP32 reference; BF16 op within `2^-6` relative
+  — two steps of bfloat16's 7-bit mantissa.
+
+**First capture, layer 5, 256 seeded tokens (2026-09-12).** 13 rows select a different expert set at
+BF16 than at FP32. 12 are exact BF16 probability ties, as predicted. The 13th (row 137) is not: FP32
+ranks expert 38 above expert 100 by a logit gap of 7.6e-4, and the BF16 logits themselves come out
+in the other order. So the tie rule above describes a ranking fed a capture's own logits, and is too
+strict for an **end-to-end BF16 router**, whose projection rounds before anything is ranked.
+
+**Every gate runs through `Router`, never `RouterOp` alone** — `Testing.md` §1 forbids op tests for
+behaviour the component reaches, and the component reaches all of it. Written before any Mila run:
+
+- **FP32, end to end** (`Router<Cpu>` and `Router<Cuda>`): fed `hidden_states` with the capture's
+  real tensors, each row's selected set equals `fp32`'s, except where the two experts in question
+  have FP32 reference logits within `1e-5` of each other; weights within `1e-5` absolute.
+- **BF16, end to end** (`Router<Cuda>`): against the FP32 reference, a differing expert is allowed
+  only where the two experts' FP32 logits lie within BF16 resolution of each other — defined as
+  `|a - b| <= 2^-6 * max(|a|, |b|)`, two steps of the 7-bit mantissa; weights within `2^-6` relative.
+  The BF16 router loads the capture's FP32 tensors truncated to bfloat16, so that truncation is
+  inside the tolerance, not outside it.
+- **Exact ties** (both devices): two identical `proj` rows give exactly equal logits, and the lower
+  expert index must be selected — a hand-built case, because seeded rows almost never tie.
+
+### CPU result (2026-09-12)
+
+`Router<Cpu>` is `RmsNorm` (weight derived as `scale * 2816^-0.5`) + `Linear` + `CpuRouterOp`, and
+exists because a CPU `RmsNormOp` now does (decision (c)). `Router.Cpu.cpp`:
+
+| Gate | Result |
+|---|---|
+| FP32 end to end, layer 5, 256 tokens | **0** rows with a different expert set; worst combine-weight error **6.7e-7** (tolerance 1e-5) |
+| Exact tie | lower index selected; weights match the definition within 1e-6 |
+| Flat vocabulary | exactly `proj.weight`, `scale`, `per_expert_scale` |
+| Footprint | predicted equals built |
+
+**The gate can fail.** With the checkpoint's `scale` replaced by ones — which breaks only the derived
+norm weight, the least-proven part of the chain — it reports 58 rows with an unexplained different
+set and 1990 weights out of tolerance (worst 0.22). The seven gates that do not read `scale` stayed
+green, as they should.
+
+### CUDA result (2026-09-12)
+
+`CudaRouterOp`: one thread per row, no shared memory and no thread sync, softmax accumulated in
+double, insertion top-k where only a strictly greater logit displaces. `Router.Cuda.cpp`, both cards
+pinned by UUID:
+
+| Gate | RTX 5060 Ti (SM 12.0) | RTX 4070 (SM 8.9) |
+|---|---|---|
+| FP32 end to end, layer 5 | 0 differing sets; worst weight error **1.49e-7** | 0 differing sets; worst **1.04e-7** |
+| BF16 end to end, vs FP32 reference | 11 rows differ, **0 unexplained**; worst **2.35e-3** | identical: 11, 0 unexplained, 2.35e-3 |
+| Exact tie, FP32 and BF16 | pass | pass |
+| BF16 footprint | predicted equals built | predicted equals built |
+
+The FP32 error differs between the cards in the last bits and the BF16 result does not, which is the
+expected shape: the FP32 GEMM reduces in a different order per architecture, while BF16 rounding
+lands both cards on the same representable values. Every BF16 set difference sits inside the
+bfloat16-resolution allowance fixed above, and the worst BF16 weight error (0.23% absolute) is well
+inside its 1.56% relative tolerance.
+
+**The CUDA gate can fail, and it fails on the kernel itself.** With the `per_expert_scale` multiply
+removed from `Router.cu` (5060 Ti): the FP32 gate reports 1795 weights out of tolerance (worst
+5.5e-3), the BF16 gate 487, and both exact-tie gates fail on expert 1, whose scale is 0.5. Expert
+sets are unchanged, as they should be — the scale acts after selection — and the footprint gate,
+which reads no kernel output, stayed green.
+
+---
+
+## Phase 6 — Expert bank
+
+### Design (2026-09-12)
+
+- **`MixtureOfExperts<Device, Precision, TGate>` is a leaf** owning the checkpoint's stacked tensors
+  under their checkpoint names — `gate_up_proj` `[E, 2I, H]` and `down_proj` `[E, H, I]` — and the
+  combine. Routing is an input: `forward( input, weights, indices )`, with `Router` a sibling in the
+  block (`MixtureOfExperts.md` §5 amended).
+- **`MoeOp` dispatches like `ElementwiseActivationOp`:** the CPU row registers `op_for<TFunctor>`,
+  and the component passes `functor_of_t<TGate>`. `ActivationType::Gelu` resolves to `GeluTanh`,
+  the same function and constants as HuggingFace's `gelu_pytorch_tanh`, so the activation adds no
+  term to the tolerance.
+- **The `GatedMLP` oracle the spec names cannot run on CPU:** `GatedMLP<Cpu>` does not compile, because
+  `Swiglu` has no CPU op by decision. The CPU gates are instead a reference computed from the
+  definition in the test, and HuggingFace's eager `Gemma4TextExperts` on synthetic stacked weights —
+  which checks the chunk order (gate first), the activation and the combine against the source of
+  truth without downloading a gigabyte-scale expert bank.
+
+### Gate, written before any run
+
+- **HuggingFace, CPU, FP32:** every output element within `1e-5` absolute of `Gemma4TextExperts` run
+  eagerly on the same synthetic weights, inputs, indices and combine weights.
+- **Definition, CPU, FP32:** a hand-built bank where each expert is distinguishable, within `1e-6`
+  absolute of a double-precision computation in the test.
+
+### CPU result (2026-09-12)
+
+The reference is HuggingFace's eager loop reached through `forward.__wrapped__`, on 48 tokens, 16
+experts of intermediate width 32, top-4, hidden 64. HuggingFace's dispatched forward reproduced the
+eager loop exactly, so the reference does not depend on which of its paths ran.
+`MixtureOfExperts.Cpu.cpp`:
+
+| Gate | Result |
+|---|---|
+| HuggingFace eager `Gemma4TextExperts` | worst element error **4.8e-7** (tolerance 1e-5) |
+| Definition, double precision | within 1e-6 |
+| Out-of-range expert index | refused |
+| Flat vocabulary | exactly `gate_up_proj`, `down_proj` |
+| Footprint | predicted equals built |
+
+**The gate can fail.** With the gate and up halves of `gate_up_proj` swapped in `CpuMoeOp` — the
+chunk-order mistake the HuggingFace reference exists to catch — both numeric gates fail, the
+HuggingFace one on all 3072 elements (worst 1.48). The five gates that do not depend on the chunk
+order stayed green.
+
+### CUDA design (2026-09-12)
+
+**The simple kernel comes first, and the grouped GEMM becomes an optimization gated against it.**
+Two passes over the stacked tensors in place, nothing gathered, nothing shared, no thread sync:
+
+1. One thread per (token, slot, intermediate unit) writes `GeluTanh(gate) * up` into an FP32 scratch
+   buffer of `tokens x top_k x I`, owned by the op and sized at build.
+2. One thread per (token, output column) writes `sum over slots of weight * (down[e] . gated)`.
+
+A single decoding token visiting 8 experts is exactly this kernel, so it is also Phase 7's decode
+path; Phase 8 can run the model on it. The CUTLASS grouped path is not started here; CUTLASS left the
+build at `rc.1+24` and returns with that kernel (`MixtureOfExperts.md` §7.3). The scratch buffer is
+reported through the op's state-memory hooks, which `MixtureOfExperts` now adds to its own footprint.
+
+A kernel cannot throw, and validating indices on the host would cost a synchronization per call. An
+out-of-range expert index therefore writes NaN into that token's output instead of reading out of
+bounds, so the defect surfaces rather than silently corrupting a neighbour.
+
+### CUDA gate, written before any run
+
+- **FP32** (`MixtureOfExperts<Cuda>`), against HuggingFace's eager experts: within `1e-5` absolute.
+- **BF16**, same reference, with the FP32 capture truncated to bfloat16: within
+  `0.05 * |reference| + 0.01`. Truncating weights of magnitude ~0.1 to a 7-bit mantissa moves each
+  product by up to ~1%, and a sum of many of them moves the output by a comparable fraction; the
+  swapped-chunk defect the CPU gate caught produces errors around 1.5, two orders above this line.
+- **Definition:** FP32 within `1e-6`, BF16 within the BF16 rule above.
+- **Invalid index:** the affected token's output is NaN; every other token is finite.
+
+### CUDA result (2026-09-12)
+
+`MixtureOfExperts.Cuda.cpp`, both cards pinned by UUID, same synthetic reference as the CPU gate:
+
+| Gate | RTX 5060 Ti (SM 12.0) | RTX 4070 (SM 8.9) |
+|---|---|---|
+| FP32 vs HuggingFace | worst **2.4e-7** (tolerance 1e-5) | worst **2.4e-7** |
+| BF16 vs HuggingFace | worst **1.9e-2** (tolerance 0.05·\|ref\| + 0.01) | worst **1.9e-2** |
+| Definition, FP32 and BF16 | pass | pass |
+| Out-of-range index | that token NaN, the other finite | same |
+| BF16 footprint, gated scratch included | predicted equals built | same |
+
+Unlike the router, the two cards agree to the last bit here: no library GEMM is involved, so both run
+the same sequential per-thread accumulation. The CPU MoE suite also still passes with the component
+now adding operation state to its footprint.
+
+**The CUDA gate can fail, and it fails on the kernel itself.** With the gate and up offsets swapped
+in `Moe.cu` (5060 Ti): both definition gates fail, the FP32 HuggingFace gate fails on all 3072
+elements (worst 1.48) and the BF16 one on 2860 of 3072 (worst 1.47). The 212 BF16 elements that
+stayed inside tolerance are outputs small enough to sit under the rule's 0.01 absolute floor — which
+is why the FP32 and definition gates, not the BF16 one, are the ones that bound this defect class.
+The poisoning and footprint gates, which do not depend on the chunk order, stayed green.
+
+---
+
+## Phase 7 — Decode at `M == 1`
+
+### Design (2026-09-12)
+
+No new kernel. Both passes of the Phase 6 CUDA kernel compute a token from its own input row and
+its own routing row, read the selected expert rows in place, and accumulate in an order that does
+not depend on how many tokens are in the call. One decoding token is therefore the gather-matvec
+`MixtureOfExperts.md` §6 describes, and Phase 7 is its gate.
+
+### Gate, written before any run
+
+Because nothing in a token's arithmetic depends on the token count, the gate is **bit-identical**,
+not a tolerance:
+
+- **Prefill-built bank, decoding.** 48 synthetic tokens (hidden 64, intermediate 32, 16 experts,
+  top-4, fixed seed) run as one `[48, H]` call; then each token alone as `[1, 1, H]` through the same
+  bank. Every output bit equals its row of the prefill call, at FP32 and at BF16. This is how the
+  chassis decodes: the bank is built for the prompt and called one token at a time.
+- **Bank built for one token.** The same comparison with a second bank built at `[1, 1, H]`, which
+  sizes the gated scratch for exactly one token.
+- **The gate can fail.** A stride defect in the combine pass's scratch offset leaves token 0 correct
+  in both calls, so it must fail on the other 47 tokens.
+
+### Result (2026-09-12)
+
+`MixtureOfExperts.Cuda.cpp`, `*_DecodeMatchesPrefillRow_*`, each card pinned by UUID:
+
+| Gate | RTX 5060 Ti (SM 12.0) | RTX 4070 (SM 8.9) |
+|---|---|---|
+| FP32, bank built for prefill | **0 of 3072** elements differ | 0 of 3072 |
+| BF16, bank built for prefill | **0 of 3072** | 0 of 3072 |
+| FP32, bank built for one token | **0 of 3072** | 0 of 3072 |
+| BF16, bank built for one token | **0 of 3072** | 0 of 3072 |
+
+The Phase 6 gates in the same run were unchanged on both cards.
+
+**The gate can fail.** With the combine pass reading the gated scratch at `token * intermediate`
+instead of `token * top_k * intermediate` (5060 Ti), all four decode gates fail: FP32 on **3008** of
+3072 elements, exactly the 47 tokens after token 0, and BF16 on 3007 — one element of those tokens
+landed on the same bfloat16 value either way, which was not examined further. The definition and HuggingFace gates
+fail too; the poisoning and footprint gates stay green. **Reverted.**
+
+---
+
+## Phase 8 — Converter and `loadImpl`
+
+### Decisions (2026-09-12)
+
+Reading the dense chassis against this checkpoint turned up four things the phasing did not price.
+All four were decided before any code:
+
+1. **A `PerGroupFp4<128>` expert bank is required, not an optimization.** `MixtureOfExperts` and
+   `MoeOp` carry no weight quantization, and the bank is ~45 GiB at BF16 — the model runs on neither
+   card without it. `MixtureOfExperts` gains `TWeightQuantization`, and the FP4 kernel is gated
+   against the Phase 6 BF16 kernel on synthetic weights, the way Phase 6 was gated against
+   HuggingFace.
+2. **The Mila half of the BF16 parity gate is layer-streamed too.** 47 GiB fits neither card on
+   either side. The method is `Qwen3.8.md` §8's: construct, load and run one block at a time
+   against the layer-streamed HuggingFace reference. It needs the workspace sizing that is private to
+   `GemmaTransformer` lifted into a type the transformer and the harness both construct — the cost
+   Qwen paid, and the reason it did not duplicate the sizing.
+3. **The converter reads safetensors tensor by tensor.** The dense converter materializes the whole
+   model through `from_pretrained`; the host has 31.8 GiB against a 48 GiB checkpoint.
+4. **Block wiring is a trailing `bool kMixtureOfExperts`** on `GemmaBlock` and `GemmaTransformer`,
+   beside `kDelegatedFeedForward`. Set, the block's FFN is the delegated `mlp` plus `Router`,
+   `MixtureOfExperts` and the three extra norms of Phase 1's topology. `WeightsMetadata` gains the
+   expert count, top-k and expert width. **`per_expert_scale` stays in `RouterOp`**: folding it into
+   `down_proj` would make the exported weights differ from the checkpoint the Phase 5 and 6 oracles
+   compare against. *Superseded by `ModelFamilyParity.md` §8.2 G4:* the two flags became
+   `GemmaFeedForward { Dense, Routed }`, and the feed-forward is one sublayer, `ffn`
+   (`GemmaRoutedFeedForward` here), whose norms are named by role -- `ffn.dense_post_norm`,
+   `ffn.experts_pre_norm`, `ffn.experts_post_norm` for this decision's `post_ffn_norm_1`, `pre_ffn_norm_2`,
+   `post_ffn_norm_2`.
+
+### Wiring gate, written before any run
+
+The reference is a tiny `Gemma4ForCausalLM` with the MoE block enabled — hidden 128, two layers
+(sliding with window 8, then global), 8 experts of width 64 at top-2, a dense branch of 128, vocabulary
+128 — run with eager attention and eager experts. Every weight is drawn at random, and every norm,
+`router.scale`, `per_expert_scale` and `layer_scalar` is drawn away from 1, so a misplaced norm or scale
+cannot hide behind an identity. The script saves that model as a HuggingFace checkpoint and converts it
+with `Gemma/convert_weights.py`, so one capture holds the converter's names and the block's wiring. The
+12-token prompt is longer than the window, so the sliding mask is exercised.
+
+- **FP32:** the prefill's last-position logits and three decode steps' logits, each within `1e-4`
+  absolute of HuggingFace's logits before the final softcap.
+- **BF16** (the BF16 conversion of the same checkpoint): each step's logits within relative L2 `1e-2`,
+  with the same argmax.
+- **Names:** a routed transformer loaded from the converted file saves exactly the file's tensor names.
+- **Footprint, BF16:** predicted equals built for every category including inactive bytes, and the
+  inactive bytes are six of eight experts' share of both layers' banks.
+- **Refusals:** a routed config in a dense transformer, and a dense config in a routed one, both throw.
+- **Entry point:** `GemmaModel::getDeploymentFootprint` on the converted file reports inactive bytes, so
+  the geometry reaches the dispatch from the file's own metadata.
+- **Converter:** on a tiny dense checkpoint, the streaming converter's output is byte-identical to the
+  `from_pretrained` converter it replaces.
+- **The gate can fail:** routing on the dense branch's normalized input instead of the residual must
+  fail the FP32 logits gate.
+
+### Wiring result (2026-09-12)
+
+`Gemma.MixtureOfExperts.Cuda.cpp`, both cards pinned by UUID, identical on each except the fifth digit
+of one prefill number:
+
+| Gate | RTX 5060 Ti (SM 12.0) | RTX 4070 (SM 8.9) |
+|---|---|---|
+| FP32 logits, prefill + 3 decode steps | worst **5.8e-6** (tolerance 1e-4), every argmax equal | worst 5.5e-6, same |
+| BF16 logits, relative L2 per step | **2.4e-2, 1.4e-2, 2.4e-2, 5.6e-2 — FAILS the recorded 1e-2**; every argmax equal | 2.5e-2, 1.4e-2, 2.4e-2, 5.6e-2, same |
+| Names, footprint and inactive bytes, entry point, both refusals | pass | pass |
+
+**FP32 agrees with HuggingFace to about six digits** through prefill and three decode steps across a
+sliding and a global layer — the converter's names, the norm placement, the router's input, the
+expert bank, K=V global attention and the KV cache all hold.
+
+**The BF16 gate missed the tolerance written before the run, and the tolerance is not changed here.**
+HuggingFace's own bfloat16 run of the same checkpoint lands **3.0e-2, 1.4e-2, 2.3e-2, 4.1e-2** from its
+float32 run, relative L2 per step, with every argmax equal — the same order as Mila's BF16 figures. So
+the recorded 1e-2 underestimated bfloat16 on this model (logits of magnitude ~2, two layers whose
+`layer_scalar` rounds from 0.91594 to 0.91406) rather than exposing a Mila defect. What the BF16 gate
+should compare against, and at what tolerance, is open.
+
+**The gate can fail.** With the router reading the dense branch's normalized input instead of the
+residual (5060 Ti), the FP32 gate fails at every step — worst 0.22-0.57, relative L2 0.14-0.39 — and
+the step 2 argmax changes. The names, footprint, entry-point and refusal gates stay green. **Reverted.**
+
+**Full suite after the revert, RTX 5060 Ti:** 1940 run, 1938 pass, 1 skipped (the long-standing Swiglu
+BF16 backward skip), 1 failing — the BF16 wiring gate above. Gemma 4 12B's HuggingFace token parity
+passes, so the dense chassis did not move.
+
+**`PerGroupFp4<128>` cannot build this model.** `CudaLinearOp::build` refuses an FP4 projection whose
+input width is not a multiple of both 16 and the group size, and two of the 26B's widths are not
+multiples of 128: the dense branch's `fc_down` reads 2112 (16.5 groups) and every expert's `down_proj`
+reads 704 (5.5 groups). `QuantizationDispatch` maps `WeightQuantization::FP4` to `PerGroupFp4<128>`
+for every family, so an FP4 load of the 26B would throw at build. Every width is a multiple of 64 —
+2816, 2112, 704, 4096 and 8192 — and the FP4 kernels already support group 64. At group 64 a scale costs
+0.5 bits per weight instead of 0.25, so the expert bank is 11.97 GiB rather than the 11.30 GiB
+`MixtureOfExperts.md` §8 used — the same as its NVFP4 row, whose FP8-rest total of 14.20 GiB fits the
+5060 Ti.
+
+**Decided 2026-09-12, both on the evidence above:**
+
+- **The BF16 wiring gate stays against HuggingFace's float32 logits, at relative L2 `1e-1` per step with
+  the same argmax.** The original `1e-2` is replaced, not quietly widened: HuggingFace's own bfloat16 run
+  is 1.4e-2 to 4.1e-2 from its float32 run on this model, so `1e-2` would fail a correct bfloat16
+  implementation. Comparing against HuggingFace's bfloat16 run instead was rejected — that measures two
+  independent roundings against each other and is no tighter.
+- **The 26B's FP4 weights are `PerGroupFp4<64>`.** The published 12B stays at `PerGroupFp4<128>`.
+  `WeightQuantization::FP4` stays one API value — the group is a property of the model's geometry, not
+  a choice a caller makes — so the group travels at compile time: `dispatchWeightQuantization` takes a
+  trailing `kFp4GroupSize` (default 128), `weightQuantizationName` spells it (`per_group_fp4_64`), and
+  `requireStoredQuantizationMatches` compares against that spelling. `GemmaModel` reads the file's
+  geometry first and makes one dispatch — dense at 128, routed at 64 — so the build instantiates dense ×
+  {none, FP8, FP4<128>} and routed × {none, FP8, FP4<64>}, the same count as before, and a routed
+  FP4<128> body that could only throw at build is never compiled.
+
+**Converter on the real checkpoint (2026-09-12).** `--max-layers 6` over the downloaded
+`gemma-4-26B-A4B-it`: 122 Mila tensors, 10.50 GiB, 16 s. Every checkpoint tensor was accounted for — 133
+consumed, 356 skipped (355 `vision_tower`, 1 `embed_vision`), none unconsumed — and every declared shape
+matched the geometry the config implies: pattern 6 from `layer_types`, global rotary width 128 from the
+nested `rope_parameters`, 2 global KV heads, 128 experts of width 704 at top-8, text prefix
+`model.language_model.`.
+
+**Full conversion (2026-09-13).** All 30 layers at BF16 from the local checkpoint: 602 Mila tensors,
+47.00 GiB, 1 min 45 s. 657 checkpoint tensors consumed, the same 356 skipped, none unconsumed. The tensor
+count is exact against the map: embedding + 30 x 20 per layer + final norm = 602 Mila tensors; 25 sliding
+layers x 22 + 5 global layers x 21 (no `v_proj`) + embedding + final norm = 657 sources. The checkpoint is
+already `bfloat16`, so this pass renames, fuses and repacks; only `layer_scalar` changes precision (FP32).
+
+**Layer-streamed HuggingFace reference (2026-09-13).** `Tools/Converters/Gemma/gemma_4_26b_moe/hf_gemma_layer_stream.py`,
+the reference half of Decision 2, on `Qwen3.8.md` §8's method: one `Gemma4TextDecoderLayer` resident at a
+time, both masks and both rotary tables from the model's own calls, the embedding scale multiplied in the
+table's dtype. Its self-test (CPU, FP32) runs a six-layer routed model — window 4 against 10 tokens —
+whole and streamed: **every layer and the final norm agree bitwise**. Two negative controls, both required
+to diverge: no masks at all (final norm off by 5.0) and the sliding layers given the full causal mask (4.9).
+
+**The prompt is the chat turn, not the bare sentence.** On the real checkpoint `<bos>The capital of France is`
+put " DO" (5.69) and " CAP" (4.09) on top at BF16, and the same two (5.23, 4.67) at FP32 — so not
+rounding. The config the driver builds matches `AutoConfig`'s on all 47 keys, and transformers applies no
+text-weight conversion for `gemma4_unified`. The same sentence in the instruct chat turn with thinking off
+— the 12B parity test's prompt — gives "The" at 18.63 and "Paris" at 14.00, the 12B's first generated
+token. The driver was right and the bare sentence is out of distribution for an instruct model; a parity
+gate on a logit-5 argmax would be measured on noise.
+
+**References captured (2026-09-13, RTX 5060 Ti), 18-token chat prompt, all 30 layers:**
+`Data/models/gemma/gemma4_26b_a4b_ref.bin` (BF16, 55 s) and `gemma4_26b_a4b_ref_fp32.bin` (FP32, 51 s). Both put
+"The" (818) on top, then "Paris" (50429), "**", "the", " Paris": BF16 18.63 / 14.00, FP32 18.28 / 14.09.
+
+### Layer-streamed parity gate, written before any run
+
+`Tests/Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Parity.Cuda.cpp`, RTX 5060 Ti pinned by UUID: the 18-token
+chat prompt through all 30 layers at BF16 on the converted weights, one block resident at a time, each block
+built from `GemmaModel::configFromMetadata` with its workspaces from `makeGemmaBlockWorkspace` and
+`makeGqaWorkspace` — the factories `GemmaTransformer` calls. The tolerance is the one the BF16 wiring gate was
+decided at, against the same reference.
+
+- **Against HuggingFace FP32:** every layer's last-token hidden state, the final norm and the last-position logits
+  within relative L2 `1e-1`, and the same argmax.
+- **Against HuggingFace BF16:** the same argmax. Per layer, Mila and HuggingFace BF16 are each reported against
+  FP32, not asserted.
+- **The gate can fail:** each layer loading its expert bank from the next layer must fail the layer gate from
+  layer 0.
+- **The shared workspace moved nothing:** the full suite passes, including the Qwen parity and footprint tests and
+  every Gemma footprint literal.
+
+The workspace change that precedes the run: `QwenGqaWorkspace` became the family-neutral `GqaWorkspace` in
+`Compute.GqaWorkspace` beside `GqaState`, used by Qwen, Gemma and the harness; `GemmaTransformer`'s private
+sizing became `makeGemmaBlockWorkspace` and `gemmaBlockWorkspaceWidths` beside `GemmaBlockWorkspace`; and
+`GemmaModel::configFromMetadata` became public.
+
+### Layer-streamed parity result (2026-09-13, RTX 5060 Ti)
+
+**The gate passes: the 26B-A4B stack at BF16 predicts HuggingFace's next token through all 30 layers on the real
+weights**, 37 s, one block resident at a time.
+
+| Stage | Mila BF16 vs HF FP32 | HF BF16 vs HF FP32 |
+|---|---|---|
+| Layers 0-1 (sliding) | 4.7e-3, 3.5e-3 | 4.1e-3, 3.4e-3 |
+| Layer 2 (sliding) | 6.7e-3 | 2.2e-2 |
+| Layer 5 (first global) | 4.8e-3 | 7.6e-3 |
+| Layers 10-17 | 9.7e-3 to 1.1e-2 | 1.1e-2 to 1.5e-2 |
+| Layer 28 (worst) | **1.50e-2** | 2.49e-2 |
+| Layer 29 (last, global) | 5.6e-3 | 9.8e-3 |
+| Final norm | 1.22e-2 | 1.79e-2 |
+| Logits | **4.2e-3**, argmax 818 | 8.5e-3, argmax 818 |
+
+Every argmax is 818 ("The"): Mila, HuggingFace BF16 and HuggingFace FP32. **Mila's BF16 is closer to FP32 than
+HuggingFace's own BF16 run at every layer from 2 on**, and equal within rounding at layers 0 and 1 — the same
+direction Qwen measured, with the same likely cause (Mila keeps RoPE's cos/sin cache and rotation in FP32). The
+error rises slowly down the stack and falls back at the last layer; it does not compound.
+
+The worst measured error is 1.50e-2 against the recorded 1e-1 bound — the bound would pass an error about six times
+larger. It is left as recorded; whether to ratchet it, as Qwen's was to ~45% above its measured peak, is open.
+
+**Full suite with the shared workspaces, pinned RTX 5060 Ti:** 1948 run, 1947 pass, 0 fail, 1 skipped (the
+long-standing Swiglu BF16 backward), 174 s. Qwen's layer-streamed parity and Gemma 12B's HuggingFace token parity
+both pass, and every Gemma and Qwen footprint test holds, so moving the workspaces changed no geometry.
+
+**The gate can fail.** With every layer loading the next layer's expert bank (layer 29 took layer 0's), the layer gate
+fails at every one of the 30 layers from layer 0 (4.6e-1, rising past 1.0 by layer 10), the final norm at 1.07,
+the logits at 4.7e-1, and the next token becomes 236779 instead of 818 against both references. **Reverted.**
+After the revert every target builds and the harness reproduces the passing run to the printed digit (layer 28
+1.503e-2, final norm 1.217e-2, logits 4.215e-3, argmax 818).
+
+### FP4 load gate, written before any run
+
+`Tests/Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Fp4.Cuda.cpp` (since `+24`, `.Load.Cuda.cpp`), RTX 5060 Ti pinned by UUID:
+`GemmaModel::load` on the BF16 weights with `WeightQuantization::FP4` at context 8192 — the routed
+dispatch at `PerGroupFp4<64>`, quantized on load. The row it was built for is `MixtureOfExperts.md` §8's
+`PerGroupFp4<64>` row, 13.54 GiB of weights.
+
+- **The expert term is exact:** the reported inactive parameter bytes equal 120/128 of the packed bank and its
+  scales from the layout alone. *Recorded as 12,840,960,000 / 12,038,400,000, which was wrong — see the first run;
+  the layout gives 12,846,366,720 / 12,043,468,800.*
+- **The weights land in the §8 row:** reported parameter bytes within 3% of 13.54 GiB.
+- **Gate A on the real routed model:** predicted parameter and state bytes equal the reported ones exactly.
+- **Gate B:** the prediction does not exceed what `cudaMemGetInfo` says the load consumed, and the unmodelled
+  residual stays under 25% of it — the 12B's bounds.
+- **It fits:** the load consumes less than 15.0 GiB, the low end of §8's usable range for this card.
+- **Generation:** greedy decode of the 18-token chat prompt reproduces HuggingFace BF16's greedy tokens
+  token-for-token, the HuggingFace side generated by `hf_gemma_layer_stream.py --generate` re-running the whole
+  prompt per token. As for the 12B, an FP4 run held to a BF16 reference: a divergence is investigated, never
+  re-captured.
+- **The gate can fail:** routing on the dense branch's normalized input instead of the residual (the wiring
+  gate's negative) must change the generated tokens.
+
+**First run (2026-09-13, RTX 5060 Ti, 14.82 GiB free) — FAILED, and one criterion above was unmeasurable.**
+Weights reported 13.536 GiB, inside the §8 row; state 2.075 GiB; predicted = reported = **15.61 GiB against 14.82
+GiB free**. The load completed and generated `818 5279 529 7001 563 5213 50429 84750` — "The capital of France is
+**Paris**" — but only because WDDM placed the overflow in host memory.
+
+- **"It fits: consumes less than 15.0 GiB" could not fail on this card.** `cudaMemGetInfo` reports the card as full
+  once WDDM spills, so consumed read exactly the 14.82 GiB that was free. It passed while the model did not fit.
+  Replaced, before the second run, by: the prediction is below the free memory, the card is not left saturated
+  (under 256 MiB free), and Gate B's two bounds apply only when it is not. Gate B's "prediction exceeded actual
+  consumption" failure in this run is the same saturation, not an overestimate.
+- **Inactive bytes 12,043,468,800 against the recorded 12,038,400,000** — 180,224 bytes of bank per layer more than
+  the recorded layout. **The recorded figure was wrong, not the code:** the `gate_up_proj` scales are
+  128 x 1408 x 44 x 4 = 31,719,424 bytes, and the gate was written with 31,539,200. The second run asked one
+  standalone bank for its own prediction — 428,212,224 bytes, which is the layout correctly multiplied — and the
+  literal, the test constant and the §8 text are corrected to it.
+- **Why the state is 2.08 GiB and not §8's ~0.4 GiB of KV** — two terms, both code-verified, sizes derived:
+  every layer's RoPE cos/sin cache is sized by `getMaxSequenceLength()` (`Gemma.Block.ixx:989`), the trained
+  262,144 rather than the 8,192 deployment context, so the two deduplicated caches hold 0.75 GiB; and the router
+  and expert-bank outputs plus the bank's FP32 gated scratch are allocated per layer rather than pooled, ~0.5 GiB at
+  the derived chunk of 512. Either alone leaves the prediction above the free memory; both would not. Neither is
+  changed here — both are `Lib/Src` decisions.
+
+**HuggingFace greedy reference (2026-09-13, RTX 4070, BF16, 8 min 41 s re-running the prompt per token):**
+`818 5279 529 7001 563 5213 50429 84750` — "The capital of France is **Paris**.". The narrowest top-1 margin is 4.25
+logits, at the first token; every later one is at least 14. Mila's FP4 output in the first run is identical, token
+for token.
+
+**Third run (2026-09-13, RTX 5060 Ti), corrected literal and the HuggingFace tokens in place — every criterion
+passes except the fit:**
+
+| Criterion | Result |
+|---|---|
+| One bank, from the component | 428,212,224 parameter / 401,448,960 inactive bytes = the layout |
+| Model inactive bytes | 12,043,468,800 = 30 x the layout, exact |
+| Weights in the §8 row | 13.536 GiB against 13.54 |
+| Gate A, predicted = reported | exact, parameters and state |
+| Greedy tokens against HuggingFace BF16 | **identical, all 8** — "The capital of France is **Paris**." |
+| Fit | **fails** — 15.61 GiB predicted against 14.82 GiB free; the card saturates |
+| Gate B | not measurable while saturated |
+
+Prefill chunk 512 of an unconstrained 1024. **The model is correct at FP4 and does not fit this card at context
+8192.** What stands between: the RoPE caches sized to the trained maximum (0.75 GiB) and the per-layer routed
+buffers (0.49 GiB) — `Lib/Src` decisions, not taken here.
+
+**The recorded negative did not fail the token criterion — the detector is weak, not the edit.** With the router
+reading the dense branch's normalized input instead of the residual (RTX 5060 Ti), the FP4 load still generated
+`818 5279 529 7001 563 5213 50429 84750`, identical to HuggingFace; only the fit criteria failed. The edit was
+live: the BF16 layer-streamed gate, run from the same build, **failed at every layer from layer 2** — 1.2e-1
+rising to 3.8e-1 at layer 27, final norm 3.6e-1, logits 1.2e-1 — while its argmax also stayed 818. On real
+weights the router's own unscaled RMS norm absorbs most of `pre_feedforward_layernorm`'s per-channel scale, so the
+selection moves too little to flip eight tokens whose narrowest margin is 4.25 logits. The tiny wiring model drew
+those norm weights from 0.5-1.5, which is why the same edit failed there.
+
+So the eight greedy tokens show coherent generation and nothing finer; the layer-streamed hidden-state gate is the
+detector that can see a routing error on this model. The FP4 gate's "can fail" criterion is **not demonstrated** by
+this negative, and is not quietly replaced by a stronger one after the fact. **Reverted.** After the revert every
+target builds, the BF16 layer-streamed gate reproduces its passing run to the printed digit (layer 28 1.503e-2, logits
+4.215e-3, argmax 818), and the FP4 load again fails only the fit.
+
+**What a short prompt actually uses (2026-09-13, RTX 5060 Ti, headless).** The idle card reports 16,046 MiB free of
+16,311. The test's `free before load` of 14.82 GiB is read inside the test process after its CUDA context exists, so
+the ~0.85 GiB between the two is that process's own runtime — inferred, not isolated. Measured per process through
+the WDDM `GPU Process Memory` counters while the FP4 load prefills the 18-token prompt and generates eight tokens:
+
+| Context | Prefill chunk | Mila accounts | Peak dedicated | Peak shared | Peak dedicated + shared, one sample |
+|---|---|---|---|---|---|
+| 8192 | 512 | 15.61 GiB | 16,040 MiB (card full) | 1,282 MiB | not sampled together |
+| 1024 | 1024 | 15.73 GiB | 16,035 MiB (card full) | 1,324 MiB | **17,358 MiB** |
+
+**A shorter context uses more, not less.** The chunk heuristic budgets activations against the KV cache, so a small
+context admits the largest chunk, and the unpooled routed buffers scale with the chunk: state rises from 2.075 to
+2.197 GiB. Shared usage includes the loader's pinned staging as well as spill, so it overstates the spill by an
+unmeasured amount. Tokens were correct at both contexts.
+
+### RoPE tables sized to the built context — gate, written before any run
+
+Decided 2026-09-13: change RoPE and nothing else here. Routed-buffer pooling is a separate decision. `CudaRopeOp`
+sizes its cos/sin tables to its build context's sequence length and refuses a build longer than the trained maximum.
+Prefill and decode are bounded by that length, and it is part of the cache key. Every block builds `Rope` on a
+context-length-shaped context, the way attention is already built, in `onBuilding` and `getRequiredMemory` alike,
+and each transformer's RoPE deduplication takes the context length. A cache row is a function of its position alone
+(`angle = pos * theta_i`), so no value any consumer reads can change.
+
+- **The tables cover only the built length:** a `Rope` built for T predicts and reports T rows of state.
+- **Row T-1 is bit-identical** to the same row from an op built at the trained maximum, in prefill and in decode,
+  at FP32 and BF16.
+- **Position T is refused** in prefill and in decode; a build beyond the trained maximum is refused.
+- **The gate can fail:** tables sized to T-1 must fail the bit-identity and footprint tests.
+- **Gate A stays exact** in every Gemma, Qwen and Llama footprint test.
+- **26B FP4 at context 8192:** the predicted total drops by exactly 780,140,544 bytes, from 16,762,341,376 to
+  15,982,200,832 — the two caches from 262,144 rows to 8,192. That is still ~73 MiB above the in-process free
+  memory, so the fit criterion is expected to keep failing until the routed buffers are pooled.
+- **Nothing numeric moves:** Gemma 4 12B token parity, Qwen parity and the 26B BF16 layer-streamed harness
+  reproduce their printed numbers exactly, and the full suite passes.
+
+**First run (2026-09-13, RTX 5060 Ti pinned by UUID).** Every target builds clean (3 min 13 s). The Rope and
+footprint slice — the Rope CUDA and config tests, every `*Footprint*` and `*RequiredMemory*` test, and the Qwen block,
+Qwen transformer and Gemma transformer suites — **141 run, 141 pass, none skipped**. The table-length tests pass
+at FP32 and BF16: T rows predicted and reported; the last built row identical in every bit to the trained-maximum
+table in prefill and decode; position T refused in both; a build past the trained maximum refused.
+
+**Negative (tables sized to T-1, RTX 5060 Ti) — the gate fails, 20 of 34 Rope tests.** The table-length test reports
+192 bytes against the 224 predicted, at FP32 and BF16. The bit-identity test fails too, but by refusal, not by a
+differing bit: an op with too few rows refuses the last position rather than reading past its table, so a short
+table cannot silently produce a wrong rotation. The in-range prefill and decode checks, the four pre-existing
+numeric tests and the backward round trip fail the same way. The build refusal fails because the shift readmits the
+trained maximum plus one. **Reverted.**
+
+**After the revert (RTX 5060 Ti pinned by UUID) — every criterion passes.** All targets build clean (2 min 6 s).
+**Full suite 1959 run, 1957 pass, 1 fail, 1 skipped** (the long-standing Swiglu BF16 backward); the one failure is
+the 26B FP4 fit, which this change was not expected to close.
+
+| Criterion | Result |
+|---|---|
+| Gemma 4 12B token parity, Qwen layer stream, 26B BF16 layer stream | printed output identical to the `+7` run, line for line |
+| 26B FP4 predicted total | **15,982,200,832 bytes**, exactly the prediction; state 1,447,810,560 bytes (was 2.075 GiB) |
+| Gate A on the routed model | predicted = reported, 14.885 GiB |
+| Greedy tokens | `818 5279 529 7001 563 5213 50429 84750`, unchanged |
+| Fit | **still fails** — 15,982,200,832 against 15,894,315,008 free in process, 83.8 MiB over |
+
+The gate said ~73 MiB over; free memory before the load read 14.803 GiB in this run against 14.82 GiB in the first, and
+that difference is the whole discrepancy. The routed buffers (~0.49 GiB at chunk 512) are what remain between this
+model and the card.
+
+**Group plumbing result (2026-09-12, RTX 5060 Ti).** Loading the tiny routed model through
+`GemmaModel::load` at FP4 reports `per_group_fp4_64`; the contract test holds that the group is
+part of the scheme in both directions; the delegated-FFN gates, including `PerGroupFp4<128>` bit-identity,
+are unchanged; the BF16 wiring gate passes at its revised tolerance. **Full suite 1942 run, 1941 pass,
+0 fail, 1 skipped** (the long-standing Swiglu BF16 backward skip); Gemma 4 12B token parity passes.
+
+### FP4 expert bank — design (2026-09-12)
+
+- **`MixtureOfExperts` gains `TWeightQuantization`** (default `NoWeightQuant`). Under `PerGroupFp4<g>`
+  the bank holds `gate_up_proj` U8 `[E, 2I, H/2]` with `gate_up_proj_scale` FP32 `[E, 2I, H/g]`, and
+  `down_proj` U8 `[E, H, I/2]` with `down_proj_scale` FP32 `[E, H, I/g]`. Every expert row is laid out
+  exactly as a `Linear` FP4 weight row, so a stacked tensor is `E × rows` output channels of the
+  existing per-group quantizer: BF16 reference weights quantize on load through the path `Linear`
+  already uses, and a pre-quantized file loads its packed and scale tensors as stored.
+- **`CudaMoeOp` keeps its two passes.** Under FP4 each pass decodes the selected expert's nibbles
+  against their group scales inline; nothing is dequantized ahead of the matvec. BF16 compute only,
+  as for an FP4 `Linear`.
+- **The E2M1 decode is stated once:** it moves out of `CudaMatVecBias.Bf16.cu` into a shared kernel
+  header that both kernels include.
+- `GemmaBlock` passes its `TWeightQuantization` to the bank; the router stays unquantized.
+
+### FP4 expert bank — gate, written before any run
+
+- **Exact, CUDA BF16:** weights built from the E2M1 grid with each group's largest magnitude `6 · 2^k`,
+  so the absmax quantizer is lossless and every dequantized value is exact in BF16. The FP4 bank's
+  output must be **bit-identical** to the Phase 6 BF16 bank on the same weights, over prefill and
+  one-token calls.
+- **Round trip:** a bank saved pre-quantized and loaded back produces bit-identical output.
+- **Footprint:** predicted equals built, with parameter bytes equal to the packed plus scale sizes
+  written as literals, and inactive bytes the unselected experts' share of both.
+- **Refusal:** an expert width that is not a multiple of the group throws at build.
+- **The gate can fail:** decoding the high nibble as the even column must fail the exact gate.
+
+### FP4 expert bank — result (2026-09-12, RTX 5060 Ti)
+
+`MixtureOfExperts.Cuda.cpp`, a `PerGroupFp4<64>` bank of 16 experts (hidden 128, width 64, top-4, 48
+tokens):
+
+| Gate | Result |
+|---|---|
+| Exact, against the BF16 bank | **0 of 6144** elements differ, prefill and one token at a time |
+| Round trip | saved names are the two packed tensors and their `_scale` companions; reload bit-identical |
+| Footprint | predicted equals built; 221,184 parameter bytes, 165,888 inactive |
+| Width refusal | an expert width of 96 at group 64 throws at build |
+| FP8 bank | refused at construction |
+
+The FP8 refusal was written expecting `std::invalid_argument`, which the operation throws, and failed
+its first run because `Component::setExecutionContext` rethrows any construction failure as
+`std::runtime_error` — its documented contract. The test now expects that type and checks the message
+names the refusal.
+
+**The gate can fail.** With the gated pass decoding the high nibble as the even column, the exact gate
+fails on 6140 of 6144 elements in both modes; the round trip, which compares the bank against itself,
+stays green, so the bit-identity gate is the one that bounds this defect. **Reverted.**
+
+After the revert the exact gate reads **0 of 6144 on both the RTX 5060 Ti and the RTX 4070**, each pinned
+by UUID, with all 23 MoE CUDA tests passing on each card. **Full suite, 5060 Ti: 1947 run, 1946 pass,
+0 fail, 1 skipped** (the long-standing Swiglu BF16 backward skip); Gemma 4 12B token parity passes.
+
+**Converter.** On a tiny dense checkpoint the streaming converter is byte-identical to the
+`from_pretrained` one at FP32, and at BF16 when the checkpoint itself is BF16 — how every published Gemma
+checkpoint is stored. Converting an FP32 checkpoint to BF16, the two differ only in the six
+`layer_scalar` tensors: the old converter loaded the whole model at bfloat16, so each scalar was rounded
+to bfloat16 before being written as FP32 (0.9458286 became 0.9453125); the streaming converter keeps the
+checkpoint's value.
+
+---
+
+## Phase 9 — Q4_0 expert bank
+
+### Why (2026-09-29)
+
+Where a producer publishes quantization-aware weights, Mila runs them in the format they were trained for
+(`ModelFamilyParity.md` §9 item 14, decided 2026-09-27 for the 12B), and the 26B-A4B is held to the 12B in
+every respect (Todd, 2026-09-29). Google publishes the 26B-A4B quantization-aware at Q4_0. Phase 8's
+`PerGroupFp4<64>` stays as Mila's fallback format for this model; it is not what publishes.
+
+### What is known before any design
+
+- **Google's GGUF stores the experts, the dense branch and all of attention as Q4_0**; the router, its two
+  scales, the norms and `layer_scalar` as F32; the tied table as Q6_K. Read 2026-09-29 from
+  `google/gemma-4-26B-A4B-it-qat-q4_0-gguf` by range request, each type confirmed by gguf-py's enum and by
+  the tensor's exact span in the file. The table is `Gemma.md` §10.4.
+- **Only the instruct model is quantization-aware**, and the source is
+  `google/gemma-4-26B-A4B-it-qat-q4_0-unquantized` (51.6 GB, two shards), as the 12B's is its own
+  unquantized checkpoint. The converter reads tensor by tensor (Phase 8, decision 3), so the source's size
+  is not a host-memory problem.
+- **Stored as Q4_0 is proven; trained under it is inferred.** The card does not say per tensor.
+- **The bank is the same bytes as Phase 8's**: 428,212,224 per layer, because an FP16 scale per 32 weights
+  and an FP32 scale per 64 both cost half a bit per weight. Group 32 divides every width, 704 included.
+- **What refuses it today:** `expertBankImplements` (`MixtureOfExperts.ixx`), which
+  `GemmaModel::dispatchChassis` asks before instantiating a routed network, and `CudaMoeOp`'s
+  construction check (`CudaMoeOp.ixx:76`). Until G4 the first was `kRoutedHasQ4_0 = false`.
+
+### The 12B's gate is the model for this one
+
+`Quantization.md`'s Q4_0 gate, applied to the bank: the codec and the CUDA quantizer agree; the bank's
+decode against a host reference of exact weights, and its prefill against a host reference of the INT8
+block arithmetic; a bank on Q4_0-representable weights bit-identical to the BF16 bank, as the FP4 bank was
+gated; every Q4_0 tensor of the exported model equal in code and scale bits to Google's GGUF — the dense
+branch's fused projection split by rows against the GGUF's separate `ffn_gate` and `ffn_up`, as for the
+12B, while the expert `gate_up` is fused in both; a forced failure for each. The quality measurement across context
+lengths is open (`Gemma.md` §10.9). The gate itself is written, with its tolerances, before the
+phase's first run.
+
+### Gate, written before any run (2026-09-29, for review; run as written 2026-09-30)
+
+**The first Q4_0 kernel is the Phase 6 two-pass kernel with the codes decoded inline**, as the FP4 bank is:
+`weight = ( code - 8 ) * d` in FP32, then `weight * x` in the order the BF16 bank multiplies. That is G5's
+correctness kernel. It makes the exact gate below possible, and G5b's fast kernels are then gated against it.
+
+G5, all exact:
+
+1. **Quantizer equals codec.** A stacked bank quantized on load by the CUDA quantizer -- `E x rows` output
+   channels, as `Linear`'s -- equals the `Int4Packing` codec in every code and scale bit, at the real shapes
+   (`gate_up [128, 1408, 2816]`, `down [128, 2816, 704]`) on seeded normal weights. Zero differing.
+2. **Exact bank.** Weights built as `code x d` with `d` a power of two and each group holding one element at
+   `-8 d`, so the reference rounding recovers every code and `d` exactly and every product is exact in BF16.
+   The Q4_0 bank, quantized on load, against the BF16 bank on the same values: zero differing output elements,
+   prefill and one token at a time, built for prefill and for one token (Phase 7's two cases).
+3. **Round trip.** Saved names are `gate_up_proj`, `down_proj` and their `_scale` companions; a reload is
+   bit-identical.
+4. **Footprint.** Predicted equals built on the tiny bank; at the real shape the bank's bytes are
+   428,212,224 a layer (`Gemma.md` §10.4), computed rather than built.
+5. **Refusals and admission.** An expert width not a multiple of 32 is refused at build;
+   `expertBankImplements<PerGroupInt4<32>>` is true; the model admits `q4_0` for a routed checkpoint and still
+   refuses FP8 (`Fp8AndQ4_0_RefusedByTheModelBeforeTheBank` splits into its two halves).
+6. **Export equals Google's GGUF.** Every Q4_0 tensor of the 26B exported from
+   `google/gemma-4-26B-A4B-it-qat-q4_0-unquantized` equal in code and scale bits to `gemma-4-26B_q4_0-it.gguf`:
+   expert `gate_up` fused in both, the dense branch split by rows against `ffn_gate` and `ffn_up`, attention
+   against `attn_q`, `attn_k`, `attn_v` (none on global layers) and `attn_output`. The tied table (FP8 here,
+   Q6_K there) and the F32 router are outside the comparison.
+7. **The model.** At Q4_0 the 26B fits the RTX 5060 Ti at 8192 (with G5's pooling), and its greedy tokens
+   match HuggingFace on the same unquantized QAT checkpoint. That capture exists (2026-09-30): the QAT
+   checkpoint gives the same eight tokens as the non-QAT one, at a narrowest margin of 12.1 logits against
+   4.25, and the suite's 26B gates -- layer-streamed BF16, FP4 greedy tokens, the router reference -- now
+   read the QAT checkpoint. The non-QAT 26B is retired.
+
+Forced failures: the nibble order swapped (items 1 and 2 must fail, item 3 must not, as Phase 8 showed for
+FP4); the export compared against a rounding of the non-QAT checkpoint (item 6 must fail).
+
+G5b, against G5's kernel -- the tolerance forms of the 12B's `CudaLinearOp.Int4.Cuda.cpp`:
+
+- **Decode**, the gather matvec: each pass against a host reference of the exact weights, within
+  `|ref| x 2^-8 + sum|x w| x 1e-5 + 1e-7` -- the BF16 output store plus FP32 accumulation in any order. The
+  gated pass writes FP32 scratch, so it drops the `2^-8` term.
+- **Prefill**, the grouped INT8 GEMM: against a host reference of the INT8 block arithmetic (activations per
+  32-element block, `a / 127`), same form; and the INT8 activations' own effect against BF16 activations
+  printed, not gated, as the 12B's test does.
+- Decode bit-identical between banks built for prefill and for one token, as Phase 7.
+
+### G5 result (2026-09-30, `0.21.0-dev+24`, RTX 5060 Ti pinned by UUID)
+
+| Item | Result |
+|---|---|
+| 1. Quantizer equals codec | `gate_up [128, 1408, 2816]`: 0 of 253,755,392 code bytes and 0 of 15,859,712 scales differ; `down [128, 2816, 704]`: 0 of 126,877,696 and 0 of 7,929,856 |
+| 2. Exact bank | 0 of 6144 elements differ from the BF16 bank, prefill, one token at a time built for prefill, and built for one token |
+| 3. Round trip | the four saved names; reload bit-identical |
+| 4. Footprint | predicted equals built on the tiny bank; the 26B's bank computed at 428,212,224 bytes a layer |
+| 5. Refusals and admission | width 48 refused at build; `expertBankImplements<PerGroupInt4<32>>`; the tiny routed model loads `q4_0`; FP8 still refused by the model |
+| 6. Export equals Google's GGUF | `ExportArtifact --quantization q4_0` on `gemma4_26b_a4b_it_qat_bf16.bin`: 13.54 GiB in 56 s; all 265 GGUF Q4_0 tensors equal in every code and scale bit |
+| 7. The model | quantized on load at context 8192: 1024-row chunk, 15,822,825,472 bytes predicted and reported, greedy tokens `818 5279 529 7001 563 5213 50429 84750`, HuggingFace's |
+
+**The gate can fail.** The quantizer's nibble order swapped: item 1 finds 232,989,426 and 116,495,739 code bytes
+differing, item 2 6141 of 6144 elements in all three modes, and item 3 stays green, as for FP4. The written failure
+for item 6 -- a rounding of the non-quantization-aware checkpoint -- could not run, since that checkpoint is retired;
+in its place the Mila expert codes' nibble order was swapped in memory, and the comparison failed on every
+`_exps` tensor and on no other.
+
+**What the model needed beyond the bank.** `Linear`'s Q4_0 prefill GEMM ran a 128-deep K tile only, so it refused
+the dense branch's `fc_down`, whose input is 2112 wide (16.5 tiles). The GEMM now takes a 64-deep tile for a width 128
+does not divide -- the depth measured slower on 2026-09-28, which is why 128 stays wherever it divides -- gated
+against the host's INT8 block arithmetic at 2112 (`CudaLinearOp.Int4.Cuda.cpp`), with a width of 2080 refused at
+build.
+
+**Stated once.** Which code format a policy is now comes from `HasFp4E2M1Codes` and `HasInt4Codes`, beside
+`HasCodebookTable`, where the bank, `CudaMoeOp` and `CudaLinearOp` each probed for FP4 themselves. The FP4 and Q4_0
+passes are one kernel pair templated on the code format.
+
+---
+
+## Rates Baseline (`ModelFamilyParity.md` G5b, measured before G4 and G5)
+
+### Result (2026-09-29, RTX 5060 Ti)
+
+`0.21.0-dev+21`, `x64-profile` build, pinned by UUID, nothing else on the card. `PerGroupFp4<64>` quantized on
+load from `gemma4_26b_a4b_it_bf16.bin` (the non-quantization-aware checkpoint, since retired; the kernels'
+rates do not depend on which weights they read), FP8 KV, context 1024 -- the only build that exists, and the context
+at which it fits (the plan: footprint 15,097 MiB against 15,168 free, 48 MiB free after load).
+
+**Resident, not paged.** Sampled every 3 s through a decode run: 15,238 MiB dedicated and 80 MiB shared.
+80 MiB crossing PCIe every token would cost about 3 ms, not the 88 measured, and every kernel's median and
+maximum below agree within 2%. **The control that settles it:** the two kernels copied verbatim into a
+standalone program, one layer's FP4 bank at the real shapes (128 experts, 2816 by 704, top-8, random
+routing), 14,760 MiB free, compiled for `sm_120f`: gated 608.0 ms and combine 112.1 ms at 512 tokens, 2.14 ms
+and 0.57 ms at one -- the in-model figures below within 1%. The slowness is the kernels.
+
+| Phase | Rate | Runs |
+|---|---|---|
+| Prefill, 512 tokens | 21.76 s, **23.5 tokens/s** | 21,742 / 21,775 / 21,768 ms |
+| Generation, 128 tokens from a 1-token prompt | **11.38 tokens/s**, 88 ms a token | 11.40 / 11.40 / 11.34 |
+
+nsys, one decode step (the called step; the replayed ones need `--cuda-graph-trace=node`) and one 512-token
+prefill:
+
+| Kernel | Decode, per step | Prefill, 512 tokens |
+|---|---|---|
+| `moe_gated_fp4_kernel`, 30 calls | 63.6 ms (72%), 2.12 ms a layer on 11 blocks | 18,374 ms (84.2%), 612 ms a layer |
+| `moe_combine_fp4_kernel`, 30 calls | 16.9 ms (19%), 0.56 ms a layer on 6 blocks | 3,424 ms (15.7%), 114 ms a layer |
+| Everything else | 7.8 ms: tied head 1.73, dense and attention matvecs 2.6, `router_select_kernel` 1.6 (53 us, one block), argmax 0.9 | 36 ms |
+
+At decode a layer's eight experts are 17.8 MB of `gate_up` and 8.9 MB of `down` with their scales, so the
+gated pass reads at 8.4 GB/s and the combine at 15.9 GB/s, against 448 GB/s. At prefill the gated pass is
+53 GFLOP/s and the combine 142 GFLOP/s. A 512-token prefill costs 42.5 ms a token, half a decode step: the
+two-pass kernel barely amortizes the weights across tokens.
+
+**Against llama.cpp** (`benchmark_comparison.py`, row `gemma-4-26b-a4b-fp4`; llama.cpp build 11216 on Google's
+`gemma-4-26B_q4_0-it.gguf`, flash attention, every layer on the GPU, FP16 KV; mean of 3 runs, tokens a second):
+
+| | 512 | 2K | 8K | 32K |
+|---|---|---|---|---|
+| Prefill, Mila | 23.5 | 23.4 | 23.4 | refused |
+| Prefill, llama.cpp | 3,640 | 3,623 | 3,474 | 2,890 |
+
+| Generation, 128 tokens, at depth | 0 | 8K | 32K |
+|---|---|---|---|
+| Mila | 11.4 | 11.3 | refused |
+| llama.cpp | 127 | 109 | 99 |
+
+Mila's rate is flat with length, as the two kernels set it. At 8192 the planner fits by narrowing the prefill
+chunk to 256 rows (15,024 MiB, 120 MiB free after load; the 12B plans 1024 there), and at 32768 it refuses: the
+deployment needs 16,178,589,696 bytes against 15,904,800,768 free. Those two cells first died with
+`0xC0000409` and no output -- ProfileModel's VRAM sampler destroyed a joinable thread while the refusal unwound,
+which calls `std::terminate`; fixed in the sampler, and the cells re-recorded with the refusal's message. Not
+like for like, and the gap is too wide for any of it to matter here: Mila runs `PerGroupFp4<64>` against Google's Q4_0, an FP8 KV
+cache against FP16, and llama.cpp's batch sizes were not swept. The published row needs all three settled.
+
+**What it locates.** The expert bank is 91% of a decode step and all of a prefill, so G5b is those two
+kernels first. It is not only those: llama.cpp's whole decode step is 7.9 ms, and Mila spends 7.8 ms outside
+the bank. Of that, the router's one-block kernel is 1.6 ms and the tied head 1.73 ms (at its bandwidth floor
+in FP8; Google's head is Q6_K). A bank at its floor leaves Mila's step near 9.5 ms against llama.cpp's 7.9,
+so the router and the dense and attention matvecs are in G5b's scope too.
+
+### Re-baseline at Q4_0 (2026-09-30, `0.21.0-dev+24`, RTX 5060 Ti pinned by UUID)
+
+The first step of G5b: the same measurement with Mila's bank in Google's format. `x64-profile` build,
+`q4_0` quantized on load from `gemma4_26b_a4b_it_qat_bf16.bin` (every Q4_0 tensor equal to the GGUF's, G5 item 6),
+context 1024; llama.cpp build 11216 on `gemma-4-26B_q4_0-it.gguf`, the build the first baseline used.
+
+**Correction, same day: Gemma's KV cache is BF16, not FP8.** The Q4_0 and FP4 presets set
+`kv_cache_compression` FP8 and ProfileModel prints it, but `GemmaModel` builds its sliding layers on
+`SlidingWindowKvCache`, an uncompressed ring, and its global layers on `NoKvCompression`
+(`GemmaModel.ixx`, `GemmaSlidingKvPolicy`; `Policy.ixx`). No Gemma layer reads the setting. So wherever this
+notebook says Mila ran an FP8 cache against llama.cpp's FP16, both ran a 16-bit cache: like for like.
+
+| Phase | Mila Q4_0 | Mila FP4 (above) | llama.cpp |
+|---|---|---|---|
+| Prefill, 512 tokens | **31.0 tokens/s** (16,484 / 16,511 / 16,515 ms) | 23.5 | 3,702 |
+| Generation, 128 tokens at depth 0 | **12.55 tokens/s**, 79.7 ms a token | 11.4 | 126 |
+
+nsys, per decode step (two called steps averaged) and one 512-token prefill:
+
+| Kernel | Decode, per step | Prefill, 512 tokens |
+|---|---|---|
+| `moe_gated_packed_kernel`, 30 calls | 60.0 ms (75%), 2.0 ms a layer on 11 blocks | 13,813 ms (83.6%), 460 ms a layer |
+| `moe_combine_packed_kernel`, 30 calls | 12.7 ms (16%), 0.42 ms a layer on 6 blocks | 2,662 ms (16.1%), 89 ms a layer |
+| Everything else | 7.8 ms: tied head (FP8) 1.74, dense and attention Q4_0 matvecs 2.45, router 1.59 (53 us, one block), norms 0.47, argmax 0.23 | 37 ms, of which the dense branch's INT8 GEMM 22 |
+
+Q4_0's FP16 scale per 32 codes decodes a little faster than FP4's table lookup, and nothing else moved: the bank
+is still 91% of a decode step and 99.7% of a prefill, and the step outside it is unchanged at 7.8 ms.
+
+**The other two gaps of the first baseline, measured on llama.cpp's side:**
+
+- **Batch size.** `-ub` swept at `-b 2048`, prefill tokens a second, mean of 3:
+
+  | `-ub` | 512 | 2K | 8K |
+  |---|---|---|---|
+  | 256 | 2,620 | 2,613 | 2,561 |
+  | 512 (default) | 3,702 | 3,719 | 3,511 |
+  | 1024 | 3,693 | **4,347** | **4,117** |
+  | 2048 | 3,668 | 1,071 | 1,070 |
+
+  Its best is 1024, 17% above the default at 2K and 8K; at 2048 it falls to a quarter. The comparison script runs
+  the default.
+- **KV format.** Generation at depth 0 / 8K: FP16 126.1 / 111.6, q8_0 keys and values 120.5 / 106.1. An 8-bit
+  cache costs llama.cpp 4 to 5%, so FP16 is its faster setting -- and, per the correction above, the like-for-like
+  one: Mila's Gemma cache is BF16.
+
+### G5b decode result (2026-09-30, RTX 5060 Ti pinned by UUID)
+
+Two kernels replaced, both Mila's own, the rest of the step untouched:
+
+- **The Q4_0 gather decode** (`MoeGather.cu`), which `CudaMoeOp` runs for a one-token forward. The gated pass is one
+  warp per (slot, unit), each lane a whole 32-code group of the gate and up rows at a time -- 16-byte code loads,
+  the group summed as `x * ( code - 8 )` in FP32 and scaled once -- on 704 blocks where the Phase 6 kernel ran 11.
+  The combine is one warp per output column over all eight slots' groups, the token's gated values staged in
+  shared memory at a 36-float stride so a quarter-warp's reads land in distinct banks. Two tokens or more still
+  run the Phase 6 pair.
+- **The router, one warp per row** (`Router.cu`): top-k by k rounds of a warp argmax, ties to the lower index as
+  before, and only the selected experts' exponentials, since the softmax denominator cancels in the
+  renormalization. The old kernel took 128 double-precision exponentials on one thread, at FP64's 1/64 rate.
+
+**Gate** (Phase 9, "G5b, against G5's kernel", as written):
+
+| Item | Result |
+|---|---|
+| Decode against the exact weights, the 26B's shapes, random codes and FP16 scales, top-8 | gated pass 0 of 5632 outside tolerance, worst at 0.001 of it; combine 0 of 2816, worst 0.94 (the BF16 store's half ulp) |
+| Forced failure: the reference reads the nibbles swapped | 5629 of 5632 and 2811 of 2816 outside |
+| Decode bit-identical between banks built for prefill and for one token | 0 of 6144 differ |
+| Prefill unchanged | 0 of 6144 differ from the BF16 bank on exact weights |
+| Router | FP32 against HuggingFace layer 5: worst weight error 1.19e-7 (was 1.49e-7), no row with a different set; BF16: 6 rows with a different set, none unexplained, worst 2.09e-3, as before |
+| Token parity | 26B Q4_0 and FP4 greedy tokens equal HuggingFace's at context 8192; layer-streamed BF16 parity unchanged, argmax 818 |
+
+For the gated pass the written form's `sum|x w|` is carried through the activation:
+`( 1.13 x S_gate x |up| + |gelu( gate )| x S_up ) x 1e-5 + 1e-7`, 1.13 bounding the slope of tanh GELU.
+
+**Rates**, `x64-claude-verify` Release build, context 1024, generation of 128 tokens at depth 0, 3 runs:
+
+| | Tokens a second | ms a token |
+|---|---|---|
+| Q4_0 baseline (above) | 12.55 | 79.7 |
+| Gather decode | 109.2 | 9.15 |
+| Gather decode and warp router | **128.8** (128.92 / 128.82 / 128.78) | 7.76 |
+| llama.cpp b11216, FP16 KV | 126.1 | 7.93 |
+
+nsys with graph nodes traced, the last 48 replayed steps, per step (7.75 ms span, 0.18 idle):
+
+| Kernel | Before | Now |
+|---|---|---|
+| Expert bank, gated and combine | 72.7 ms | 2.27 ms: gated 1.40 (47 us a layer, 381 GB/s), combine 0.87 (29 us, 307 GB/s) |
+| Dense and attention Q4_0 matvecs, 120 calls | 2.45 | 2.45 |
+| Tied head, FP8 | 1.74 | 1.74 |
+| Norms, 331 calls | 0.47 | 0.44 |
+| Router | 1.59 | 0.21 |
+
+The step's floor is about 5.6 ms: the bank's 0.80 GB, the 738 MB head, and about 0.96 GB of dense and attention
+weights -- inferred as the 13.54 GiB export less 30 banks and the head, not measured -- at 448 GB/s. Mila's step and llama.cpp's are level at depth 0; theirs reads a Q6_K head, 20% fewer bytes
+than the FP8 one.
+
+**More rows per warp, 2026-10-01.** Nsight Compute on one layer's pair: both gathers were held to two blocks a
+multiprocessor by registers, 16 warps, stalled on memory (long scoreboard) with one row per warp -- the gated pass at
+80% of DRAM peak, the combine at 60%, its every block first staging the token's 22.5 KB of gated values. Each warp
+now carries two gate/up row pairs in the gated pass and two output columns in the combine, issuing all their weight
+loads before any arithmetic; each output keeps its lanes, order and reduction, so decode is bit-identical. Four columns
+were tried first and lost to two: 88 blocks against 72 resident slots left a second wave a fifth full. RTX 5060 Ti,
+context 2048, 1024-token prompt, 128 tokens, one sitting: 120.14 -> **121.79 tokens a second**; per step the combine
+0.872 -> 0.799 ms and the gated pass 1.410 -> 1.371 ms. The floor above leaves about 0.2 ms more in the pair. What remains of G5b is the prefill, still the Phase 6 kernel at 31 tokens a second.
+
+### G5b prefill result (2026-09-30, RTX 5060 Ti pinned by UUID)
+
+**The grouped INT8 prefill** (`MoeGrouped.cu`, `MixtureOfExperts.md` section 6): routing into expert segments,
+token-ascending within each; M tiles of 64 over them; the gated GEMM with gate and up rows interleaved in the B tile,
+so the activation runs on registers; the gated values quantized to INT8; the combine GEMM and a slot-ordered
+reduction, run over the gated buffer once it is dead, as many tokens at a time as it holds. The main loop, tile copies
+and MMA are `Linear`'s Q4_0 GEMM's, now shared through `Int4Int8Mma.cuh`. The Phase 6 Q4_0 launchers had no caller
+left and are gone; FP4 keeps its pair.
+
+**Gate** (Phase 9, "G5b, against G5's kernel", as written):
+
+| Item | Result |
+|---|---|
+| Prefill against the host INT8 block arithmetic | hidden 256 (128-deep tile), intermediate 320 (64-deep), 16 experts, top-4, 160 tokens, expert 0 a three-tile segment: gated pass 0 of 40,960 outside tolerance (worst 0.003 of it), combine 0 of 8,192 (worst 0.957), on the 32 tokens whose gated values the combine's one pass leaves in the slot |
+| Forced failure: the reference reads the nibbles swapped | 40,955 and 8,175 outside |
+| INT8 activations against BF16, printed | at the 26B's shapes, 160 tokens against one token at a time: relative L2 1.09e-2 |
+| Decode bit-identical between banks built for prefill and for one token | 0 of 6,144 differ |
+| Token parity | 26B Q4_0 and FP4 greedy tokens equal HuggingFace's at 8192; layer-streamed BF16 parity unchanged |
+| The row reproduced by the one script | below |
+
+Beyond the written gate: prefill is bit-identical however tokens are batched (160 tokens against calls of 60 and
+100 at the 26B's shapes, 450,560 of 450,560 equal), since every output depends on its own row alone; an
+out-of-range index poisons only its token; predicted scratch equals built. At context 8192 the Q4_0 plan still
+takes 1024 rows, 15,822,825,472 bytes predicted and reported, as at G5: the prefill's 6.5 MB of scratch sits
+under the 10 MiB the network already reserves.
+
+**Found on the way: a race in the routing kernel.** Past 1024 rows (tokens x top_k) it loops, and the loop cleared
+the per-warp counts for the next chunk while the last sums over them were still being read. Every unit test had
+640 rows or fewer; a 512-token prefill of the model (4,096 rows) died with an illegal memory access. One barrier;
+the batching test now runs 1,280 rows.
+
+**Long text**, a diagnostic (`DISABLED_Q4_0_ChunkedPrefillAgainstOneRowAtATime_Wikitext`): four 2,048-token
+wikitext segments through the planner's chunk, 7.35800 mean nats, and through a chunk of one row, where every
+projection takes the BF16-activation matvec and the bank its gather decode, 7.32938. The difference, +0.39%, is
+INT8 activations' size of effect, which raw wikitext cannot grade (`ModelFamilyParity.md` 8.2, G1); a broken
+prefill it would show.
+
+**The prompt a rate harness feeds a mixture of experts.** ProfileModel's `--seq-len` filled the prompt with token
+0, salted only at the first position. Dense models barely notice; a mixture of experts routes nearly every row
+to the same few experts and reads a fraction of its bank. It showed as a combine pass that finished faster than
+reading every expert's down weights once can take (182 us against 283). llama-bench draws every token as
+`std::rand() % n_vocab` (read in its source); ProfileModel now draws uniformly from the vocabulary with a fixed
+seed, for prefill and for generation depth. At 512 tokens the rate fell from 7,410 to 5,611 tokens a second. The
+dense rows published before were measured on the old prompt and are not re-measured here.
+
+**Rates**, `benchmark_comparison.py` (row `gemma-4-26b-a4b-q4_0`, head to head), `x64-claude-verify` Release build;
+llama.cpp build 11216, FP16 KV, each cell at its faster micro-batch of 512 and 1024 (1024 won every prefill past
+512); mean of 3, tokens a second:
+
+| Prefill | 512 | 2K | 8K | 32K |
+|---|---|---|---|---|
+| Mila Q4_0 | 5,604 | 6,080 | 5,550 | refused |
+| llama.cpp | 3,685 | 4,334 | 4,124 | 3,321 |
+
+| Generation, 128 tokens, at depth | 0 | 8K | 32K |
+|---|---|---|---|
+| Mila Q4_0 | 129 | 115 | refused |
+| llama.cpp | 128 | 113 | 99 |
+
+At 32768 the deployment needs 16,075,330,560 bytes against 15,904,800,768 free, as the FP4 build did; captured in
+`Issues/Untriaged.md`.
+
+nsys, one 2,048-token prefill (two 1024-row chunks, random tokens), 336 ms busy:
+
+| Kernel | ms | Share |
+|---|---|---|
+| Grouped GEMM, gated: 60 calls | 84.0 (1.40 a layer-chunk) | 25% |
+| Grouped GEMM, combine: 240 calls, four passes a layer-chunk | 91.2 (0.38 a pass) | 27% |
+| `Linear`'s INT8 GEMM, attention and dense projections | 79.4 | 24% |
+| Attention | 36.5 | 11% |
+| Reduction, quantizers, routing, tiles | 17 | 5% |
+
+**The combine's memory, measured and decided.** A pass reads nearly every expert's down weights, 127 MB, in
+380 us, so the four passes cost what reading them four times costs. One pass would take about 0.75 ms at the gated
+pass's arithmetic rate for half its work, so the sub-chunking costs about 0.75 ms a layer-chunk, about 45 ms or
+13% of a 2K prefill. Materializing every row instead would narrow the plan's chunk at 8192, which halves the rows
+an expert's segment amortizes its weights over in both GEMMs and undoes G5's chunk. **Kept.** What would recover
+the 13% without the memory, if prefill becomes the priority: the combine's rows in the other pooled slots the
+routed sublayer leaves idle, or a combine that accumulates each token's slots in one pass.

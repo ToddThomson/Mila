@@ -82,7 +82,7 @@ option(MILA_ENABLE_APPS "Build the Mila Desktops (mila-chat, mila-store)." ${PRO
 option(MILA_ENABLE_TOOLS "Build Mila's developer tools (tokenize, ExportArtifact)." ${PROJECT_IS_TOP_LEVEL})
 # The docs target's Doxyfile paths are Mila's own, so it is meaningless in a consumer's build
 # and used to be offered there anyway. The docs CI job runs Doxygen directly against
-# Mila/Docs/Doxyfile and never configures CMake, so nothing outside a top-level build needs it.
+# Lib/Docs/Doxyfile and never configures CMake, so nothing outside a top-level build needs it.
 option(MILA_ENABLE_DOCS "Build Doxygen API documentation. Requires Doxygen and Graphviz." ${PROJECT_IS_TOP_LEVEL})
 # The pre-commit hook's checks (scripts/hooks/commit_checks.py: NOTICE pins, the version sites, Doxygen with no
 # warning) on the working tree, in every build. Off by default: it needs Python and Doxygen and costs a few seconds.
@@ -103,9 +103,9 @@ option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)
 # See Specifications/ModelDistribution.md.
 option(MILA_ENABLE_LIBCURL "Build Mila's libcurl HTTP transport." ON)
 
-# Milo, the agentic library on Mila. Like the extras above, on for a top-level build and off for an embedding
-# consumer, who turns it on to have it. Mila builds without it; Chat and Mila Desktop do not.
-option(MILA_ENABLE_MILO "Build Milo, the agentic library on Mila." ${PROJECT_IS_TOP_LEVEL})
+# Mila::Agents, the library's agents API: a target of its own that builds on the rest of Mila and is never imported by
+# it. The rest of Mila builds without it; Chat and Mila Desktop do not.
+option(MILA_ENABLE_AGENTS "Build Mila::Agents, the library's agents API." ON)
 
 option(MILA_ENABLE_CUDA "Enable CUDA compute backend" ON)
 
@@ -341,37 +341,46 @@ find_package(nlohmann_json REQUIRED)
 
 # CTest is enabled once, here -- and only when Mila is the top-level project, since an
 # embedding consumer owns its own testing setup. enable_testing() propagates to every
-# subdirectory, so neither Mila/ nor Tests/ calls it again.
+# subdirectory, so neither Lib/ nor Tests/ calls it again.
 if(PROJECT_IS_TOP_LEVEL)
     enable_testing()
 endif()
 
-# The Mila library and Doxygen docs
-add_subdirectory( Mila )
+# Define the data directory path (project-wide resource). PROJECT_SOURCE_DIR (not
+# CMAKE_SOURCE_DIR) keeps this pointing at Mila's own Data/ when embedded.
+# Mila project benchmarks, samples, tests, and tools can reference this variable to access data files.
+set(MILA_DATA_DIR "${PROJECT_SOURCE_DIR}/Data")
 
-if( MILA_ENABLE_MILO )
-    add_subdirectory( Milo )
+# The Mila library and Doxygen docs
+add_subdirectory( Lib )
+
+if( MILA_ENABLE_AGENTS )
+    add_subdirectory( Lib/Src/Agents )
 endif()
 
 # The apps Mila ships to the people who run it (see MilaProductFamily.md): Mila Chat, a human at a prompt, and Mila
-# Desktop, whose session process is built here. Both run models on Milo, and CUDA is the only compute backend. Gated on
+# Desktop, whose session process is built here. Both run models on Mila::Agents, and CUDA is the only compute backend. Gated on
 # MILA_ENABLE_APPS so a consumer embedding Mila builds neither. mila-app packages the session with the window and page,
 # which are Node.
-if( MILA_ENABLE_APPS AND MILA_ENABLE_MILO AND MILA_ENABLE_CUDA )
-    add_subdirectory( MilaChat )
-    add_subdirectory( MilaDesktop )
+if( MILA_ENABLE_APPS AND MILA_ENABLE_AGENTS AND MILA_ENABLE_CUDA )
+    add_subdirectory( Apps/Chat )
+    add_subdirectory( Apps/Desktop )
 elseif( MILA_ENABLE_APPS )
-    message( STATUS "MILA_ENABLE_MILO or MILA_ENABLE_CUDA is OFF - skipping mila-chat and mila-session" )
+    message( STATUS "MILA_ENABLE_AGENTS or MILA_ENABLE_CUDA is OFF - skipping mila-chat and mila-session" )
 endif()
 
-# Mila Server is not a CMake target -- it consumes the Mila Python binding, which is built from Mila/Bindings.
+# Mila Server is not a CMake target -- it consumes the Mila Python binding, which is built from Lib/Bindings.
 #
 # CMake does write its version, for the same reason it writes the binding's: the server ships as
 # mila-llm-server, and a hand-maintained number in pyproject.toml is the shape that had already
 # drifted 18 builds for the binding. One SemVer -> PEP 440 mapping serves both
 # (cmake/MilaVersion.cmake); generated, so it is gitignored and a `python -m build` on an
 # unconfigured checkout fails loudly rather than publishing a stale number.
-file( WRITE "${CMAKE_CURRENT_SOURCE_DIR}/MilaServer/VERSION" "${MILA_PEP440_VERSION}\n" )
+file( WRITE "${CMAKE_CURRENT_SOURCE_DIR}/Apps/Server/VERSION" "${MILA_PEP440_VERSION}\n" )
+
+if(MILA_ENABLE_TESTING)
+    add_subdirectory( Tests )
+endif()
 
 if( PROJECT_IS_TOP_LEVEL AND MILA_ENABLE_COMMIT_CHECKS )
     find_package( Python3 COMPONENTS Interpreter REQUIRED )

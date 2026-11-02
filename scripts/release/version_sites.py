@@ -86,22 +86,22 @@ SITES: tuple[Site, ...] = (
         "section 7 FetchContent pin, copy-pasted by readers",
     ),
     Site(
-        "Mila/Samples/QuickStart/Cpp/CMakeLists.txt",
+        "Lib/Samples/QuickStart/Cpp/CMakeLists.txt",
         rf"GIT_TAG\s+v(?P<ver>{VERSION_PATTERN}) # pin to a published release tag",
         "the published QuickStart the website links to",
     ),
     Site(
-        "Mila/Samples/QuickStart/Cpp/README.md",
+        "Lib/Samples/QuickStart/Cpp/README.md",
         rf"^Mila (?P<ver>{VERSION_PATTERN})\r?$",
         "sample output a reader compares against",
     ),
     Site(
-        "Mila/Samples/QuickStart/Cpp/README.md",
+        "Lib/Samples/QuickStart/Cpp/README.md",
         rf"GIT_TAG\s+v(?P<ver>{VERSION_PATTERN})\s+# pin to a published release tag",
         "FetchContent pin",
     ),
     Site(
-        "Mila/Samples/QuickStart/Cpp/README.md",
+        "Lib/Samples/QuickStart/Cpp/README.md",
         rf"archive/refs/tags/v(?P<ver>{VERSION_PATTERN})\.zip",
         "release archive URL",
     ),

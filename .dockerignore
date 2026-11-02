@@ -29,8 +29,8 @@ TestResults/
 
 # Mila Desktop's installed packages and packaged output: the image builds no window.
 **/node_modules/
-MilaDesktop/Window/dist/
-MilaDesktop/Window/session/
+Apps/Desktop/Window/dist/
+Apps/Desktop/Window/session/
 
 # Version control and CI metadata
 .git/
@@ -50,7 +50,7 @@ Data/Datasets/
 
 # The other two weight extensions. `**/*.bin` above does not reach them, and missing them
 # cost 7.3 GB of build context and 8m52s of transfer on EVERY image build, publish included:
-# Mila/Tools/Quantization/artifacts/ alone holds 6.76 GB of fitted codebooks and exported
+# Lib/Tools/Quantization/artifacts/ alone holds 6.76 GB of fitted codebooks and exported
 # weights. Nothing in any image is built from a weights file — models arrive at runtime.
 **/*.safetensors
 **/*.npz

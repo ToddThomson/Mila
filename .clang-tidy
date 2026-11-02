@@ -28,7 +28,7 @@ Checks: >
   readability-redundant-member-init
 
 # Lint only Mila's own sources, never vendored Deps or system/CUDA headers.
-HeaderFilterRegex: 'Mila/Src/.*'
+HeaderFilterRegex: 'Lib/Src/.*'
 
 # Advisory only -- never fail a build on a tidy finding.
 WarningsAsErrors: ''

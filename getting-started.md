@@ -174,7 +174,7 @@ cmake -S . -B out/build/x64-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DMILA_E
 cmake --build out/build/x64-release
 
 # Run the test suite (one binary, MilaTests.exe on Windows; --gtest_filter=<pattern> narrows it)
-./out/build/x64-release/Mila/Tests/MilaTests
+./out/build/x64-release/Tests/MilaTests
 ```
 
 `ctest --test-dir out/build/x64-release` runs the same tests and adds the separate
@@ -211,7 +211,7 @@ Notes:
 Run a single test binary directly, for example:
 
 ```bash
-./out/build/x64-release/Mila/Tests/Dnn/Components/Activations/Gelu/GeluTests
+./out/build/x64-release/Tests/Dnn/Components/Activations/Gelu/GeluTests
 ```
 
 Available presets, from `CMakePresets.json`:
@@ -260,7 +260,7 @@ docker compose -f Docker/docker-compose.yml run --rm mila-dev
 # Inside the container:
 cmake --preset linux-clang-release
 cmake --build out/build/linux-clang-release
-./out/build/linux-clang-release/Mila/Tests/MilaTests
+./out/build/linux-clang-release/Tests/MilaTests
 ```
 
 The preset selects clang for the module units and gcc-15 for nvcc, and builds the library for
@@ -327,10 +327,10 @@ Skip it entirely if 5a gave you what you need.
 
 #### Set up the converter environment
 
-Run once from the `Mila/Tools/Converters/` directory:
+Run once from the `Lib/Tools/Converters/` directory:
 
 ```powershell
-cd Mila/Tools/Converters
+cd Lib/Tools/Converters
 python -m venv .venv
 .venv\Scripts\activate
 python -m pip install --upgrade pip
@@ -393,7 +393,7 @@ published one — that is the point of one manifest describing every model, what
 > `--instruct` is not implied by the model's name. Omitting it writes `instruct: false` and
 > every consumer then applies the wrong prompt template.
 
-See [Mila/Tools/Converters/README.md](Mila/Tools/Converters/README.md) for the full option
+See [Lib/Tools/Converters/README.md](Lib/Tools/Converters/README.md) for the full option
 tables and per-model notes.
 
 ---
@@ -463,7 +463,7 @@ set `-DCMAKE_CUDA_ARCHITECTURES` to your own GPU's arch (`89` for Ada) as in Sec
 default multi-arch list compiles every kernel several times over. Rebuilds are incremental.
 
 A complete, copy-paste starting point is in
-[`Mila/Samples/QuickStart/Cpp`](Mila/Samples/QuickStart/Cpp/README.md) — a standalone project that
+[`Lib/Samples/QuickStart/Cpp`](Lib/Samples/QuickStart/Cpp/README.md) — a standalone project that
 consumes Mila exactly like this and then loads a model and streams a reply, so the `CMakeLists.txt`
 above is shown doing real work rather than printing a version.
 
@@ -526,19 +526,19 @@ Key points:
 
 New work should follow the compile-time dispatch pattern: components resolve their operation
 type through `OperationTraits<OperationType, TDeviceType, TPrecision, TPolicy>`. `Linear`
-([Mila/Src/Dnn/Components/Linear/Linear.ixx](Mila/Src/Dnn/Components/Linear/Linear.ixx)) is
+([Lib/Src/Dnn/Components/Linear/Linear.ixx](Lib/Src/Dnn/Components/Linear/Linear.ixx)) is
 the reference implementation. Do not add new string-keyed `OperationRegistry`/`*Registrar`
 classes — that path is being removed. See
-[Mila/Specifications/OperationDispatch.md](Mila/Specifications/OperationDispatch.md).
+[Specifications/OperationDispatch.md](Specifications/OperationDispatch.md).
 
 ### Tests are required
 
 Every new component must include **forward and backward** pass tests, with CPU/CUDA
-equivalence where applicable. Tests live under `Mila/Tests/Dnn/` and mirror the `Src/Dnn`
+equivalence where applicable. Tests live under `Tests/Dnn/` and mirror the `Src/Dnn`
 tree. Run the suite with `ctest` before opening a PR.
 
 Good first contributions, per the README: CPU reference implementations, additional test
-coverage, and new encoding strategies under `Mila/Src/Dnn/Components/Encodings/`.
+coverage, and new encoding strategies under `Lib/Src/Dnn/Components/Encodings/`.
 
 ### Open the pull request
 
@@ -554,9 +554,9 @@ coverage, and new encoding strategies under `Mila/Src/Dnn/Components/Encodings/`
 
 - [ROADMAP.md](ROADMAP.md) — the release narrative and trajectory; [BACKLOG.md](BACKLOG.md) for the task breakdown.
 - [CLAUDE.md](CLAUDE.md) — architecture overview, type axes, dispatch, and code style.
-- `Mila/Specifications/` — design documents:
-  [OperationDispatch.md](Mila/Specifications/OperationDispatch.md),
-  [Quantization.md](Mila/Specifications/Quantization.md), and the planned-feature
+- `Specifications/` — design documents:
+  [OperationDispatch.md](Specifications/OperationDispatch.md),
+  [Quantization.md](Specifications/Quantization.md), and the planned-feature
   specs (PromptCaching, TokenSampling, ToolCalling).
 - API reference: https://mila.toddt.me/api/ (regenerated on every push to master).
 

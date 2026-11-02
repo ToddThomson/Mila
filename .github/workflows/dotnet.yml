@@ -1,6 +1,6 @@
 name: Mila .NET Binding
 
-# The C ABI (Mila/Bindings/Native/mila.h) and the C# library over it (Mila/Bindings/DotNet/,
+# The C ABI (Lib/Bindings/Native/mila.h) and the C# library over it (Lib/Bindings/DotNet/,
 # DotNetBinding.md), phase 1a: everything runs against the C17 mock of the ABI, so there is no CUDA
 # and no C++ build here. Its own workflow for the reason desktop.yml is: minutes not an hour, and
 # build-pipeline.yml's triggers would leave a change here untested on the `dev` push that makes it.
@@ -8,13 +8,13 @@ name: Mila .NET Binding
 on:
   push:
     paths:
-      - 'Mila/Bindings/DotNet/**'
-      - 'Mila/Bindings/Native/mila.h'
+      - 'Lib/Bindings/DotNet/**'
+      - 'Lib/Bindings/Native/mila.h'
       - '.github/workflows/dotnet.yml'
   pull_request:
     paths:
-      - 'Mila/Bindings/DotNet/**'
-      - 'Mila/Bindings/Native/mila.h'
+      - 'Lib/Bindings/DotNet/**'
+      - 'Lib/Bindings/Native/mila.h'
       - '.github/workflows/dotnet.yml'
   workflow_dispatch:
 
@@ -37,13 +37,13 @@ jobs:
     timeout-minutes: 20
     defaults:
       run:
-        working-directory: Mila/Bindings/DotNet
+        working-directory: Lib/Bindings/DotNet
     steps:
       - uses: actions/checkout@v5
 
       - uses: actions/setup-dotnet@v5
         with:
-          global-json-file: Mila/Bindings/DotNet/global.json
+          global-json-file: Lib/Bindings/DotNet/global.json
 
       # Clang only proves the mock and the header build warning-free under it too; the tests load GCC's.
       - name: Build the mock with Clang

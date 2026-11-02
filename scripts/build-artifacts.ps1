@@ -446,7 +446,7 @@ if (Test-PhaseSelected 5) {
         Invoke-BuildPhase ($phases | Where-Object Id -eq 5) {
             New-Item -ItemType Directory -Force -Path (Join-Path $repo "build\docs") | Out-Null
 
-            doxygen (Join-Path $repo "Mila\Docs\Doxyfile")
+            doxygen (Join-Path $repo "Lib\Docs\Doxyfile")
             if ($LASTEXITCODE -ne 0) { throw "Doxygen failed (WARN_AS_ERROR): a doc warning blocks publish-site.yml" }
 
             hugo --source (Join-Path $repo "Web") --destination (Join-Path $repo "build\site") --minify --gc

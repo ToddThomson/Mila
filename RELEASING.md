@@ -228,7 +228,7 @@ starts one process per case. The devcontainer docs were moved off `ctest` for th
 this leg never was.
 
 ```bash
-cd out/build/linux-clang-debug/Mila/Tests && ./MilaTests && ./ChatRichTextTests
+cd out/build/linux-clang-debug/Tests && ./MilaTests && ./ChatRichTextTests
 ```
 
 Running both is what makes that equivalent to `ctest`: `ctest` reports a higher number only because
@@ -301,7 +301,7 @@ rather than steps:
 
 - **The published models.** All five paths need one in the store — four say how, and the C++ tab
   locates one it assumes is already there — but weights are published on their own schedule by
-  `Mila/Tools/Publishing/publish_model.py`, and a card declares `minimum_mila_version` (`0.20.0`
+  `Lib/Tools/Publishing/publish_model.py`, and a card declares `minimum_mila_version` (`0.20.0`
   today), never a checkpoint. **A release never re-publishes weights.** What a release can break is
   the *name* in the copy, which is why the model names in `Web/layouts/index.html` are read back at
   step 10.
@@ -365,7 +365,7 @@ fails.
    compare", because the sites correctly name the last release while `Version.txt` still names a dev
    snapshot — which is the normal state on every other day of the cycle.
    Those sixteen are the QuickStart `GIT_TAG`s a reader copies
-   (`Mila/Samples/QuickStart/Cpp/CMakeLists.txt`, that sample's README including its `URL` archive
+   (`Lib/Samples/QuickStart/Cpp/CMakeLists.txt`, that sample's README including its `URL` archive
    line, `getting-started.md` §7), the website's five (`Web/layouts/index.html`: the C++ tab's
    `GIT_TAG` and its sample output, the `-devel` tag, and the `-runtime` tag in **both** `#evaluate`
    commands), `scripts/dockerhub/overview.md`'s three, `verify-image.sh`'s `MILA_IMAGE` default, the
@@ -458,10 +458,10 @@ fails.
    at the release that opens a new numbering era.
    **After a publish, this is also where the next release's narrative opens.** Delete the shipped
    section from `ROADMAP.md` — the GitHub Release body is now the record of what it contained — then
-   pick the next release's **themes out of [`Mila/Issues/Vnext.md`](Mila/Issues/Vnext.md)** and write
+   pick the next release's **themes out of [`Issues/Vnext.md`](Issues/Vnext.md)** and write
    the narrative around them. That order is deliberate: the themes come from what the work has
    actually accumulated into, not from what would be satisfying to announce. The rules for the pick,
-   and the trap in it, are in [`Mila/Issues/README.md`](Mila/Issues/README.md).
+   and the trap in it, are in [`Issues/README.md`](Issues/README.md).
 
 **Steps 2 to 12 are one window, and `dev` stays closed to unrelated commits across it.** Four
 steps build from `dev` or from the tag it produced — the wheels, both images, and the site — and
@@ -503,7 +503,7 @@ throwaway version is what keeps the release filename unburned.
 Both wheels and both images carry `80;86;89;90;120` — the supported set, because SM 8.0 is the
 floor Mila's own kernels draw (`CudaLinearOp.ixx:661`, and both GQA flash prefill paths throw
 below it). The five sites are the two wheel presets, `MILA_LIBRARY_CUDA_ARCHITECTURES` in
-`Mila/CMakeLists.txt`, `ARCHITECTURES` in `publish-image.sh`, and `MILA_IMAGE_CUDA_ARCHITECTURES`
+`Lib/CMakeLists.txt`, `ARCHITECTURES` in `publish-image.sh`, and `MILA_IMAGE_CUDA_ARCHITECTURES`
 in `Dockerfile.runtime`; they are one list and move together. The library default was the sixth
 entry out of step until `rc.1+27`, when Turing was dropped from it — a compile pass for hardware
 the runtime refuses. The toolkit is declared the same way:
@@ -574,7 +574,7 @@ step below exists to prevent, and why it is not optional.
      It must be the **wheel** container (Ubuntu 24.04), not the dev container: `auditwheel` derives
      the manylinux tag from the build distro, so 26.04 would produce a wheel that locks out the
      current LTS.
-   - The server: `python -m build --wheel --outdir out/wheel MilaServer`, from a
+   - The server: `python -m build --wheel --outdir out/wheel Apps/Server`, from a
      configured tree — its version is the `VERSION` file the configure writes. It is pure Python, one
      `py3-none-any` file, and it requires `mila-llm` at exactly its own version, so it is never
      uploaded without the four wheels it names.
@@ -620,7 +620,7 @@ follow the merge rather than precede it — a one-off, called out at release ste
 ## Publishing the models
 
 A model on a user's disk survives an upgrade, and a user on an older Mila can still install one —
-the two rules are in [ModelDistribution.md](Mila/Specifications/ModelDistribution.md#compatibility).
+the two rules are in [ModelDistribution.md](Specifications/ModelDistribution.md#compatibility).
 Neither was checked before `0.21.0`; on its dev builds, the 12B's `ffn` rename and then its token
 table each stopped an installed model loading.
 
@@ -631,7 +631,7 @@ table each stopped an installed model loading.
    nonsense fails here as surely as one that refuses.
 2. **Republish at release step 8, after the wheels reach PyPI.** A package that needs this release
    cannot go on `main` before this release can be installed, or every fresh install between the two
-   is refused. `Mila/Tools/Publishing/publish_model.py` uploads it. When the new package raises
+   is refused. `Lib/Tools/Publishing/publish_model.py` uploads it. When the new package raises
    `minimum_mila_version`, the commit it replaces is tagged `mila-<major>.<minor>` first, after that
    commit's own minimum; a tag is never moved or deleted.
 
@@ -733,7 +733,7 @@ which shipped unready work in one direction and stayed silent for two weeks in t
    staging step the publish workflow structurally lacks.
 3. **Dispatch `Publish Mila Site`.** The build job gates the deploy job: a broken Hugo build, a
    missing assembled file, or malformed structured data fails before anything goes live. Doxygen
-   runs under `WARN_AS_ERROR`, so **doc-comment drift in `Mila/Src` blocks the publish** — it is a
+   runs under `WARN_AS_ERROR`, so **doc-comment drift in `Lib/Src` blocks the publish** — it is a
    source problem, and the fix belongs in the source, not in a workflow flag.
 4. **Open the published page and run one command out of each panel.** The C++ tab's `GIT_TAG`
    against the tag you pushed, `pip install mila-llm` resolving to the release version, and both
@@ -763,7 +763,7 @@ from it. That asymmetry is deliberate — reference docs generated from source s
   that an explicit value **persists in the cache**, so clear it (`-DMILA_CPM_GIT_TAG=`) to go back
   to the derived one.
 - **Stale CPM cache:** the gate keeps a source cache across runs for speed, now under
-  `.../Mila/Tests/Packaging/cpm-cache/<tag>`, with its build work directory keyed on the tag as
+  `.../Tests/Packaging/cpm-cache/<tag>`, with its build work directory keyed on the tag as
   well. Both are per-tag deliberately: sharing them is half of how a gate once validated the
   previous release and reported success. If a re-run misbehaves after a failed attempt, delete that
   tag's folder to force a clean fetch. **A passing run is only evidence for the tag it names** —

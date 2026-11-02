@@ -5,7 +5,7 @@ name: Publish Mila Site
 # MANUAL ONLY, deliberately. Site changes accumulate on `dev` across as many commits as they
 # need, and publishing is a separate decision taken by running this workflow. An earlier version
 # auto-published on any push touching `Web/**`, which was wrong in both directions: it shipped
-# work that was not ready, and it stayed silent for two weeks while a Doxygen break in `Mila/Src`
+# work that was not ready, and it stayed silent for two weeks while a Doxygen break in `Lib/Src`
 # blocked every run, because source paths deliberately do not trigger it. Doc-comment drift is a
 # source problem and belongs to a source check, not to the publish button.
 #
@@ -18,7 +18,7 @@ name: Publish Mila Site
 # the source. It is indexed. (web.yml, "Mila Web", is the faster site-only build+validate gate
 # that runs automatically on site changes; it never deploys.)
 #
-# The build runs Doxygen directly against the canonical Mila/Docs/Doxyfile -- no CMake
+# The build runs Doxygen directly against the canonical Lib/Docs/Doxyfile -- no CMake
 # configure, no CUDA toolkit, no Graphviz (the docs describe the source; they compile
 # nothing and dot graphs are disabled, see the Doxyfile). Doxygen is pinned to 1.17
 # (matches local validation and the C++23 module .ixx parsing).
@@ -87,7 +87,7 @@ jobs:
       - name: Generate documentation
         run: |
           mkdir -p build/docs   # Doxygen does not create nested OUTPUT_DIRECTORY parents
-          doxygen Mila/Docs/Doxyfile
+          doxygen Lib/Docs/Doxyfile
 
       # Hugo builds the authored site (landing page + writeups). Pinned like Doxygen above:
       # the site must not change shape because a runner picked up a new release.

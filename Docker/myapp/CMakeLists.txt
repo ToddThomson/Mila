@@ -1,6 +1,6 @@
 # Your project, inside the Mila development image.
 #
-# The only difference from Mila/Samples/QuickStart/Cpp/CMakeLists.txt is where Mila comes
+# The only difference from Lib/Samples/QuickStart/Cpp/CMakeLists.txt is where Mila comes
 # from. That one fetches a published tag over the network, which is what you would do on
 # your own machine. Here the release is already on disk at /src -- the same tree this image
 # was built from -- so it is added directly. Nothing is hidden: change the path below and

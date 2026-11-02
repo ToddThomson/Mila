@@ -115,12 +115,12 @@ foreach ($interpreter in $pythons) {
     if ($LASTEXITCODE -ne 0) { throw "build failed for Python $($interpreter.Version)" }
 
     # Package from a COPY, never from the package tree in place. MilaPy's POST_BUILD
-    # stages into Mila/Bindings/Package/src/mila, which accumulates: a Linux build leaves
+    # stages into Lib/Bindings/Package/src/mila, which accumulates: a Linux build leaves
     # its _mila*.so and every interpreter leaves its own .pyd. package-data globs both, so
     # packaging in place would put every extension ever built into every wheel. Copying
     # also means this never deletes anything from the working tree.
     if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
-    Copy-Item -Recurse (Join-Path $repo "Mila\Bindings\Package") $stage
+    Copy-Item -Recurse (Join-Path $repo "Lib\Bindings\Package") $stage
 
     # Take the extension from THIS build rather than trusting what POST_BUILD left behind:
     # strip every staged extension, then copy in the one just produced. Deterministic
@@ -132,7 +132,7 @@ foreach ($interpreter in $pythons) {
     # extension is still sitting there. Matching the tag exactly is what stops a stale
     # artifact being packaged as this one.
     $suffix = (& $python -c "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))")
-    $built = Join-Path $build "Mila\Bindings\_mila$suffix"
+    $built = Join-Path $build "Lib\Bindings\_mila$suffix"
 
     if (-not (Test-Path $built)) {
         throw "expected $built from the Python $($interpreter.Version) build, and it is not there"

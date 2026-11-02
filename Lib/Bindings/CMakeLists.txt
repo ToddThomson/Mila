@@ -1,0 +1,158 @@
+# CMake configuration for the MilaPy pybind11 extension module (module name: mila).
+# Requires CUDA; binds the Gemma 4, Llama 3.x and Qwen 3.8 inference paths.
+
+cmake_minimum_required(VERSION 4.0)
+
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+
+if(NOT MILA_HAS_CUDA)
+    message(FATAL_ERROR "MilaPy requires CUDA. Enable MILA_ENABLE_CUDA or disable MILA_ENABLE_PYTHON_BINDINGS.")
+endif()
+
+set(CMAKE_CXX_SCAN_FOR_MODULES ON)
+
+pybind11_add_module(MilaPy
+    Mila_py.cpp
+    Mila_py.Wrappers.cpp
+    Mila_py.Runtime.cpp
+    Mila_py.Deployment.cpp
+    Mila_py.ChatProtocol.cpp
+)
+
+# All Mila access is confined to this module interface unit; Mila_py.cpp binds
+# against its std-only opaque handles and never imports Mila. The latest VS2026
+# MSVC raises C2079 (basic_istream::sentry undefined) whenever Mila is imported
+# into an ordinary .cpp that also includes std headers such as <string>.
+target_sources(MilaPy
+PUBLIC
+    FILE_SET module_files
+    TYPE CXX_MODULES FILES
+        "Mila_py.Wrappers.ixx"
+        "Mila_py.Wrappers.LlamaConfigInfo.ixx"
+        "Mila_py.Wrappers.GemmaConfigInfo.ixx"
+        "Mila_py.Wrappers.QwenConfigInfo.ixx"
+        "Mila_py.Wrappers.ToolCallInfo.ixx"
+        "Mila_py.Wrappers.TurnInfo.ixx"
+        "Mila_py.Wrappers.ProtocolTokens.ixx"
+        "Mila_py.Wrappers.Tokenizer.ixx"
+        "Mila_py.Wrappers.LlamaSession.ixx"
+        "Mila_py.Wrappers.StoredModelInfo.ixx"
+        "Mila_py.Wrappers.StoreUsageInfo.ixx"
+        "Mila_py.Wrappers.RemovalReportInfo.ixx"
+        "Mila_py.Wrappers.HubModelInfo.ixx"
+        "Mila_py.Wrappers.HttpHeaderInfo.ixx"
+        "Mila_py.Wrappers.HttpResponseInfo.ixx"
+        "Mila_py.Wrappers.ModelStoreHandle.ixx"
+        "Mila_py.Wrappers.GemmaSession.ixx"
+        "Mila_py.Wrappers.QwenSession.ixx"
+        "Mila_py.Wrappers.SamplingSettingsInfo.ixx"
+        "Mila_py.Runtime.ixx"
+        "Mila_py.Deployment.ixx"
+        "Mila_py.ChatProtocol.ixx"
+)
+
+set_target_properties(MilaPy PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+    OUTPUT_NAME "_mila"
+)
+
+target_compile_features(MilaPy PUBLIC cxx_std_23)
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    target_compile_options(MilaPy PRIVATE
+        $<$<COMPILE_LANGUAGE:CXX>:/std:c++latest /permissive- /Zc:preprocessor /W4>
+    )
+endif()
+
+target_link_libraries(MilaPy PRIVATE Mila pybind11::module)
+
+# ---------------------------------------------------------------------------
+# Python package staging
+#
+# `_mila` is only half of what a consumer imports: the other half is the `mila`
+# package whose __init__ registers the CUDA DLL directories BEFORE the extension
+# loads (Windows does not search PATH for an extension's dependencies) and then
+# re-exports from it. So every destination below receives a package DIRECTORY --
+# __init__.py beside the extension -- never a bare .pyd.
+# ---------------------------------------------------------------------------
+
+set(MILA_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Package")
+set(MILA_PACKAGE_INIT "${MILA_PACKAGE_SOURCE_DIR}/src/mila/__init__.py")
+
+# 1. Into the package source tree, so `pip wheel Lib/Bindings/Package` packages a
+#    freshly built extension. The wheel build is a packaging step over the CMake
+#    build, not a second build system; setuptools never compiles anything here.
+#
+#    Top-level builds ONLY, VERSION and the POST_BUILD staging alike. Both write into
+#    the SOURCE tree, which a consumer that pulled Mila in via FetchContent has no
+#    business doing -- it would stage a wheel tree nobody in that build will package,
+#    into whatever directory Mila was fetched from. The staging also broke:
+#    PROJECT_SOURCE_DIR below was CMAKE_SOURCE_DIR, which is the TOP-LEVEL source dir,
+#    so under FetchContent it resolved to the consumer's root and looked for a
+#    License.md that is not there. That failed packaging_fetchcontent_consumer from
+#    0.20.0-beta.2+17 until the guard was added; VERSION sat outside it until +40.
+if(PROJECT_IS_TOP_LEVEL)
+    # The wheel version, derived from Version.txt rather than hand-maintained in
+    # pyproject.toml -- where it had already drifted 18 builds. Written into the package
+    # tree (not the build tree) because setup.py reads it, and because the wheel build
+    # copies that tree; generated, so it is gitignored and a `pip wheel` without a CMake
+    # build fails loudly rather than publishing a stale number.
+    file(WRITE "${MILA_PACKAGE_SOURCE_DIR}/VERSION" "${MILA_PEP440_VERSION}\n")
+
+    # The extension links this code into the binary, and a binary redistribution owes each
+    # its licence text (pybind11's BSD-3 says so outright). Taken from the fetched source at
+    # its pinned version, so the text always matches what was compiled; pyproject.toml's
+    # license-files puts them in the wheel's .dist-info/licenses. Staged at configure, like
+    # VERSION, because a POST_BUILD step never re-runs on an up-to-date extension and the
+    # wheel would then be packaged without them. Generated and gitignored.
+    set(MILA_THIRD_PARTY_LICENSES "${MILA_PACKAGE_SOURCE_DIR}/third_party_licenses")
+
+    configure_file("${pybind11_SOURCE_DIR}/LICENSE"
+        "${MILA_THIRD_PARTY_LICENSES}/pybind11/LICENSE" COPYONLY)
+    configure_file("${nlohmann_json_SOURCE_DIR}/LICENSE.MIT"
+        "${MILA_THIRD_PARTY_LICENSES}/nlohmann_json/LICENSE.MIT" COPYONLY)
+    configure_file("${miniz_SOURCE_DIR}/LICENSE"
+        "${MILA_THIRD_PARTY_LICENSES}/miniz/LICENSE" COPYONLY)
+
+    add_custom_command(TARGET MilaPy POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:MilaPy>
+            "${MILA_PACKAGE_SOURCE_DIR}/src/mila/$<TARGET_FILE_NAME:MilaPy>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PROJECT_SOURCE_DIR}/License.md"
+            "${MILA_PACKAGE_SOURCE_DIR}/LICENSE"
+        COMMENT "Staging mila extension into the wheel source tree"
+        VERBATIM
+    )
+endif()
+
+# 2. The neutral build-tree location, importable without installing anything: put
+#    ${CMAKE_BINARY_DIR}/python on sys.path and `import mila` works. Per build
+#    directory, so Debug and Release do not overwrite each other. Samples/QuickStart/Python
+#    discovers it by glob; anything else can read MilaPy_PYTHON_DIR.
+set(MILA_PYTHON_PACKAGE_DIR "${CMAKE_BINARY_DIR}/python")
+
+set(MilaPy_PYTHON_DIR "${MILA_PYTHON_PACKAGE_DIR}" CACHE INTERNAL
+    "Directory to put on sys.path to import the built mila package")
+
+add_custom_command(TARGET MilaPy POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${MILA_PYTHON_PACKAGE_DIR}/mila"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:MilaPy>
+        "${MILA_PYTHON_PACKAGE_DIR}/mila/$<TARGET_FILE_NAME:MilaPy>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${MILA_PACKAGE_INIT}"
+        "${MILA_PYTHON_PACKAGE_DIR}/mila/__init__.py"
+    COMMENT "Publishing the mila package to ${MILA_PYTHON_PACKAGE_DIR}"
+    VERBATIM
+)
+
+# There is deliberately no third destination. MIS used to receive its own copy of the
+# package beside its entry point, which shadowed any installed mila-llm -- the server
+# directory was first on sys.path, so a stale copy always won over a correct install.
+# MIS now declares mila-llm as an ordinary dependency and ships as an src-layout package
+# of its own, so nothing it owns sits on sys.path ahead of site-packages; a development
+# checkout satisfies the dependency with an editable install of Package above, which
+# picks up destination 1 on every build. See Apps/Server/README.md.

@@ -1,0 +1,999 @@
+# Future
+
+Real work carrying **zero commitment** — not scheduled, and some of it never will be. That is the
+whole difference from [`Vnext.md`](Vnext.md), which seeds the next release's backlog and therefore
+carries an intention to do the work. "Someday, if the hardware or the reason arrives" belongs here;
+"we mean to do this next cycle" belongs there.
+
+Flat and coarse **by design** — detailed tasking happens only when an item promotes into a release,
+and elaborating it here is work spent on a plan that will be rewritten before it is used. Triage
+flow and categories are in [README.md](README.md); the tag set is [Tags.md](Tags.md).
+
+---
+
+## Gemma generates about 1% more slowly than llama.cpp at short and mid context
+
+`perf` · `gemma` · `mila-src` · `measured`
+
+Out of `BACKLOG.md` at `+20` (Todd, 2026-09-29: being faster than llama.cpp is the aim, not a release criterion,
+and more decode-attention work was not promising enough to continue). RTX 5060 Ti, same Q4_0 weights: Gemma 4 12B
+generates 53.7 / 50.4 / 48.1 tokens a second at depth 0 / 8K / 32K against llama.cpp's 54 / 51 / 48 (from the
+`+19` comparison run); Llama 3.1 8B is ahead at every depth. Each of Gemma's 48 attention calls a token pays about
+3 us in two small launches, the split merge and the cache write; fusing both into the attention kernel is
+`GqaDecodeAttention.md` section 6, and the merge needs a persistent counter in the op's state. The depth-0 cell also
+carries the output-head difference (FP8 in Mila's package, Q6_K in the GGUF).
+
+## Qwen 3 — the dense members
+
+`models` · `quantization` · `mila-src`
+
+The dense decoder, thinking-mode suppression, model-agnostic tool calling, and FP8 KV cache. The
+`OperationTraits<GqaOp, Cuda, BF16, PerChannelKvFp8<>>` specialization lands here.
+
+## Qwen 3.8 27B at 2.82 bits, so a 12 GB card can run a 27B model
+
+`qwen` · `quantization` · `distribution` · `measured`
+
+Out of `BACKLOG.md` at `+83` (Todd, 2026-10-20: no 2.82-bit model is published for now; `fp4-cb3` is). The
+`cb2-3` package is 11.1 GiB against 15.1 GiB for FP4, which is what would let a 12 GB card run a 27B model at
+all. Its repository, `mila-llm/Qwen3.8-27B-cb2-3`, answers 401 anonymously. The build to publish would be
+the re-fit (`Qwen3.8.md`, "Decided" after the re-fit), and its card
+(`Tools/ExportArtifact/ModelCards/Qwen3.8-27B-cb2-3/README.md`) is written for it. On agentic code it drops
+one closing bracket of a nested pair, 10.9% lost where BF16 is right against FP4's 2.1%, traced to the 2-bit
+FFN gate/up (`Qwen3.8.md` section 5). The fitted source is gitignored and not reproducible from the repository.
+
+## Qwen 3.8 FP4 — FP8 the embedding table
+
+`models` · `quantization` · `mila-src`
+
+`QwenOraclePrecisionPlan::EmbeddingTable` is `NoWeightQuant` and host-resident, so every decode step
+gathers a row over PCIe. At `PerChannelFp8<>` the 1.271 B table halves to ~1.19 GiB and sits beside
+the FP4 body inside a 15.93 GiB card.
+
+Gemma 4's D4 Design B is the precedent, and `TokenEmbedding` already accepts a per-channel table
+policy. `Qwen.PrecisionPlan.ixx:153`
+
+## Widen the quality harness beyond the shipped gate
+
+`models` · `quantization` · `mila-src`
+
+The v0.20 bar is the perplexity ratio alone; everything around it is thin. Two halves.
+
+The Phase 5 prompt set is six prompts with one code prompt and no tool-call, multi-turn or
+long-context class — too few to put a threshold on the mean the way 1.25 sits on the perplexity
+ratio. Widening is two loads and ~18 s per six (`DISABLED_DivergenceAgainstTheOracle`).
+
+And only Qwen and Gemma can be scored: Llama and GPT-2 build their heads at T=1 with no width
+parameter (`Llama.ixx:355`, `:510`; `GptTransformer.ixx:330`), so `sequenceLogLikelihood` throws the base's
+`logic_error`. Each needs a log-likelihood window in its config plus the window loop. Gemma's half landed at
+`0.21.0-dev+9` in the family parity pass (`ModelFamilyParity.md` 8.2, G1); Llama's goes with that family's pass.
+
+## `PerGroupFp4` should carry FP16 scales, not FP32
+
+`quantization` · `mila-src` · `breaking`
+
+`Quantization/Weight/PerGroupFp4.ixx` sets `kScaleDtype = FP32` — 4.25 bits/weight. `Qwen3.8.md` §5 budgets 4.125 and
+`formats.py`'s `fake_fp4_e2m1` simulates the FP16 rounding, so the packer's simulated damage is not
+the damage the runtime inflicts.
+
+Worth 0.125 bits/weight to Gemma and Llama independently. Changes the wire format of every
+published FP4 model, so it re-quantizes and re-publishes them — which is why it waits.
+
+## A normative wire format for FP4 and FP8
+
+`quantization` · `ci` · `gate`
+
+`cuda_quantize_fp4_per_group` is the sole place the nibble order and `/6.0f` scale convention are
+written down, so every published model's byte layout is unreadable from CPU-only CI and unstatable
+in the spec.
+
+Copy `CodebookPacking.ixx`: normative layout, host codec, and `--emit-fixture` holding kernel and
+Python packer to it in both directions. Add `Fp4Packing.ixx` / `Fp8Packing.ixx`. That fixture is
+the only reason `packing.py`'s `quantize_fp4_e2m1` / `dequantize_fp4_e2m1` are retained, and it is
+the dependency **Retire quantize-on-load** names below.
+
+## Re-measure the FP4/FP8 rates before quoting any of them again
+
+`perf` · `docs`
+
+Every such number in the tree is Ada-at-x16, and the 4070 now sits on a chipset Gen4 x4 link with
+no baseline captured before the move. The caveat is recorded with the numbers in `Qwen3.8.md` §8;
+this is the re-run.
+
+## Architecture / MoE
+
+`architecture` · `models` · `mila-src`
+
+The presumptive post-v0.20 tentpole: one router chassis unlocks Gemma 26B-A4B, Qwen3-30B-A3B and
+gpt-oss-20b. [[project_moe_tentpole_direction]]
+
+Design of record: `Specifications/MixtureOfExperts.md` (the MoE path) and `Specifications/Gemma.md` §10 (the Gemma 26B-A4B). Its notebook, with its
+block topology resolved: `Specifications/Notebooks/Gemma4MoE.md`.
+
+The expert bank borrows Linear's quantizer by reaching into its kernel header:
+`CudaMoeOp::quantize` includes `../Linear/Kernels/Quantization/CudaFp4WeightQuantization.cuh` and
+calls `Linear::cuda_quantize_fp4_per_group` (`CudaMoeOp.ixx:169`), so a change made for Linear lands
+silently in the MoE bank. The E2M1 decode was lifted to `Helpers/Fp4E2M1.h`; the encode was not, and
+`CudaTokenEmbeddingOp:Quantize` has its own copy. Move the per-group FP4 quantizer to a shared
+location both import.
+
+## Qwen 3.8's multi-token prediction head is dropped at conversion
+
+`qwen` · `mila-src`
+
+The 27B checkpoint carries a one-layer MTP head (~0.45 B, `Qwen3.8.md` §2), and the converter skips
+it (`SKIPPED_PREFIXES`, `Tools/Converters/Qwen/convert_weights.py:82`).
+
+**It cannot be gated against HuggingFace at all.** transformers 5.12.1 declares
+`_keys_to_ignore_on_load_unexpected = [r"^mtp.*"]` and implements no MTP class, so a parity harness
+has nothing to compare against and the wiring would be read from tensor shapes and family convention
+(`Qwen3.8.md`, "MTP has no HF reference at all").
+
+Until 2026-09-25 this entry was titled "Gemma 4 MTP", but its body was this Qwen fact. Gemma's
+speculative decoding uses a separate drafter model Google ships; it is in `BACKLOG.md` ("Nobody knows
+whether Google's drafters would make Gemma 4 decode faster") and designed in `Gemma4Mtp.md`.
+
+## Ministral
+
+`models` · `mila-src`
+
+SWA transformer; reuses the Llama foundation, Qwen 3 tool calling, and the Gemma 4 SWA mask +
+bounded-KV ring.
+
+## Model serialization
+
+`api` · `mila-src`
+
+The remaining checkpoint round-trip and distribution phases. Design and phase plan in
+`Specifications/ModelSerialization.md`.
+
+## Retire quantize-on-load — one load shape for every policy
+
+`quantization` · `api` · `mila-src` · `breaking` · `blocked`
+
+`Linear::loadParameter` refuses a compute-precision blob, uploads packed bytes, binds, derives; the
+dtype sniff at `Linear.ixx:601` and `CudaLinearOp::quantize()` go, and FP8/FP4 fitting joins the
+sub-4-bit fitter in `Tools/Quantization` — one producer for every format, and model production
+stops needing a GPU. The codebook path is already this shape (`:574`).
+
+Blocked on the FP4/FP8 codecs above. Takes Chat's load-time quantization keyword with it. An API
+change to `Lib/Src`, which is why it waits. [[project_quantization_offline]]
+
+## Python binding — numeric access, not component access
+
+`binding`
+
+Add a session-level `forward()` returning logits, plus final hidden states, to
+`LlamaSession`/`GemmaSession`; from Python a parity run can compare token ids and nothing else
+today.
+
+Component, tensor and training bindings are ruled out: `TDeviceType x TPrecision x
+TWeightQuantization` is erased only at the session PIMPL. `Mila_py.Wrappers.GemmaSession.ixx`
+
+## API Coherence
+
+`api` · `mila-src` · `breaking`
+
+The pre-1.0 consistency pass, and the precursor to any API-stability promise. Named items:
+
+**The model entry points are settled: `load`/`save` for weights** (Todd, `rc.1+24`), on the model
+class — `GemmaModel::load( path, config )` — because the class already names what is loaded and
+`loadModel` stutters. `fromPretrained`/`savePretrained` were the old names; "pretrained" is
+relative to a fine-tuning stage Mila does not have. The reader is `WeightsReader`. `fromCheckpoint`/
+`saveCheckpoint` stay for the training archive, and `Network::load( archive, mode )` restores a
+checkpoint one layer down; the two never meet at a call site. Document the distinction: a checkpoint
+carries epoch and loss as one of a series, a model is terminal. **The methods were the small half**
+— `kArtifactMinimumMilaVersion`, `ModelDistribution.md`, both model cards, MIS and the samples still
+say "artifact" where they mean a model or its weights. Sequence with the `ExportArtifact` rename and
+the binding's `quantize_fp8` fix.
+
+**`getStorageSize` exists three times** — `Mila::Dnn::detail::getStorageSize` (`Tensor.ixx:81`,
+carrying a `REVIEW:` that already asks why), `Detail::getStorageSize` (`TensorBuffer.ixx:221`) and
+`Mila::Dnn::storageBytes` (`Component.MemoryStats.ixx`), the two namespaces differing only in case.
+Blocked on `Tensor.ixx` not being able to import `Dnn.Component` without a cycle.
+
+**`save_` is public on `Component` and protected on `CompositeComponent`** (`Component.ixx:407`), so
+one virtual's accessibility depends on the static type held, and a caller with a concrete composite
+cannot invoke it — C2248, worked around by `exposeSave()` in `Tests/Dnn/Core/CompositeComponent.cpp`.
+
+**`Component` carries training's bookkeeping without training's act.** `zeroGradients()` (`:362`)
+and `getGradients()` (`:718`) are on the base and `backward` is not, so `Linear::getGradients()`
+returning empty (`Linear.ixx:524`) leaves "inference-only" and "nothing accumulated yet"
+indistinguishable. `TransformerApiReadiness.md` item 8 argues this at network level only.
+
+**`AttentionOutputGate` has two callers and one of them is not attention.** `QwenDeltaNetBlock` uses
+it for the mixer's output gate. The component is mechanically generic (`out = TGate(gate) * value`);
+the name is not. Rename, or accept the mismatch deliberately. `Components/Attention/OutputGate/`
+
+**A public component method takes a type the umbrella does not export.**
+`QwenDeltaNetBlock::setState( const GqaState& )` (`Qwen.DeltaNetBlock.ixx:363`) is public, but
+`Mila.ixx` never exports `Compute.GqaState`, so an `import Mila;` consumer cannot call it. MSVC
+accepts the name through the component modules and clang does not, so the class fails asymmetrically
+and goes unnoticed. Either `GqaState` joins the export list or `setState` leaves the public surface —
+and the same question applies to every type named in a public component signature, since nothing
+checks it. Do not narrow the umbrella to answer it; that was measured and reverted.
+
+**A composite cannot keep a derived child out of its flat save.** `Router` holds an `RmsNorm` whose
+weight is derived from `scale`, so it overrides `saveFlatTensors` and re-spells its children by hand
+(`Router.ixx:185`), because `CompositeComponent::childFlatPrefix` (`CompositeComponent.ixx:1070`) is
+private and the base walk (`:749`) cannot exclude a child. That is a second copy of the flat-naming
+rule. A per-child "derived, not serialized" marker, or `childFlatPrefix` made protected.
+
+## `#ifdef` inside module purviews
+
+`architecture` · `build` · `mila-src`
+
+A guard in a module purview rather than the global module fragment, in two shapes.
+`ExecutionContextFactory.ixx:30-33` puts `#ifdef MILA_HAS_CUDA` in the exported
+`createExecutionContext` body, where the CUDA arm belongs in a partition or a CMake-selected unit.
+
+`Chat.Footprint.ixx:24-28` is the same class and is one of the tree's two live warnings — C5202, a
+GMF admitting only preprocessor directives while two `inline constexpr bool` definitions sit in it.
+The `#ifdef` cannot simply move to the body either, so a CMake-supplied definition is the shape that
+fits.
+
+Five more files hand-roll the staging memory resource that `DeviceTypeTraits` now carries, each
+writing `#ifdef MILA_HAS_CUDA` plus a `conditional_t` that is exactly `host_staging_memory_resource`
+— `Gemma.Block.ixx:820`, `Gemma.ixx:527`, `Llama.ixx:484`, `GptTransformer.ixx:615`,
+`GemmaModel.ixx:110` and `LlamaModel.ixx`. Converting them removes six preprocessor blocks from
+module purviews. [[feedback_no_ifdef_in_modules]]
+
+## Materializing softmax kernels store and reload the score row
+
+`perf` · `mila-src`
+
+`Gqa.Prefill.Fp32.cu:67`/`:73` and the FP32 common softmax park unnormalized exponentials in
+`att_row` and reload them to normalize — a wasted round trip over the widest prefill transient. The
+BF16 kernels recompute `expf` on the store pass; in FP32 that buys no accuracy, so measure first.
+
+Nothing stops a new BF16 kernel reacquiring it either: the four materializing sites were found by
+grep rather than by a failing test, and one was written three months after the decode path was
+fixed. Masking differs per site — causal, causal+padded, causal+window, ring-slot — so a shared
+helper buys little; a test pinning single-narrowing against an FP32 oracle would.
+
+## No build or CI step runs `compute-sanitizer`
+
+`ci` · `mila-src`
+
+`Lib/Src` carries zero error checks across its 110 kernel launch sites — defensible, since an
+in-kernel fault is async, but it makes an out-of-bounds access that changes no output invisible. The
+W4A8 staging defect survived the full passing suite, and one sanitizer run named it.
+
+A pass over a targeted CUDA subset (`compute-sanitizer --tool memcheck`, roughly 10x slowdown).
+
+## The Llama chassis never received Gemma's memory gates
+
+`models` · `quantization` · `mila-src`
+
+8B FP4 therefore costs more than 12B FP4: the embedding and `lm_head` ignore the weight-quantization
+policy and are untied. Three fixes, each mirroring Gemma — pass the policy to `TokenEmbedding`
+(`Llama.ixx:117`) and `lm_head` (`:119`), and implement tying when `tie_word_embeddings` is set.
+
+Llama's `preatt`/`att` also span the full context where Gemma's ring does not. Separate, and
+dominant at long context. [[project_llama_chassis_memory_gates]]
+
+Llama also still holds the GQA transient as seven loose `unique_ptr` members (`Llama.ixx:710`),
+builds `GqaState` by hand and sums them in a hand-written `getMemoryStats` list — the list that
+under-counts silently when a tensor is added. Qwen and Gemma moved to `GqaWorkspace`; for Llama it is
+one member, one factory call, two accounting lines.
+
+## Chat's default fixed context is a compiled-in guess
+
+`apps`
+
+`kDefaultContextLength` (`Chat.Session.ixx`) is 4096 for every model, used when a session's context is
+fixed and no layer names one, while the planner derives what fits in milliseconds and no VRAM.
+
+Keep the constant only as the no-CUDA fallback.
+
+## Chat's model-and-session commands have no tests
+
+`apps`
+
+`/context`, `/set`, `/thinking` and the `/model` subcommands are the first Chat commands that
+rebuild a model, refuse an input on derived arithmetic, or resolve a name case-insensitively.
+
+Cover the context floor, the ladder's fit search, and `resolveStoredName` — that last matters most,
+store lookup being a path lookup and so case-sensitive on Linux and not on Windows.
+
+A full manual QA pass is owed alongside them: an uninstalled name through `/model <name>` (the only
+hub-fetch path), `resolveStoredName`'s ambiguity refusal, `/context` below the derived floor, `/set`
+bounds rejection, and the `unknown` GPU FIT verdict. **Watch for:** `/model <name>` no longer loads,
+and the break is silent.
+
+## `/models` measures a per-model context and throws it away
+
+`apps`
+
+`LadderFit::context_length` holds the largest fitting rung and the column does not print it, because
+the ladder tests memory alone — its top rung claimed `128K` for Gemma where the session runs 56320.
+
+A `CONTEXT` column needs the chunk test on the ladder
+(`FootprintPrediction::prefill.isBudgetConstrained()`) and finer rungs; at 1-2 ms per probe a
+six-rung ladder is ~12 ms per row. Only worth it if users pick models by context.
+
+## A per-row disk figure should be reclaimable bytes
+
+`distribution`
+
+If one ever returns: the blobs that model alone references. That is what deciding-what-to-delete
+wants, and removal already computes it (`ModelStore::reclaimBlobsOnlyNamedBy`) — it is simply not
+exposed as a per-model query.
+
+## GQA's standalone `forward()` paths are unverified
+
+`mila-src`
+
+Component-level Gemma/Llama attention has no independent correctness oracle, and
+`GroupedQueryAttention.ixx:177` returns an un-computed `output_view_` on an unreached branch. This
+is the precondition for retiring the legacy GQA path, and it clears the deliberate C4702 with it.
+See `Specifications/GqaMemory.md`.
+
+The non-KV-cache fallback at `:299` is stale in the same way — recorded as needing a correctness
+review, with the shape derivation commented out beneath it.
+
+## `CudaMhaOp.ixx:433` initializes `active_max_seq_len_ = T_` with the reason unrecorded
+
+`mila-src`
+
+Confirm against the two-phase KV-cache contract: prefill takes the full sequence, decode runs at
+`outer_size == 1`.
+
+## `cuda_fp4a16_gemm` falls through to a silent no-op on an unsupported group size
+
+`quantization` · `mila-src`
+
+Both `cuda_fp4a16_gemm` and `cuda_fp4_dequantize_to_bf16` switch on `group_size` with
+`default: break` (`CudaW4A16Gemm.cu:398`, `:428`), so a size outside {64, 128} launches nothing and
+leaves the staging buffer holding the previous strip — wrong logits, no error.
+
+`CodebookDequantize.cu` now throws; make these match. Only reachable by adding a `PerGroupFp4<N>`
+policy, which is why it has never fired.
+
+## CI has a cost gap
+
+`ci`
+
+**The packaging gate should be its own job that configures but does not build.** It does not consume
+the parent build at all — it passes `MILA_SOURCE_DIR=${CMAKE_SOURCE_DIR}` and compiles Mila from
+scratch under `_deps/mila-build/`, needing only that CMake has configured. Today the release PR
+builds Mila for ~45 min and the gate builds it again, in series.
+`Tests/Packaging/CMakeLists.txt:43`
+
+*(The double-run on a `dev` push and its open PR, and the missing `timeout-minutes`, were both fixed
+on 2026-09-20 — `build-pipeline.yml` no longer triggers on either a `dev` push or the release PR.)*
+
+## Add Python 3.14 once 3.12 is proven
+
+`ci` · `build`
+
+It is the interpreter Ubuntu 26.04 ships and therefore the dev container's `python3`, which is why
+`Docker/build-mis.sh` still restates MIS's dependency list and installs MIS with
+`--ignore-requires-python`. Only a 3.14 wheel retires that duplication.
+
+Needs `uv python install 3.14` on Windows and one deadsnakes line in `Dockerfile.wheel`.
+
+## Broaden CI compiler coverage toward the supported matrix
+
+`ci` · `build`
+
+Adds MSVC and GCC 16 to clang-21 — the second module-compiler oracle. Moved here by the
+Linux/clang item's own conclusion.
+
+## Nothing cites `scripts/dockerhub/`
+
+`ci` · `docs`
+
+Four files remain, in two channel groups. `RELEASING.md` and `wheel-cleanroom.yml` both reach into
+`pypi/`, but neither `README.md`, `getting-started.md` nor `Docker/README.md` names the image half.
+`build-runtime-image.sh` carries the published arch list, so it is undiscoverable knowledge until
+the publish script absorbs it.
+
+## The binding's staged extensions accumulate in the source tree
+
+`build` · `binding`
+
+MilaPy's POST_BUILD writes `_mila*.so`/`_mila*.pyd` into `Lib/Bindings/Package/src/mila/`, so a
+checkout collects one per interpreter and platform ever built — all untracked, and all swept into a
+Docker build context until `.dockerignore` excluded them.
+
+Clean stale ones on build, or stage outside the source tree.
+
+The same class once left two 16 MB `.pyd` fossils under
+`Tests/Packaging/{fetchcontent,cpm}_consumer/Mila/Adaptors/Inference/Server/` for six weeks,
+from a source-relative copy that a subproject build pointed at the consumer's root. They are gone;
+nothing would notice the next ones. A packaging gate that asserts the fixture directories are clean
+afterwards would.
+
+## Publishing the container images compiles the tree twice
+
+`ci` · `build`
+
+`publish-image.sh` forces `MILA_CLEAN_BUILD=1` on every run, because `--no-cache` leaves BuildKit's
+cache mounts intact and that once shipped wrong images. RELEASING builds to verify at step 9.3 and
+again to push at step 9.6: 33m17s then 38m45s, five or six minutes of it upload. A push-only mode
+halves it at the cost of the guarantee that what ships is what was gated — a trade, not a fix.
+
+## Stage model weights off the Windows bind mount for the container
+
+`perf` · `build`
+
+For native disk speed.
+
+## Module import hygiene
+
+`build` · `mila-src`
+
+Phase 0 exact-duplicate dedup, Phase 1 candidate report, Phase 2 compiler-verified removal
+(Clang/GCC, not MSVC), plus domain-qualifying the generic single-segment module names
+(`Core`/`Utils`/`Components`/`Profiling` → `Dnn.*`).
+
+## ProgressReporter
+
+`api` · `mila-src`
+
+An injected per-operation progress facility for long-lived ops — BPE vocab training,
+`WeightsReader` load, load-time quantization. `BpeVocabulary.ixx:624` is the concrete call site:
+an every-100-merges elapsed-time print asking to become an async callback.
+
+## If C1128 recurs, move `/bigobj` project-wide
+
+`build`
+
+It is per-target on `ChatApp` and, since the Gemma 4 MoE dispatch, on `ProfileModel`
+(`Lib/Profiling/ProfileModel/CMakeLists.txt:32`). Section counts against the 65535 limit, Release /
+RelWithDebInfo: `ProfileModel.ixx` 51609 / ~66000, `ExportArtifact.ixx` 46926 / 59830,
+`Gemma.MixtureOfExperts.Cuda.cpp` 44694 / 56375, `Chat.ModelCatalog.ixx` 41647 / 52666; Debug not
+measured. **Recurred at `0.21.0-dev+5`** in a test file (`PrefillChunkRule.Cuda.cpp`, 53778 Release; the
+RelWithDebInfo build failed): it held three FP32 networks and four quantized BF16 models, and was split in
+two rather than flagged -- `PrefillChunkRule.Cuda.cpp` 25915 and `PlanEqualsBuild.Cuda.cpp` 51150, both
+measured at `/Ob1 /Zi`. At `0.21.0-dev+6` (the deployment planner, which every `load` now instantiates)
+`ExportArtifact.ixx` measures 61393 at `/Ob1 /Zi` and `ScratchReservation.Cuda.cpp` 58075: ExportArtifact is
+the next to cross. So the next family or quantization breaks targets one at a time, and a consumer calling
+`load` inherits the exposure with no flag. The choice is a PUBLIC MSVC compile option on
+`Mila`, which changes every consumer's flags, or targets adding it as they cross. **Todd's call.**
+
+## `CLAUDE.md` documents the retired Chat alias set
+
+`docs`
+
+`gpt2`, `llama-1b`, `llama-3b`, `llama-8b`, plus the `llama31`/`llama32` filename-prefix rule. There
+is no catalogue and no filename construction — `/model` takes a store name.
+
+Agent-facing rather than user-facing, which is why it rotted unnoticed, but it actively misdirects
+work.
+
+## `ExportArtifact` needs a name, subcommands, and its store verbs handed back to `mila-store`
+
+`distribution` · `build`
+
+Its install/rename/validate verbs duplicate the store tool, and Chat (`Chat.ModelCatalog.ixx:387`)
+and MIS (`model_worker.py:90`) point users at the wrong one. The nine modes should be subcommands,
+since `--package` is both a mode and an option of one (`ExportArtifact.cpp:212`). Seven touch no GPU,
+yet `Tools/CMakeLists.txt:10` gates the whole binary behind `MILA_ENABLE_CUDA`. **Names decided
+2026-10-11 (Todd), replacing those of 2026-09-27:** this tool is `mila-package`, the store tool
+`mila-store`, and the chat app keeps `mila-chat` -- lowercase with hyphens on every platform. Layout
+and the rest of the decision: `Specifications/Notebooks/MilaCommandLineReview.md` section 4.1.
+
+Naming drift inside the tool travels with the rename: `--emit-manifest` is a synonym for
+`--package <dir>` differing only in its default directory (`:394`);
+`ExportOptions`/`InstallRequest`/`PackageArtifactRequest` are three suffixes for one role; and
+`weightQuantizationVariantName` (`:103`) sits one character from `Src`'s `weightQuantizationName`
+while returning `cb2-3` where that returns `codebook` — a Qwen constant behind a generic name.
+
+## `ModelCards/TEMPLATE.md` does not exist
+
+`docs` · `distribution`
+
+`Publishing/README.md:40` says "the two Llama cards are the template", and template-by-example is
+what propagated one meaningless sentence into all six cards verbatim. The end-user prose rules are
+written; the template comes next, then the card rewrites. [[feedback_end_user_prose_boundary]]
+
+## `/models --online` answers SUPPORT but cannot answer FIT
+
+`distribution`
+
+How much context fits is unanswerable because `ModelManifest` (`ModelManifest.ixx:53`) carries no
+geometry. Two ways in, different owners: a `Range` read of the safetensors header so the online row
+runs the same `largestFittingContext` as the installed one — blocked on the footprint path taking a
+path rather than a byte range — or geometry fields in the manifest, which is phase 7. Never an
+estimate.
+
+It also costs one GET per listed model: invisible at one, N+1 requests at N. Only worth revisiting
+if the published set grows; noted so the cause is known when it does.
+
+## Publish `Llama-3.2-1B-Instruct-fp4` as the evaluation model
+
+`models` · `distribution`
+
+Sequenced after the 3B path is proven. Roughly 0.7-0.9 GB against the 3B's 2.87, dropping the
+evaluation path's VRAM floor to about a gigabyte so an 8 GB card stops being excluded from "does it
+work".
+
+Convert, export, validate **generation** rather than per-layer parity, publish with a card. Test
+against the tools-free system prompt first — a 1B is more prompt-sensitive than the 3B.
+
+## The HuggingFace org card defines a Mila model as "already quantized"
+
+`docs` · `distribution`
+
+`gpt2-small` makes that false: the catalogue is now pre-quantized deployment models plus a reference
+model for reading and training. Say there that MIS does not serve GPT-2, so nobody files it as a bug.
+Card source is `.internal/Marketing/HuggingFaceOrgCard.md`.
+
+## The attribution rule is written twice in two languages
+
+`distribution`
+
+`requiredAttributionFor` in `Chat.ModelCatalog.ixx` and `license_id.startswith("llama")` in
+`publish_model.py:209`. They agree today — a third family with a display duty is what separates them.
+
+## Packaging then installing hashes every file twice
+
+`distribution` · `perf`
+
+`buildPackage` hashes to derive the manifest digests and `install` hashes again to verify adoption —
+~50 s of the ~60 s Llama 3B migration, ~2 minutes on the 8B. Neither check is wrong alone, so the fix
+is a combined verb. `publish_model.py` has the same defect for its own reason.
+
+## `mila store clean`, and blobs no record names
+
+`distribution`
+
+`ModelStore::clean()` reclaims rejected transfers, abandoned locks and on request partials, and no
+user command reaches it. A `mila store clean` verb is its surface.
+
+Blobs no record names are the harder half, and `clean()` deliberately never touches them: they are
+indistinguishable from a model whose record is missing or no longer parses. Removal and reinstall now
+delete the blobs only their record named, so new ones come only from an interrupted reinstall or
+from before that change — a 15.09 GiB pre-export cb2-3 blob is one locally. A verb that **lists**
+them, and deletes one only when the user names it, is the shape; a sweep is not
+(`ModelDistribution.md`, "Removal is refcounted").
+
+## Buffer Gemma Anthropic streaming only when tools are present
+
+`apps`
+
+Today it buffers unconditionally.
+
+## Qwen tool results are not merged into one user turn
+
+`apps` · `mila-src`
+
+The checkpoint's template folds consecutive `tool` messages into a single `<|im_start|>user` turn
+holding several `<tool_response>` spans; `Qwen.Protocol.ixx` emits one turn each.
+
+Unreachable today — the harness dispatches one call per round — and it becomes wrong the moment
+parallel calls land.
+
+## A session cannot move cards without restarting
+
+`apps`
+
+`--device N` and the `device` key choose the card at startup and every device question follows it,
+but there is no `/device` command — `/set` is sampling knobs only, by its own contract. `/context`
+shows the shape a reload-on-change command takes (`Chat.Session.ixx`).
+
+## Chat's console output has two rough edges
+
+`apps`
+
+**Library log output collides with the spinner**, so the first thing an evaluator reads is a
+corrupted line: the spinner is mid-line when the BPE warning fires and the warning is spliced into
+the loading message. `main.cpp:927` installs a stock `ConsoleSink`; since it derives from `Logger`
+and `Mila::initialize()` takes a sink, Chat can supply a spinner-aware one — adaptor-side, no
+library change. That sink should also drop `file:line:function` from user-facing output.
+
+**`printThinking` still takes the plain-text path.** The answer block paints style spans; the
+reasoning block does not, so a heading or bold label inside a thought renders unstyled
+(`Chat.Renderer.ixx:176`). Harmless today, but it is the one renderer entry point that ignores
+attributes — which is how a second convention starts.
+
+## Chat and the quick starts have no test path
+
+`apps` · `ci`
+
+**No test model.** `gpt2-small` loaded in seconds and surfaced both the `context_length` crash and
+the thinking-row defect; every remaining model is multi-gigabyte, and Chat now refuses base models.
+A single-shot sample — prompt in, tokens out, exit code — is CI-shaped given a model in the store.
+Both Chat and the quick starts need one fixture that requires no download.
+
+**`Chat.StreamingDisplay` has no tests.** `RichText` now has 18 (`Tests/Apps/Chat/`), but
+`holdPoint` and the chunk-boundary behaviour that produced the nested-bullet defect are unpinned.
+Harder than RichText: the module imports `Chat.Renderer` and `Chat.Config`, so it needs either a
+seam or those modules in the test target.
+
+## Where Chat's configuration lives, and what `context_length: auto` means
+
+`apps`
+
+**One session config serves every model a session loads**, so `context_length` is either too small
+for a 12B or fatal for GPT-2's 1024-row learned positions; today it is clamped by `maxContextFor`
+(`Chat.ModelCatalog.ixx`), a per-family constant honest only for GPT-2. The answer is the largest
+context that fits the card, which `getRequiredMemory(BuildContext)` computes. Open: the headroom
+fraction, and the no-fit case.
+
+**A container user has nowhere to put settings.** `session.json` ships inside the image layer, so
+changing `temperature` means mounting a file over it, and `--config` assumes a file you can already
+write. Related: `chat-state.json` sits in the store root, which `resolveStoreRoot()` puts in a
+*cache* directory on Linux. Two shapes weighed — beside the store, or `MILA_CONFIG_DIR` — and they
+settle together, because `context_length: auto` wants the same home.
+
+## A non-interactive `chat` must name its model
+
+`apps` · `docs`
+
+Inferring one from a single-model store changes the command's meaning once a second is installed,
+and persisting the choice would put it in `chat-state.json`, which lives in a cache directory — so
+the quick start would work, then fail after an eviction.
+
+Site copy is fixed; what remains is the sweep of every surface showing a scripted `install` then
+`chat`. `CMD ["chat"]` is fine — interactive.
+
+## The download bar restarts per file and never says which file
+
+`distribution` · `mila-src` · `breaking`
+
+A model is a manifest, a tokenizer and the weights, so the user watches 0-100% twice with nothing
+distinguishing the runs. `ProgressCallback` is `(received, total)` only (`HttpClient.ixx:63`), so the
+CLI cannot label what it is drawing.
+
+Adding the file name, or an (index, count) pair, is a library signature change. The sub-megabyte
+manifest is already suppressed in `Lib/Store/Store.ixx`.
+
+## `main.cpp` re-checks what the store already guarantees
+
+`apps`
+
+After `resolveModel` succeeds it tests `exists()` on both paths, but `locate()` refuses an incomplete
+record. Harmless duplication — except `/model` has no equivalent check, so if the guarantee is
+doubted the check belongs in the store rather than in one caller.
+
+## Does a Python completion sample need a `GptSession`?
+
+`binding`
+
+`Samples/QuickStart/Python/generate.py` already shows completion via `--raw`, so the only gap is
+GPT-2 itself — `LlamaModel`, `GemmaModel` and `QwenModel` are the sessions the binding exposes, which
+is also why MIS refuses the architecture. A binding decision, not a sample one.
+
+## Revive the loss + backward path
+
+`training` · `mila-src`
+
+CrossEntropy and SoftmaxCrossEntropy. Both samples compute loss host-side, so this is off the
+critical path to a converging sample.
+
+It has never been compiled: three test files are commented out (`Tests/CMakeLists.txt:155`,
+`:156`, `:284`) and written against a 3-parameter component that now takes 2, and the vocab >= 1024
+block kernel has never run — its `__shfl_sync` gives warps 1+ `-INFINITY`. `OperationTraits.Cuda.ixx`
+also maps `<CrossEntropyOp, Cuda, BF16>` to a type with no `__nv_bfloat16` specialization, the `half`
+one a silent stub (`CudaSoftmaxCrossEntropyOp.ixx:99`) — deleting that row is the separate,
+freeze-compatible half that stays in the release.
+
+## Revive the `Dropout` component
+
+`training` · `mila-src`
+
+Training-only, and authored from scratch rather than revived.
+
+## Training (advanced)
+
+`training` · `mila-src`
+
+Llama fine-tuning, loss-function GPU migration, gradient checkpointing, and BF16/GQA training.
+
+BF16 SwiGLU backward computes FP32 gradients against BF16 tensors, and
+`SwigluCudaTests/Bf16.Backward_MatchesReferenceGradients` skips for it (`Swiglu.Cuda.cpp:358`); the skip message
+still points at a backlog entry that no longer exists.
+
+## Performance
+
+`perf` · `mila-src`
+
+Gemma 4's levers — the fused W4A16 prefill GEMM, flash-attention on the global layers — and the
+codebook path's own, each a measured gap with its numbers in `Qwen3.8.md` §8: the decode GEMVs'
+bandwidth shortfall against FP4 (amortize the unpack across output rows, or bucket activations by
+code); staging the sub-4-bit prefill to FP8 so it reaches the sm89 tensor GEMM instead of a BF16
+one, gated on e4m3's 3 mantissa bits over 2.82-bit codes; the per-chunk staging dequantize,
+unmeasured across the rung ladder (`Qwen.ixx:110`); tensor cores for the DeltaNet chunked kernel,
+worth ~13% of prefill; and whether Gemma's ring softmax is reachable from Qwen's 16 full-attention
+layers. [[project_w4a16_prefill_gemm]]
+
+## Whole-model prefix caching for Qwen
+
+`perf` · `apps` · `mila-src`
+
+The 48 DeltaNet layers need the snapshot/restore copy and the 16 attention layers the positional
+rewind, and nothing combines them. Deferred as a policy question: how many prefixes to hold in host
+RAM, and eviction. `Qwen3.8.md` §8, `PromptCaching.md`
+
+## Native low-precision compute (Blackwell+)
+
+`quantization` · `mila-src`
+
+The microscaling data path and finer per-arch gating.
+
+Every preset and the library default build for plain `120` (`CMakePresets.json:118`, `Lib/CMakeLists.txt:31`), and
+block-scaled FP4 on SM120 needs the family-specific `120f` (`MixtureOfExperts.md` 7.2(b)); nothing in Mila uses
+sm_120 instructions yet. It becomes a blocker the day a CUTLASS grouped kernel or an NVFP4 path lands, and the list
+is kept in step across both wheel presets and `scripts/dockerhub/publish-image.sh`. CUTLASS's own SM12x guard fix
+(PR #3082) was closed unmerged; `MixtureOfExperts.md` 7.3 records what that means for the `120f` route.
+
+## Compute backends beyond CUDA
+
+`architecture` · `mila-src`
+
+ROCm and Metal; `DeviceType::Rocm` / `::Metal` are reserved and unimplemented.
+
+Metal, 2026-09-29: aspirational, gated on hardware -- Todd is trying to get an Apple M1, for a Metal backend running
+Llama. As of 2026-10-20 an M1-or-later loaner is expected at the end of October or early November, and macOS is also
+wanted for Chat's desktop window (`MilaDesktop.md` section 9). What exists is scaffolding --
+`Compute/Devices/Metal/` has a device, memory resource, execution context and plugin, and no ops. The order that
+follows from the tree: Mila has never been built on ARM (the next entry), so a CPU-only build on the M1 comes first,
+and with `Vnext.md` "Llama 3.2 runs on the CPU backend" it already runs Llama there; then the Llama op set in Metal,
+where metal-cpp (Apple's header-only C++ wrapper) keeps host code C++. Unified memory means the load path should not
+stage weights through a copy -- the question the next entry raises for coherent memory. A decode step on Metal is
+called every step: `IExecutionContext::createDecodeRecording()` is null there, so replay needs nothing from it.
+
+## Platform portability — aarch64 + coherent memory
+
+`build`
+
+Mila has never been built on ARM.
+
+## Model loading
+
+`perf` · `mila-src`
+
+A load-time FP4 sidecar cache, and concurrent/async read I/O for real queue depth.
+
+## Ungated GPT-2 zero-auth quick-start
+
+`distribution` · `docs`
+
+A first-run HTTPS weights fetch.
+
+## `ComponentType` vitality
+
+`api` · `mila-src`
+
+Does `getType()` earn its keep, or does the unused converter surface retire?
+
+## Discoverability
+
+`docs`
+
+Internal, not a README theme — the site is live at `mila.toddt.me`.
+
+## A value-reading observation sink has to name the model's compute precision
+
+`observability` · `mila-src`
+
+The sink gets `const ITensor&`, whose `rawData()` is type-erased, so anything wanting numbers does a
+`dynamic_cast` to `Tensor<TPrecision, MR>` then its own `toHost`; all three consumers do this.
+
+Whether observation should offer a typed convenience is decided-deferred to v0.21 —
+`Observability.md` §11.2.
+
+## Remove FP16, superseded by BF16 — measure first
+
+`api` · `mila-src` · `blocked`
+
+Woven through live code; trace live-vs-dead first, and 8 `REVIEW:` markers already scope it.
+
+Note the odd row it collides with: CUDA `LayerNormOp` is registered at FP32 and FP16 and *not*
+BF16, so deleting the FP16 row leaves CUDA LayerNorm FP32-only. Pinned by a `static_assert`, so this
+work must confront it.
+
+**Measured 2026-09-26 at `0.21.0-dev+8`** (`x64-claude-verify`, sm_89 fatbin of `MilaTests.exe`, kernels
+classified by name): 64 of 455 kernels are FP16, 174 KiB of 1984 KiB device code per architecture (8.8%),
+11 of them training kernels. Its five FP16-named `.cu` files took 97 s of the 990 s of CUDA compile time in
+the ninja log (9.8%). For comparison, FP32 is 171 kernels and 778 KiB (39.2%): 260 KiB of that is DeltaNet's
+FP32 instantiations and 150 KiB is training kernels. Todd, 2026-09-26: Mila models use BF16, not FP16.
+
+## The dev container's Chat wrapper shares its name with the binary it wraps
+
+`build` · `docs`
+
+`Docker/Dockerfile:104` installs `run-chat.sh` as `/usr/local/bin/mila-chat`; the binary it runs is
+`/build/mila-chat`. A symlink would say the same thing without the collision, though the wrapper
+also carries the not-built message, which a symlink cannot.
+
+Its `cd "${BUILD}"` is redundant — `executable_directory()` reads `/proc/self/exe`, confirmed by
+the runtime image running Chat from `-w /` and `-w /tmp` — but `Docker/run-chat.sh:7` already says
+so and keeps it deliberately until a container run confirms it. Nothing breaks while it stays, which
+is why this carries no commitment.
+
+## Install a producer's quantized release rather than republish it, and let the planner choose the variant
+
+`distribution` · `quantization` · `mila-src`
+
+Agreed with Todd 2026-09-27 as a direction: recipes rather than gigabyte packages. Where a producer publishes an
+official quantized release, Mila fetches it and transcodes it into its own layout once at install, the loader
+untouched, instead of republishing the weights; Mila still publishes a package where it adds a format no producer
+ships, or where the producer's only complete source is full precision -- which is why the Gemma 4 QAT builds ship
+as Mila packages (`ModelFamilyParity.md` §9, item 14). Candidates then were NVIDIA's `nvidia/Gemma-4-31B-IT-NVFP4`
+and `-26B-A4B-NVFP4` (post-training quantization, now outranked by Google's QAT). Once a model has several
+variants, choosing one per device is the planner's kind of decision: quality depends on running QAT weights in the
+format they were trained for, speed on whether the device runs that format natively. The import half is `Vnext.md`,
+"Mila cannot import the format most quantized models on the Hub are published in".
+
+## FP8 attention compute, so the FP8 cache's prefill stops widening every key
+
+`quantization` · `perf` · `mila-src`
+
+Asked by Todd 2026-10-01. The attention MMAs are BF16 x BF16 and an MMA's operands share one format, so every K and
+V tile widens from E4M3 in shared memory first, repeated by every block sharing a KV head; prefill is compute-bound,
+so the halved read saves little. The way past it is FP8 compute -- Q quantized per row and P to E4M3, FP8 x FP8 MMAs
+on Ada and Blackwell -- as FlashAttention-3's FP8 mode does (arXiv 2407.08608); SageAttention quantizes Q and K to
+INT8 instead (arXiv 2410.02367). Two new roundings, so a change to the accuracy contract needing its own decision-6
+arm (`Quantization.md` Part III). FP8 MMA throughput on the 4070 and 5060 Ti is unmeasured;
+`Profiling/Microbenchmarks/MmaInstructionPeak.cu` is the first measurement.
+
+## A KV cache below FP8
+
+`quantization` · `models` · `mila-src`
+
+Two ways raised by Todd 2026-09-28. **FP4:** DeepSeek-V4.1-Flash (arXiv 2609.19969) stores its main KV cache as
+E2M1 with one E4M3 scale per 16 channels, after RoPE, and keeps its sliding cache at FP8 -- introduced by
+quantization-aware training, with no published comparison against FP8 or BF16. No family here was trained for it,
+and Gemma's long-context loss traced to rounding in queries and keys, the scores an FP4 key cache perturbs.
+**Transform coding:** Laus et al. (arXiv 2608.14191) factor each layer's K and V projections offline by an
+activation-whitened SVD, cache X A quantized with bits allocated by reverse waterfilling, and rebuild (X A) B at
+read; on Llama 3.1 8B at about 2.75 bits, RULER to 32K at baseline and the cache 1.07 GB to 184 MB, FP16 baselines
+only, no kernels. Its shape is the codebook pipeline plus attention kernels that reconstruct and rotate inside
+flash. Either is measured on the G2/L3 protocol against the FP8 cache.
+
+## Compacted turns stay retrievable
+
+`agents`
+
+Raised 2026-10-03 by Luca (ctx, `github.com/ctxrs/ctx`) about agent harnesses built on Mila: a summary keeps the
+conclusion and loses the evidence -- why an approach failed, what a number was measured on. `Mila::Agents` holds the
+conversation it compacts, so the original turns could stay addressable afterwards, for example through a tool the
+model calls to search them. A policy over v0.21's compaction, which leaves what a summary keeps to the application.
+
+## Integer block formats for Mila's FP8 weight packages
+
+`quantization` · `llama` · `measured`
+
+On Gemma's tied head, INT6 per 32 at 6.5 bits sits 2.8x closer to BF16 by KL than FP8 per row at 8 bits, and Q8_0
+at 8.5 bits 8.6x closer (26B-A4B; 9.5x on the 12B): E4M3 keeps three significand bits whatever the row's scale.
+`PerChannelFp8<>` is also the body format of the Llama 3.2 3B and 3.1 8B FP8 packages, and whether an integer block
+format at equal or fewer bytes serves them better is unmeasured. `Quantization.md` Part II, "The tied table".
+
+## A desktop app with a window
+
+`apps` · `architecture`
+
+Raised by Todd 2026-09-27: a GUI whose core comes from Chat, laid out as a sidebar of conversations and a main pane
+(2026-10-20), for media and saved conversations, and as a showcase to developers of what Mila can build -- not an
+end-user product. It needs nothing from `Mila::Agents`: Chat's session is split from its console at the presentation
+line v0.22.0 also draws, the session runs as its own C++ process speaking a JSON-lines schema on stdio, and the
+window is an HTML page in an Electron client of that process -- one presentation layer for Windows, macOS and Linux
+(Todd, 2026-10-20). Phase 1, the page and the Electron window against a mock session, is to be built by a cloud
+session. Open: the names, and which release takes phases 2 to 4.
+
+`Specifications/MilaDesktop.md`
+
+## Qwen 3.8 27B FP4 at 64K would need part of its cache in host memory
+
+`qwen` · `mila-src` · `perf`
+
+Proposed by Todd 2026-10-18 when no 26B-or-larger model at FP4 reached 64K on a 16 GB card: one KV pool over the
+device and pinned host memory, device first, the oldest positions in the host tier, prefetched under the layers
+between attention layers. Since then `fp4-cb3` with the FP8 cache and the weight arena holds 65,792, and the 26B-A4B
+65,536 with the FP8 cache, so the pool is only for more context than those, or for FP4 itself. Not measured: the bus
+rate on the 5060 Ti and the decode rate a user would accept.
+
+`Specifications/TieredKvCache.md`
+
+## Gelu and Residual zero a gradient buffer the CUDA kernels overwrite
+
+`training` · `perf` · `mila-src`
+
+Both components `zero()` their input gradient before calling the operation, for the CPU operations that accumulated
+into it (found 2026-10-11 retiring them). The CUDA kernels assign every element in range (`Gelu.Fp32.cu`,
+`Residual.Fp32.cu` / `.Bf16.cu`), so the zeroing is a memset per backward that nothing reads. Not checked: whether
+any caller reads past the range a narrower-than-built input writes, which the zeroing keeps at zero today.
+
+`Lib/Src/Dnn/Components/Activations/Gelu/Gelu.ixx` and `Connections/Residual.ixx`, `backward`
+
+## The loss GPT-2 and MNIST train with has no test that runs
+
+`training` · `mila-src`
+
+`SoftmaxCrossEntropy.Cuda.cpp` sits in the CMake list's parked section ("loss-on-device milestone"), and the empty
+`CrossEntropy.Cpu.cpp` went with the CPU operations, so no built test reaches the softmax cross-entropy component or
+its CUDA operation (found 2026-10-11).
+
+`Tests/CMakeLists.txt` (the parked `SoftmaxCrossEntropy.Cuda.cpp` line)
+
+## No model Mila runs can be post-trained, even with LoRA on a 16 GB card
+
+`training` · `architecture` · `mila-src`
+
+Raised 2026-10-11 (Todd), whose intent is to triage this into a full specification written from the discussions
+still to come. Training runs only along the GPT-2 line (MHA, LayerNorm, GELU, AdamW). A full AdamW fine-tune costs
+about 16 bytes a parameter, which caps 16 GB below 1B parameters. LoRA over a frozen base fits: Llama 3.2 3B with a
+BF16 base (~6.4 GB), and Llama 3.1 8B (~4.5 GB) or Gemma 4 12B (Q4_0 QAT, ~7 GB) with a 4-bit base (QLoRA). The two
+~27B models leave no room for activations. Missing: GQA backward (it throws; the retired expanded-layout sketch in
+that file is the cheap way back), BF16 training (SwiGLU's BF16 backward is a known skip, "Training (advanced)"
+here), LoRA adapters on `Linear`, and the input gradient through quantized weights for a QLoRA base. DPO with
+reference log-probs computed offline adds no memory; GRPO also needs generation. A LoRA trained over Gemma's Q4_0 QAT
+base fits the "run in the format it was trained for" direction.
+
+`Lib/Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqaOp.ixx:366`
+
+## GPT-2 samples on the host with its own sampler, which ignores top-p
+
+`gpt` · `mila-src`
+
+`GptModel` copies the logits to the host and samples with temperature and top-k only; `params.sampling.top_p` is never
+read, so a top-p request runs the full distribution (found 2026-10-17). It refuses a presence penalty rather than drop
+it. Llama, Gemma and Qwen sample on the device through `TokenSampler`.
+
+`Lib/Src/Dnn/Models/Gpt/GptModel.ixx` `onGenerating`, `sampleFromLogits`
+
+## No model-level test runs anywhere but Todd's machine
+
+`ci` · `models`
+
+Every family's model tests -- generation, log-likelihood, decode replay, prefix reuse, multi-token decode -- are
+`.Cuda.cpp`, and the hosted runners have no GPU, so CI never runs a Llama, Gemma or Qwen forward pass. A GPU runner
+would: self-hosted on Todd's machine, or sponsored compute, which the sponsorship plan already asks for. A CPU path
+for the families was considered and rejected (`Specifications/Notebooks/CpuOperationsRetirement.md` section 2).
+
+`Tests/Dnn/Models/`
+
+## The CPU device reports no memory, so no plan can be priced against it
+
+`mila-src` · `architecture`
+
+Only `CudaDevice` overrides `getMemoryInfo`; the CPU device inherits the base's empty reading, and `DeviceReading`
+treats zero as "not a full device" (found 2026-10-11 reviewing a "will this model fit" command). The planner reads
+devices through the registry without naming a backend, so on a machine with no CUDA device it has nothing to plan
+against. Separate from, and needed alongside, the families having no CPU path (grouped-query attention has none).
+
+`Lib/Src/Dnn/Compute/Device.ixx:78` · `Lib/Src/Deployment/DeviceReading.ixx:43`
+
+## An agent system around one main model with worker agents across several cards has no design
+
+`agents` · `architecture`
+
+Raised 2026-10-18 (Todd): a system built around a main model that directs worker agents, each on its own card, in a
+multi-card machine -- the counterpart to trading time for quality with one large model on a 16 GB card. Related: the
+layer split across devices (`LayerSplit.md`), `Mila::Agents`'s agent core, NVIDIA Dynamo's KV-as-agent-resource framing.
+Not designed: which model directs and which work, what crosses between cards, and how a worker's context is managed.
+Todd 2026-10-19: Future or Vnext.
+
+Noodled 2026-10-20 (Todd): the main model -- Qwen 3.8 or the Gemma 4 26B-A4B -- on the 16 GB card, Gemma 4 12B
+workers on the 12 GB one. Same day's numbers on the 5060 Ti: the 26B-A4B generates at about 116 tokens a second and
+the dense 12B Q4_0 at about 48, so the worker is slower as well as weaker; it earns its place as a second stream on
+its own card with its own context, not as cheaper tokens. The prize is the main model's context: a worker reads tens
+of thousands of tokens of files or logs and returns a few hundred, where the 26B leaves Claude Code about 7,000 tokens
+of room on 16 GB. The 12B Q4_0 is about 6.5 GiB, so measuring it for the agentic tag on the 4070 measures it for
+this job too. Only text crosses -- a task in, a summary out -- so it is two servers, one per card, and the design
+is in the orchestration: when to delegate, how far a worker's summary is trusted. Measured as the Hermes set is:
+main model alone against main model with a worker, pass rate and wall time.
+
+`Specifications/LayerSplit.md` · `Lib/Src/Agents/`
+
+## Mila runs no image-generation model
+
+`models` · `architecture` · `quantization`
+
+Noodled 2026-10-20 (Todd), on `Qwen/Qwen-Image-2.1` (model page read that day): a 7B diffusion transformer, 32
+layers, that generates and edits (up to 10 reference images; 2048x2048 in its examples; RGBA output), BF16 weights,
+diffusers `QwenImage21Pipeline`, about 40 steps in its examples, no VRAM figure given. Licence: Qwen Research
+License, non-commercial unless licensed otherwise -- read before assuming it can be republished under `mila-llm`.
+The transformer blocks, attention, Linear with FP8/FP4 weights, norms and RoPE are Mila's already; what a
+diffusion transformer typically adds -- not checked against this model, whose page names neither its text encoder
+nor its decoder -- is the denoising loop and its scheduler, timestep conditioning of each block, two-dimensional
+positions, the text encoder and a convolutional decoder from latents to pixels. A step runs a whole image's latent tokens at
+once, so it is compute-bound like prefill rather than bandwidth-bound like decode, and the BF16 transformer alone is
+about 14 GB, so a 16 GB card needs it quantized. The question before any of that is scope: Mila is a library for
+local LLMs, and a second model class with no next-token loss to measure against is a direction decision.
+
+`https://huggingface.co/Qwen/Qwen-Image-2.1`

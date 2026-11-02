@@ -110,7 +110,7 @@ or Claude Code at the Anthropic `/v1/messages` path (launch with `MILA_PROTOCOL=
   the committed `Server/.env`; its `MILA_CONTEXT_LENGTH=auto` and generation defaults
   still apply.
 
-See `MilaServer/README.md` for the full protocol/endpoint and
+See `Apps/Server/README.md` for the full protocol/endpoint and
 configuration reference.
 
 ## VS Code Dev Container

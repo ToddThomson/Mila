@@ -31,7 +31,7 @@ import urllib.request
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 ROOT_CMAKE = os.path.join(REPO_ROOT, "CMakeLists.txt")
-TESTS_CMAKE = os.path.join(REPO_ROOT, "Mila", "Tests", "CMakeLists.txt")
+TESTS_CMAKE = os.path.join(REPO_ROOT, "Tests", "CMakeLists.txt")
 NOTICE = os.path.join(REPO_ROOT, "NOTICE.md")
 
 GITHUB_SLUG = re.compile(r"github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)")

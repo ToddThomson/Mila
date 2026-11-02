@@ -214,7 +214,7 @@ Mila: It stores the key and value tensors from earlier tokens so each new token 
       over them instead of recomputing the whole sequence each step.
 ```
 
-Located under `MilaChat`. An instruction-following chat harness that closes the
+Located under `Apps/Chat`. An instruction-following chat harness that closes the
 loop in-process with a human at the prompt — models load through the two-phase (prefill + decode)
 KV-cache pipeline, with model hot-switching (`/model load <name> [quant]`) and tool calling. Models
 come from the local store, and a fresh store has none: `/model list --online` lists what Mila
@@ -223,7 +223,7 @@ what each costs in memory. On a 12 GB card, Gemma 4 12B FP4 runs a large context
 
 ### Mila Inference Server (MIS) — an agent harness over the wire
 
-Located under `MilaServer`. Serves the generation loop over OpenAI- and Anthropic-compatible
+Located under `Apps/Server`. Serves the generation loop over OpenAI- and Anthropic-compatible
 APIs, so an agent harness you did not write — Codex, Claude Code — can drive Mila from another
 process.
 
@@ -231,12 +231,12 @@ process.
 
 ## Samples
 
-Everything lives under [`Mila/Samples`](https://github.com/ToddThomson/Mila/blob/dev/Mila/Samples/README.md),
+Everything lives under [`Lib/Samples`](https://github.com/ToddThomson/Mila/blob/dev/Lib/Samples/README.md),
 split by what it is for.
 
 ### Quick Start — getting Mila running
 
-[`Mila/Samples/QuickStart`](https://github.com/ToddThomson/Mila/blob/dev/Mila/Samples/QuickStart/README.md)
+[`Lib/Samples/QuickStart`](https://github.com/ToddThomson/Mila/blob/dev/Lib/Samples/QuickStart/README.md)
 holds one directory per path to a first run. Both do the same thing — one prompt in, tokens
 streamed out, same model and template — so they read side by side with only the language
 differing. **Python** is `pip install mila-llm` and a script; **C++** is a standalone CMake
@@ -248,10 +248,10 @@ long-form version, including building Mila from a clone.
 
 ### Demonstrations — what Mila does
 
-**MNIST Classifier** (`Mila/Samples/MNIST`) trains a 3-layer MLP to ~97.9% test accuracy —
+**MNIST Classifier** (`Lib/Samples/MNIST`) trains a 3-layer MLP to ~97.9% test accuracy —
 the full training loop: data loading, forward pass, loss, backward pass, AdamW step.
 
-**Bard** (`Mila/Samples/Bard`) trains a small GPT-2-style transformer on Tiny Shakespeare to
+**Bard** (`Lib/Samples/Bard`) trains a small GPT-2-style transformer on Tiny Shakespeare to
 coherent, Shakespeare-structured text — the transformer counterpart to MNIST's MLP.
 
 ---

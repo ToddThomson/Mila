@@ -56,7 +56,7 @@ Three things make a number checkable by someone who is not you:
       `x64-debug-cpu-only` / `linux-clang-cpu-release` if you have no NVIDIA GPU
 - [ ] A new kernel or operation has a `*_MatchesReference` test against the CPU path
 - [ ] Documentation / Doxygen updated where the public API changed
-- [ ] Relevant design doc under `Mila/Specifications/` updated for significant changes
+- [ ] Relevant design doc under `Specifications/` updated for significant changes
 
 ## Notes for reviewers
 

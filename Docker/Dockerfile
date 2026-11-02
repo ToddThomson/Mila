@@ -12,7 +12,7 @@
 # variant exists for 26.04 and none is needed while USE_CUDNN is unset, so the plain
 # `devel` image is correct.
 #
-# Model weights are converted offline (Mila/Tools/Converters) and bind-mounted at
+# Model weights are converted offline (Lib/Tools/Converters) and bind-mounted at
 # run time under Data/Models -- never baked into the image (they are gigabytes and
 # separately licensed). See Docker/README.md.
 FROM nvidia/cuda:13.4.3-devel-ubuntu26.04

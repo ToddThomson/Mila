@@ -105,7 +105,7 @@ def run_doxygen(root: Path, output: Path) -> bool:
 
     # The Doxyfile's own OUTPUT_DIRECTORY is relative to the tree; a later assignment on
     # stdin wins, which keeps the generated HTML out of the checkout.
-    configuration = (root / "Mila" / "Docs" / "Doxyfile").read_text(encoding="utf-8")
+    configuration = (root / "Lib" / "Docs" / "Doxyfile").read_text(encoding="utf-8")
     configuration += f"\nOUTPUT_DIRECTORY = {output.as_posix()}\n"
 
     return run_check("Doxygen builds without warnings", [doxygen, "-"], root, stdin=configuration)

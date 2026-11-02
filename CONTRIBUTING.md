@@ -56,7 +56,7 @@ operations, faster kernels, a quantization format, an attention variant, support
 architecture nobody here owns — all welcome.
 
 **What you can check yourself, without model weights.** Every component has reference tests named
-`*_MatchesReference` (see `Mila/Tests/Dnn/Components/`). They build a small tensor, run the CUDA
+`*_MatchesReference` (see `Tests/Dnn/Components/`). They build a small tensor, run the CUDA
 path and compare it against an exact reference computed on the host. A new kernel should arrive with one, and that test is the single most
 useful thing in a kernel PR — it is what lets someone else trust the change without owning your
 card. Cases self-skip with `CUDA device not available`, so the same suite stays green for
@@ -202,7 +202,7 @@ enforce (notably full-word identifiers and the blank-line placement rules):
   live in a `:Cuda` partition. There are no header guards or `#pragma once` — this
   is a module-based codebase.
 * Resolve operations at compile time via `OperationTraits` rather than runtime registries.
-  See [Mila/Specifications/OperationDispatch.md](Mila/Specifications/OperationDispatch.md).
+  See [Specifications/OperationDispatch.md](Specifications/OperationDispatch.md).
 * Prefer `nullptr` to `NULL` or `0`
 * Use smart pointers instead of raw pointers when possible
 * Use `const` whenever applicable
@@ -259,7 +259,7 @@ the maintainer knows what is already covered and what is not.
 
 ### Unit Tests
 * All new features must have corresponding unit tests
-* Follow existing test patterns in the codebase (see the `Mila/Tests/Dnn/` directory, which mirrors the `Mila/Src/Dnn/` tree)
+* Follow existing test patterns in the codebase (see the `Tests/Dnn/` directory, which mirrors the `Lib/Src/Dnn/` tree)
 * Check device results against an exact reference computed on the host
 * Include tests for edge cases and error conditions
 * Test numerical stability for floating-point operations
@@ -303,7 +303,7 @@ to fix, not yours.
 ## Documentation
 
 * Update Doxygen comments in code for API changes
-* For significant changes, update the relevant design document under `Mila/Specifications/`
+* For significant changes, update the relevant design document under `Specifications/`
 * Document any new dependencies or system requirements
 
 ## Issue Reporting

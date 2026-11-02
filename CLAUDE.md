@@ -8,7 +8,7 @@ Mila is a C++23 module-based library for open LLMs on CUDA — inference and tra
 
 ### There is no feature freeze right now
 
-v0.20 ran under one, scoped to `Mila/Src` and lifted when that release shipped. **`Mila/Src` is open for the 0.21.0 cycle** — the release's goal is Src work. Do not cite a freeze; if a change is refused it is for a reason that has to be named, and "the library is frozen" is no longer one of them.
+v0.20 ran under one, scoped to `Lib/Src` and lifted when that release shipped. **`Lib/Src` is open for the 0.21.0 cycle** — the release's goal is Src work. Do not cite a freeze; if a change is refused it is for a reason that has to be named, and "the library is frozen" is no longer one of them.
 
 What can still close the tree is a **release-window hold**: during a release the user may close `dev` to *all* commits so that built artifacts (wheels, tagged trees) stay valid. It is temporary, covers the whole tree regardless of scope, and lifts when step 12 commits — not when the tag is pushed, which is two steps earlier and is where this has been got wrong before. Say which one is blocking a change; "the tree is frozen" is ambiguous and has caused this exact error more than once.
 
@@ -24,7 +24,7 @@ The user builds exclusively inside **Visual Studio 2026**. Ninja is required —
 
 **The C++23 modules constrain the compiler:** MSVC (VS 2026 18.6.2+ — earlier 2026 builds have a module regression that breaks Mila) or Clang 22+ with a standard library that ships a `std` module (libstdc++ 15, libc++ 17). Every module does `import std;` -- never `std.compat`; C names are written `std::size_t`, `std::uint32_t` -- from `MilaStd`, the library's own `std` module target (`cmake/StdModule.cmake`); Clang 21 rejects libstdc++'s `shared_ptr` friends once `std` is reachable (LLVM #156604). On MSVC a translation unit that does `import Mila;` keeps its standard `#include`s before it. **GCC is not supported:** 14.2 and the GCC 15 on Ubuntu 25.04 failed to compile the modules (GitHub issue #2), and GCC 16 has never been tried. Never write that GCC 16 works — that claim shipped in v0.20.0 unmeasured. In CUDA builds the C++ compiler handles the module units while nvcc uses a separate host compiler for `.cu` files, so an older host GCC is fine in that role. Cross-compiler builds surface missing `#include`s that MSVC resolves transitively — those are real portability fixes, not Clang being difficult.
 
-Presets are in `CMakePresets.json`; output is always `out/build/<preset-name>`. VS 2026 shows each preset's `displayName`, not its `name` (`x64-validate` appears as "x64 Release (full validation - run before committing)"). The unit tests build into **one binary**, `Mila/Tests/MilaTests` — narrow with `--gtest_filter`; `ChatRichTextTests` and `MiloHtmlTextTests` are the separate targets, each for a module that imports nothing of Mila.
+Presets are in `CMakePresets.json`; output is always `out/build/<preset-name>`. VS 2026 shows each preset's `displayName`, not its `name` (`x64-validate` appears as "x64 Release (full validation - run before committing)"). The unit tests build into **one binary**, `Tests/MilaTests` — narrow with `--gtest_filter`; `ChatRichTextTests` and `AgentsHtmlTextTests` are the separate targets, each for a module that imports nothing of Mila.
 
 ---
 
@@ -32,18 +32,21 @@ Presets are in `CMakePresets.json`; output is always `out/build/<preset-name>`. 
 
 Browse the tree for what is where. What the tree does not tell you:
 
-- **`Mila/Src/`** is the runtime. `Components/`, `Compute/`, `Models/`, `Quantization/`, `Tensors/`, `Serialization/`. `Models/` and `Components/Transformers/` are split per family (`Gemma`, `Gpt`, `LlaMa`, `Qwen`) — a family owns its model, config and chat protocol together.
-- **`Milo/`** is the agentic library applications are built on (`Direction.md` 3.2), a project of its own on top of
-  Mila, which builds without it. Tool calling is its structure, and Milo provides the tools both apps offer, for
-  files and web pages; an application chooses which to offer, and every other tool is its own (`ToolCalling.md` 5,
-  Todd, 2026-11-01). `Milo/Src/` holds the agent, `Milo::Agent` (`Direction.md` 4), the `Session` it holds -- what
+- **`Lib/Src/`** is the runtime. `Components/`, `Compute/`, `Models/`, `Quantization/`, `Tensors/`, `Serialization/`. `Models/` and `Components/Transformers/` are split per family (`Gemma`, `Gpt`, `LlaMa`, `Qwen`) — a family owns its model, config and chat protocol together.
+- **Mila is one library with one install.** `Lib/` holds it, and `Mila` the repository and the brand. A program reaches
+  the models API as `Mila::Dnn` and `Mila::Deployment`, and the agents API as `Mila::Agents`; "models API" and "agents
+  API" are words for the docs, not namespaces (`Direction.md` decision 2, Todd, 2026-11-02).
+- **`Lib/Src/Agents/`** is `Mila::Agents`, the agents API applications are built on (`Direction.md` 3.2): a target of
+  its own, `MilaAgents`, on the rest of the library, which never imports it and builds without it. Tool calling is its
+  structure, and it provides the tools both apps offer, for files and web pages; an application chooses which to offer, and every other tool is its own (`ToolCalling.md` 5,
+  Todd, 2026-11-01). `Lib/Src/Agents/` holds the agent, `Mila::Agents::Agent` (`Direction.md` 4), the `Session` it holds -- what
   the program gave it and the conversation, which outlives the model (4.3) -- and `ToolGate`, the one path a model's
   call takes to a tool: the arguments checked, the person's rules and question, the call's limits. The model handle
-  (`ModelHandle.md`) stays in Mila, in `Mila/Src/Deployment/`: opening a model by name is the model level's.
-- **`Mila/Bindings/`** is the Python projection, and is **consumer-blind**: it knows nothing about Chat or MIS. Session depth only, never components.
-- **The apps are projects of their own at the top level**, first-class consumers, not samples — `MilaChat/` (`mila-chat`, human gate), `MilaDesktop/` (Mila Desktop, the end-user app: Electron window, page, and `mila-session`, a `Milo` agent and its session, with settings and prompts of its own) and `MilaServer/` (MIS, `mila-server`, which imports the binding). `Mila/Store/` is `mila-store`, the model store from the shell. All of them ship; every command a user types is lowercase-hyphenated with the `mila-` prefix. See `Specifications/MilaProductFamily.md`. Specifications, Issues and the one test binary stay under `Mila/`.
-- **`Mila/Samples/`** is teaching code and must run in any user's environment. `QuickStart/Cpp` and `QuickStart/Python` are the paths the website's Get Started tabs link to, so they are a published surface.
-- **`Mila/Tools/`** is developer tooling and **none of it ships** — the wheel excludes it and a FetchContent consumer never configures it. `Tools/README.md` is the index.
+  (`ModelHandle.md`) stays in Mila, in `Lib/Src/Deployment/`: opening a model by name is the model level's.
+- **`Lib/Bindings/`** is the Python projection, and is **consumer-blind**: it knows nothing about Chat or MIS. Session depth only, never components.
+- **The apps are in `Apps/`**, first-class consumers, not samples — `Apps/Chat/` (`mila-chat`, human gate), `Apps/Desktop/` (Mila Desktop, the end-user app: Electron window, page, and `mila-session`, an agent and its session, with settings and prompts of its own) and `Apps/Server/` (MIS, `mila-server`, which imports the binding). `Lib/Store/` is `mila-store`, the model store from the shell. All of them ship; every command a user types is lowercase-hyphenated with the `mila-` prefix. See `Specifications/MilaProductFamily.md`. `Specifications/`, `Issues/` and `Tests/`, with its one test binary, are at the top.
+- **`Lib/Samples/`** is teaching code and must run in any user's environment. `QuickStart/Cpp` and `QuickStart/Python` are the paths the website's Get Started tabs link to, so they are a published surface.
+- **`Lib/Tools/`** is developer tooling and **none of it ships** — the wheel excludes it and a FetchContent consumer never configures it. `Tools/README.md` is the index.
 - **`Data/`** holds weights, packages and corpora, all gitignored; only directory READMEs are tracked.
 - **`Dev/`** is gitignored and is **not part of the project**. Never read from it or reference it.
 
@@ -83,13 +86,13 @@ Operations derive directly from `Operation`. The `UnaryOperation` / `BinaryOpera
 
 ### Model Entry Points
 
-- `<Family>Model::planDeployment(path, request)` decides how the model runs on a device -- context length, prefill chunk -- from one reading of it, returning ranked plans or a refusal; `load(path, plan)` executes exactly that plan, and `load(path, config, device_id)` is the fully fixed request, refused when it does not fit. The planner lives in `Mila/Src/Deployment/` (`Mila::Deployment`), beside `Dnn/` rather than in it: a deployment is not a model. See `Specifications/Deployment.md`. One per family: Gemma, Llama, Qwen (Gpt keeps its own `load`).
-- The dispatch is `Models/QuantizationDispatch.ixx`. It keys on `LanguageModelConfig`'s own enum — **never on an app's type.** `ChatConfig` lives in Chat and `Mila/Src` must not know it exists.
+- `<Family>Model::planDeployment(path, request)` decides how the model runs on a device -- context length, prefill chunk -- from one reading of it, returning ranked plans or a refusal; `load(path, plan)` executes exactly that plan, and `load(path, config, device_id)` is the fully fixed request, refused when it does not fit. The planner lives in `Lib/Src/Deployment/` (`Mila::Deployment`), beside `Dnn/` rather than in it: a deployment is not a model. See `Specifications/Deployment.md`. One per family: Gemma, Llama, Qwen (Gpt keeps its own `load`).
+- The dispatch is `Models/QuantizationDispatch.ixx`. It keys on `LanguageModelConfig`'s own enum — **never on an app's type.** `ChatConfig` lives in Chat and `Lib/Src` must not know it exists.
 - All use a two-phase KV-cache: prefill (full sequence) + decode (one token at a time, outer_size == 1).
 
 ### Quantization Pipeline
 
-Weight quantization is offline: `Tools/ExportArtifact` produces pre-quantized safetensors weights that declare their policy in `__metadata__["mila_quantization"]`, a load refuses weights whose policy is not the compiled one, and `Linear::loadParameter` uploads packed bytes directly. Sub-4-bit codebook formats have no other path — their tables are fitted offline against calibration data by `Tools/Quantization`, and `ExportArtifact` is the only writer. Design of record: `Mila/Specifications/Quantization.md`.
+Weight quantization is offline: `Tools/ExportArtifact` produces pre-quantized safetensors weights that declare their policy in `__metadata__["mila_quantization"]`, a load refuses weights whose policy is not the compiled one, and `Linear::loadParameter` uploads packed bytes directly. Sub-4-bit codebook formats have no other path — their tables are fitted offline against calibration data by `Tools/Quantization`, and `ExportArtifact` is the only writer. Design of record: `Specifications/Quantization.md`.
 
 Quantize-on-load is a **supported user path** for FP8 and FP4 (decided 2026-09-14): it runs full-precision weights nobody has exported, and it is the exporter's own engine. Converters always write BF16; `Linear::loadParameter` branches on the stored dtype and calls `operation_->quantize()`. Published models are still exported pre-quantized. Its staging buffer belongs to the load, not to the forward scratch — see `Quantization.md` *Load Pipeline* for that and the per-format kernel detail.
 
@@ -99,16 +102,15 @@ Quantize-on-load is a **supported user path** for FP8 and FP4 (decided 2026-09-1
 
 ---
 
-## Chat Harness (`MilaChat/Src/`)
+## Chat Harness (`Apps/Chat/Src/`)
 
 Chat is a first-class app (peer of MIS and Mila Desktop), not a throwaway sample — a
 maintained surface that gains tests and rigor over time.
 
-**API Boundary:** every top-level project's source needs Todd's direction before it changes: `Mila/Src/`, `Milo/Src/`,
-`MilaChat/`, `MilaDesktop/` and `MilaServer/` alike (Todd, 2026-10-31).
+**API Boundary:** the source of the library and of every app needs Todd's direction before it changes: `Lib/Src/` and `Apps/` (Todd, 2026-10-31).
 
 Key files:
-- `Chat.Session.ixx` — `ChatSession`: the model as one `Milo::Agent`, which runs every turn and its tool calls; model hot-switching, the round measurements; never draws or reads input, and reports through `SessionEvents`
+- `Chat.Session.ixx` — `ChatSession`: the model as one `Mila::Agents::Agent`, which runs every turn and its tool calls; model hot-switching, the round measurements; never draws or reads input, and reports through `SessionEvents`
 - `Chat.ConsoleFrontEnd.ixx` — the console over the session: slash commands, tables, the live display, Ctrl+C stops a reply
 - `Chat.ModelCatalog.ixx` — resolves a store name to a loadable model, and owns the load refusals
 - `Chat.Config.ixx` — `ChatConfig`: the model a store name resolved to (its `WeightQuantization`), its device, context length, effort and sampling
@@ -131,7 +133,7 @@ Source files use `.ixx` for C++23 module interface units and module partitions. 
 
 Module partition files (such as `:Cuda`) are used to separate backend specializations while keeping a single aggregator module. Example: `OperationTraits.ixx` re-exports `OperationTraits.Template.ixx` + `:Cuda`.
 
-**One module per file, one type per module.** A type other modules must name is exported from its own module file: exactly one class, struct, enum, union or concept per file. A type only its own file uses is not exported. A nested type is part of its owner only when it is never used apart from it — nesting is not a way to keep two separately used types in one file. Internal detail that needs its own impl-only module is a partition (such as `Gemma.Block.Workspace.ixx`), and it follows the same rule. Free functions and constants beside their type do not count, nor does an `export using` alias of a type another module defines. Two types are two `.ixx` files in the same directory, two `FILE_SET` entries, and two `export import` lines in `Mila.ixx`; never a combined file to keep the diff small. Files that predate the rule are tracked in `Mila/Issues/Vnext.md`, and **any module a change touches is brought under the rule in that same change**; every new file follows it.
+**One module per file, one type per module.** A type other modules must name is exported from its own module file: exactly one class, struct, enum, union or concept per file. A type only its own file uses is not exported. A nested type is part of its owner only when it is never used apart from it — nesting is not a way to keep two separately used types in one file. Internal detail that needs its own impl-only module is a partition (such as `Gemma.Block.Workspace.ixx`), and it follows the same rule. Free functions and constants beside their type do not count, nor does an `export using` alias of a type another module defines. Two types are two `.ixx` files in the same directory, two `FILE_SET` entries, and two `export import` lines in `Mila.ixx`; never a combined file to keep the diff small. Files that predate the rule are tracked in `Issues/Vnext.md`, and **any module a change touches is brought under the rule in that same change**; every new file follows it.
 
 ---
 
@@ -156,7 +158,7 @@ Module partition files (such as `:Cuda`) are used to separate backend specializa
 
 Engineering language is right for **developers** and wrong for **users**. The split is by audience, and the test is which side of Mila's API someone stands on — not whether they write code. A developer calling `from_store()` is a user.
 
-- **Developers** — people working on Mila. Commit messages, `BACKLOG.md` / `ROADMAP.md` / worklogs, `Mila/Specifications/`, code comments, internal `NOTE:` / `REVIEW:` notes. Full technical depth, rejected alternatives, unfinished work, measurement methodology. Nothing below applies here.
+- **Developers** — people working on Mila. Commit messages, `BACKLOG.md` / `ROADMAP.md` / worklogs, `Specifications/`, code comments, internal `NOTE:` / `REVIEW:` notes. Full technical depth, rejected alternatives, unfinished work, measurement methodology. Nothing below applies here.
 - **Users** — people running Mila. Model cards, `Web/`, `README.md`, `getting-started.md`, Chat's console output (`--help`, `/help`, error strings), MIS's user-visible errors, the pybind docstrings that become `help()`, `Samples/QuickStart/`, and public Doxygen on the API a consumer calls.
 
 **Name the reader and what they came for, then serve only that.** The reader differs per surface and the voice follows: a model card reader arrived from a model search and has never heard of Mila; an API-reference reader is calling a function and needs the contract exact; a website reader is deciding whether to look further. A model card answers five questions and nothing else — what is this, will it run on my hardware, how do I run it, is it any good, what may I do with it. Point at any sentence and name which question it serves; if you cannot, delete it.
@@ -188,10 +190,10 @@ predates the current direction:
 
 1. **Find where it came from** -- `git blame` and `git log`, the spec that decided it -- and whether its reason still
    holds. A value with no recorded reason is itself a finding.
-2. **If it is wrong and the fix is small and in scope, fix it first**, then continue. Inside `Mila/Src` that means
+2. **If it is wrong and the fix is small and in scope, fix it first**, then continue. Inside `Lib/Src` that means
    proposing the fix, since library changes need agreement.
 3. **Otherwise stop and put it to Todd:** what it is, why it is in the way, the fix. Never route around it silently.
-4. **A workaround happens only when Todd chooses one**, and it is filed in `Mila/Issues/Untriaged.md` the same day.
+4. **A workaround happens only when Todd chooses one**, and it is filed in `Issues/Untriaged.md` the same day.
 
 The usual triggers: our own server refusing something the library supports; a constant nobody can explain; a test
 bound a new input fails; a default written for an older model; a harness setting that changes what is measured.
@@ -263,7 +265,7 @@ never deferred to "later".
 **Capture and commitment are separate acts, and conflating them is what makes a backlog
 unbounded.** Finding something mid-task leaves seconds for judgement, so anything requiring a
 decision at that moment defaults into the current release — a commitment nobody meant to make.
-`Mila/Issues/Untriaged.md` takes the finding with no decision attached; triage supplies the decision
+`Issues/Untriaged.md` takes the finding with no decision attached; triage supplies the decision
 later. **Never write a finding straight into `BACKLOG.md`.**
 
 **All of this describes a *publish* — a minor. A patch tag has no ROADMAP section, no BACKLOG
@@ -274,13 +276,13 @@ bucket and no Release body; a fix is not a goal, and its commit is its own recor
   **theme** (not milestone). Shows the release in flight plus a single **Future** tail. **Narrative
   only — no task lists, checkboxes, or status** (they drift; point to BACKLOG). When a release ships,
   its section is deleted — the GitHub Release body is the record of what shipped. **A release's
-  themes are lifted out of `Mila/Issues/Vnext.md`** (or the Future tail), and the narrative is
+  themes are lifted out of `Issues/Vnext.md`** (or the Future tail), and the narrative is
   written around them — never a theme invented while writing.
 - **`BACKLOG.md`** — **work committed to the release in flight, and nothing else.** `## Current
   release` holds one **theme bucket** per ROADMAP theme (matching names — the only join). Five rules
   keep it usable:
   - **Admission is earned.** Point at an item and name the ROADMAP success criterion that fails if
-    it never ships. If you cannot name one it belongs in `Mila/Issues/`. Membership in this file
+    it never ships. If you cannot name one it belongs in `Issues/`. Membership in this file
     *is* the claim that the item blocks the release, so an unearned item makes the claim worthless
     for every other item too. **Exception: an internal fix the user admits** (a correctness or
     hygiene defect in the library, with no user-visible criterion behind it) needs no ROADMAP
@@ -293,8 +295,8 @@ bucket and no Release body; a fix is not a goal, and its commit is its own recor
     whatever detail the work needs, and says so plainly when the finding is an absence rather than a
     location.
   - **Status lives in the metadata line** — `open`, `in progress` or `done`, then area tags from
-    [Tags.md](Mila/Issues/Tags.md) — and never in the prose. No dates, no "GREEN", no findings, no
-    measurement tables. **Disposition is a file in `Mila/Issues/`, not a tag** — parked is
+    [Tags.md](Issues/Tags.md) — and never in the prose. No dates, no "GREEN", no findings, no
+    measurement tables. **Disposition is a file in `Issues/`, not a tag** — parked is
     `Future.md`, next cycle is `Vnext.md`.
   - **Done means deleted**, in the same commit as the work. `done` is a **working-tree marker only** —
     it makes finished items visible while the change is reviewed, and the commit that lands the work
@@ -305,8 +307,8 @@ bucket and no Release body; a fix is not a goal, and its commit is its own recor
     bounds the file is the release it describes and the date that release carries, not a fixed
     number** — a dated release whose scope drains back to `Vnext.md` is a stronger bound than a
     count, and it is the one v0.21.0 runs on.
-- **`Mila/Issues/`** — everything upstream of that commitment; the funnel and its categories, with
-  the flow and the rules in [`Mila/Issues/README.md`](Mila/Issues/README.md). `Untriaged.md` is
+- **`Issues/`** — everything upstream of that commitment; the funnel and its categories, with
+  the flow and the rules in [`Issues/README.md`](Issues/README.md). `Untriaged.md` is
   untriaged capture, one line per entry, and is **lossy by design**: an entry that has sat there
   **ninety days** is deleted unexamined. Triage runs at the release-prep commit and whenever
   `Untriaged.md` passes twenty entries, and gives every line a destination — `BACKLOG.md`, a
@@ -324,7 +326,7 @@ bucket and no Release body; a fix is not a goal, and its commit is its own recor
   minor is a deliberate rename at release step 2. **A minor is a publish, a patch is a tag** — see
   [RELEASING.md](RELEASING.md) for the scheme and the split.
 
-**GitHub Issues is the front desk; `Mila/Issues/` is the work queue.** Someone with no repo access
+**GitHub Issues is the front desk; `Issues/` is the work queue.** Someone with no repo access
 files there and gets a notification when it is fixed, which a file in a repository can never do.
 The funnel inward is **manual** — a human decides which reports earn an entry — and for
 anything user-reported **the GitHub issue stays the record while the entry is only a pointer
@@ -340,6 +342,6 @@ this workflow.
 
 ## Key Specifications
 
-`Mila/Specifications/README.md` is the index: each document's role (design, notebook, plan, direction) and the area it decides. A decision made in a notebook or a plan is carried to the design that owns the area in the same change. A spec is the **design of record** for its area: where one exists, it decides, and a decision that contradicts it is either wrong or a spec edit — not a silent divergence. `OperationDispatch.md`, `Quantization.md` and `ModelDistribution.md` are the three that most often settle an argument.
+`Specifications/README.md` is the index: each document's role (design, notebook, plan, direction) and the area it decides. A decision made in a notebook or a plan is carried to the design that owns the area in the same change. A spec is the **design of record** for its area: where one exists, it decides, and a decision that contradicts it is either wrong or a spec edit — not a silent divergence. `OperationDispatch.md`, `Quantization.md` and `ModelDistribution.md` are the three that most often settle an argument.
 
 Work is tracked across `ROADMAP.md` / `BACKLOG.md` — see **Work-Tracking Docs** above.

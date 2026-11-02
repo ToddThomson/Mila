@@ -91,4 +91,4 @@ jobs:
       - name: Generate documentation
         run: |
           mkdir -p build/docs
-          doxygen Mila/Docs/Doxyfile
+          doxygen Lib/Docs/Doxyfile

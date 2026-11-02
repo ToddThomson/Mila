@@ -1,6 +1,6 @@
 name: Mila Desktop
 
-# Mila Desktop (MilaDesktop/, MilaDesktop.md): the page's and the window's tests on
+# Mila Desktop (Apps/Desktop/, MilaDesktop.md): the page's and the window's tests on
 # every change to them. Its own workflow because it shares nothing with the C++ build -- no CMake,
 # no CUDA, minutes not an hour -- and because build-pipeline.yml's triggers (contributor PRs and the
 # release merge) would leave a change to the window untested on the `dev` push that makes it.
@@ -11,11 +11,11 @@ name: Mila Desktop
 on:
   push:
     paths:
-      - 'MilaDesktop/**'
+      - 'Apps/Desktop/**'
       - '.github/workflows/desktop.yml'
   pull_request:
     paths:
-      - 'MilaDesktop/**'
+      - 'Apps/Desktop/**'
       - '.github/workflows/desktop.yml'
   workflow_dispatch:
 
@@ -44,9 +44,9 @@ jobs:
       # No npm ci: both suites use Node alone (MilaDesktop.md section 5), and the window's drives
       # the mock session over stdio without starting Electron.
       - name: Page tests
-        working-directory: MilaDesktop/Ui
+        working-directory: Apps/Desktop/Ui
         run: node --test
 
       - name: Window tests
-        working-directory: MilaDesktop/Window
+        working-directory: Apps/Desktop/Window
         run: node --test

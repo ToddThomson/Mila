@@ -62,12 +62,12 @@ for version in ${INTERPRETERS}; do
     cmake --build "${BUILD}" -- -j "${MILA_BUILD_JOBS}"
 
     # Package from a COPY, never from the bind-mounted tree. MilaPy's POST_BUILD stages
-    # into Mila/Bindings/Package/src/mila on the host, which accumulates: a Windows build
+    # into Lib/Bindings/Package/src/mila on the host, which accumulates: a Windows build
     # leaves its _mila*.pyd and every interpreter leaves its own .so. package-data globs
     # both, so packaging in place would put every extension ever built into every wheel.
     # Copying also means this never deletes anything from the developer's tree.
     rm -rf "${STAGE}"
-    cp -r "${SRC}/Mila/Bindings/Package" "${STAGE}"
+    cp -r "${SRC}/Lib/Bindings/Package" "${STAGE}"
 
     # Take the extension from THIS build rather than trusting what POST_BUILD left behind:
     # strip every staged extension, then copy in the one just produced. Deterministic
@@ -79,7 +79,7 @@ for version in ${INTERPRETERS}; do
     # extension is still sitting there. Matching the tag exactly is what stops a stale
     # artifact being packaged as this one.
     suffix=$("${python}" -c "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))")
-    built="${BUILD}/Mila/Bindings/_mila${suffix}"
+    built="${BUILD}/Lib/Bindings/_mila${suffix}"
 
     if [ ! -f "${built}" ]; then
         echo "expected ${built} from the Python ${version} build, and it is not there" >&2
