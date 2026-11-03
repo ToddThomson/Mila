@@ -1239,6 +1239,33 @@ namespace Mila::ChatApp
             // leaves the session on its working model.
             const ResolvedModel resolved = resolveModel( name, requested_quantization );
 
+            // Under auto the load plans the context for the model being loaded, rather than carrying
+            // a number derived for the one being replaced -- the defect configured_context_length
+            // exists to prevent, in the one shape that field cannot express. A fixed context carries
+            // to the next model as it is, and one past that model's trained maximum is refused here.
+            //
+            // A zero is not a live value to carry: a session that opened with NO model holds one, and
+            // carrying it into the load was the container failure -- no session config, then a Llama,
+            // then "context_length must be greater than zero". See ChatConfiguration.md section 2.
+            std::size_t context_length = config_.context_length;
+
+            if ( !config_.context_is_automatic && context_length == 0 )
+            {
+                const std::size_t configured = config_.configured_context_length;
+
+                context_length = configured == 0 ? kDefaultContextLength : configured;
+            }
+
+            // Asked before anything below changes, so a model that could never load leaves the session as it was.
+            if ( const std::optional<std::string> refusal = refusalBeforeRelease(
+                resolved.name,
+                deploymentRequestAt( resolved.quantization, resolved.quantization_applied_at_load,
+                    config_.context_is_automatic, context_length ),
+                resolved.quantization ) )
+            {
+                throw std::runtime_error( std::format( "Could not load {}: {}", resolved.name, *refusal ) );
+            }
+
             config_.model_name        = resolved.name;
             config_.is_instruct       = resolved.instruct;
             config_.base_model        = resolved.base_model;
@@ -1264,20 +1291,7 @@ namespace Mila::ChatApp
             // still holds it.
             releaseModel();
 
-            // Under auto the load plans the context for the model being loaded, rather than carrying
-            // a number derived for the one being replaced -- the defect configured_context_length
-            // exists to prevent, in the one shape that field cannot express. A fixed context carries
-            // to the next model as it is, and one past that model's trained maximum is refused by its load.
-            //
-            // A zero is not a live value to carry: a session that opened with NO model holds one, and
-            // carrying it into the load was the container failure -- no session config, then a Llama,
-            // then "context_length must be greater than zero". See ChatConfiguration.md section 2.
-            if ( !config_.context_is_automatic && config_.context_length == 0 )
-            {
-                const std::size_t configured = config_.configured_context_length;
-
-                config_.context_length = configured == 0 ? kDefaultContextLength : configured;
-            }
+            config_.context_length = context_length;
 
             loadActiveModel();
             clearHistory();
@@ -1309,9 +1323,9 @@ namespace Mila::ChatApp
          *
          * Same exposure switchModel has, deliberately rather than by omission: the outgoing model
          * is released before the replacement is built, so a load that fails leaves nothing
-         * resident and reports into the session. The pre-flight inside loadActiveModel is what
-         * makes that unlikely; a bespoke restore-and-reload path here would be a second recovery
-         * convention for one command.
+         * resident and reports into the session. refusalBeforeRelease is what makes that unlikely;
+         * a bespoke restore-and-reload path here would be a second recovery convention for one
+         * command.
          */
         void reloadAtContext( std::size_t length, bool automatic )
         {
@@ -1340,6 +1354,31 @@ namespace Mila::ChatApp
             }
 
             const std::string name = modelName();
+
+            if ( modelIsResident() )
+            {
+                std::optional<std::string> refusal;
+
+                try
+                {
+                    refusal = refusalBeforeRelease(
+                        config_.model_name,
+                        deploymentRequestAt( config_.quantization_mode, config_.quantization_applied_at_load, automatic, length ),
+                        config_.quantization_mode );
+                }
+                catch ( const std::exception& error )
+                {
+                    refusal = error.what();
+                }
+
+                if ( refusal )
+                {
+                    events_.error( std::format( "Could not reload {} at context {}: {}", name, length, *refusal ) );
+                    events_.info( std::format( "{} stays loaded at context {}.", name, config_.context_length ) );
+
+                    return;
+                }
+            }
 
             // Every field the attempt is about to overwrite, so a failure leaves the session
             // describing the context it would return to rather than the one that did not load.
@@ -1439,49 +1478,88 @@ namespace Mila::ChatApp
          */
         DeploymentRequest activeDeploymentRequest() const
         {
-            DeploymentRequest request =
-                deploymentRequestFor( config_.quantization_mode, config_.quantization_applied_at_load, config_.device_index,
-                    config_.kv_cache );
+            return deploymentRequestAt( config_.quantization_mode, config_.quantization_applied_at_load,
+                config_.context_is_automatic, config_.context_length );
+        }
 
-            if ( config_.context_is_automatic )
+        DeploymentRequest deploymentRequestAt(
+            Dnn::WeightQuantization quantization, bool quantization_applied_at_load, bool automatic, std::size_t context_length ) const
+        {
+            DeploymentRequest request =
+                deploymentRequestFor( quantization, quantization_applied_at_load, config_.device_index, config_.kv_cache );
+
+            if ( automatic )
             {
                 request.withAutomaticContextLength( DeploymentRequest::kContextStep );
             }
             else
             {
-                request.withContextLength( static_cast<dim_t>( config_.context_length ) );
+                request.withContextLength( static_cast<dim_t>( context_length ) );
             }
 
             return request;
         }
 
         /**
+         * @brief Why this request could not load whatever was released first, or nothing.
+         *
+         * Asked with the resident model still holding its memory, so it plans against the whole card. A request that
+         * passes can still fail on what else holds the card's memory, which the load itself reports.
+         *
+         * @throws std::runtime_error for weights that cannot be read, as the load would.
+         */
+        std::optional<std::string> refusalBeforeRelease(
+            const std::string& name, DeploymentRequest request, Dnn::WeightQuantization quantization ) const
+        {
+            if ( const auto refusal = Mila::Agents::Agent::check( name, request ) )
+            {
+                return refusal->detail;
+            }
+
+            request.withWholeDeviceMemory();
+
+            const auto plans = Mila::Agents::Agent::Handle::planFor( name, request );
+
+            if ( !plans )
+            {
+                return describeRefusal( plans.error(), quantization, true );
+            }
+
+            return std::nullopt;
+        }
+
+        /**
          * @brief A refusal in this session's words: what does not fit, against what, and what to try.
          *
          * The library names the reason and the numbers; the sentence is Chat's (Deployment.md section 6).
+         *
+         * @param whole_card Whether the plan was made against the whole card rather than its free memory.
          */
-        std::string describeRefusal( const DeploymentRefusal& refusal ) const
+        std::string describeRefusal(
+            const DeploymentRefusal& refusal, Dnn::WeightQuantization quantization, bool whole_card ) const
         {
-            const std::string free = formatBytes( refusal.reading().free_bytes );
+            const std::string available = whole_card
+                ? std::format( "holds {}", formatBytes( refusal.reading().total_bytes ) )
+                : std::format( "has {} free", formatBytes( refusal.reading().free_bytes ) );
 
             switch ( refusal.reason() )
             {
                 case DeploymentRefusal::Reason::WeightsExceedDevice:
                     return std::format(
-                        "its weights need {} and this GPU has {} free, so no context length fits.{}",
-                        formatBytes( refusal.footprint().device_parameter_bytes ), free,
-                        config_.quantization_mode == Dnn::WeightQuantization::None
+                        "its weights need {} and this GPU {}, so no context length fits.{}",
+                        formatBytes( refusal.footprint().device_parameter_bytes ), available,
+                        quantization == Dnn::WeightQuantization::None
                             ? std::string( " Quantized to fp4 as it loads, it needs less." ) : std::string{} );
 
                 case DeploymentRefusal::Reason::FixedContextDoesNotFit:
                     return std::format(
-                        "context {} needs {} and this GPU has {} free. An automatic context picks the longest that fits.",
-                        refusal.contextLength(), formatBytes( refusal.footprint().totalDeviceBytes() ), free );
+                        "context {} needs {} and this GPU {}. An automatic context picks the longest that fits.",
+                        refusal.contextLength(), formatBytes( refusal.footprint().totalDeviceBytes() ), available );
 
                 case DeploymentRefusal::Reason::NothingAboveTheFloorFits:
                     return std::format(
-                        "even context {} needs {} and this GPU has {} free.",
-                        refusal.contextLength(), formatBytes( refusal.footprint().totalDeviceBytes() ), free );
+                        "even context {} needs {} and this GPU {}.",
+                        refusal.contextLength(), formatBytes( refusal.footprint().totalDeviceBytes() ), available );
 
                 case DeploymentRefusal::Reason::DeviceDoesNotReportMemory:
                     return "this GPU does not report its memory, so no context length can be measured for it. "
@@ -1520,7 +1598,7 @@ namespace Mila::ChatApp
             {
                 deployment_plan_.reset();
 
-                throw std::runtime_error( describeRefusal( error.refusal() ) );
+                throw std::runtime_error( describeRefusal( error.refusal(), config_.quantization_mode, false ) );
             }
         }
 

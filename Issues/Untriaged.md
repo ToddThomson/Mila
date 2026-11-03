@@ -24,16 +24,6 @@ Clang 22, a library build: `setParameters` overrides but is not marked `override
 (`-Winconsistent-missing-override`), and instantiating `fill_uniform` and `fill_normal` references the TU-local `cudaMalloc<float>`
 and its `devPtr` and `size` (`-Wreference-tu-local-entity-in-other-tu`). 11 warnings, none from Agents. MSVC gives none of them.
 
-## Chat unloads its model before refusing a context longer than the model was trained for
-
-`Apps/Chat/Src/Chat.Session.ixx` `setContextLength`, `switchModel`; `Lib/Src/Agents/Agent.ixx` `check` @ 0.21.0-dev+108
-
-Workaround chosen by Todd, 2026-10-31: kept for one change, to be fixed in Mila::Agents after the move. Since Chat's family
-ceilings were deleted, `/context 300000` on Llama 3.2 3B releases the model, then the planner refuses ("planDeployment:
-context length 300000 exceeds the trained maximum 131072"), leaving nothing loaded; before, Chat refused first and kept
-the model. The same holds for a fixed context carried across a model switch. Proposed fix: `Agent::check` refuses a
-fixed context past the trained maximum, before a program releases anything, in the library's words.
-
 ## A pnpm project may not build under Mila Desktop's commands, which tell Node to keep links as named
 
 `Apps/Desktop/Session/Src/Tools/Desktop.ProgramSetup.ixx` (`NODE_OPTIONS`) @ 7cf45bdd

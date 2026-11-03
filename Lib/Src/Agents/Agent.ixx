@@ -188,7 +188,7 @@ namespace Mila::Agents
          * The session is moved from only once the model has opened: a create that throws leaves the caller's session
          * as it was, conversation included.
          *
-         * @throws OpenRefusedError       for every refusal check gives, before a file is read.
+         * @throws OpenRefusedError       for every refusal check gives, before anything is loaded.
          * @throws DeploymentRefusedError as Handle::open.
          */
         static BasicAgent create( std::string_view name, const DeploymentRequest& request = {}, Session&& session = {},

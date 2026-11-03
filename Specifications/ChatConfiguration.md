@@ -465,13 +465,18 @@ session, editing a file and restarting, immediately after the number had been me
 | `/context <n>` | rebuilds at exactly *n* |
 | `/context auto` | rebuilds at the largest context that fits, by the same scan §6 describes |
 
-Four decisions, each following from something already settled here.
+Five decisions, each following from something already settled here.
 
 **It rebuilds the model, and the conversation survives.** Context sizes the KV cache and the
 activation workspaces at build time and there is no in-place resize, so this is `switchModel`'s
 release-then-load path with the same weights. It differs from `/model` in the way the user notices:
 `/model` clears history because the tokenizer and the template change, and neither changes here, so
 the transcript stays and re-prefills on the next turn.
+
+**What could never load is refused with the model still resident.** `/context <n>` and `/model` first
+ask `Agent::check`, which knows the trained maximum, then plan against the whole card, since free memory
+read with the model resident describes a card that still holds it. A request that passes can still fail
+on what else holds the card's memory, and only then is nothing left loaded.
 
 **The number is passed through exactly.** Rounding a requested 8000 up to the 1024 grid the scan
 reports on would be the silent device override §3 rules out. A user who writes 8192 gets 8192.

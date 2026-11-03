@@ -1197,12 +1197,35 @@ namespace Mila::Tests::AI
         Session session;
         session.openConversation( { { Conversation::Role::User, "Hello" }, { Conversation::Role::Assistant, "Hi." } } );
 
-        // Past any context the model addresses: refused by the planner, after the check passed.
+        // Headroom no card has: refused by the planner, after the check passed.
+        DeploymentRequest request = *requestThatFits( *name );
+        request.withHeadroom( std::size_t( 1 ) << 60 );
+
+        ASSERT_FALSE( Agent::check( *name, request ).has_value() );
+        EXPECT_THROW( (void)Agent::create( *name, request, std::move( session ) ), DeploymentRefusedError );
+        EXPECT_EQ( session.conversation().size(), 2u );
+    }
+
+    TEST( AgentCuda, AContextPastTheTrainedMaximumIsRefusedByTheCheckLeavingTheSessionAsItWas )
+    {
+        const auto name = firstInstalled( { "gemma-4-12b-it-fp4", "gemma-4-12b-it-q4_0" } );
+
+        if ( const auto skipped = whyNotRunnable( name ) )
+        {
+            GTEST_SKIP() << *skipped;
+        }
+
+        Session session;
+        session.openConversation( { { Conversation::Role::User, "Hello" }, { Conversation::Role::Assistant, "Hi." } } );
+
         DeploymentRequest request = *requestThatFits( *name );
         request.withContextLength( dim_t( 1 ) << 30 );
 
-        ASSERT_FALSE( Agent::check( *name, request ).has_value() );
-        EXPECT_ANY_THROW( (void)Agent::create( *name, request, std::move( session ) ) );
+        const std::optional<OpenRefusal> refusal = Agent::check( *name, request );
+
+        ASSERT_TRUE( refusal.has_value() );
+        EXPECT_EQ( refusal->reason, OpenRefusal::Reason::ContextPastTrainedMaximum );
+        EXPECT_THROW( (void)Agent::create( *name, request, std::move( session ) ), OpenRefusedError );
         EXPECT_EQ( session.conversation().size(), 2u );
     }
 

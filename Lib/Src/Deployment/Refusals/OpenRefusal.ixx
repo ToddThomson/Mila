@@ -42,7 +42,10 @@ namespace Mila::Deployment
             WeightFormatUnknown,
 
             /// The request names a weight format its stored weights cannot be loaded as.
-            WeightFormatNotDerivable
+            WeightFormatNotDerivable,
+
+            /// The request fixes a context longer than the model was trained for.
+            ContextPastTrainedMaximum
         };
 
         Reason reason{ Reason::NotInstalled };

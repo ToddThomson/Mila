@@ -28,11 +28,13 @@ import Distribution.ModelStore;
 import Dnn.WeightQuantization;
 import Deployment.OpenRefusal;
 import Deployment.OpenRefusedError;
+import Serialization.WeightsReader;
 
 namespace Mila::Deployment
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
+    using namespace Mila::Dnn::Serialization;
     using namespace Mila::Distribution;
 
     /**
@@ -51,10 +53,11 @@ namespace Mila::Deployment
         using LanguageModelType = LanguageModel<TDeviceType, TPrecision>;
 
         /**
-         * @brief Whether a name would open, without loading or reading anything but its record: the reason it would
-         *        not, or nothing when it would.
+         * @brief Whether a name would open, loading nothing: the reason it would not, or nothing when it would.
          *
-         * A base model opens: it has no protocol. Whether it fits the device is the planner's answer, not this one.
+         * Reads the model's record and, for a request that fixes a context, the header of its weights, where the
+         * trained maximum is. Weights whose header cannot be read pass here, and the load says why. A base model
+         * opens: it has no protocol. Whether it fits the device is the planner's answer, not this one.
          */
         [[nodiscard]] static std::optional<OpenRefusal> check(
             std::string_view name, const DeploymentRequest& request = {}, const ModelStore& store = ModelStore{} )
@@ -136,6 +139,18 @@ namespace Mila::Deployment
                 }
             }
 
+            if ( !request.isContextLengthAutomatic() )
+            {
+                const dim_t maximum = trainedMaximum( installed );
+
+                if ( maximum > 0 && request.getContextLength() > maximum )
+                {
+                    return OpenRefusal{ OpenRefusal::Reason::ContextPastTrainedMaximum, name, std::format(
+                        "'{}' was trained for a context of at most {} tokens, and {} was asked for",
+                        name, maximum, request.getContextLength() ) };
+                }
+            }
+
             return std::nullopt;
         }
 
@@ -145,7 +160,7 @@ namespace Mila::Deployment
          * Never installs. The tokenizer and the chat template are read before the weights, so a model that cannot
          * be conversed with is refused before its load.
          *
-         * @throws OpenRefusedError       for every refusal check gives, before anything is read.
+         * @throws OpenRefusedError       for every refusal check gives, before anything is loaded.
          * @throws DeploymentRefusedError when nothing fits the device, carrying the refusal.
          */
         static ModelHandle open(
@@ -266,6 +281,19 @@ namespace Mila::Deployment
               plan_( std::move( plan ) ),
               prefix_reuse_( prefix_reuse )
         {}
+
+        /// The longest context the weights declare, or zero when their header cannot be read.
+        static dim_t trainedMaximum( const InstalledModel& installed )
+        {
+            try
+            {
+                return static_cast<dim_t>( WeightsReader( installed.weightsPath() ).getWeightsMetadata().max_seq_length );
+            }
+            catch ( const std::exception& )
+            {
+                return 0;
+            }
+        }
 
         /// The installed model of that name, once check finds nothing to refuse.
         static InstalledModel checkedNamed( std::string_view name, const DeploymentRequest& request, const ModelStore& store )

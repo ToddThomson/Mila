@@ -244,8 +244,8 @@ opened, so a create that throws leaves the caller's session as it was.
 
 **Before a release, a check.** `Agent::check( name, request, store )` says whether the name opens as an agent,
 loading nothing, and returns the reason it does not as an `OpenRefusal`; `ModelHandle::open` runs the same check and
-throws it as an `OpenRefusedError`, so the two never disagree. Whether the model fits is not part of it: that is
-read from free memory, which the resident model still holds.
+throws it as an `OpenRefusedError`, so the two never disagree. A fixed context past the trained maximum is part of it.
+Whether the model fits is not: that is read from free memory, which the resident model still holds.
 
 **Changing the model, or its context, is giving the session back and creating another agent from it.**
 `std::move( agent ).release()` consumes the agent, so none is left to call by mistake, and frees its model before

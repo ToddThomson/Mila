@@ -62,9 +62,10 @@ namespace Mila::Tests::AI
              *
              * @param weight_quantization The scheme the record declares; empty for reference weights.
              * @param complete            False leaves the weights' file out of the store.
+             * @param weights             The weights' bytes; empty for a few that no reader can read.
              */
             void install( std::string name, std::string architecture, std::string architecture_version = {},
-                std::string weight_quantization = {}, bool complete = true ) const
+                std::string weight_quantization = {}, bool complete = true, const std::string& weights = {} ) const
             {
                 ModelStore target = store();
 
@@ -77,7 +78,8 @@ namespace Mila::Tests::AI
 
                 for ( const char* role : { "weights", "tokenizer" } )
                 {
-                    const std::string payload = record.name + role;
+                    const std::string payload =
+                        std::string_view( role ) == "weights" && !weights.empty() ? weights : record.name + role;
                     const std::string digest = sha256Hex( payload.data(), payload.size() );
 
                     std::filesystem::create_directories( target.blobPath( digest ).parent_path() );
@@ -105,6 +107,19 @@ namespace Mila::Tests::AI
 
             std::filesystem::path root_;
         };
+
+        /// A safetensors file of one tensor, whose header declares this trained maximum.
+        std::string weightsTrainedFor( dim_t maximum )
+        {
+            const std::string header = std::format(
+                R"({{"__metadata__":{{"mila_config":"{{\"max_seq_length\": {}}}"}},"t":{{"dtype":"F32","shape":[1],"data_offsets":[0,4]}}}})",
+                maximum );
+
+            const std::uint64_t length = header.size();
+            std::string file( reinterpret_cast<const char*>( &length ), sizeof( length ) );
+
+            return file + header + std::string( 4, '\0' );
+        }
 
         DeploymentRequest requestOn( int device_index )
         {
@@ -376,6 +391,47 @@ namespace Mila::Tests::AI
         EXPECT_EQ( checked( scratch, "gemma-reference", fp4 ), std::nullopt );
         EXPECT_EQ( checked( scratch, "gemma-q4_0", fp4 ), Reason::WeightFormatNotDerivable );
         EXPECT_EQ( checked( scratch, "gemma-q4_0", q4_0 ), std::nullopt );
+    }
+
+    TEST( ModelHandle, ChecksAFixedContextAgainstTheTrainedMaximumItsWeightsDeclare )
+    {
+        using Reason = Mila::Deployment::OpenRefusal::Reason;
+
+        ScratchStore scratch;
+        scratch.install( "gemma-short", "gemma", {}, {}, true, weightsTrainedFor( 8192 ) );
+
+        DeploymentRequest at_maximum = requestOn( 0 );
+        at_maximum.withContextLength( 8192 );
+
+        DeploymentRequest past_maximum = requestOn( 0 );
+        past_maximum.withContextLength( 8193 );
+
+        DeploymentRequest automatic = requestOn( 0 );
+        automatic.withAutomaticContextLength();
+
+        EXPECT_EQ( checked( scratch, "gemma-short", at_maximum ), std::nullopt );
+        EXPECT_EQ( checked( scratch, "gemma-short", automatic ), std::nullopt );
+        EXPECT_EQ( checked( scratch, "gemma-short", past_maximum ), Reason::ContextPastTrainedMaximum );
+
+        const auto refusal = Handle::check( "gemma-short", past_maximum, scratch.store() );
+
+        ASSERT_TRUE( refusal.has_value() );
+        EXPECT_NE( refusal->detail.find( "8192" ), std::string::npos ) << refusal->detail;
+        EXPECT_NE( refusal->detail.find( "8193" ), std::string::npos ) << refusal->detail;
+
+        // Refused before the weights are planned, whichever card the request names.
+        EXPECT_THROW( Handle::open( "gemma-short", past_maximum, scratch.store() ), OpenRefusedError );
+    }
+
+    TEST( ModelHandle, CheckLeavesWeightsWhoseHeaderCannotBeReadToTheLoad )
+    {
+        ScratchStore scratch;
+        scratch.install( "gemma-unreadable", "gemma" );
+
+        DeploymentRequest fixed = requestOn( 0 );
+        fixed.withContextLength( 1 << 30 );
+
+        EXPECT_EQ( checked( scratch, "gemma-unreadable", fixed ), std::nullopt );
     }
 
     TEST( ModelHandle, OpenRefusesWhatTheCheckRefusesWithTheSameReason )
