@@ -634,8 +634,8 @@ Gate: a manifest carrying `superseded_by` is read by this tree and by v0.20.0's 
 unchanged; `list`, `describe`, `pull` and Chat name the successor for it and say nothing for a model without
 it; `mila-llm/gemma-4-12b-it-fp4` carries the field and the card line once `gemma-4-12B-it-q4_0` is published.
 
-`Lib/Src/Distribution/ModelManifest.ixx:330` · `Lib/Src/Distribution/ModelStore.ixx:1253` ·
-`Lib/Store/Store.ixx:346` · `Apps/Chat/Src/Chat.ModelCatalog.ixx:796` ·
+`Lib/Src/Distribution/Packaging/ModelManifest.ixx:330` · `Lib/Src/Distribution/Store/ModelStore.ixx:1253` ·
+`Lib/Store/Store.ixx:346` · `Apps/Chat/Src/Models/Chat.ModelCatalog.ixx:796` ·
 `Lib/Tools/Publishing/publish_model.py`
 
 ### Performance Next to llama.cpp
@@ -972,7 +972,7 @@ Gate: no app or the binding parses `architecture` or `variant`; a model loads or
 Chat, the binding and the inference server; `/model list` and `mila-store` report the planner's answer; a request
 naming no weight format loads every published variant.
 
-`Specifications/Deployment.md` 8.1 · `Apps/Chat/Src/Chat.ModelCatalog.ixx`
+`Specifications/Deployment.md` 8.1 · `Apps/Chat/Src/Models/Chat.ModelCatalog.ixx`
 
 #### Chat and the inference server live under a directory named for what they are not, and Mila's commands follow three naming styles
 
@@ -1069,7 +1069,7 @@ at a near-tie its reply depends on what the server ran before -- the case an eng
 server is in. Not checked: how often greedy flips on real prompts, and whether greedy calls should also prefill
 whole.
 
-`Lib/Bindings/Python/Mila_py.Wrappers.cpp` (reuse off only with a seed) · `Specifications/PromptCaching.md` section 5
+`Lib/Bindings/Python/Wrappers/Mila_py.Wrappers.cpp` (reuse off only with a seed) · `Specifications/PromptCaching.md` section 5
 
 #### Library doc comments still describe the retired operation registry and the removed operation bases
 

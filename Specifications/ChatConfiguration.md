@@ -569,7 +569,7 @@ would be a second way to choose a configuration, solving a duplication problem t
 already solved.
 
 **Config root, beside the store root.** `resolveStoreRoot()` in
-`Lib/Src/Distribution/ModelStore.ixx:87` already resolves the cache per platform. A
+`Lib/Src/Distribution/Store/ModelStore.ixx:87` already resolves the cache per platform. A
 `resolveConfigRoot()` mirrors its shape with configuration directories:
 
 | Platform | Path |

@@ -851,7 +851,7 @@ grows without bound.
 The substrate is further along than the absence of the feature suggests.
 
 - **The family key is plumbed end to end.** `base_model` is on the published manifest
-  (`Distribution/ModelManifest.ixx:65`), on the store record (`Distribution/ModelStore.ixx:131`), and
+  (`Distribution/Packaging/ModelManifest.ixx:65`), on the store record (`Distribution/Store/ModelStore.ixx:131`), and
   on Chat's resolved model (`Chat.ModelCatalog.ixx:514`). Every installed model already declares which
   family it realizes, so grouping variants by family needs no new field.
 - **Nothing loads by name.** The loader reads `variant` from the manifest, never the name, so

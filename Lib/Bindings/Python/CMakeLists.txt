@@ -13,7 +13,7 @@ set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
 pybind11_add_module(MilaPy
     Mila_py.cpp
-    Mila_py.Wrappers.cpp
+    Wrappers/Mila_py.Wrappers.cpp
     Mila_py.Runtime.cpp
     Mila_py.Deployment.cpp
     Mila_py.ChatProtocol.cpp
@@ -27,25 +27,25 @@ target_sources(MilaPy
 PUBLIC
     FILE_SET module_files
     TYPE CXX_MODULES FILES
-        "Mila_py.Wrappers.ixx"
-        "Mila_py.Wrappers.LlamaConfigInfo.ixx"
-        "Mila_py.Wrappers.GemmaConfigInfo.ixx"
-        "Mila_py.Wrappers.QwenConfigInfo.ixx"
-        "Mila_py.Wrappers.ToolCallInfo.ixx"
-        "Mila_py.Wrappers.TurnInfo.ixx"
-        "Mila_py.Wrappers.ProtocolTokens.ixx"
-        "Mila_py.Wrappers.Tokenizer.ixx"
-        "Mila_py.Wrappers.LlamaSession.ixx"
-        "Mila_py.Wrappers.StoredModelInfo.ixx"
-        "Mila_py.Wrappers.StoreUsageInfo.ixx"
-        "Mila_py.Wrappers.RemovalReportInfo.ixx"
-        "Mila_py.Wrappers.HubModelInfo.ixx"
-        "Mila_py.Wrappers.HttpHeaderInfo.ixx"
-        "Mila_py.Wrappers.HttpResponseInfo.ixx"
-        "Mila_py.Wrappers.ModelStoreHandle.ixx"
-        "Mila_py.Wrappers.GemmaSession.ixx"
-        "Mila_py.Wrappers.QwenSession.ixx"
-        "Mila_py.Wrappers.SamplingSettingsInfo.ixx"
+        "Wrappers/Mila_py.Wrappers.ixx"
+        "Wrappers/Mila_py.Wrappers.LlamaConfigInfo.ixx"
+        "Wrappers/Mila_py.Wrappers.GemmaConfigInfo.ixx"
+        "Wrappers/Mila_py.Wrappers.QwenConfigInfo.ixx"
+        "Wrappers/Mila_py.Wrappers.ToolCallInfo.ixx"
+        "Wrappers/Mila_py.Wrappers.TurnInfo.ixx"
+        "Wrappers/Mila_py.Wrappers.ProtocolTokens.ixx"
+        "Wrappers/Mila_py.Wrappers.Tokenizer.ixx"
+        "Wrappers/Mila_py.Wrappers.LlamaSession.ixx"
+        "Wrappers/Mila_py.Wrappers.StoredModelInfo.ixx"
+        "Wrappers/Mila_py.Wrappers.StoreUsageInfo.ixx"
+        "Wrappers/Mila_py.Wrappers.RemovalReportInfo.ixx"
+        "Wrappers/Mila_py.Wrappers.HubModelInfo.ixx"
+        "Wrappers/Mila_py.Wrappers.HttpHeaderInfo.ixx"
+        "Wrappers/Mila_py.Wrappers.HttpResponseInfo.ixx"
+        "Wrappers/Mila_py.Wrappers.ModelStoreHandle.ixx"
+        "Wrappers/Mila_py.Wrappers.GemmaSession.ixx"
+        "Wrappers/Mila_py.Wrappers.QwenSession.ixx"
+        "Wrappers/Mila_py.Wrappers.SamplingSettingsInfo.ixx"
         "Mila_py.Runtime.ixx"
         "Mila_py.Deployment.ixx"
         "Mila_py.ChatProtocol.ixx"

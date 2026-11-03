@@ -266,8 +266,8 @@ One type each, in `Lib/Src/Agents/` unless named:
 | `Agents.SecondNameWatch` | the walk and watcher of 4.3 for one granted folder: the files with a name elsewhere |
 | `Agents.ToolNeeds`, `Agents.ToolGrant` | changed: `runs_programs`; `runProgram`, the program folders and the container |
 | `Agents.PublicAddress` | changed: `nonPublicRanges()`, the deny list of 4.5 drawn from its own table |
-| `Apps/Desktop/Session/Src/Desktop.CommandTool.ixx` | `run_command` |
-| `Apps/Desktop/Session/Src/Desktop.ProgramSetup.ixx` | the build tools' folders and variables of section 5 |
+| `Apps/Desktop/Session/Src/Tools/Desktop.CommandTool.ixx` | `run_command` |
+| `Apps/Desktop/Session/Src/Tools/Desktop.ProgramSetup.ixx` | the build tools' folders and variables of section 5 |
 
 ## 8. Phases
 

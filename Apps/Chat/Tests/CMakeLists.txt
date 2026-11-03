@@ -19,7 +19,7 @@ PUBLIC
     TYPE CXX_MODULES
     BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/../Src"
     FILES
-        "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Chat.RichText.ixx"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Console/Chat.RichText.ixx"
 )
 
 set_target_properties( ChatRichTextTests PROPERTIES

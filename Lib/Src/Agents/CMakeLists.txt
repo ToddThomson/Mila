@@ -30,33 +30,33 @@ target_sources( MilaAgents
     PUBLIC
         FILE_SET module_files
         TYPE CXX_MODULES FILES
-            "ToolNeeds.ixx"
-            "FolderAccess.ixx"
-            "GrantFolder.ixx"
-            "FolderEntry.ixx"
-            "GrantPath.ixx"
-            "PublicAddress.ixx"
-            "GrantFile.ixx"
-            "ProgramRequest.ixx"
-            "ProgramResult.ixx"
-            "ProgramFolders.ixx"
-            "ContainedRun.ixx"
-            "ProgramContainer.ixx"
-            "ToolGrant.ixx"
-            "Tool.ixx"
-            "FileTools.ixx"
-            "HtmlText.ixx"
-            "WebPageReader.ixx"
-            "ToolQuestion.ixx"
-            "ToolAnswer.ixx"
-            "ToolPermission.ixx"
-            "ArgumentCondition.ixx"
-            "ToolRule.ixx"
-            "ToolRules.ixx"
-            "ToolDecision.ixx"
-            "ToolOutcome.ixx"
-            "ArgumentSchema.ixx"
-            "ToolGate.ixx"
+            "Tools/ToolNeeds.ixx"
+            "Grants/FolderAccess.ixx"
+            "Grants/GrantFolder.ixx"
+            "Grants/FolderEntry.ixx"
+            "Grants/GrantPath.ixx"
+            "Grants/PublicAddress.ixx"
+            "Grants/GrantFile.ixx"
+            "Programs/ProgramRequest.ixx"
+            "Programs/ProgramResult.ixx"
+            "Programs/ProgramFolders.ixx"
+            "Programs/ContainedRun.ixx"
+            "Programs/ProgramContainer.ixx"
+            "Grants/ToolGrant.ixx"
+            "Tools/Tool.ixx"
+            "ProvidedTools/FileTools.ixx"
+            "ProvidedTools/HtmlText.ixx"
+            "ProvidedTools/WebPageReader.ixx"
+            "Tools/ToolQuestion.ixx"
+            "Tools/ToolAnswer.ixx"
+            "Tools/ToolPermission.ixx"
+            "Tools/ArgumentCondition.ixx"
+            "Tools/ToolRule.ixx"
+            "Tools/ToolRules.ixx"
+            "Tools/ToolDecision.ixx"
+            "Tools/ToolOutcome.ixx"
+            "Tools/ArgumentSchema.ixx"
+            "Tools/ToolGate.ixx"
             "AgentEvent.ixx"
             "AgentLimits.ixx"
             "Response.ixx"
@@ -78,7 +78,7 @@ if(WIN32)
         PUBLIC
             FILE_SET module_files
             TYPE CXX_MODULES FILES
-                "GrantFileSystem.Windows.ixx"
+                "Grants/GrantFileSystem.Windows.ixx"
     )
 
     # NtCreateFile: creating a name inside a folder already opened, rather than by walking a path again.
@@ -88,7 +88,7 @@ else()
         PUBLIC
             FILE_SET module_files
             TYPE CXX_MODULES FILES
-                "GrantFileSystem.Posix.ixx"
+                "Grants/GrantFileSystem.Posix.ixx"
     )
 endif()
 
@@ -111,8 +111,8 @@ if(WIN32)
         PUBLIC
             FILE_SET module_files
             TYPE CXX_MODULES FILES
-                "SecondNameWatch.ixx"
-                "ToolDesktop.ixx"
+                "Programs/SecondNameWatch.ixx"
+                "Programs/ToolDesktop.ixx"
     )
 endif()
 
@@ -121,7 +121,7 @@ if(WIN32 AND MILA_ENABLE_MXC)
         PUBLIC
             FILE_SET module_files
             TYPE CXX_MODULES FILES
-                "MxcProgramContainer.Windows.ixx"
+                "Programs/MxcProgramContainer.Windows.ixx"
     )
 
     # The person's local application data folder, asked of the shell (SHGetKnownFolderPath).
@@ -133,7 +133,7 @@ else()
         PUBLIC
             FILE_SET module_files
             TYPE CXX_MODULES FILES
-                "MxcProgramContainer.Absent.ixx"
+                "Programs/MxcProgramContainer.Absent.ixx"
     )
 
     message( STATUS "Added program container: none" )

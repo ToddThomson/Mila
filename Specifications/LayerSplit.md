@@ -362,7 +362,7 @@ three places a split breaks, and several it does not.
 
 A model has an **input device** (stage 0: token ids, embedding) and an **output device** (the last stage:
 logits, sampling). `getDeviceId()` keeps meaning the input device. Every current caller of it in
-`Lib/Src/Dnn/Models` and `Core/LanguageModel.ixx` is audited for which of the two it means.
+`Lib/Src/Dnn/Models` and `Core/Models/LanguageModel.ixx` is audited for which of the two it means.
 
 ---
 

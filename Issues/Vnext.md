@@ -91,7 +91,7 @@ Every other family answers "will this fit on my card" before loading anything; G
 implement `getRequiredMemory`, so installing `gpt2-small` and asking Chat about it gets silence.
 Eight of its components still throw the base class's by-design "not implemented" error — Gelu,
 MultiHeadAttention, Lpe, MLP, SoftmaxCrossEntropy, LayerNorm, Softmax, GptBlock — and the
-contract has been landing one family at a time (`Core/Component.ixx:615`), with GPT-2 the one left.
+contract has been landing one family at a time (`Core/Components/Component.ixx:615`), with GPT-2 the one left.
 
 Its footprint is the simplest of the four: no quantization policy, no sliding-window ring, and
 learned positional embeddings sized exactly to `context_length`.
@@ -1240,7 +1240,7 @@ target is at least 64K at a chunk of at least 512 (`Qwen3.8.md`). Todd, 2026-10-
 provided settings -- a value the caller gives is a constraint the plan honours, as the fixed context already is. Not
 checked: what the request, Chat, the server and the binding would each carry.
 
-`Lib/Src/Deployment/DeploymentRequest.ixx` · `Specifications/Deployment.md` section 5
+`Lib/Src/Deployment/Planning/DeploymentRequest.ixx` · `Specifications/Deployment.md` section 5
 
 ## Nobody can tell a user when a smaller model beats a larger one quantized harder on their card
 

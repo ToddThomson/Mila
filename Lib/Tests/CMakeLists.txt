@@ -480,7 +480,7 @@ PUBLIC
     TYPE CXX_MODULES
     BASE_DIRS "${CMAKE_SOURCE_DIR}/Lib/Src/Agents"
     FILES
-        "${CMAKE_SOURCE_DIR}/Lib/Src/Agents/HtmlText.ixx"
+        "${CMAKE_SOURCE_DIR}/Lib/Src/Agents/ProvidedTools/HtmlText.ixx"
 )
 
 set_target_properties( AgentsHtmlTextTests PROPERTIES

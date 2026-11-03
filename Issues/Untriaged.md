@@ -22,7 +22,7 @@ fixed context past the trained maximum, before a program releases anything, in t
 
 ## A pnpm project may not build under Mila Desktop's commands, which tell Node to keep links as named
 
-`Apps/Desktop/Session/Src/Desktop.ProgramSetup.ixx` (`NODE_OPTIONS`) @ 7cf45bdd
+`Apps/Desktop/Session/Src/Tools/Desktop.ProgramSetup.ixx` (`NODE_OPTIONS`) @ 7cf45bdd
 
 Measured 2026-10-31 (`Notebooks/MxcConformance.md` 7.1): in MXC's container Node's resolving of a script's real
 path stats the drive's root, which is refused, so every `node` and `npm` run failed; `--preserve-symlinks
@@ -58,7 +58,7 @@ Also measured 2026-10-27 (`ContainedPrograms.md` phase 1): with no folder grante
 
 ## On NTFS a contained run walks its folders whole before every run
 
-`Lib/Src/Agents/SecondNameWatch.ixx` (`watcher_reports_every_name_`) @ 7b5248a2
+`Lib/Src/Agents/Programs/SecondNameWatch.ixx` (`watcher_reports_every_name_`) @ 7b5248a2
 
 Todd, 2026-10-31 (`ContainedPrograms.md` decision 7, narrowed): `ReadDirectoryChangesW` on NTFS reports no name made
 outside for a file inside, so off ReFS every run walks the granted folders whole -- about 115 ms for 7,500 files,
@@ -67,7 +67,7 @@ outside for a file inside, so off ReFS every run walks the granted folders whole
 
 ## The grant refuses a file with a second name even when every name lies inside the folder
 
-`Lib/Src/Agents/ToolGrant.ixx` (`requireOneName`) @ 7b5248a2
+`Lib/Src/Agents/Grants/ToolGrant.ixx` (`requireOneName`) @ 7b5248a2
 
 Todd, 2026-10-27 (`ContainedPrograms.md` decision 5): kept for v0.21.0. `FindFirstFileNameW` and
 `FindNextFileNameW` list a file's names, so the grant could accept a file whose names all lie within granted
@@ -97,7 +97,7 @@ at all -- three edits, then an answer claiming a README change it never made. Wh
 
 ## Off Windows a tool's grant holds no folder, so no file tool can run there
 
-`Lib/Src/Agents/GrantFileSystem.Posix.ixx`; an absence -- no POSIX file checks behind the grant @ f42c0d95
+`Lib/Src/Agents/Grants/GrantFileSystem.Posix.ixx`; an absence -- no POSIX file checks behind the grant @ f42c0d95
 
 Todd, 2026-10-27: the grant is Windows-only for now (`ToolCalling.md` 3.4 *Where*). Every POSIX call refuses, so a
 grant of folders throws and a tool reaches none. The likely route is Linux's `openat2` with `RESOLVE_BENEATH` from
@@ -106,14 +106,14 @@ plus a link-count check for hard links, which the man page does not mention. Unm
 
 ## Nobody has read whether Tavily's terms let Mila Desktop keep search results in a saved conversation
 
-`Apps/Desktop/Session/Src/Desktop.WebSearch.ixx`; an absence -- Tavily's terms of service not read @ da647c29
+`Apps/Desktop/Session/Src/Tools/Desktop.WebSearch.ixx`; an absence -- Tavily's terms of service not read @ da647c29
 
 Found 2026-10-26 adding Tavily web search: a saved conversation keeps every tool result, search results included, and
 Tavily's credits page says nothing on keeping or showing results. Brave grants that only on some plans.
 
 ## Mila's HTTP transport names itself Mila 0.20 to every server
 
-`Lib/Src/Distribution/CurlHttpTransport.ixx` (`CURLOPT_USERAGENT`, "Mila/0.20") @ da647c29
+`Lib/Src/Distribution/Http/CurlHttpTransport.ixx` (`CURLOPT_USERAGENT`, "Mila/0.20") @ da647c29
 
 Found 2026-10-26 writing Mila Desktop's page reader, which fetches through it: the user agent is a written-in
 string from the 0.20 cycle, not `Version.txt`'s, so model installs and web pages alike are requested as Mila 0.20.
@@ -291,3 +291,21 @@ Removed 2026-10-26 when the installer began carrying the session (`MilaDesktop.m
 refuses to run without `Window/session/` staged from a C++ build, and the app's workflow (`desktop.yml`) has no C++ build. Before
 that the job's upload was an installer that ran only the mock. Nothing builds the installer now but a person
 with a Release build directory (`Apps/Desktop/README.md`, *Staging it for the window*).
+
+## Llama's date default throws when the standard library cannot name the machine's time zone
+
+`Lib/Src/Dnn/Models/LlaMa/Llama.ChatProtocol.ixx:278` (`std::chrono::current_zone`) @ 0.21.0-dev+114
+
+`current_zone()` throws "unable to locate time_zone with given name" on a machine whose Windows zone is British
+Columbia Standard Time, seen 2026-11-02. Three `MilaTests` fail on it: `LlamaChatProtocol.ASystemTurnAfterAReplyRendersWhereItStands`,
+`LlamaChatProtocolVariables.TheDateDefaultsAsEachTemplateDefaultsIt`, `LlamaChatProtocolContinuation.IsWhatTheTemplateRendersAfterTheCall`.
+The test's own expectation calls `current_zone()` too (`Lib/Tests/Dnn/Models/LlaMa/Llama.ChatProtocol.cpp:574`). The zone as the cause
+is not confirmed, and a real load or turn was not run.
+
+## The contained-run tests fail, not skip, in an MXC build with no `MILA_MXC_LIBRARY`
+
+`Lib/Tests/Agents/ToolGrant.Programs.cpp:282` (`openMxc`, `MxcProgramContainer::open( {} )`) @ 0.21.0-dev+114
+
+With `MILA_ENABLE_MXC=ON` and the variable unset, every `ContainedRunTest` throws in `SetUp()`: "absolute: The filename,
+directory name, or volume label syntax is incorrect". The comment there expects the absent container, and the `GTEST_SKIP`
+below it never runs. 14 tests in `x64-claude-verify`, the same before and after the 0.21.0-dev+114 file moves.

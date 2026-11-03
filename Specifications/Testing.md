@@ -18,7 +18,7 @@ Complete public-API coverage means **one test file per public module**. The test
 tree mirrors `Lib/Src` exactly:
 
 ```
-Src/Dnn/Core/Component.ixx                       -> Lib/Tests/Dnn/Core/Component.cpp
+Src/Dnn/Core/Components/Component.ixx                       -> Lib/Tests/Dnn/Core/Component.cpp
 Src/Dnn/Components/Activations/Gelu/Gelu.ixx     -> Lib/Tests/Dnn/Components/Activations/Gelu/Gelu.Cuda.cpp
 ```
 

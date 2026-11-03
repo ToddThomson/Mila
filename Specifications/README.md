@@ -129,7 +129,7 @@ means a status line or target is out of date and the rest has not been re-read.
 |---|---|---|---|
 | [ModelDistribution.md](ModelDistribution.md) | Design | Naming, packaging, the manifest and the local store | |
 | [ModelSerialization.md](ModelSerialization.md) | Design | Checkpoints and the flat weights path | |
-| [HttpClient.md](HttpClient.md) | Design | The HTTP transport behind fetching | Built: `Distribution/HttpClient.ixx`, `HttpTransport.ixx` and `CurlHttpTransport.ixx` implement it and cite it. Its status line still says "proposed" |
+| [HttpClient.md](HttpClient.md) | Design | The HTTP transport behind fetching | Built: `Distribution/Http/HttpClient.ixx`, `HttpTransport.ixx` and `CurlHttpTransport.ixx` implement it and cite it. Its status line still says "proposed" |
 
 ### Agents and tools
 

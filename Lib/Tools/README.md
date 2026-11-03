@@ -56,7 +56,7 @@ model, with two negative controls.
 `quality_gate.py` drives four modules: `formats.py` (the level sets, grouping and codebook fitting),
 `fit.py` (activation calibration and sequential GPTQ), `artifact.py` (Mila-named safetensors
 emission) and `evaluate.py` (perplexity and greedy agreement against a BF16 reference).
-`packing.py` is the packed-layout codec, held to `Src/Dnn/Quantization/Weight/CodebookPacking.ixx`
+`packing.py` is the packed-layout codec, held to `Src/Dnn/Quantization/Weight/Packing/CodebookPacking.ixx`
 by a generated fixture the C++ oracle test bit-matches. Shares the `Converters/` virtual environment.
 
 ## ExportArtifact

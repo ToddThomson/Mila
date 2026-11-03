@@ -85,7 +85,7 @@ knowledge at all, provided the protocol is complete on the reply side (3.2).
 
 ### 3.1 One conversation, from every API
 
-Each endpoint's parser produces a `Conversation` (`Dnn/Models/Conversation.ixx`): turns of role `System`,
+Each endpoint's parser produces a `Conversation` (`Dnn/Models/Conversation/Conversation.ixx`): turns of role `System`,
 `User`, `Assistant` or `Tool`, an assistant turn carrying its `tool_calls`, plus the request's tool
 declarations as JSON. That type exists and both library protocols already render it; the server reduces to
 text before reaching it today.

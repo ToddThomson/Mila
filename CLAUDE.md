@@ -111,12 +111,12 @@ maintained surface that gains tests and rigor over time.
 
 Key files:
 - `Chat.Session.ixx` — `ChatSession`: the model as one `Mila::Agents::Agent`, which runs every turn and its tool calls; model hot-switching, the round measurements; never draws or reads input, and reports through `SessionEvents`
-- `Chat.ConsoleFrontEnd.ixx` — the console over the session: slash commands, tables, the live display, Ctrl+C stops a reply
-- `Chat.ModelCatalog.ixx` — resolves a store name to a loadable model, and owns the load refusals
-- `Chat.Config.ixx` — `ChatConfig`: the model a store name resolved to (its `WeightQuantization`), its device, context length, effort and sampling
-- `Chat.Footprint.ixx` — what a model would allocate at a context length, without allocating it
-- `Chat.Renderer.ixx` — `ConsoleRenderer` (standalone non-exported module): braille spinner, solid-color response blocks, word-wrap with leading-indent preservation, Unicode welcome box, ANSI stats line
-- `Chat.SettingsResolution.ixx` — the layered config resolution, compiled defaults included
+- `Console/Chat.ConsoleFrontEnd.ixx` — the console over the session: slash commands, tables, the live display, Ctrl+C stops a reply
+- `Models/Chat.ModelCatalog.ixx` — resolves a store name to a loadable model, and owns the load refusals
+- `Settings/Chat.Config.ixx` — `ChatConfig`: the model a store name resolved to (its `WeightQuantization`), its device, context length, effort and sampling
+- `Models/Chat.Footprint.ixx` — what a model would allocate at a context length, without allocating it
+- `Console/Chat.Renderer.ixx` — `ConsoleRenderer` (standalone non-exported module): braille spinner, solid-color response blocks, word-wrap with leading-indent preservation, Unicode welcome box, ANSI stats line
+- `Settings/Chat.SettingsResolution.ixx` — the layered config resolution, compiled defaults included
 - `main.cpp` — entry point and the command line
 
 Models are named by their store name, not by an alias table — `/model <name>` reports, `/model load <name> [quant]` loads, and lookup case-folds. See `Specifications/ChatConfiguration.md` for the layered config resolution.

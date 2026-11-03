@@ -14,18 +14,18 @@ PUBLIC
        TYPE CXX_MODULES FILES
         "Src/Desktop.SessionProcess.ixx"
         "Src/Desktop.ResidentAgent.ixx"
-        "Src/Desktop.Settings.ixx"
-        "Src/Desktop.SettingsFile.ixx"
-        "Src/Desktop.PromptTool.ixx"
-        "Src/Desktop.PromptFile.ixx"
+        "Src/Settings/Desktop.Settings.ixx"
+        "Src/Settings/Desktop.SettingsFile.ixx"
+        "Src/Tools/Desktop.PromptTool.ixx"
+        "Src/Tools/Desktop.PromptFile.ixx"
         "Src/Desktop.Models.ixx"
         "Src/Desktop.RoundTimer.ixx"
         "Src/Desktop.ConversationStore.ixx"
-        "Src/Desktop.CommandTool.ixx"
-        "Src/Desktop.ProgramSetup.ixx"
-        "Src/Desktop.TaskPlan.ixx"
-        "Src/Desktop.SearchKeyFile.ixx"
-        "Src/Desktop.WebSearch.ixx"
+        "Src/Tools/Desktop.CommandTool.ixx"
+        "Src/Tools/Desktop.ProgramSetup.ixx"
+        "Src/Tools/Desktop.TaskPlan.ixx"
+        "Src/Settings/Desktop.SearchKeyFile.ixx"
+        "Src/Tools/Desktop.WebSearch.ixx"
 )
 
 # The session builds the model templates of every family it can open, past MSVC's section limit (C1128) without it.

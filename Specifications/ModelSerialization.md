@@ -64,9 +64,9 @@ More exists than a first look suggests. The pieces below are shipped and working
 | `writeTensorBlob` | `Tensors/Tensor.Serialization.ixx:142` | writes `<prefix>/meta.json` + `<prefix>/data.bin` |
 | `readTensorBlob<MR>` | `Tensors/Tensor.Serialization.ixx:172` | reads both back into a `TensorBlob<MR>`; pinned-MR aware |
 | `ITensorBlob` / `TensorBlobView` | `Tensors/Tensor.Serialization.ixx:53`, `:110` | the type-erased boundary between a byte source and a component |
-| `Component::loadParameter( name, ITensorBlob& )` | `Core/Component.ixx:509` | implemented by all five parameter-owning components |
-| `Network::save()` | `Core/Network.ixx:273` | writes `network/meta.json`, `architecture.json`, then recurses |
-| `ComponentFactory::readComponentMeta` | `Core/ComponentFactory.ixx:68` | reads a component's `meta.json` under its scope |
+| `Component::loadParameter( name, ITensorBlob& )` | `Core/Components/Component.ixx:509` | implemented by all five parameter-owning components |
+| `Network::save()` | `Core/Models/Network.ixx:273` | writes `network/meta.json`, `architecture.json`, then recurses |
+| `ComponentFactory::readComponentMeta` | `Core/Components/ComponentFactory.ixx:68` | reads a component's `meta.json` under its scope |
 | `WeightsReader` | `Serialization/WeightsReader.ixx` | the flat `.bin` path; mmap + pinned double-buffer |
 
 **The load side is further along than "absent".** `ITensorBlob` is already the virtual boundary
@@ -87,7 +87,7 @@ a traversal (`Gemma.ixx:383`, `Llama.ixx:377`, `GptTransformer.ixx:532`, each ha
   `Load()`" convention in a comment block and provides no support for it. `GptModel.ixx:164` declares
   `fromCheckpoint()` and throws, naming what is absent (`GptConfig::fromArchive`, `GptTransformer`
   save/load).
-- **`getParameterNames()` has zero overrides.** `Core/Component.ixx:518` documents it as "the
+- **`getParameterNames()` has zero overrides.** `Core/Components/Component.ixx:518` documents it as "the
   canonical parameter name list in the same stable order used by `save_()` and `loadParameter()`".
   No component implements it, so that stable order does not exist and save and load have no agreed
   vocabulary.
@@ -147,7 +147,7 @@ returns its canonical names, `save_` iterates that list instead of hand-rolling 
 the default `load_` iterates the same list to read them back. The two sides cannot drift because they
 read the same vector. Implementing it is the precondition for both, not a tidy-up afterwards.
 
-**Do not extend `NetworkFactory` for models.** `Core/NetworkFactory.ixx` is a string-keyed runtime
+**Do not extend `NetworkFactory` for models.** `Core/Models/NetworkFactory.ixx` is a string-keyed runtime
 registry mapping `"network_type"` to a factory lambda — the same pattern
 [CLAUDE.md](../CLAUDE.md) records as being phased out with `OperationRegistry`. It is also
 unnecessary here: `GemmaModel::fromCheckpoint` knows its own type at compile time, exactly as

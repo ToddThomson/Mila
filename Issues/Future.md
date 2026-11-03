@@ -72,7 +72,7 @@ parameter (`Llama.ixx:355`, `:510`; `GptTransformer.ixx:330`), so `sequenceLogLi
 
 `quantization` · `mila-src` · `breaking`
 
-`Quantization/Weight/PerGroupFp4.ixx` sets `kScaleDtype = FP32` — 4.25 bits/weight. `Qwen3.8.md` §5 budgets 4.125 and
+`Quantization/Weight/Policies/PerGroupFp4.ixx` sets `kScaleDtype = FP32` — 4.25 bits/weight. `Qwen3.8.md` §5 budgets 4.125 and
 `formats.py`'s `fake_fp4_e2m1` simulates the FP16 rounding, so the packer's simulated damage is not
 the damage the runtime inflicts.
 
@@ -956,7 +956,7 @@ treats zero as "not a full device" (found 2026-10-11 reviewing a "will this mode
 devices through the registry without naming a backend, so on a machine with no CUDA device it has nothing to plan
 against. Separate from, and needed alongside, the families having no CPU path (grouped-query attention has none).
 
-`Lib/Src/Dnn/Compute/Device.ixx:78` · `Lib/Src/Deployment/DeviceReading.ixx:43`
+`Lib/Src/Dnn/Compute/Devices/Device.ixx:78` · `Lib/Src/Deployment/Planning/DeviceReading.ixx:43`
 
 ## An agent system around one main model with worker agents across several cards has no design
 

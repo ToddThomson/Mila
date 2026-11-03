@@ -16,10 +16,10 @@ PRIVATE
     TYPE CXX_MODULES
     BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/../Src"
     FILES
-        "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Desktop.Settings.ixx"
-        "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Desktop.SettingsFile.ixx"
-        "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Desktop.PromptTool.ixx"
-        "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Desktop.PromptFile.ixx"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Settings/Desktop.Settings.ixx"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Settings/Desktop.SettingsFile.ixx"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Tools/Desktop.PromptTool.ixx"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Tools/Desktop.PromptFile.ixx"
 )
 
 set_target_properties( DesktopSessionTests PROPERTIES

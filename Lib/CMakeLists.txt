@@ -169,12 +169,12 @@ PUBLIC
         #----------------------------------------------------------------------
         # Core
         #----------------------------------------------------------------------
-        "Src/Dnn/Core/Component.ixx"
-        "Src/Dnn/Core/ComponentType.ixx"
-        "Src/Dnn/Core/ModelType.ixx"
-        "Src/Dnn/Core/CompositeComponent.ixx"
-        "Src/Dnn/Core/ComponentConfig.ixx"
-        "Src/Dnn/Core/ComponentFactory.ixx"
+        "Src/Dnn/Core/Components/Component.ixx"
+        "Src/Dnn/Core/Components/ComponentType.ixx"
+        "Src/Dnn/Core/Models/ModelType.ixx"
+        "Src/Dnn/Core/Components/CompositeComponent.ixx"
+        "Src/Dnn/Core/Components/ComponentConfig.ixx"
+        "Src/Dnn/Core/Components/ComponentFactory.ixx"
 
         #---------------------------------------------------------------
         # Top-level Utilities
@@ -296,33 +296,33 @@ PUBLIC
         #---------------------------------------------------------------
         # Dnn / Compute (core)
         #---------------------------------------------------------------
-        "Src/Dnn/Compute/Device.ixx"
-        "Src/Dnn/Compute/DeviceAllocation.ixx"
-        "Src/Dnn/Compute/DeviceArena.ixx"
-        "Src/Dnn/Compute/DeviceType.ixx"
-        "Src/Dnn/Compute/DeviceId.ixx"
+        "Src/Dnn/Compute/Devices/Device.ixx"
+        "Src/Dnn/Compute/Devices/DeviceAllocation.ixx"
+        "Src/Dnn/Compute/Devices/DeviceArena.ixx"
+        "Src/Dnn/Compute/Devices/DeviceType.ixx"
+        "Src/Dnn/Compute/Devices/DeviceId.ixx"
 
-        "Src/Dnn/Compute/ExecutionContext.Traits.ixx"
+        "Src/Dnn/Compute/ExecutionContext/ExecutionContext.Traits.ixx"
         "Src/Dnn/Compute/Observation.ixx"
-        "Src/Dnn/Compute/ExecutionContext.ixx"
-        "Src/Dnn/Compute/IExecutionContext.ixx"
-        "Src/Dnn/Compute/IDecodeRecording.ixx"
-        "Src/Dnn/Compute/ExecutionContextFactory.ixx"
+        "Src/Dnn/Compute/ExecutionContext/ExecutionContext.ixx"
+        "Src/Dnn/Compute/ExecutionContext/IExecutionContext.ixx"
+        "Src/Dnn/Compute/ExecutionContext/IDecodeRecording.ixx"
+        "Src/Dnn/Compute/ExecutionContext/ExecutionContextFactory.ixx"
 
         
-        "Src/Dnn/Compute/DeviceTypeTraits.ixx"
+        "Src/Dnn/Compute/Devices/DeviceTypeTraits.ixx"
         
 
         # Dnn / Compute / Memory Resources
-        "Src/Dnn/Compute/MemoryResource.ixx"
-        "Src/Dnn/Compute/MemoryResourceTraits.ixx"
-        "Src/Dnn/Compute/MemoryResourceProperties.ixx"
-        "Src/Dnn/Compute/MemoryResourceTracker.ixx"
+        "Src/Dnn/Compute/Memory/MemoryResource.ixx"
+        "Src/Dnn/Compute/Memory/MemoryResourceTraits.ixx"
+        "Src/Dnn/Compute/Memory/MemoryResourceProperties.ixx"
+        "Src/Dnn/Compute/Memory/MemoryResourceTracker.ixx"
 
         #----------------------------------------------------------------------
         # Dnn / Compute / Optimizers
         #----------------------------------------------------------------------
-        "Src/Dnn/Core/OptimizerBase.ixx"
+        "Src/Dnn/Core/Training/OptimizerBase.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute / Operations
@@ -377,8 +377,8 @@ PUBLIC
         #----------------------------------------------------------------------
         # Network
         #----------------------------------------------------------------------
-        "Src/Dnn/Core/Network.ixx"
-        "Src/Dnn/Core/NetworkFactory.ixx"
+        "Src/Dnn/Core/Models/Network.ixx"
+        "Src/Dnn/Core/Models/NetworkFactory.ixx"
 
         #----------------------------------------------------------------------
         # Dnn / Modeling 
@@ -408,13 +408,13 @@ PUBLIC
         #"Src/Dnn/Extensibility/PluginInfo.ixx"
         
         "Src/Dnn/Components/MilaComponents.ixx"
-        "Src/Dnn/Core/Loss.ixx"
+        "Src/Dnn/Core/Training/Loss.ixx"
         "Src/Dnn/Serialization/SerializationMetadata.ixx"
         
         "Src/Dnn/Tensors/Operations/TensorOps.Zero.ixx"
 
-        "Src/Dnn/Core/Component.BuildContext.ixx"
-        "Src/Dnn/Core/LearningRateScheduler.ixx"
+        "Src/Dnn/Core/Components/Component.BuildContext.ixx"
+        "Src/Dnn/Core/Training/LearningRateScheduler.ixx"
         
         "Src/Dnn/Components/Activations/ApproximationMethod.ixx"
         "Src/Dnn/Components/Transformers/Gpt/Gpt.Presets.ixx"
@@ -485,31 +485,31 @@ PUBLIC
         
         # How a model runs on the hardware in front of it, decided before it loads (Deployment.md).
         # Not a model: the families below import it.
-        "Src/Deployment/PrefillChunkRule.ixx"
-        "Src/Deployment/DeviceReading.ixx"
-        "Src/Deployment/SpeculativeDecode.ixx"
-        "Src/Deployment/DeploymentRequest.ixx"
-        "Src/Deployment/DeploymentPlan.ixx"
-        "Src/Deployment/DeploymentPlans.ixx"
-        "Src/Deployment/DeploymentRefusal.ixx"
-        "Src/Deployment/DeploymentRefusedError.ixx"
-        "Src/Deployment/DeploymentPlanner.ixx"
+        "Src/Deployment/Planning/PrefillChunkRule.ixx"
+        "Src/Deployment/Planning/DeviceReading.ixx"
+        "Src/Deployment/Planning/SpeculativeDecode.ixx"
+        "Src/Deployment/Planning/DeploymentRequest.ixx"
+        "Src/Deployment/Planning/DeploymentPlan.ixx"
+        "Src/Deployment/Planning/DeploymentPlans.ixx"
+        "Src/Deployment/Refusals/DeploymentRefusal.ixx"
+        "Src/Deployment/Refusals/DeploymentRefusedError.ixx"
+        "Src/Deployment/Planning/DeploymentPlanner.ixx"
 
         # The one runtime-to-compile-time quantization bridge, imported by the models below.
-        "Src/Dnn/Models/Conversation.Role.ixx"
-        "Src/Dnn/Models/Conversation.ToolCall.ixx"
-        "Src/Dnn/Models/Conversation.Turn.ixx"
-        "Src/Dnn/Models/Conversation.TemplateVariable.ixx"
-        "Src/Dnn/Models/Conversation.PromptOptions.ixx"
-        "Src/Dnn/Models/Conversation.Prompt.ixx"
-        "Src/Dnn/Models/Conversation.Reply.ixx"
-        "Src/Dnn/Models/Conversation.ReplyGrammar.ixx"
-        "Src/Dnn/Models/Conversation.ReplyEvent.ixx"
-        "Src/Dnn/Models/Conversation.ReplyReader.ixx"
-        "Src/Dnn/Models/Conversation.ProtocolMarkers.ixx"
-        "Src/Dnn/Models/Conversation.Protocol.ixx"
-        "Src/Dnn/Models/Conversation.TemplateJson.ixx"
-        "Src/Dnn/Models/Conversation.ixx"
+        "Src/Dnn/Models/Conversation/Conversation.Role.ixx"
+        "Src/Dnn/Models/Conversation/Conversation.ToolCall.ixx"
+        "Src/Dnn/Models/Conversation/Conversation.Turn.ixx"
+        "Src/Dnn/Models/Conversation/Conversation.TemplateVariable.ixx"
+        "Src/Dnn/Models/Conversation/Conversation.PromptOptions.ixx"
+        "Src/Dnn/Models/Conversation/Conversation.Prompt.ixx"
+        "Src/Dnn/Models/Conversation/Conversation.Reply.ixx"
+        "Src/Dnn/Models/Conversation/Conversation.ReplyGrammar.ixx"
+        "Src/Dnn/Models/Conversation/Conversation.ReplyEvent.ixx"
+        "Src/Dnn/Models/Conversation/Conversation.ReplyReader.ixx"
+        "Src/Dnn/Models/Conversation/Conversation.ProtocolMarkers.ixx"
+        "Src/Dnn/Models/Conversation/Conversation.Protocol.ixx"
+        "Src/Dnn/Models/Conversation/Conversation.TemplateJson.ixx"
+        "Src/Dnn/Models/Conversation/Conversation.ixx"
         "Src/Dnn/Models/QuantizationDispatch.ixx"
         "Src/Dnn/Models/Gpt/GptModel.ixx"
         "Src/Dnn/Models/LlaMa/LlamaModel.ixx"
@@ -530,11 +530,11 @@ PUBLIC
         # An installed model by its store name, and the family switch that plans it: above the families, which it
         # imports (Deployment.md 8.1).
         "Src/Deployment/InstalledModel.ixx"
-        "Src/Deployment/InstalledModelPlanner.ixx"
+        "Src/Deployment/Planning/InstalledModelPlanner.ixx"
 
         "Src/Deployment/ModelHandle.ixx"
-        "Src/Deployment/OpenRefusal.ixx"
-        "Src/Deployment/OpenRefusedError.ixx"
+        "Src/Deployment/Refusals/OpenRefusal.ixx"
+        "Src/Deployment/Refusals/OpenRefusedError.ixx"
 
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.ixx"
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.Workspace.ixx"
@@ -546,25 +546,25 @@ PUBLIC
         "Src/Dnn/Components/Attention/OutputGate/AttentionOutputGate.Config.ixx"
         "Src/Dnn/Components/Attention/OutputGate/AttentionOutputGate.ixx"
         
-        "Src/Dnn/Core/Component.MemoryStats.ixx"
-        "Src/Dnn/Core/Model.RuntimeMode.ixx"
-        "Src/Dnn/Core/Model.ixx"
-        "Src/Dnn/Core/SequenceLogLikelihood.ixx"
-        "Src/Dnn/Core/PromptPrefixReuse.ixx"
-        "Src/Dnn/Core/LanguageModelNetwork.ixx"
-        "Src/Dnn/Core/LanguageModel.ixx"
-        "Src/Dnn/Core/Component.TrainingMode.ixx"
+        "Src/Dnn/Core/Components/Component.MemoryStats.ixx"
+        "Src/Dnn/Core/Models/Model.RuntimeMode.ixx"
+        "Src/Dnn/Core/Models/Model.ixx"
+        "Src/Dnn/Core/Generation/SequenceLogLikelihood.ixx"
+        "Src/Dnn/Core/Generation/PromptPrefixReuse.ixx"
+        "Src/Dnn/Core/Models/LanguageModelNetwork.ixx"
+        "Src/Dnn/Core/Models/LanguageModel.ixx"
+        "Src/Dnn/Core/Components/Component.TrainingMode.ixx"
         "Src/Dnn/Compute/Operations/IPositionalPairedOp.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Random.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Structural.ixx"
         "Src/Dnn/Compute/Operations/IPositionalDecode.ixx"
         "Src/Dnn/Compute/Operations/IKvInference.ixx"
         "Src/Dnn/Compute/Operations/IPackedKvInference.ixx"
-        "Src/Dnn/Core/TokenStreamer.ixx"
+        "Src/Dnn/Core/Generation/TokenStreamer.ixx"
         #"Src/Dnn/Compute/Operations/LinearOpTypeMap.Template.ixx"
         #"Src/Dnn/Compute/Operations/LinearOpTypeMap.ixx"
         #"Src/Dnn/Core/ModelQuantizationConfig.ixx"
-        "Src/Dnn/Core/ModelConfig.ixx"
+        "Src/Dnn/Core/Models/ModelConfig.ixx"
         "Src/Dnn/Models/LlaMa/LlamaModelConfig.ixx"
         "Src/Dnn/Models/Gemma/GemmaModelConfig.ixx"
         "Src/Dnn/Models/Qwen/QwenModelConfig.ixx"
@@ -577,19 +577,19 @@ PUBLIC
         "Src/Logging/NullSink.ixx"
         "Src/Logging/FileSink.ixx"
         
-        "Src/Dnn/Quantization/Weight/WeightQuantPolicy.ixx"
-        "Src/Dnn/Quantization/Weight/NoWeightQuant.ixx"
-        "Src/Dnn/Quantization/Weight/PerChannelFp8.ixx"
-        "Src/Dnn/Quantization/Weight/PerGroupInt4.ixx"
-        "Src/Dnn/Quantization/Weight/PerGroupInt6.ixx"
-        "Src/Dnn/Quantization/Weight/PerGroupFp4.ixx"
-        "Src/Dnn/Quantization/Weight/PerGroupCodebook2.ixx"
-        "Src/Dnn/Quantization/Weight/PerGroupCodebook3.ixx"
-        "Src/Dnn/Quantization/Weight/HasCodebookTable.ixx"
-        "Src/Dnn/Quantization/Weight/HasHighBitPlane.ixx"
-        "Src/Dnn/Quantization/Weight/HasFp4E2M1Codes.ixx"
-        "Src/Dnn/Quantization/Weight/HasInt4Codes.ixx"
-        "Src/Dnn/Quantization/Weight/HasInt6Codes.ixx"
+        "Src/Dnn/Quantization/Weight/Concepts/WeightQuantPolicy.ixx"
+        "Src/Dnn/Quantization/Weight/Policies/NoWeightQuant.ixx"
+        "Src/Dnn/Quantization/Weight/Policies/PerChannelFp8.ixx"
+        "Src/Dnn/Quantization/Weight/Policies/PerGroupInt4.ixx"
+        "Src/Dnn/Quantization/Weight/Policies/PerGroupInt6.ixx"
+        "Src/Dnn/Quantization/Weight/Policies/PerGroupFp4.ixx"
+        "Src/Dnn/Quantization/Weight/Policies/PerGroupCodebook2.ixx"
+        "Src/Dnn/Quantization/Weight/Policies/PerGroupCodebook3.ixx"
+        "Src/Dnn/Quantization/Weight/Concepts/HasCodebookTable.ixx"
+        "Src/Dnn/Quantization/Weight/Concepts/HasHighBitPlane.ixx"
+        "Src/Dnn/Quantization/Weight/Concepts/HasFp4E2M1Codes.ixx"
+        "Src/Dnn/Quantization/Weight/Concepts/HasInt4Codes.ixx"
+        "Src/Dnn/Quantization/Weight/Concepts/HasInt6Codes.ixx"
         "Src/Dnn/Quantization/Weight/Policies.ixx"
         "Src/Dnn/Quantization/Weight/PrecisionPlan.ixx"
         "Src/Dnn/Quantization/KvCache/Policy.ixx"
@@ -598,18 +598,18 @@ PUBLIC
         "Src/Dnn/Quantization/KvCache/SlidingWindowKvFp8.ixx"
         "Src/Dnn/Quantization/Quantization.ixx"
 
-        "Src/Dnn/Quantization/Weight/CodebookPacking.ixx"
-        "Src/Dnn/Quantization/Weight/Int4Packing.ixx"
-        "Src/Dnn/Quantization/Weight/Int6Packing.ixx"
-        "Src/Dnn/Core/WeightQuantization.ixx"
-        "Src/Dnn/Core/KvCacheCompression.ixx"
-        "Src/Dnn/Core/LanguageModelConfig.ixx"
+        "Src/Dnn/Quantization/Weight/Packing/CodebookPacking.ixx"
+        "Src/Dnn/Quantization/Weight/Packing/Int4Packing.ixx"
+        "Src/Dnn/Quantization/Weight/Packing/Int6Packing.ixx"
+        "Src/Dnn/Core/Models/WeightQuantization.ixx"
+        "Src/Dnn/Core/Models/KvCacheCompression.ixx"
+        "Src/Dnn/Core/Models/LanguageModelConfig.ixx"
         
-        "Src/Dnn/Core/SamplerBase.ixx"
+        "Src/Dnn/Core/Generation/SamplerBase.ixx"
         "Src/Dnn/Samplers/SamplingConfig.ixx"
         "Src/Dnn/Samplers/TokenSampler.ixx"
         "Src/Dnn/Samplers/SpeculativeSampler.ixx"
- "Src/Dnn/Models/Gpt/GptModelConfig.ixx" "Src/Dnn/Core/GenerateStatus.ixx")
+ "Src/Dnn/Models/Gpt/GptModelConfig.ixx" "Src/Dnn/Core/Generation/GenerateStatus.ixx")
 
 # ----------------------------------------------------------------------------
 # CPU backend modules
@@ -995,29 +995,29 @@ target_sources(Mila
         TYPE CXX_MODULES FILES
             "Src/Distribution/Sha256.ixx"
             "Src/Distribution/Environment.ixx"
-            "Src/Distribution/ModelCoordinate.ixx"
-            "Src/Distribution/ModelFile.ixx"
-            "Src/Distribution/ModelCapabilities.ixx"
-            "Src/Distribution/SamplingRecommendation.ixx"
-            "Src/Distribution/ModelManifest.ixx"
-            "Src/Distribution/PackageValidation.ixx"
-            "Src/Distribution/PackageRequest.ixx"
-            "Src/Distribution/ModelPackage.ixx"
-            "Src/Distribution/FetchOutcome.ixx"
-            "Src/Distribution/FetchReport.ixx"
-            "Src/Distribution/ModelRecord.ixx"
-            "Src/Distribution/FamilySampling.ixx"
-            "Src/Distribution/StoredModel.ixx"
-            "Src/Distribution/RemovalReport.ixx"
-            "Src/Distribution/StoreUsage.ixx"
-            "Src/Distribution/InstallOptions.ixx"
-            "Src/Distribution/CleanOptions.ixx"
-            "Src/Distribution/ModelStore.ixx"
-            "Src/Distribution/ModelHub.ixx"
-            "Src/Distribution/ModelResolver.ixx"
-            "Src/Distribution/HttpTransport.ixx"
-            "Src/Distribution/HttpClient.ixx"
-            "Src/Distribution/HuggingFaceHub.ixx"
+            "Src/Distribution/Hub/ModelCoordinate.ixx"
+            "Src/Distribution/Packaging/ModelFile.ixx"
+            "Src/Distribution/Packaging/ModelCapabilities.ixx"
+            "Src/Distribution/Packaging/SamplingRecommendation.ixx"
+            "Src/Distribution/Packaging/ModelManifest.ixx"
+            "Src/Distribution/Packaging/PackageValidation.ixx"
+            "Src/Distribution/Packaging/PackageRequest.ixx"
+            "Src/Distribution/Packaging/ModelPackage.ixx"
+            "Src/Distribution/Hub/FetchOutcome.ixx"
+            "Src/Distribution/Hub/FetchReport.ixx"
+            "Src/Distribution/Store/ModelRecord.ixx"
+            "Src/Distribution/Packaging/FamilySampling.ixx"
+            "Src/Distribution/Store/StoredModel.ixx"
+            "Src/Distribution/Store/RemovalReport.ixx"
+            "Src/Distribution/Store/StoreUsage.ixx"
+            "Src/Distribution/Store/InstallOptions.ixx"
+            "Src/Distribution/Store/CleanOptions.ixx"
+            "Src/Distribution/Store/ModelStore.ixx"
+            "Src/Distribution/Hub/ModelHub.ixx"
+            "Src/Distribution/Hub/ModelResolver.ixx"
+            "Src/Distribution/Http/HttpTransport.ixx"
+            "Src/Distribution/Http/HttpClient.ixx"
+            "Src/Distribution/Hub/HuggingFaceHub.ixx"
 )
 
 # ----------------------------------------------------------------------------
@@ -1033,8 +1033,8 @@ if(MILA_ENABLE_LIBCURL)
         PUBLIC
             FILE_SET module_files
             TYPE CXX_MODULES FILES
-                "Src/Distribution/CurlHttpTransport.ixx"
-                "Src/Distribution/HttpTransportBackend.Curl.ixx"
+                "Src/Distribution/Http/CurlHttpTransport.ixx"
+                "Src/Distribution/Http/HttpTransportBackend.Curl.ixx"
     )
 
     # PRIVATE: libcurl is an implementation detail. Its headers appear only in a global
@@ -1050,7 +1050,7 @@ else()
         PUBLIC
             FILE_SET module_files
             TYPE CXX_MODULES FILES
-                "Src/Distribution/HttpTransportBackend.Null.ixx"
+                "Src/Distribution/Http/HttpTransportBackend.Null.ixx"
     )
 
     message(STATUS "Added HTTP transport: none (caller supplies one, or install from disk)")

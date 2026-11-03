@@ -161,7 +161,7 @@ Mirrors the `Optimizer` / `AdamW` file structure, dispatched through `OperationT
 
 | Role | Type | Module | Location |
 |---|---|---|---|
-| Base interface | `Sampler<Device,Precision>` | `Compute.SamplerBase` | `Core/SamplerBase.ixx` |
+| Base interface | `Sampler<Device,Precision>` | `Compute.SamplerBase` | `Core/Generation/SamplerBase.ixx` |
 | Facade (owned by model) | `TokenSampler<Device,Precision>` | `Dnn.Samplers.TokenSampler` | `Samplers/TokenSampler.ixx` |
 | Construction-time config | `SamplingConfig` | `Dnn.Samplers.SamplingConfig` | `Samplers/SamplingConfig.ixx` |
 | Device op (CUDA) | `CudaSamplingOp<Precision>` | `Compute.CudaSamplingOp` | `Compute/Devices/Cuda/Operations/Sampling/` |
@@ -332,7 +332,7 @@ buffers.
 
 ### 8.3 Phases (each advances only when its build-vs-build parity gate is clean)
 
-- **Phase A — greedy on-device, end-to-end.** `Sampler` base (`Core/SamplerBase.ixx`, rewriting the
+- **Phase A — greedy on-device, end-to-end.** `Sampler` base (`Core/Generation/SamplerBase.ixx`, rewriting the
   `Dnn/Decoders` skeleton), `SamplingConfig`, `SamplingParams`; `CudaSamplingOp` + `CpuSamplingOp`
   with the argmax branch only; `OperationTraits<SamplingOp, {Cuda,Cpu}, {FP32,BF16}>`
   specializations; `TokenSampler` facade (resolves the trait, owns RNG + the 4-byte readback); wired

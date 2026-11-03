@@ -601,7 +601,7 @@ Gemma 4 QAT for Q4_0. Five decisions, each with the alternative it closed:
    order, FP16 scales `[out, in/32]`, as every per-group format here: Linear's weight and
    `weight_scale` contract is unchanged, loads stay 16-byte aligned, and adjacent elements feed
    `bf16x2`. Equality with Google's GGUF is in value -- every code and every scale bit -- not in
-   bytes. The normative layout and reference rounding are `Quantization/Weight/Int4Packing.ixx`.
+   bytes. The normative layout and reference rounding are `Quantization/Weight/Packing/Int4Packing.ixx`.
 3. **Users see `q4_0`**, the format's own name and the one in Google's repository:
    `WeightQuantization::Q4_0`, scheme name `q4_0`, Chat mode and binding variant `q4_0`.
 4. **Prefill multiplies in INT8.** Activations are quantized to INT8 with one FP32 scale per
@@ -674,14 +674,14 @@ The Q6_K arm lacked llama.cpp's search over candidate scales, so Q6_K itself may
 simpler layout and measured the better. Llama's head is BF16, 1.05 GB read every token on the 8B; the same format
 would cut it to 0.43 GB, unmeasured for quality.
 
-**As built.** `PerGroupInt6<32>` (`Quantization/Weight/PerGroupInt6.ixx`), detected by `HasInt6Codes`. Four
+**As built.** `PerGroupInt6<32>` (`Quantization/Weight/Policies/PerGroupInt6.ixx`), detected by `HasInt6Codes`. Four
 decisions, each with the alternative it closed:
 
 1. **One code tensor, two planes per row.** A row of `C` codes is `3C/4` bytes: the low nibbles in Q4_0's order, then
    the high two bits, four codes a byte. The scales are FP16 `[rows, C/32]`. A separate high-bit tensor, as the 3-bit
    codebook keeps, would have made the tie carry three tensors; GGUF's interleaved block breaks 16-byte loads. Rows of
    whole 16-byte loads need `C` a multiple of 64, which every Gemma width is. Normative layout and rounding:
-   `Quantization/Weight/Int6Packing.ixx`.
+   `Quantization/Weight/Packing/Int6Packing.ixx`.
 2. **Q4_0's rounding rule, widened.** `d` = signed extreme / -32 in FP32, the codes from FP32 `1/d` with the product
    rounded before 32.5 is added, `d` stored FP16 -- one rule in the CPU codec and the CUDA quantizer (`__fmul_rn`,
    `__fadd_rn`), bit for bit. The measurement above rounded `d` to FP16 before inverting it; the difference moves

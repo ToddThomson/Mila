@@ -263,7 +263,7 @@ Two consequences worth having:
   original goal and is not true today, since a price needs a context on a real device.
 
 The chunk rungs are a family trait, `kPrefillChunkRungs` on each transformer, walked by one function,
-`choosePrefillChunk` (`Deployment/PrefillChunkRule.ixx`), which the planner calls; no transformer chooses its own
+`choosePrefillChunk` (`Deployment/Planning/PrefillChunkRule.ixx`), which the planner calls; no transformer chooses its own
 chunk (Phase 2).
 
 ---
@@ -508,7 +508,7 @@ reading. *Exit:* G1 on the single-device matrix; N1. Re-run the open display-car
 record whether it clears.
 *Met at `0.21.0-dev+5`:* `BuildContext` carries the chunk and no longer carries free memory; an inference
 context without a chunk is refused by both `getRequiredMemory` and `build`. The rung walk is `choosePrefillChunk`
-(`Deployment/PrefillChunkRule.ixx`), called by `load` and `getDeploymentFootprint` against the one reading each takes
+(`Deployment/Planning/PrefillChunkRule.ixx`), called by `load` and `getDeploymentFootprint` against the one reading each takes
 after construction. G1 is `PlanEqualsBuildCudaTests` (the four models, every rung whose predicted total fits the
 free memory read) and `PrefillChunkRuleCudaTests.*_EveryRungBuildsWhatItPrices` (a synthetic geometry per family,
 every rung): prediction equals build in every category on both cards. Qwen FP4 on the RTX 4070 has no rung, its

@@ -26,7 +26,7 @@ record live in the spec ("Phase 0 first results"); this file is how to reproduce
 | `calibration_text.py` | an instruct model's calibration text: tool calls, chat and prose, rendered through its chat template |
 | `tool_name_probe.py` | whether an installed build calls each tool by its declared name; the probe sets the calibration text excludes |
 
-`packing.py` is held to `Src/Dnn/Quantization/Weight/CodebookPacking.ixx`, which is the
+`packing.py` is held to `Src/Dnn/Quantization/Weight/Packing/CodebookPacking.ixx`, which is the
 normative statement of the layout; regenerate the fixture after any layout change:
 
 ```
