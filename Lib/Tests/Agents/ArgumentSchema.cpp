@@ -11,7 +11,6 @@
 #include <string>
 
 import Mila;
-import Mila.Agents;
 
 namespace Mila::Tests::AI
 {

@@ -470,10 +470,12 @@ boundaries -- kept within a turn, which is the opposite of the failure in "Gemma
 calls in a turn" -- and text compaction, the history summarized into a fresh context with instructions kept verbatim,
 reusing the system prompt's cached prefix. It triggers at the configuration's reliable depth, which ContextProfile
 measures, so it needs that tool's first profiles; Qwen resumes from the position it saved at the end of each prompt
-(`savePosition`, `+33`). Compaction in the cache itself (deleting spans in place) is research, outside this item
+(`savePosition`, `+33`). What is kept verbatim is a list a program can add to, not the system prompt alone, and
+compaction runs between rounds as well as between responses, since one response can fill the context
+(`AgentTasks.md` 7). Compaction in the cache itself (deleting spans in place) is research, outside this item
 (`.internal/Ideas/AgentStreams.md`).
 
-`Lib/Src/Agents/Agent.ixx` · `Specifications/ContextProfile.md`
+`Lib/Src/Agents/Agent.ixx` · `Specifications/ContextProfile.md` · `Specifications/Agents/AgentTasks.md`
 
 #### A program that skips Mila's initialization is told its GPU reports no memory
 
@@ -501,9 +503,8 @@ read is refused naming why.
 
 `open` · `binding` · `api` · `agents`
 
-The binding projects per-family sessions and nothing of `Mila::Agents`, and the wheel presets build with
-`MILA_ENABLE_AGENTS` off. `mila.Agent` projects the agent's contract and its plan, the wheel builds the agents API, and
-a Python function can be registered as a tool, which runs under the same gate as a C++ one. The binding stays
+The binding projects per-family sessions and nothing of `Mila::Agents`. `mila.Agent` projects the agent's contract and
+its plan, and a Python function can be registered as a tool, which runs under the same gate as a C++ one. The binding stays
 consumer-blind and gains no component-level surface. The per-family sessions stay beside it, because the inference
 server runs on them; removing them is v0.22.0's (`Vnext.md`). The grant holds folders on Windows alone, so a Linux wheel
 says so where it refuses. What the agents API adds to the wheel's size has not been measured. Gate: a program that

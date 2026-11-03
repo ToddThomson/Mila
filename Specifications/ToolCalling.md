@@ -253,9 +253,9 @@ system's file and socket calls for the grant; HTTP, TLS and process launching co
    transport (`ToolGrant::transport`), libcurl with each connection's address checked before it is made, so every
    connection, a redirect's included, is checked. A transport the application supplies, such as the Python
    binding's, is never a grant's.
-4. **Where the agents API sits in the build.** *Decided 2026-11-02 (Todd), replacing a library of its own of
-   2026-10-31 and a directory built into the Mila target of 2026-10-25: a target of its own in the Mila library,
-   `Lib/Src/Agents/`, target `MilaAgents`* (`Direction.md` decision 2). Still open: whether the tool pieces become a target of their own, so a
+4. **Where the agents API sits in the build.** *Decided 2026-11-03 (Todd), replacing a target of its own of 2026-11-02 and
+   a library of its own of 2026-10-31: `Lib/Src/Agents/`, built in the Mila target and brought by `import Mila;`*
+   (`Direction.md` decision 2). Still open: whether the tool pieces become a target of their own, so a
    program wanting tools alone needs no GPU stack -- asked when such a program exists.
 5. **The record of a call.** *Decided 2026-10-26 (Todd):* the event of each call answered carries the decision and
    who made it (`ToolDecision`), how long the tool ran and the size of what it returned; it carries the call, so

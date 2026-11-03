@@ -176,50 +176,46 @@ target_sources( MilaTests PRIVATE
     "Deployment/InstalledModel.Cpu.cpp"
 )
 
-# Mila::Agents, when it is built. The gate every tool call passes and the grant it gives (ToolCalling.md 3.1 to 3.4), and what a
+# Mila::Agents. The gate every tool call passes and the grant it gives (ToolCalling.md 3.1 to 3.4), and what a
 # program gives an agent, kept apart from its model (Direction.md 4.3), need no model.
-if(MILA_ENABLE_AGENTS)
+target_sources( MilaTests PRIVATE
+    "Agents/ArgumentSchema.cpp"
+    "Agents/GrantPath.cpp"
+    "Agents/PublicAddress.cpp"
+    "Agents/ToolRules.cpp"
+    "Agents/ToolGate.cpp"
+    "Agents/Session.cpp"
+    "Agents/WebPageReader.cpp"
+)
+
+if(MILA_ENABLE_CUDA)
     target_sources( MilaTests PRIVATE
-        "Agents/ArgumentSchema.cpp"
-        "Agents/GrantPath.cpp"
-        "Agents/PublicAddress.cpp"
-        "Agents/ToolRules.cpp"
-        "Agents/ToolGate.cpp"
-        "Agents/Session.cpp"
-        "Agents/WebPageReader.cpp"
+        "Agents/Agent.Cuda.cpp"
+    )
+endif()
+
+# What a tool's grant reaches (ToolCalling.md 3.4). Files only where a folder can be granted,
+# Windows; the network where this build has its own transport to check, and the local server's
+# sockets are Windows's.
+if(WIN32)
+    target_sources( MilaTests PRIVATE
+        "Agents/ToolGrant.Files.cpp"
+        "Agents/FileTools.cpp"
+        # What a program run through a grant reaches (ContainedPrograms.md); MXC's part skips unless
+        # MILA_MXC_LIBRARY names its library and the build has MILA_ENABLE_MXC on.
+        "Agents/ToolGrant.Programs.cpp"
+        "Agents/SecondNameWatch.cpp"
     )
 
-    target_link_libraries( MilaTests PRIVATE MilaAgents )
+    # The program tests' loopback server, and the route to the local network's gateway.
+    target_link_libraries( MilaTests PRIVATE ws2_32 iphlpapi )
 
-    if(MILA_ENABLE_CUDA)
+    if(MILA_ENABLE_LIBCURL)
         target_sources( MilaTests PRIVATE
-            "Agents/Agent.Cuda.cpp"
-        )
-    endif()
-
-    # What a tool's grant reaches (ToolCalling.md 3.4). Files only where a folder can be granted,
-    # Windows; the network where this build has its own transport to check, and the local server's
-    # sockets are Windows's.
-    if(WIN32)
-        target_sources( MilaTests PRIVATE
-            "Agents/ToolGrant.Files.cpp"
-            "Agents/FileTools.cpp"
-            # What a program run through a grant reaches (ContainedPrograms.md); MXC's part skips unless
-            # MILA_MXC_LIBRARY names its library and the build has MILA_ENABLE_MXC on.
-            "Agents/ToolGrant.Programs.cpp"
-            "Agents/SecondNameWatch.cpp"
+            "Agents/ToolGrant.Network.cpp"
         )
 
-        # The program tests' loopback server, and the route to the local network's gateway.
-        target_link_libraries( MilaTests PRIVATE ws2_32 iphlpapi )
-
-        if(MILA_ENABLE_LIBCURL)
-            target_sources( MilaTests PRIVATE
-                "Agents/ToolGrant.Network.cpp"
-            )
-
-            target_link_libraries( MilaTests PRIVATE ws2_32 )
-        endif()
+        target_link_libraries( MilaTests PRIVATE ws2_32 )
     endif()
 endif()
 

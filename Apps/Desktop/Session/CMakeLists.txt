@@ -34,7 +34,7 @@ if( MSVC )
 endif()
 
 # Mila carries CUDA's usage requirements when CUDA is on; relisting them would be an error when it is off.
-target_link_libraries( mila-session PRIVATE Mila MilaAgents )
+target_link_libraries( mila-session PRIVATE Mila )
 
 # The activities' prompts, beside the executable where the session looks for them.
 add_custom_command( TARGET mila-session POST_BUILD

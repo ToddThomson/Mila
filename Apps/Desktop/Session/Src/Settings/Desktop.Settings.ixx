@@ -7,7 +7,6 @@ export module Desktop.Settings;
 
 import std;
 import Mila;
-import Mila.Agents;
 
 namespace Mila::Desktop
 {

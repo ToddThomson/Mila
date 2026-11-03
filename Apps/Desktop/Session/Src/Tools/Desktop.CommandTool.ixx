@@ -10,7 +10,6 @@ import std;
 import nlohmann.json;
 
 import Mila;
-import Mila.Agents;
 
 namespace Mila::Desktop
 {

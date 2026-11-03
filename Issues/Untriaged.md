@@ -10,6 +10,20 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## `mila-store` does not build with CUDA off
+
+`Lib/Store/Store.ixx:237` `fittingWeightQuantizations<DeviceType::Cuda>` @ 0.21.0-dev+114
+
+With `MILA_ENABLE_CUDA=OFF` (MSVC, `x64-debug-cpu-only`), Store.ixx instantiates a CUDA model, and `DeviceTypeTraits<DeviceType::Cuda>` has no definition there: C2027 from `LanguageModel.ixx(245)`. The same on a clean tree at `+114`, so not from the agents merge. `Store.ixx`'s last change was `+111`.
+
+## Clang warns on two operations' `setParameters` and on `TensorOps.Random` reaching a TU-local entity
+
+`Lib/Src/Dnn/Compute/Devices/Cuda/Operations/Convolutions/CudaCausalConv1dOp.ixx:58`, `.../DeltaNet/CudaGatedDeltaRuleOp.ixx:64`, `Lib/Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Random.ixx:266` @ 0.21.0-dev+114
+
+Clang 22, a library build: `setParameters` overrides but is not marked `override` in both operations
+(`-Winconsistent-missing-override`), and instantiating `fill_uniform` and `fill_normal` references the TU-local `cudaMalloc<float>`
+and its `devPtr` and `size` (`-Wreference-tu-local-entity-in-other-tu`). 11 warnings, none from Agents. MSVC gives none of them.
+
 ## Chat unloads its model before refusing a context longer than the model was trained for
 
 `Apps/Chat/Src/Chat.Session.ixx` `setContextLength`, `switchModel`; `Lib/Src/Agents/Agent.ixx` `check` @ 0.21.0-dev+108

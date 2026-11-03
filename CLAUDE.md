@@ -36,8 +36,8 @@ Browse the tree for what is where. What the tree does not tell you:
 - **Mila is one library with one install.** `Lib/` holds it, and `Mila` the repository and the brand. A program reaches
   the models API as `Mila::Dnn` and `Mila::Deployment`, and the agents API as `Mila::Agents`; "models API" and "agents
   API" are words for the docs, not namespaces (`Direction.md` decision 2, Todd, 2026-11-02).
-- **`Lib/Src/Agents/`** is `Mila::Agents`, the agents API applications are built on (`Direction.md` 3.2): a target of
-  its own, `MilaAgents`, on the rest of the library, which never imports it and builds without it. Tool calling is its
+- **`Lib/Src/Agents/`** is `Mila::Agents`, the agents API applications are built on (`Direction.md` 3.2): a folder of
+  the Mila target like the others, brought by `import Mila;`, and imported by no other folder (`Publishing/hooks/check_layers.py`). Tool calling is its
   structure, and it provides the tools both apps offer, for files and web pages; an application chooses which to offer, and every other tool is its own (`ToolCalling.md` 5,
   Todd, 2026-11-01). `Lib/Src/Agents/` holds the agent, `Mila::Agents::Agent` (`Direction.md` 4), the `Session` it holds -- what
   the program gave it and the conversation, which outlives the model (4.3) -- and `ToolGate`, the one path a model's

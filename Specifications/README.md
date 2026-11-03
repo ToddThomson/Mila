@@ -31,6 +31,9 @@ deciding anything.
    gone or superseded, never on its date alone. A shipped design is not finished while live code still
    follows it: it stays the design of record for that code.
 4. **A move is its own commit**, with every reference updated and a search showing no old name left.
+5. **A new design goes in a subfolder named for its classification,** such as `Agents/` (Todd, 2026-11-03). A
+   design is never written as a notebook: a notebook holds the notes on implementing one. Documents already at the
+   top stay there until they are moved under rule 4.
 
 Files move into `Notebooks/` one at a time, each after a reading; until a file moves, its row says where it
 belongs.
@@ -137,7 +140,9 @@ means a status line or target is out of date and the rest has not been re-read.
 |---|---|---|---|
 | [ToolCalling.md](ToolCalling.md) | Design | How a model's tool calls run through `Mila::Agents`: the tool, execution, permissions and the grant that contains a call, the loop and splice, and what the application brings | Agreed 2026-10-25 (Todd), with no release attached; built to it from `+97` to `+103`, the grant Windows-only. The models API has no tools; MCP later. Replaces `ToolBroker.md` as the design of record. Open decisions in section 9 |
 | [ToolBroker.md](ToolBroker.md) | Design | The per-user tool broker as designed and built on 2026-10-24: one local MCP service holding the rules for each user and agent and running every tool in a worker process of its own | Replaced by `ToolCalling.md` (2026-10-25); its code is refit to that spec. Its approval round trip and path and address checks carry over |
-| [ContainedPrograms.md](ContainedPrograms.md) | Design | How a tool runs a program held to its grant through Microsoft's MXC -- the grant's container, the policy it makes, files with more than one name, a desktop of Mila's own, the switch -- and Mila Desktop's shell as its first use | Agreed, 2026-10-27 and 2026-10-31 (decisions in section 9); the library built 2026-10-31, the tool not begun. Experimental in v0.21.0, off by default (Todd, 2026-10-27) |
+| [Notebooks/AgentsTargetMerge.md](Notebooks/AgentsTargetMerge.md) | Notebook | What it costs to build `Mila::Agents` inside the `Mila` target and to bring it with `import Mila;`, MSVC and Clang, 2026-11-03 | Evidence for reopening `Direction.md` decision 2 |
+| [Agents/AgentTasks.md](Agents/AgentTasks.md) | Design | How an agent carries a task to its end over many responses and knows how it ended: the task, its budget, the autonomy policy, the trace and the task folder, and the seam compaction must leave for them | Agreed 2026-11-03 (Todd, decisions in section 10). After v0.22.0, no code; compaction's seam is v0.21.0's |
+| [ContainedPrograms.md](ContainedPrograms.md) | Design | How a tool runs a program held to its grant through Microsoft's MXC -- the grant's container, the policy it makes, files with more than one name, a desktop of Mila's own, the switch -- and Mila Desktop's shell as its first use | Agreed, 2026-10-27 and 2026-10-31 (decisions in section 9); the library and the tool built 2026-10-31. Experimental in v0.21.0, off by default (Todd, 2026-10-27) |
 | [Notebooks/MxcConformance.md](Notebooks/MxcConformance.md) | Notebook | What MXC v1.0.1's policy accepts and refuses on Windows and Linux, 2026-10-26 and 2026-10-27, and how Codex and NVIDIA OpenShell set it | Evidence for `ContainedPrograms.md` |
 | [Notebooks/LocalToolService.md](Notebooks/LocalToolService.md) | Notebook | How the tool broker was reached, 2026-10-23 to 2026-10-24: placement, identity, secrets, the *Harness^2* paper's bearing, the round-trip measurement, prior art on Windows (Codex, NVIDIA OpenShell, Microsoft's MXC), and the decision to ship the first tools without an operating-system sandbox | Its placement decisions are replaced by `ToolCalling.md`; the reading and measurements stand. Phase 1 measured a warm named-pipe round trip at about 7 us median against about 14 ms to start a process per call |
 

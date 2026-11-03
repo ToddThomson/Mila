@@ -371,9 +371,9 @@ public:
 - **The handle is small and holds no conversation.** It is what a model *is*; `Mila::Agents` is what a program
   does with one.
 
-**The handle is the model level's; `Mila::Agents` is a target of its own above it** (`Direction.md` decision 2, Todd,
+**The handle is the model level's; `Mila::Agents` is the level above it** (`Direction.md` decision 2, Todd,
 2026-11-02): the handle and its refusals are in `Lib/Src/Deployment/`, since opening a model by name is the model
-level's, and a program that wants a model and no agent does not import the agents API. The model level never imports it. The `MilaAI` target that held the broker's
+level's, and a program that wants a model and no agent links none of the agents API. The model level never imports it. The `MilaAI` target that held the broker's
 client, built to the design `ToolCalling.md` replaced, was deleted with the broker at `+100`.
 
 ### 3.6 The factory

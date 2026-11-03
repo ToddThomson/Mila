@@ -103,10 +103,6 @@ option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)
 # See Specifications/ModelDistribution.md.
 option(MILA_ENABLE_LIBCURL "Build Mila's libcurl HTTP transport." ON)
 
-# Mila::Agents, the library's agents API: a target of its own that builds on the rest of Mila and is never imported by
-# it. The rest of Mila builds without it; Chat and Mila Desktop do not.
-option(MILA_ENABLE_AGENTS "Build Mila::Agents, the library's agents API." ON)
-
 option(MILA_ENABLE_CUDA "Enable CUDA compute backend" ON)
 
 # The Metal and ROCm backends are currently for internal testing only. Please leave them disabled.
@@ -354,19 +350,15 @@ set(MILA_DATA_DIR "${PROJECT_SOURCE_DIR}/Data")
 # The Mila library and Doxygen docs
 add_subdirectory( Lib )
 
-if( MILA_ENABLE_AGENTS )
-    add_subdirectory( Lib/Src/Agents )
-endif()
-
 # The apps Mila ships to the people who run it (see MilaProductFamily.md): Mila Chat, a human at a prompt, and Mila
 # Desktop, whose session process is built here. Both run models on Mila::Agents, and CUDA is the only compute backend. Gated on
 # MILA_ENABLE_APPS so a consumer embedding Mila builds neither. mila-app packages the session with the window and page,
 # which are Node.
-if( MILA_ENABLE_APPS AND MILA_ENABLE_AGENTS AND MILA_ENABLE_CUDA )
+if( MILA_ENABLE_APPS AND MILA_ENABLE_CUDA )
     add_subdirectory( Apps/Chat )
     add_subdirectory( Apps/Desktop )
 elseif( MILA_ENABLE_APPS )
-    message( STATUS "MILA_ENABLE_AGENTS or MILA_ENABLE_CUDA is OFF - skipping mila-chat and mila-session" )
+    message( STATUS "MILA_ENABLE_CUDA is OFF - skipping mila-chat and mila-session" )
 endif()
 
 # Mila Server is not a CMake target -- it consumes the Mila Python binding, which is built from Lib/Bindings.
@@ -382,10 +374,7 @@ file( WRITE "${CMAKE_CURRENT_SOURCE_DIR}/Apps/Server/VERSION" "${MILA_PEP440_VER
 # them, and they follow MILA_ENABLE_TESTING, not MILA_ENABLE_APPS, so that build need not build the apps.
 if( MILA_ENABLE_TESTING )
     add_subdirectory( Apps/Chat/Tests )
-
-    if( MILA_ENABLE_AGENTS )
-        add_subdirectory( Apps/Desktop/Session/Tests )
-    endif()
+    add_subdirectory( Apps/Desktop/Session/Tests )
 endif()
 
 if( PROJECT_IS_TOP_LEVEL AND MILA_ENABLE_COMMIT_CHECKS )

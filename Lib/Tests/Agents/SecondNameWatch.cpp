@@ -17,7 +17,6 @@
 #include <thread>
 
 import Mila;
-import Mila.Agents;
 import Agents.SecondNameWatch;
 
 namespace Mila::Tests::AI

@@ -5,7 +5,6 @@ loop that runs their calls. The models API runs a model; the agents API puts one
 
 ```cpp
 import Mila;
-import Mila.Agents;
 
 auto agent = Mila::Agents::Agent::create( "gemma-4-12b-it-fp4" );
 const Mila::Agents::Response response = agent.respond( "What is a KV cache?" );
@@ -23,11 +22,12 @@ The grant's checks are Windows first: on any other platform a grant holds no fol
 
 ## Using it
 
-It is on by default, as the target `Mila::Agents`. A program that embeds Mila through `FetchContent` links it:
+It is part of the library. A program that embeds Mila through `FetchContent` links `Mila::Mila`, and a program that makes
+no agent links none of it:
 
 ```cmake
 FetchContent_MakeAvailable( Mila )
-target_link_libraries( your-program PRIVATE Mila::Agents )
+target_link_libraries( your-program PRIVATE Mila::Mila )
 ```
 
 Running a tool's programs in Microsoft's MXC container is experimental and off by default: `MILA_ENABLE_MXC`, with

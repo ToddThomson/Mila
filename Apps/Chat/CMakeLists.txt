@@ -59,7 +59,7 @@ endif()
 # Chat uses no CUDA APIs directly. When CUDA is enabled, Mila propagates CUDA::cudart/nvtx3 as PUBLIC usage
 # requirements, so linking Mila alone is sufficient; when CUDA is OFF those targets do not exist. Relisting them here
 # would be redundant in the first case and a hard error in the second.
-target_link_libraries( mila-chat PRIVATE Mila MilaAgents )
+target_link_libraries( mila-chat PRIVATE Mila )
 
 # The system prompts are content, and they are the ONLY thing the build places beside the
 # executable: no configuration ships, because the compiled defaults are a working configuration and

@@ -7,7 +7,7 @@ Written 2026-09-19; adopted 2026-09-23, when section 5 became v0.21.0 and its op
 settled (section 8). On 2026-10-10 section 5 became v0.22.0 (Todd): v0.21.0 ships the families finished and
 measured first, and section 5 builds on them. On 2026-10-25 tool calling was placed in a level of the Mila
 library by `ToolCalling.md` (3.2, 8); on 2026-10-31 that level became a library of its own, and on 2026-11-02 it came
-back into the one Mila library as `Mila::Agents`, a target of its own (decision 2), and most of section 5 came back to
+back into the one Mila library as `Mila::Agents` (decision 2), and most of section 5 came back to
 v0.21.0 (decision 5). Supersedes `MilaProductFamily.md` for everything after the v0.20 tag. That spec
 remains the definition v0.20 ships under. Releases step by one minor at a time; section 6 is the
 releases after v0.21.0, numbered as each is scheduled.
@@ -117,15 +117,15 @@ Mila library   Model handle + factory (architecture -> concrete type, from the m
 Unchanged in role. It owns everything model-intrinsic and consumer-blind: the model as composable C++,
 generation, sampling, the KV cache, the model's native grammar including its tool calls and the token-level
 splice, and deployment planning. It knows nothing about conversations, tools, agents or applications;
-conversations, tools and agents are one level up, in `Mila::Agents` (3.2), which this level never imports, and this
-level builds without it. That is a rule about the level, not about the library, which holds both. Its components remain a public surface a developer builds with directly (1.1), not only the material
+conversations, tools and agents are one level up, in `Mila::Agents` (3.2), which this level never imports, and a commit
+check holds it to that. That is a rule about the level, not about the library, which holds both. Its components remain a public surface a developer builds with directly (1.1), not only the material
 the shipped models are made from.
 
 ### 3.2 `Mila::Agents`
 
-The level above the model, in the Mila library (`Lib/Src/Agents/`; Todd, 2026-11-02, decision 2): a target of its own
-that depends on the rest of the library, which never imports it, so a model file that imports it fails to compile. A
-program writes `import Mila.Agents;` beside `import Mila;`, and one that does not pays nothing for it. This is the "native agent core" `MilaProductFamily.md` left as an
+The level above the model, in the Mila library (`Lib/Src/Agents/`; Todd, 2026-11-03, decision 2): built in the Mila
+target like every other folder of the library, none of which imports it (`Publishing/hooks/check_layers.py`). A
+program writes `import Mila;` and has it, and one that uses no agent links none of it. This is the "native agent core" `MilaProductFamily.md` left as an
 open decision, grown to own the application contract. It holds:
 
 - **The model handle and factory it stands on stay in Mila** (`Mila::Deployment`): opening a model by name is the
@@ -140,7 +140,7 @@ open decision, grown to own the application contract. It holds:
   Through `Mila::Agents` the application never runs a call itself. The models API has no tools; the agents API
   provides the file and web tools two applications offer, each application chooses which to offer, and every other
   tool is its own.
-- **The autonomy policy** (after v0.21.0).
+- **The task and the autonomy policy** (after v0.21.0; `Agents/AgentTasks.md`, agreed by Todd, 2026-11-03).
 
 `MilaProductFamily.md`'s standing rule, that there is no "runtime services" layer, still holds for
 the model level. `Mila::Agents` is that layer, built on purpose as a level of its own, so that the model level never
@@ -384,12 +384,12 @@ decided when each is scheduled, in `ROADMAP.md`.
 
 ### 6.1 Autonomy
 
-The agent is `Mila::Agents` with tools and an autonomy policy. It is not a separate product. The design is
-already written in `MilaProductFamily.md` (Agentic) and carries over as specified: the policy is a
+The agent is `Mila::Agents` with tools, a task and an autonomy policy. It is not a separate product. The
+design is `Agents/AgentTasks.md`, carrying over `MilaProductFamily.md` (Agentic): the policy is a
 runtime object, not a template parameter; loop detection by repeated call identity and by no
-observable delta; the shell as one built-in tool behind one guarded door; escalate-to-human as a tool;
-interrupts on turn boundaries only; a persisted, versioned trace. Chat becomes `Mila::Agents` under the
-policy "escalate before every tool", so Chat and an agent differ by one value.
+observable delta; the shell as an application's own tool behind one guarded door (`ContainedPrograms.md` 5);
+escalate-to-human as a tool; interrupts on turn boundaries only; a persisted, versioned trace. Chat, already
+on `Mila::Agents`, runs under the policy "escalate before every tool", so Chat and an agent differ by one value.
 
 *Success:* the two-loop measurement from `MilaProductFamily.md` Decided 1 — the same model and tools
 driven in process and through MIS by a foreign harness, on the same task set — reporting pass rate,
@@ -416,7 +416,7 @@ alternatives across device sets. Required by 6.2 wherever one card cannot hold t
 
 ### 6.4 Memory
 
-An `AI` saves its session, the conversation and the KV cache (and Qwen's recurrent state), and
+An `Agent` saves its session, the conversation and the KV cache (and Qwen's recurrent state), and
 restores it later without paying the prefill again. Memory in Mila means the state the model already
 has, kept; retrieval stores are an application's concern.
 
@@ -471,18 +471,21 @@ Settled 2026-09-23, each on the leaning this section recorded, when section 5 be
 1. **The name of the object: `Mila::Agents::Agent`,** in module `Agents.Agent` (revised 2026-10-25, Todd). It was
    the namespace's name, which is now that of the whole library, so the object takes the name `ToolCalling.md`
    already gave it.
-2. **Where the agent level lives: in the one Mila library, as `Mila::Agents`,** on a target of its own (Todd,
-   2026-11-02). It was a library at `Mila/AI/` until 2026-10-25, a level inside the Mila target until 2026-10-31, and
-   then Mila::Agents, a library of its own beside Mila. Mila::Agents is reversed because a developer met two products, two sets of docs
-   and, in Python, two packages for what is one thing: a developer installs Mila, and a program uses its models API,
-   its agents API or both. What Mila::Agents's separation was for survives, and it was never the name: the directory is
-   `Lib/Src/Agents/`, the target `MilaAgents` depends on the rest of the library and never the reverse, and
-   `import Mila.Agents;` is apart from `import Mila;`, for the compile cost and for Clang's source-location ceiling.
-   `MILA_ENABLE_AGENTS` is on by default. The wheel carries it once the binding projects it, which reverses this
-   decision's earlier "a wheel has no use for it"; until then the wheel presets keep it off. A new parent namespace
-   (`Mila::Models`, `Mila::Llm`, `Mila::AI`) was rejected: `Mila::Dnn` and `Mila::Deployment` stay, and "models API"
-   and "agents API" are words for the docs. Reopening this needs a reason these did not weigh. Whether its tool pieces become a target of their own, so a program wanting
-   tools alone needs no GPU stack, is `ToolCalling.md` decision 4.
+2. **Where the agent level lives: in the one Mila library and its one target, as `Mila::Agents`** (Todd, 2026-11-02,
+   and for the target and the import 2026-11-03). It was a library at `Mila/AI/` until 2026-10-25, a level inside the
+   Mila target until 2026-10-31, then a library of its own beside Mila, reversed because a developer met two products,
+   two sets of docs and, in Python, two packages for what is one thing: a developer installs Mila, and a program uses its
+   models API, its agents API or both. It then kept a target (`MilaAgents`), an option (`MILA_ENABLE_AGENTS`) and an
+   import (`import Mila.Agents;`) of its own for a day, for the compile cost and for Clang's source-location ceiling; both
+   were reasons nobody had measured, and it left the library one in name and two in its build. Measured
+   (`Notebooks/AgentsTargetMerge.md`): a clean library build gains about 5 s, a compile that imports Mila gains nothing
+   shown, a program that uses no agent gains 1 KB on MSVC and 19 KB on Clang, and agents add 0.05% of Clang's limit, of
+   which `import Mila;` uses 22%. So `Lib/Src/Agents/` is a folder of the library like the others: `import Mila;`
+   brings it, and a commit check keeps the rest from importing it, which the target did for it alone. A new parent
+   namespace (`Mila::Models`, `Mila::Llm`, `Mila::AI`) was rejected: `Mila::Dnn` and `Mila::Deployment` stay, and "models
+   API" and "agents API" are words for the docs. Reopening this needs a reason these did not weigh. Whether its tool
+   pieces become a target of their own, so a program wanting tools alone needs no GPU stack, is `ToolCalling.md`
+   decision 4.
 3. **A C ABI at the `Mila::Agents` boundary: decided during v0.21.0** against the QuickStart experience, shipped
    no earlier than the release after it. It would make .NET and other compilers' C++ straightforward,
    and `Mila::Agents`'s rule 1 keeps it small enough to be cheap. Its first form, over today's binding surface

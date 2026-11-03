@@ -237,7 +237,7 @@ folder the person chooses and reads web pages, and every call is allowed, asked 
 
 **The library provides everything an application like this needs** (`ToolCalling.md`, decided 2026-10-25 with
 Todd, replacing the per-user tool broker of 2026-10-24). So the agent is built in `Mila::Agents`, the library's agents
-API, a target of its own that the rest of Mila builds without (Todd, 2026-11-02), and the app adds only its window, its rules' storage and its tools. That brings forward
+API, which nothing else in Mila imports, and the app adds only its window, its rules' storage and its tools. That brings forward
 from v0.22.0 what tool calling stands on: the model's tool grammar on the model handle, the handle and factory that
 let one loop drive every family, and `Mila::Agents` itself, whose tool loop appends each result's tokens to the live
 cache instead of reading the conversation again. On it: tools that declare what they touch, permissions every call
@@ -263,7 +263,7 @@ and neither runs a call itself nor holds a model's tool grammar; the console Cha
 window does, and edits a file in a folder the person named and reads a web page through the same tools the window
 offers; a program built against the library alone registers a tool and runs it under `Mila::Agents`'s permissions
 on Gemma, Llama and Qwen by changing only the model's name, `plan()` and `model()` reaching the objects that ran;
-the agents API is a target of its own in the Mila library, built on the rest of it, and the rest builds without it; a program changes its model, or its context, and keeps its tools, rules, grant and conversation; Mila Desktop and
+the agents API is in the Mila library, built on the rest of it, and nothing else in the library imports it; a program changes its model, or its context, and keeps its tools, rules, grant and conversation; Mila Desktop and
 Chat each build on `Mila::Agents` alone, neither linking the other's code, and neither holds code that knows which family
 a model belongs to; no dispatch site in `Mila::Agents` carries a
 per-family branch; and across a multi-turn tool session, prefill tokens per turn equal the tokens the turn added,
@@ -407,9 +407,9 @@ OpenAI and Anthropic wire shapes -- still pass unchanged.
 
 - **Intelligence that acts — `Direction.md` section 6.** An agent finishes a multi-step task in your
   process without re-reading its own history, and every step it took can be audited: the autonomy
-  policy on `Mila::Agents` (Chat becomes the same object under the policy "escalate before every tool"),
+  policy on `Mila::Agents` (Chat, already on it, runs under the policy "escalate before every tool"),
   splitting a model across devices (`Deployment.md` Phase 5, `LayerSplit.md`), a session saved and
-  restored with its KV cache and no prefill, and two `AI`s planned jointly on one machine. The
+  restored with its KV cache and no prefill, and two agents planned jointly on one machine. The
   measurement that decides it is `MilaProductFamily.md`'s two-loop comparison — the same model and
   tools driven in process and through the inference server by a foreign harness.
 - **Muse Glimmer 30B — the named model target, and not the next release.** Meta's Apache 2.0,

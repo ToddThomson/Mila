@@ -21,7 +21,6 @@
 #endif
 
 import Mila;
-import Mila.Agents;
 import Desktop.ConversationStore;
 import Desktop.Models;
 import Desktop.SessionProcess;

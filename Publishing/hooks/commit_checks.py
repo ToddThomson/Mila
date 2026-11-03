@@ -2,10 +2,10 @@
 """
 The offline checks, run on exactly what is being committed.
 
-Three checks that need no toolchain, no network and no GPU: NOTICE.md matches the
-dependency pins, the sixteen release-version sites agree, and Doxygen builds without a
-warning. Together they take about five seconds, so they run before every commit instead
-of after a push.
+Four checks that need no toolchain, no network and no GPU: NOTICE.md matches the
+dependency pins, the sixteen release-version sites agree, each folder of the library imports
+only what it may, and Doxygen builds without a warning. Together they take about five seconds,
+so they run before every commit instead of after a push.
 
 They run against the STAGED tree, exported to a temporary directory, not the working
 tree. A commit that stages half a change is judged on the half it carries.
@@ -122,6 +122,11 @@ def run_checks(root: Path, scratch: Path) -> bool:
         run_check(
             "The release version is written consistently",
             [python, "Publishing/release/version_sites.py", "--check"],
+            root,
+        ),
+        run_check(
+            "Each folder of the library imports only what it may",
+            [python, "Publishing/hooks/check_layers.py"],
             root,
         ),
         run_doxygen(root, scratch / "docs"),

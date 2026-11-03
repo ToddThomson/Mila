@@ -4,7 +4,7 @@ How a tool runs a program held to its grant, through Microsoft eXecution Contain
 does: Mila Desktop's shell in Build & Code.
 
 **Status:** agreed 2026-10-27 (Todd, decisions 1 to 6 of section 9); phase 1 measured the same day; decisions 7
-to 10 agreed 2026-10-31, and phase 2, the library, built that day; the tool (phase 3) not begun. Decided before it (Todd, 2026-10-27): MXC goes into
+to 11 agreed 2026-10-31, and phases 2 and 3, the library and the tool, built that day; phase 4 not begun. Decided before it (Todd, 2026-10-27): MXC goes into
 tool calling for v0.21.0 as an experiment, behind a switch that is off by default, as long as the grant
 (`ToolCalling.md` 3.4) remains v0.21.0's safe tool calling; the design works around the two accesses MXC's policy
 accepts that no grant gives; a file that gains a second name from outside while a run is going is accepted as a
@@ -252,7 +252,7 @@ run (4.3), and the registry under `HKCU` read (4.9) -- are stated where the sett
 
 ## 7. Modules
 
-One type each, in `Lib/Src/Agents/` unless named:
+One type each, under `Lib/Src/Agents/` unless named:
 
 | Module | Type |
 |---|---|
@@ -314,21 +314,20 @@ Decided 2026-10-31 (Todd, "7c and 8a", then "Agreed" to the bound and to 9 and 1
    so the granted folders are walked before the first run and watched (`ReadDirectoryChangesW`) after it, each run
    re-reading only the files the watcher named. A watcher that overflows has its folder walked again, and a walk
    past a bound refuses the run. The bound, agreed 2026-10-31 after timing (4.3), is the call's own time, never a
-   count of files. **Narrowed the same day** (Todd, "A"), when phase 2's tests found NTFS reports no name made
+   count of files. Not chosen: walking only between runs, which leaves a name made from outside between runs unseen;
+   a bound alone, which leaves large projects without the shell. **Narrowed the same day** (Todd, "A"), when phase 2's tests found NTFS reports no name made
    outside for a file inside: the watcher is relied on only on ReFS, where it was measured to report one; on any
    other file system the folders are walked whole before every run. Not chosen: reading NTFS's change journal
    between runs, whose unprivileged read is unmeasured (a later speed-up); a known gap on NTFS.
-9. **The program folders reach only the program** (4.6): `runProgram` gives them to the run, and no file tool
-   reads them. (Todd, 2026-10-31.)
-10. **A program folder the person can write to is walked and watched as a granted folder is** (4.3); one only an
-    administrator can write to, such as under `Program Files`, is not, since no second name can be made inside it
-    without that. (Todd, 2026-10-31.) Not chosen: walking only between runs,
-   which leaves a name made from outside between runs unseen; a bound alone, which leaves large projects without
-   the shell.
 8. **The registry is a known gap** (4.9), stated where the setting is beside the hard-link one, and told to
    Microsoft with the other two findings (`Untriaged.md`). The person's saved credentials are refused, `HKCU`
    cannot be written, and the run's own environment is Mila's (4.7). Not chosen: keeping the shell out until MXC
    can refuse it.
+9. **The program folders reach only the program** (4.6): `runProgram` gives them to the run, and no file tool
+   reads them. (Todd, 2026-10-31.)
+10. **A program folder the person can write to is walked and watched as a granted folder is** (4.3); one only an
+    administrator can write to, such as under `Program Files`, is not, since no second name can be made inside it
+    without that. (Todd, 2026-10-31.)
 
 Decided 2026-10-31 (Todd, "off by default", then "Yes to your 2 step plan"):
 
@@ -346,5 +345,5 @@ Decided 2026-10-31 (Todd, "off by default", then "Yes to your 2 step plan"):
   here (2026-10-27).
 - **`ToolBroker.md` 6.3** and **`Notebooks/LocalToolService.md` 10.4** first named MXC; `Vnext.md`'s sandbox entry
   holds what phase 4 leaves.
-- **`MilaDesktop.md`** 3.1 (Build & Code's tools) and 9.4 (what the installer carries) change in phase 3.
+- **`MilaDesktop.md`** 3.1 (Build & Code's tools) and 9.4 (what the installer carries) changed in phase 3.
 - **`Notebooks/MxcConformance.md`** holds the measurements this design rests on.

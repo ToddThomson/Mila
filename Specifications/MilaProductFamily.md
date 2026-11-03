@@ -214,7 +214,9 @@ ground neither end wants. *Leaning:* the compiled-in registry, with **the shell 
 tool** rather than as the tool mechanism. Everything that matters for latency (file read, grep,
 patch apply) stays a native call; open-ended capability arrives through a single door. The dividend
 is the guardrail model: with one door to the host, the jail, the allow-list, and the resource caps
-have exactly one place to live instead of being cross-cutting.
+have exactly one place to live instead of being cross-cutting. Since decided: the shell is an
+application's own tool, never a built-in one, and the one door is the grant (`ToolCalling.md` 5,
+`ContainedPrograms.md` 5).
 
 **The autonomy policy is a runtime object, not a template parameter.** Mila's idiom points the other
 way — `TWeightQuantization`, `TKvPolicy` and `TRopePolicy` train the hand to reach for
@@ -379,7 +381,8 @@ that would validate it is shared. See Honest Risk.
 ## Related Specifications
 
 - `GemmaChatProtocol.md` — the native token grammar (candidate home for the runtime-level spec).
-- `ToolCalling.md` — planned tool-calling design.
+- `ToolCalling.md` — the tool-calling design, built.
+- `Agents/AgentTasks.md` — the design of tasks and the autonomy policy, carrying *Agentic* forward.
 - `MilaISCodexAgent.md` — the proven MIS wire-adaptor agentic loop (Codex).
 - `PromptCaching.md` — the caching the wire adaptor fights and the native core exploits.
 - `SpeculativeDecoding.md`, `TokenSampling.md`, `SlidingWindowKvCache.md` — runtime primitives the

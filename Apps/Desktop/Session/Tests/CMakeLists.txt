@@ -32,7 +32,7 @@ if( MSVC )
     target_compile_options( DesktopSessionTests PRIVATE /bigobj )
 endif()
 
-target_link_libraries( DesktopSessionTests PRIVATE Mila MilaAgents gtest gtest_main )
+target_link_libraries( DesktopSessionTests PRIVATE Mila gtest gtest_main )
 
 gtest_discover_tests( DesktopSessionTests
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"

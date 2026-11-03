@@ -1066,7 +1066,19 @@ never a second path: it produces an ordinary request, and the plan it produced r
 
 The finding is an absence; nothing selects features yet (the entry under Deployment Planning).
 
-`ROADMAP.md`, Future, v0.22.0 Mila::Agents
+`ROADMAP.md`, Future, v0.22.0 Use Cases
+
+## A program cannot give an agent a task and have it carried to the end
+
+`agents` · `apps`
+
+An agent works only while `respond()` runs, and a reply with no call ends that, whether the model finished, gave up or
+asked a question. Nothing holds a goal across responses, spends a budget across them, sees a loop or keeps a record, and
+Mila Desktop's plan is private to it. The library owns the answer (Todd, 2026-11-03): a task, its budget and policy, a
+versioned trace and a task folder, with `agent.run( task )` on top of `respond()`. The design is agreed; it comes after
+v0.22.0, and only compaction's seam for it is in v0.21.0.
+
+`Specifications/Agents/AgentTasks.md` · `Lib/Src/Agents/Agent.ixx`
 
 ## The inference server holds code that knows which model it is running
 

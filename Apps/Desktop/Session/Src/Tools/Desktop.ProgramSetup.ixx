@@ -13,7 +13,6 @@ export module Desktop.ProgramSetup;
 import std;
 
 import Mila;
-import Mila.Agents;
 
 namespace Mila::Desktop
 {

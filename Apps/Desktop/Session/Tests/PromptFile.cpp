@@ -19,7 +19,7 @@
 
 import Desktop.PromptTool;
 import Desktop.PromptFile;
-import Mila.Agents;
+import Mila;
 
 namespace Mila::Tests::Apps::Desktop
 {

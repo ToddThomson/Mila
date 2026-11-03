@@ -186,7 +186,6 @@
         "MILA_ENABLE_TESTING": "OFF",
         "MILA_ENABLE_SAMPLES": "OFF",
         "MILA_ENABLE_APPS": "OFF",
-        "MILA_ENABLE_AGENTS": "OFF",
         "MILA_ENABLE_PROFILING": "OFF",
         "MILA_ENABLE_TOOLS": "OFF",
         "MILA_ENABLE_DOCS": "OFF"
@@ -223,7 +222,6 @@
         "MILA_ENABLE_TESTING": "OFF",
         "MILA_ENABLE_SAMPLES": "OFF",
         "MILA_ENABLE_APPS": "OFF",
-        "MILA_ENABLE_AGENTS": "OFF",
         "MILA_ENABLE_PROFILING": "OFF",
         "MILA_ENABLE_TOOLS": "OFF",
         "MILA_ENABLE_DOCS": "OFF"
