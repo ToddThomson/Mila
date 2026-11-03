@@ -129,6 +129,6 @@ module library, not specific to Mila.
 
 ## Automated gate
 
-`Tests/Packaging`'s `packaging_fetchcontent_consumer` gate automates exactly this against the
+`Lib/Tests/Packaging`'s `packaging_fetchcontent_consumer` gate automates exactly this against the
 local working tree (network-free) and fails CI if Mila stops being subproject-consumable. The
 opt-in `packaging_cpm_consumer` additionally proves a published tag is fetchable over the network.

@@ -23,7 +23,7 @@ library, locating a built artifact, converting weights, and knowing where everyt
 
 ## Current surface
 
-Complete as of `0.20.0-beta.2+45`. Source: `Lib/Bindings/Mila_py.cpp`.
+Complete as of `0.20.0-beta.2+45`. Source: `Lib/Bindings/Python/Mila_py.cpp`.
 
 | Symbol | Members |
 |---|---|

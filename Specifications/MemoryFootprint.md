@@ -978,7 +978,7 @@ with both GPUs visible. Chat: `ChatRichTextTests` 33 of 33, and piped sessions w
 3B FP4 answer a factual question and write a correct function, both with one GPU visible and with both.
 
 **Resolved at `0.20.0-rc.1+15`.** `ScratchReservation.Cuda.cpp` measures on the device without a display
-(`Tests/Common/DeviceWithoutDisplay.h`), skips a case whose weights exceed free memory, and fails again on growth;
+(`Lib/Tests/Common/DeviceWithoutDisplay.h`), skips a case whose weights exceed free memory, and fails again on growth;
 it skips the growth bound only where every device drives a display or the card has under 16 MiB free. Both 15 GiB
 loads are re-enabled on the same terms. Both GPUs visible, the growth read 0.0-4.0 MiB on the RTX 5060 Ti, the Qwen
 FP4 case passing with 32 MiB left. **Negative:** `reserveScratch` made a no-op fails all five cases with growth equal
@@ -1121,7 +1121,7 @@ promised once this rule landed. The test stays disabled: in a process that sees 
 **Found by the run, decided 2026-09-16.** On the RTX 4070, which drives a display, the two Gate B tests measure 224 and 225 MiB
 beyond the prediction, the Windows budget cut in 11.5, and fail the 64 MiB bound criterion 2 set for them. On
 2026-09-16 the same tests read 720-1180 MiB there (11.5), with nothing in Mila changed. Decided: both tests run on the
-lowest CUDA device that drives no display (`Tests/Common/DeviceWithoutDisplay.h`, NVML display active, matched
+lowest CUDA device that drives no display (`Lib/Tests/Common/DeviceWithoutDisplay.h`, NVML display active, matched
 by PCI address), hold the 64 MiB bound there, and skip the bound, printing the residual, where every visible device
 drives one. The exact agreements with `getMemoryStats` are asserted on any device. Measured after the change, both
 GPUs visible: Gemma 4 12B 6 MiB and Llama 3.1 8B 21 MiB on CUDA 1, the RTX 5060 Ti. The step 1 criterion 3 test
@@ -1140,7 +1140,7 @@ bound in both Gate B tests, and the 128 MiB arm comparison in `QuantizeOnLoad.Fo
 is a statement about the machine, and the arm comparison is no safer: the budget moves between the two loads as well
 as between runs, and the observed swing exceeded the bound. `ScratchReservation.Cuda.cpp` keeps its 16 MiB growth
 bound, which is a property of Mila's allocator over one process rather than a total, and already skips a saturated
-card. `Tests/Common/DeviceWithoutDisplay.h` is gone; what survives of it is `CudaDeviceScope.h`, the RAII that
+card. `Lib/Tests/Common/DeviceWithoutDisplay.h` is gone; what survives of it is `CudaDeviceScope.h`, the RAII that
 restores the current device. NVML leaves the test binary with it — linking it had put the driver library in the
 binary's load-time dependencies, so a machine with a Toolkit and no driver could not start the suite at all.
 

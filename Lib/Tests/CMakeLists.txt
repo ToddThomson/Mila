@@ -13,8 +13,6 @@
 # Cuda*.cpp) live in the MILA_ENABLE_CUDA block at the bottom, organized the same
 # way, so the MILA_ENABLE_CUDA=OFF build never compiles a CUDA translation unit.
 
-set(CMAKE_CXX_SCAN_FOR_MODULES ON)
-
 include(FetchContent)
    FetchContent_Declare(
    googletest
@@ -179,8 +177,7 @@ target_sources( MilaTests PRIVATE
 )
 
 # Mila::Agents, when it is built. The gate every tool call passes and the grant it gives (ToolCalling.md 3.1 to 3.4), and what a
-# program gives an agent, kept apart from its model (Direction.md 4.3), need no model; nor do Mila Desktop's own settings
-# file and activity prompts (MilaDesktop.md 3.1, 3.7), built here from its sources.
+# program gives an agent, kept apart from its model (Direction.md 4.3), need no model.
 if(MILA_ENABLE_AGENTS)
     target_sources( MilaTests PRIVATE
         "Agents/ArgumentSchema.cpp"
@@ -190,20 +187,6 @@ if(MILA_ENABLE_AGENTS)
         "Agents/ToolGate.cpp"
         "Agents/Session.cpp"
         "Agents/WebPageReader.cpp"
-        "Apps/Desktop/SettingsFile.cpp"
-        "Apps/Desktop/PromptFile.cpp"
-    )
-
-    target_sources( MilaTests
-    PRIVATE
-        FILE_SET desktop_module_files
-        TYPE CXX_MODULES
-        BASE_DIRS "${CMAKE_SOURCE_DIR}/Apps/Desktop/Session/Src"
-        FILES
-            "${CMAKE_SOURCE_DIR}/Apps/Desktop/Session/Src/Desktop.Settings.ixx"
-            "${CMAKE_SOURCE_DIR}/Apps/Desktop/Session/Src/Desktop.SettingsFile.ixx"
-            "${CMAKE_SOURCE_DIR}/Apps/Desktop/Session/Src/Desktop.PromptTool.ixx"
-            "${CMAKE_SOURCE_DIR}/Apps/Desktop/Session/Src/Desktop.PromptFile.ixx"
     )
 
     target_link_libraries( MilaTests PRIVATE MilaAgents )
@@ -482,49 +465,9 @@ gtest_discover_tests(MilaTests
 )
 
 # ---------------------------------------------------------------------------
-# Chat: the rich-text formatter.
-#
-# Its own executable rather than a file in MilaTests, because Chat.RichText imports
-# nothing -- no Mila, no CUDA -- and linking it against the library would give the
-# cheapest test surface in the tree the slowest build in the tree. It runs anywhere,
-# including a CPU-only configure.
-#
-# The target lives here rather than under Apps/Chat: the tests are one place, and the GoogleTest targets are here.
-# ---------------------------------------------------------------------------
-add_executable( ChatRichTextTests
-    "Apps/Chat/RichText.Cpu.cpp"
-)
-
-# BASE_DIRS is explicit because a module file set otherwise roots itself at this
-# directory, and the module being tested lives in the app it belongs to.
-target_sources( ChatRichTextTests
-PUBLIC
-    FILE_SET module_files
-    TYPE CXX_MODULES
-    BASE_DIRS "${CMAKE_SOURCE_DIR}/Apps/Chat/Src"
-    FILES
-        "${CMAKE_SOURCE_DIR}/Apps/Chat/Src/Chat.RichText.ixx"
-)
-
-set_target_properties( ChatRichTextTests PROPERTIES
-    CXX_STANDARD 23
-    CXX_STANDARD_REQUIRED ON
-    CXX_EXTENSIONS OFF
-)
-
-# MilaStd for `import std;`: the module under test links nothing else of Mila's.
-target_link_libraries( ChatRichTextTests PRIVATE MilaStd gtest gtest_main )
-
-gtest_discover_tests( ChatRichTextTests
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    PROPERTIES
-        VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-)
-
-# ---------------------------------------------------------------------------
 # Mila::Agents: a web page's HTML read as text.
 #
-# Its own executable for the reason ChatRichTextTests is: Agents.HtmlText imports nothing of
+# Its own executable rather than a file in MilaTests, because Agents.HtmlText imports nothing of
 # Mila's, so it builds and runs anywhere without the library.
 # ---------------------------------------------------------------------------
 add_executable( AgentsHtmlTextTests

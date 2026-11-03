@@ -428,7 +428,7 @@ two chassis, and the criterion is met. The arms differ by one line — a tempora
 section declines to ship. Run order baseline / instrumented / baseline; seven repeats of the
 `decodeSecondsPerToken` subtraction per arm; `x64-claude-verify` Release, RTX 5060 Ti pinned
 by UUID, both models DRAM-resident with GiB to spare. Harness:
-`ObservationCostCudaTests` (`Tests/Dnn/Observation/ObservationCost.Cuda.cpp`).
+`ObservationCostCudaTests` (`Lib/Tests/Dnn/Observation/ObservationCost.Cuda.cpp`).
 
 | Arm | Llama 3.2 3B FP4 | Gemma 4 12B FP4 |
 |---|---|---|

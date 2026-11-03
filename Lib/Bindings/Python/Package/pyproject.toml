@@ -21,7 +21,7 @@ readme = "README.md"
 requires-python = ">=3.12,<3.15"
 license = "MIT"
 # Mila's own licence, then the third-party code linked into the extension. The second
-# set is staged from the fetched sources by the CMake configure (Lib/Bindings/CMakeLists.txt).
+# set is staged from the fetched sources by the CMake configure (Lib/Bindings/Python/CMakeLists.txt).
 # Literal paths, not a glob: setup.py refuses to build when one is missing, which a glob
 # matching nothing would slip past.
 license-files = [

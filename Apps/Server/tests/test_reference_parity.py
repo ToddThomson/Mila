@@ -25,7 +25,7 @@ _build_trained_tool_declarations). Do not "fix" the template.
 
 Scope: the Messages endpoint (Claude Code), parsed into the conversation and rendered by the
 runtime's GemmaChatProtocol, whose own suite holds it to the template on many more cases
-(Tests/Dnn/Models/Gemma/Gemma.ChatProtocol.cpp). This case checks that the endpoint's
+(Lib/Tests/Dnn/Models/Gemma/Gemma.ChatProtocol.cpp). This case checks that the endpoint's
 parse hands it the right conversation.
 """
 import pathlib

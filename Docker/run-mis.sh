@@ -25,7 +25,7 @@ if [ ! -x "${VENV}/bin/python" ]; then
     exit 1
 fi
 
-# The venv installs the mila package in editable mode off Lib/Bindings/Package, whose
+# The venv installs the mila package in editable mode off Lib/Bindings/Python/Package, whose
 # extension MilaPy's POST_BUILD stages. An unbuilt binding shows up as an import failure
 # rather than a missing file, so ask the interpreter rather than the filesystem.
 if ! "${VENV}/bin/python" -c "import mila" >/dev/null 2>&1; then

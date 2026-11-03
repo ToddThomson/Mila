@@ -122,7 +122,7 @@ def _search_dirs():
         yield Path(override)
 
     # The neutral build output: <build dir>/python, published by
-    # Lib/Bindings/CMakeLists.txt. Newest build wins when several presets exist.
+    # Lib/Bindings/Python/CMakeLists.txt. Newest build wins when several presets exist.
     build_dirs = sorted(
         REPO_ROOT.glob("out/build/*/python"),
         key=_extension_mtime,

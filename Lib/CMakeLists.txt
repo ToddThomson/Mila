@@ -119,7 +119,6 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     NAMES clang-scan-deps-${_mila_clang_major} clang-scan-deps
     REQUIRED)
   set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "${MILA_CLANG_SCAN_DEPS}")
-  set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "${MILA_CLANG_SCAN_DEPS}" PARENT_SCOPE)
   # nvcc's host compiler for the (module-free) .cu files. Only default it to the
   # C++ compiler when the caller hasn't chosen one -- the Linux presets and CI set
   # gcc-15 (nvcc 13's max supported host), and overriding that here produces a
@@ -128,7 +127,6 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   # sufficient; CMake emits the -ccbin itself, so no manual flag append.
   if(NOT CMAKE_CUDA_HOST_COMPILER)
     set(CMAKE_CUDA_HOST_COMPILER "${CMAKE_CXX_COMPILER}")
-    set(CMAKE_CUDA_HOST_COMPILER "${CMAKE_CXX_COMPILER}" PARENT_SCOPE)
   endif()
 endif()
 
@@ -1182,7 +1180,7 @@ endif()
 # Python (module `Mila.Bindings`), consumer-blind -- consumed by the MIS server and by
 # the parity/converter tooling alike, so it is a peer of the runtime, not an adaptor.
 if(MILA_ENABLE_PYTHON_BINDINGS)
-    add_subdirectory( Bindings )
+    add_subdirectory( Bindings/Python )
 endif()
 
 # mila-store, the model store from the shell. It needs only the store and the hub, so it builds on any backend.
@@ -1192,6 +1190,10 @@ endif()
 
 if(MILA_ENABLE_PROFILING)
     add_subdirectory(Profiling)
+endif()
+
+if(MILA_ENABLE_TESTING)
+    add_subdirectory(Tests)
 endif()
 
 if(MILA_ENABLE_SAMPLES)

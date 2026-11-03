@@ -173,12 +173,12 @@ cmake -S . -B out/build/x64-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DMILA_E
 # Build
 cmake --build out/build/x64-release
 
-# Run the test suite (one binary, MilaTests.exe on Windows; --gtest_filter=<pattern> narrows it)
-./out/build/x64-release/Tests/MilaTests
+# Run the library's tests (one binary, MilaTests.exe on Windows; --gtest_filter=<pattern> narrows it)
+./out/build/x64-release/Lib/Tests/MilaTests
 ```
 
 `ctest --test-dir out/build/x64-release` runs the same tests and adds the separate
-`ChatRichTextTests` binary, which is what CI and the release gates use. It runs each test in its
+binaries, the apps' tests among them, which is what CI and the release gates use. It runs each test in its
 own process, so it takes several times longer than the binary above — every GPU test pays for a
 fresh CUDA context and reloads its weights.
 
@@ -211,7 +211,7 @@ Notes:
 Run a single test binary directly, for example:
 
 ```bash
-./out/build/x64-release/Tests/Dnn/Components/Activations/Gelu/GeluTests
+./out/build/x64-release/Lib/Tests/Dnn/Components/Activations/Gelu/GeluTests
 ```
 
 Available presets, from `CMakePresets.json`:
@@ -260,7 +260,7 @@ docker compose -f Docker/docker-compose.yml run --rm mila-dev
 # Inside the container:
 cmake --preset linux-clang-release
 cmake --build out/build/linux-clang-release
-./out/build/linux-clang-release/Tests/MilaTests
+./out/build/linux-clang-release/Lib/Tests/MilaTests
 ```
 
 The preset selects clang for the module units and gcc-15 for nvcc, and builds the library for
@@ -534,7 +534,7 @@ classes — that path is being removed. See
 ### Tests are required
 
 Every new component must include **forward and backward** pass tests, with CPU/CUDA
-equivalence where applicable. Tests live under `Tests/Dnn/` and mirror the `Src/Dnn`
+equivalence where applicable. Tests live under `Lib/Tests/Dnn/` and mirror the `Src/Dnn`
 tree. Run the suite with `ctest` before opening a PR.
 
 Good first contributions, per the README: CPU reference implementations, additional test

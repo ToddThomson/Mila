@@ -97,7 +97,7 @@ if(MILA_ENABLE_CPM_GATE)
             -D "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
             -D "GITHUB_REPOSITORY=${MILA_CPM_GITHUB_REPOSITORY}"
             -D "GIT_TAG=${_mila_cpm_tag}"
-            -D "CPM_SCRIPT=${CMAKE_SOURCE_DIR}/cmake/CPM.cmake"
+            -D "CPM_SCRIPT=${CMAKE_SOURCE_DIR}/Lib/Deps/cpm/CPM.cmake"
             -D "CPM_SOURCE_CACHE=${CMAKE_CURRENT_BINARY_DIR}/cpm-cache/${_mila_cpm_tag}"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/drive_cpm.cmake"
     )

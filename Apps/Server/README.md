@@ -64,10 +64,10 @@ pip install mila-llm-server
 
 **From this checkout** — install MIS editable, and point the `mila` dependency at your own build
 rather than PyPI. The Mila build stages the freshly built extension into the package tree
-(`Lib/Bindings/CMakeLists.txt`), so a later rebuild of `MilaPy` is picked up with no reinstall.
+(`Lib/Bindings/Python/CMakeLists.txt`), so a later rebuild of `MilaPy` is picked up with no reinstall.
 
 ```
-pip install -e ../Lib/Bindings/Package
+pip install -e ../Lib/Bindings/Python/Package
 pip install -e ".[dev]"
 ```
 
@@ -76,7 +76,7 @@ presets — nothing MIS-specific.
 
 The *version* is the one thing a rebuild does not refresh: both packages take theirs from
 `Version.txt` through the CMake configure, and pip records it at install time. After a version bump,
-reinstall `Bindings/Package` — otherwise the stale metadata can fall below MIS's `mila-llm` floor
+reinstall `Bindings/Python/Package` — otherwise the stale metadata can fall below MIS's `mila-llm` floor
 even though the code is newer.
 
 Confirm the chain resolves before continuing:

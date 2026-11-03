@@ -836,7 +836,7 @@ fused decode read the chunk's own keys back from the cache after writing them (`
 `decode_optimized`), so decision 3 holds by construction.
 
 **The op, gated 2026-09-28** (`CudaGqaOp<BF16, false, true>` from `PerTokenKvFp8<>` through `OperationTraits`;
-`Tests/Dnn/Components/Attention/GQA/CudaGqaOp.Fp8Cache.Cuda.cpp`; RTX 5060 Ti and RTX 4070 alike). On K and V the FP8
+`Lib/Tests/Dnn/Components/Attention/GQA/CudaGqaOp.Fp8Cache.Cuda.cpp`; RTX 5060 Ti and RTX 4070 alike). On K and V the FP8
 cache holds exactly -- a power-of-two scale times E4M3 codes with one at 448 -- the FP8 op and the BF16 op agree **bit for
 bit** through chunked prefill and decode at Llama's (128, group 4), Gemma's global (512, group 16, batch 2) and Qwen's
 (256, group 6) geometries: every scale factors out of its products without rounding. On normal random K and V, each

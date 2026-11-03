@@ -1,7 +1,7 @@
 """
 Render the conversations the protocol parity tests use through each checkpoint's own chat template.
 
-The goldens in Tests/Dnn/Models/{Qwen,Gemma,LlaMa}/*.ChatProtocol.cpp are this script's output. The template is
+The goldens in Lib/Tests/Dnn/Models/{Qwen,Gemma,LlaMa}/*.ChatProtocol.cpp are this script's output. The template is
 the oracle (ModelHandle.md 3.4): it ships with the weights, and transformers' render_jinja_template is the
 renderer apply_chat_template calls, so a golden is exactly the prompt the checkpoint was published with.
 

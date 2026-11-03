@@ -15,7 +15,7 @@ A decode step launches one kernel per operation: 451 for Llama 3.1 8B, 964 for G
 consecutive kernels the GPU is idle for 2-3 us while it retires one launch and starts the next, even when
 the host has already queued both. After the host left the token loop (decode-ahead in Gemma and Qwen, L5
 for Llama) that gap is the only idle time left, and it is measured, not inferred
-(`Tests/Dnn/Models/DecodeLaunch.Cuda.cpp`, one decode step at a fixed position, launched and then replayed
+(`Lib/Tests/Dnn/Models/DecodeLaunch.Cuda.cpp`, one decode step at a fixed position, launched and then replayed
 as one captured graph):
 
 | One decode step | RTX 5060 Ti launched -> graph | RTX 4070 launched -> graph |
@@ -266,7 +266,7 @@ No recording yet; every step is called.
 - **A3. The cost of C.** Decode rate at depths 16, 256, 1024 and 8192 on both packages against the build before
   the change; a regression below saturation is reported with its size before Phase B starts.
 
-**Result (2026-09-29, `+19`, RTX 5060 Ti).** A1: all eight arms of `Tests/Dnn/Models/DecodeReference.Cuda.cpp`
+**Result (2026-09-29, `+19`, RTX 5060 Ti).** A1: all eight arms of `Lib/Tests/Dnn/Models/DecodeReference.Cuda.cpp`
 (tiny Llama BF16, BF16 with FP8 KV and FP32; tiny Gemma across its window; tiny Qwen; Llama 3.1 8B Q4_0 with BF16
 and FP8 KV; Gemma 4 12B Q4_0) equal the `+18` reference at every step from 1 to 8200, bit for bit; every arm
 first reproduced itself at `+18`, so the called path was already deterministic. A2: the prefix-reuse tests pass

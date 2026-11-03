@@ -427,7 +427,7 @@ and sizes the head's logit rows, attention's decode output and the decode split 
 with everything else, and an attention op refuses a decode call of more tokens than it was built for. The routed
 feed-forward (26B-A4B) refuses until step 5; Llama and Qwen refuse (a family without one). `decodeTokens` has
 recordings of its own, one for each number of tokens (6b-2, below; `DecodeGraph.md` 4.7).
-Gate (`Tests/Dnn/Models/DecodeTokens.Cuda.cpp`, the seeded tiny Gemma, BF16): five tokens in one call against five
+Gate (`Lib/Tests/Dnn/Models/DecodeTokens.Cuda.cpp`, the seeded tiny Gemma, BF16): five tokens in one call against five
 decodes differ by 5.0e-2 of the logits' RMS on a 150-token prompt, against 3.8e-2 for a prefill of the same tokens --
 the network carries any summation-order change that far -- and the next decode after the call is bit-identical, so
 the caches it leaves are exact. The budget is twice the prefill yardstick. The test runs a 12-token prompt, where the
@@ -478,7 +478,7 @@ differs by kind of text (4 for chat and code above, 2 for prose), so a use case 
 plan carries the selection to the load. `GemmaModel` builds the network with K + 1 decode tokens and
 `GemmaTransformer::addDrafter` attaches the drafter as a child (`<network>.drafter`, on the network's context), so
 the footprint prices it with no planner change; a tiny network with a drafter prices exactly what it builds,
-category by category (`Tests/Dnn/Models/Gemma/Gemma.DraftModel.Cuda.cpp`). The round is
+category by category (`Lib/Tests/Dnn/Models/Gemma/Gemma.DraftModel.Cuda.cpp`). The round is
 `LanguageModelNetwork::draftTokens( tokens, position, hidden_row )` -- slot 0 known, slots 1 to K drafted on the
 device, the hidden state taken from the row of the last pass the caller names -- then `decodeTokens`, then the
 sampler at every row (4.4); `GemmaModel::generate` runs it whenever the plan selected a drafter. The draft's argmax
@@ -597,7 +597,7 @@ the rows, about 1 MB a row at this vocabulary, outside the footprint as the one-
 
 **Built and measured 2026-10-06.** The rows pipeline, the acceptance walk and `SpeculativeSampler`
 (`Dnn.Samplers.SpeculativeSampler`), which `GemmaModel::generate` runs for every drafted round. Tested in
-`Tests/Dnn/Samplers/Sampling.Cuda.cpp` (`SamplingRowsCudaTests`): every row's token equals the one-row sampler's at
+`Lib/Tests/Dnn/Samplers/Sampling.Cuda.cpp` (`SamplingRowsCudaTests`): every row's token equals the one-row sampler's at
 Google's settings and three others, and the whole sampler equals the host walk over one-row draws; mutation-checked
 -- every row reading row 0's uniform, and the next token not written into slot 0, each fail. Through
 `GemmaModel::generate` against the `+37` build (`Tools/Drafting generate`, RTX 5060 Ti, the 12B Q4_0, the

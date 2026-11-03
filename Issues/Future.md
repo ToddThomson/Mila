@@ -194,7 +194,7 @@ Blocked on `Tensor.ixx` not being able to import `Dnn.Component` without a cycle
 
 **`save_` is public on `Component` and protected on `CompositeComponent`** (`Component.ixx:407`), so
 one virtual's accessibility depends on the static type held, and a caller with a concrete composite
-cannot invoke it — C2248, worked around by `exposeSave()` in `Tests/Dnn/Core/CompositeComponent.cpp`.
+cannot invoke it — C2248, worked around by `exposeSave()` in `Lib/Tests/Dnn/Core/CompositeComponent.cpp`.
 
 **`Component` carries training's bookkeeping without training's act.** `zeroGradients()` (`:362`)
 and `getGradients()` (`:718`) are on the base and `backward` is not, so `Linear::getGradients()`
@@ -358,7 +358,7 @@ policy, which is why it has never fired.
 the parent build at all — it passes `MILA_SOURCE_DIR=${CMAKE_SOURCE_DIR}` and compiles Mila from
 scratch under `_deps/mila-build/`, needing only that CMake has configured. Today the release PR
 builds Mila for ~45 min and the gate builds it again, in series.
-`Tests/Packaging/CMakeLists.txt:43`
+`Lib/Tests/Packaging/CMakeLists.txt:43`
 
 *(The double-run on a `dev` push and its open PR, and the missing `timeout-minutes`, were both fixed
 on 2026-09-20 — `build-pipeline.yml` no longer triggers on either a `dev` push or the release PR.)*
@@ -393,14 +393,14 @@ the publish script absorbs it.
 
 `build` · `binding`
 
-MilaPy's POST_BUILD writes `_mila*.so`/`_mila*.pyd` into `Lib/Bindings/Package/src/mila/`, so a
+MilaPy's POST_BUILD writes `_mila*.so`/`_mila*.pyd` into `Lib/Bindings/Python/Package/src/mila/`, so a
 checkout collects one per interpreter and platform ever built — all untracked, and all swept into a
 Docker build context until `.dockerignore` excluded them.
 
 Clean stale ones on build, or stage outside the source tree.
 
 The same class once left two 16 MB `.pyd` fossils under
-`Tests/Packaging/{fetchcontent,cpm}_consumer/Mila/Adaptors/Inference/Server/` for six weeks,
+`Lib/Tests/Packaging/{fetchcontent,cpm}_consumer/Mila/Adaptors/Inference/Server/` for six weeks,
 from a source-relative copy that a subproject build pointed at the consumer's root. They are gone;
 nothing would notice the next ones. A packaging gate that asserts the fixture directories are clean
 afterwards would.
@@ -598,7 +598,7 @@ the thinking-row defect; every remaining model is multi-gigabyte, and Chat now r
 A single-shot sample — prompt in, tokens out, exit code — is CI-shaped given a model in the store.
 Both Chat and the quick starts need one fixture that requires no download.
 
-**`Chat.StreamingDisplay` has no tests.** `RichText` now has 18 (`Tests/Apps/Chat/`), but
+**`Chat.StreamingDisplay` has no tests.** `RichText` now has 18 (`Apps/Chat/Tests/`), but
 `holdPoint` and the chunk-boundary behaviour that produced the nested-bullet defect are unpinned.
 Harder than RichText: the module imports `Chat.Renderer` and `Chat.Config`, so it needs either a
 seam or those modules in the test target.
@@ -664,7 +664,7 @@ is also why MIS refuses the architecture. A binding decision, not a sample one.
 CrossEntropy and SoftmaxCrossEntropy. Both samples compute loss host-side, so this is off the
 critical path to a converging sample.
 
-It has never been compiled: three test files are commented out (`Tests/CMakeLists.txt:155`,
+It has never been compiled: three test files are commented out (`Lib/Tests/CMakeLists.txt:155`,
 `:156`, `:284`) and written against a 3-parameter component that now takes 2, and the vocab >= 1024
 block kernel has never run — its `__shfl_sync` gives warps 1+ `-INFINITY`. `OperationTraits.Cuda.ixx`
 also maps `<CrossEntropyOp, Cuda, BF16>` to a type with no `__nv_bfloat16` specialization, the `half`
@@ -908,7 +908,7 @@ any caller reads past the range a narrower-than-built input writes, which the ze
 `CrossEntropy.Cpu.cpp` went with the CPU operations, so no built test reaches the softmax cross-entropy component or
 its CUDA operation (found 2026-10-11).
 
-`Tests/CMakeLists.txt` (the parked `SoftmaxCrossEntropy.Cuda.cpp` line)
+`Lib/Tests/CMakeLists.txt` (the parked `SoftmaxCrossEntropy.Cuda.cpp` line)
 
 ## No model Mila runs can be post-trained, even with LoRA on a 16 GB card
 
@@ -945,7 +945,7 @@ Every family's model tests -- generation, log-likelihood, decode replay, prefix 
 would: self-hosted on Todd's machine, or sponsored compute, which the sponsorship plan already asks for. A CPU path
 for the families was considered and rejected (`Specifications/Notebooks/CpuOperationsRetirement.md` section 2).
 
-`Tests/Dnn/Models/`
+`Lib/Tests/Dnn/Models/`
 
 ## The CPU device reports no memory, so no plan can be priced against it
 

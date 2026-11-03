@@ -518,7 +518,7 @@ switches yet. Built through `+94`.
 
 **Phase 3 -- identity, handle and factory.** The architecture list, the descriptors, `ModelHandle` in the Mila
 library (3.5), `open`, `planFor`, `adopt`. *Exit:* H1, H2, H5, H6, N1, N2. Built at `+96` but `adopt` and H6,
-which wait on 10.4 and are `Vnext.md`'s. `Tests/Deployment/ModelHandle.Cuda.cpp` holds H1, N1 and N2; H1 compares on every CUDA device that
+which wait on 10.4 and are `Vnext.md`'s. `Lib/Tests/Deployment/ModelHandle.Cuda.cpp` holds H1, N1 and N2; H1 compares on every CUDA device that
 holds the model, and on 2026-10-25 did so for Gemma 4 12B FP4 and Llama 3.2 3B FP4 on both cards and Qwen 3.8
 27B FP4 on the 16 GB one. Each gate was made to fail once: `as<>` without its type check, a request's context
 ignored, a list that matches any name, the tokenizer read before the template's refusal, Gemma not drafting.

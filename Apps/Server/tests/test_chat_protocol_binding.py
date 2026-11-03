@@ -3,7 +3,7 @@ The binding's ChatProtocol object, the one protocol the server will hold for its
 (InferenceServerWire.md Phase 2).
 
 The prompts themselves are held to each checkpoint's template by the library's own suite
-(Tests/Dnn/Models/*/*.ChatProtocol.cpp); these check that the projection carries every field
+(Lib/Tests/Dnn/Models/*/*.ChatProtocol.cpp); these check that the projection carries every field
 across, in both directions, and refuses what the library refuses.
 """
 import json

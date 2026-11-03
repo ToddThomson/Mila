@@ -223,16 +223,17 @@ tests what a consumer actually clones. Then `cmake --preset linux-clang-debug`; 
 pins clang, `/usr/local/cuda`, `gcc-15` as the nvcc host and a job pool of 4.
 
 **Run the test binaries directly. Do not use `ctest` here.** Measured at `0.20.0`: `MilaTests` plus
-`ChatRichTextTests` run in **30 seconds**, against roughly **30 minutes** under `ctest`, which
+`ChatRichTextTests` ran in **30 seconds**, against roughly **30 minutes** under `ctest`, which
 starts one process per case. The devcontainer docs were moved off `ctest` for the same reason and
 this leg never was.
 
 ```bash
-cd out/build/linux-clang-debug/Tests && ./MilaTests && ./ChatRichTextTests
+cd out/build/linux-clang-debug
+./Lib/Tests/MilaTests && ./Lib/Tests/AgentsHtmlTextTests && ./Apps/Chat/Tests/ChatRichTextTests && ./Apps/Desktop/Session/Tests/DesktopSessionTests
 ```
 
-Running both is what makes that equivalent to `ctest`: `ctest` reports a higher number only because
-it also runs the separate `ChatRichTextTests` target. On Windows, where the gap is 149 s against
+Running them all is what makes that equivalent to `ctest`: `MilaTests` alone reports a lower number
+because the others are separate targets. On Windows, where the gap is 149 s against
 596 s, the everyday `ctest` invocation above stays as written.
 
 **What this gate cannot tell you.** A `git archive` tree has no weights and no tokenizers, so every
@@ -763,7 +764,7 @@ from it. That asymmetry is deliberate — reference docs generated from source s
   that an explicit value **persists in the cache**, so clear it (`-DMILA_CPM_GIT_TAG=`) to go back
   to the derived one.
 - **Stale CPM cache:** the gate keeps a source cache across runs for speed, now under
-  `.../Tests/Packaging/cpm-cache/<tag>`, with its build work directory keyed on the tag as
+  `.../Lib/Tests/Packaging/cpm-cache/<tag>`, with its build work directory keyed on the tag as
   well. Both are per-tag deliberately: sharing them is half of how a gate once validated the
   previous release and reported success. If a re-run misbehaves after a failed attempt, delete that
   tag's folder to force a clean fetch. **A passing run is only evidence for the tag it names** —

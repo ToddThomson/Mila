@@ -161,7 +161,7 @@ for the rates page.
 ## 7. Where it lives
 
 `Lib/Tools/ContextProfile`, developer tooling: it does not ship (`Tools/README.md`). The PG-19 reader, the measured
-network builder and the log-likelihood harness move from `Tests/Common` to `Lib/Tools/Measurement`, a header-only
+network builder and the log-likelihood harness move from `Lib/Tests/Common` to `Lib/Tools/Measurement`, a header-only
 target both the tests and the tool link, unchanged but for their namespace (`Mila::Measurement`) and the PG-19 path,
 which takes the data root rather than a test macro. A user-facing benchmark (`Untriaged.md`, "A user cannot measure Mila's rates on their own card") may later
 promote its core. What the two share is fit and turn cost, which work at the model level; loss and recall need the

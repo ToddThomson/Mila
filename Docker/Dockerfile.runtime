@@ -94,7 +94,7 @@ ARG MILA_CLEAN_BUILD=0
 # the build does not read. `COPY . /src` recompiled the whole library when BACKLOG.md changed.
 # .dockerignore keeps Data/Models (gigabytes), out/, .git and Dev/ out of the context.
 # License.md is not documentation here: MilaPy's POST_BUILD copies it into the binding package as
-# LICENSE (Lib/Bindings/CMakeLists.txt:100), so omitting it fails the build at the very last step.
+# LICENSE (Lib/Bindings/Python/CMakeLists.txt:100), so omitting it fails the build at the very last step.
 # The builder RUN also copies it into /out/licenses, beside the third-party texts.
 # README.md is deliberately absent -- only the docs target reads it, and this build sets
 # MILA_ENABLE_DOCS=OFF. Turning docs on here would need it added.
@@ -184,11 +184,11 @@ COPY --from=builder /out/licenses /usr/share/doc/mila
 
 # The binding package tree carries the extension MilaPy's POST_BUILD staged into it, so
 # an editable install here points at a real .so rather than fetching one from PyPI.
-COPY --from=builder /src/Lib/Bindings/Package /opt/mila/binding-package
+COPY --from=builder /src/Lib/Bindings/Python/Package /opt/mila/binding-package
 COPY --from=builder /src/Apps/Server /opt/mila/server-package
 
 # THE EXTENSION COMES FROM THE BUILD, NOT FROM THE SOURCE TREE. MilaPy's POST_BUILD stages a
-# copy into Lib/Bindings/Package/src/mila, but that is a side-effect a cache-warm compile
+# copy into Lib/Bindings/Python/Package/src/mila, but that is a side-effect a cache-warm compile
 # never re-runs, and .dockerignore rightly keeps _mila*.so out of the build context -- so the
 # copied tree can arrive with no extension and pip installs a package that cannot import.
 # /build/python/mila is where the build itself writes it, so take it from there.
@@ -320,13 +320,13 @@ RUN apt-get update \
 # stage for why --ignore-requires-python is correct and not a workaround.
 # The extension is taken from the build tree for the reason the runtime stage gives: the copy
 # staged into the source tree is a POST_BUILD side-effect that a cache-warm compile skips.
-RUN cp /opt/mila/build/python/mila/_mila*.so /src/Lib/Bindings/Package/src/mila/ \
+RUN cp /opt/mila/build/python/mila/_mila*.so /src/Lib/Bindings/Python/Package/src/mila/ \
     && python3 -m venv /opt/mila/venv \
     && /opt/mila/venv/bin/pip install --no-cache-dir --upgrade pip \
     && /opt/mila/venv/bin/pip install --no-cache-dir \
         fastapi "uvicorn[standard]" pydantic pydantic-settings \
     && /opt/mila/venv/bin/pip install --no-cache-dir --no-deps --ignore-requires-python \
-        /src/Lib/Bindings/Package \
+        /src/Lib/Bindings/Python/Package \
     && /opt/mila/venv/bin/pip install --no-cache-dir --no-deps --ignore-requires-python \
         /src/Apps/Server \
     && /opt/mila/venv/bin/python -c "import mila"

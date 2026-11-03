@@ -9,7 +9,7 @@
  * precision-parameterized. The TYPED_TEST mechanism appears first on a component
  * that genuinely supports more than one CUDA precision.
  *
- * Compiled only under MILA_ENABLE_CUDA (the Tests/CMakeLists.txt CUDA block), so
+ * Compiled only under MILA_ENABLE_CUDA (the Lib/Tests/CMakeLists.txt CUDA block), so
  * no #ifdef. CUDA may still be absent at runtime; SetUp() skips if no device.
  *
  * Numerics stage inputs host->device (copy) and read outputs device->host

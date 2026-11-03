@@ -218,8 +218,8 @@ endif()
 # (PROJECT_SOURCE_DIR, not CMAKE_SOURCE_DIR) so we never write into a consumer's
 # source root.
 if(NOT COMMAND CPMAddPackage)
-    file(MAKE_DIRECTORY "${PROJECT_SOURCE_DIR}/cmake")
-    set(CPM_PATH "${PROJECT_SOURCE_DIR}/cmake/CPM.cmake")
+    file(MAKE_DIRECTORY "${PROJECT_SOURCE_DIR}/Lib/Deps/cpm")
+    set(CPM_PATH "${PROJECT_SOURCE_DIR}/Lib/Deps/cpm/CPM.cmake")
     if(NOT EXISTS "${CPM_PATH}")
         message(STATUS "Downloading CPM.cmake to ${CPM_PATH}")
         file(DOWNLOAD
@@ -341,7 +341,7 @@ find_package(nlohmann_json REQUIRED)
 
 # CTest is enabled once, here -- and only when Mila is the top-level project, since an
 # embedding consumer owns its own testing setup. enable_testing() propagates to every
-# subdirectory, so neither Lib/ nor Tests/ calls it again.
+# subdirectory, so nothing below calls it again.
 if(PROJECT_IS_TOP_LEVEL)
     enable_testing()
 endif()
@@ -378,8 +378,14 @@ endif()
 # unconfigured checkout fails loudly rather than publishing a stale number.
 file( WRITE "${CMAKE_CURRENT_SOURCE_DIR}/Apps/Server/VERSION" "${MILA_PEP440_VERSION}\n" )
 
-if(MILA_ENABLE_TESTING)
-    add_subdirectory( Tests )
+# The apps' tests, with the apps. Outside the gate above: they test modules that need no GPU, so a CPU-only build runs
+# them, and they follow MILA_ENABLE_TESTING, not MILA_ENABLE_APPS, so that build need not build the apps.
+if( MILA_ENABLE_TESTING )
+    add_subdirectory( Apps/Chat/Tests )
+
+    if( MILA_ENABLE_AGENTS )
+        add_subdirectory( Apps/Desktop/Session/Tests )
+    endif()
 endif()
 
 if( PROJECT_IS_TOP_LEVEL AND MILA_ENABLE_COMMIT_CHECKS )

@@ -32,7 +32,7 @@ namespace Mila::Tests::Apps::Desktop
         {
             const std::filesystem::path here = std::filesystem::path( std::source_location::current().file_name() ).parent_path();
 
-            return here.parent_path().parent_path().parent_path() / "Apps" / "Desktop" / "Prompts";
+            return here.parent_path().parent_path() / "Prompts";
         }
 
         class PromptFileTest : public ::testing::Test

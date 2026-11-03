@@ -81,7 +81,7 @@ target_link_libraries(MilaPy PRIVATE Mila pybind11::module)
 set(MILA_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Package")
 set(MILA_PACKAGE_INIT "${MILA_PACKAGE_SOURCE_DIR}/src/mila/__init__.py")
 
-# 1. Into the package source tree, so `pip wheel Lib/Bindings/Package` packages a
+# 1. Into the package source tree, so `pip wheel Lib/Bindings/Python/Package` packages a
 #    freshly built extension. The wheel build is a packaging step over the CMake
 #    build, not a second build system; setuptools never compiles anything here.
 #

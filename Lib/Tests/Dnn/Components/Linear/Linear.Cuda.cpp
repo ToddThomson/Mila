@@ -12,7 +12,7 @@
  * of change: add a CUDA precision to the OperationTraits and to that list, and the
  * suite re-runs for it.
  *
- * Compiled only under MILA_ENABLE_CUDA (the Tests/CMakeLists.txt CUDA block), so
+ * Compiled only under MILA_ENABLE_CUDA (the Lib/Tests/CMakeLists.txt CUDA block), so
  * no #ifdef. CUDA may still be absent at runtime; SetUp() skips if no device.
  *
  * Dimensions are realistic (not toy): the batch GEMM path goes through cuBLASLt,

@@ -416,7 +416,7 @@ many names: `..`, links, junctions, mount points, short 8.3 names, case, alterna
 and refuses the non-path forms before opening; it refuses private, loopback, link-local and unspecified addresses
 on the address actually connected to, and on every redirect. Gate: a test per route and per address kind, by name,
 by literal address and through a redirect, each refused, beside the same access inside the folder or to a public
-address allowed. Gates every item below that runs a tool. Built on Windows (`ToolGrant`, `Tests/Agents/ToolGrant.*.cpp`);
+address allowed. Gates every item below that runs a tool. Built on Windows (`ToolGrant`, `Lib/Tests/Agents/ToolGrant.*.cpp`);
 what is left is the pair for short 8.3 names and the pair for mount points, which need a volume that makes short
 names and an administrator to create one.
 
@@ -717,7 +717,7 @@ same conversations, so the level is the model's own on this text; transformers' 
 both agree with that reference. Not measured: BF16 laid end to end at 8K and 16K, which is what says whether the rise
 with context is the model's or FP4's.
 
-`Tests/Dnn/Models/Qwen/QwenModel.Load.Cuda.cpp` `DISABLED_QualityGateAcrossContextLengths`
+`Lib/Tests/Dnn/Models/Qwen/QwenModel.Load.Cuda.cpp` `DISABLED_QualityGateAcrossContextLengths`
 
 #### Qwen 3.8 27B at four bits predicts a long text worse with all of it in context than with its last 1,024 tokens
 
@@ -759,7 +759,7 @@ different text.
 What is left is a gate that judges Mila against FP32 relative to HuggingFace's own BF16, and the ratio it allows.
 The FP32 reference has to exist wherever the test runs.
 
-`Tests/Dnn/Models/Qwen/QwenModel.Parity.Cuda.cpp` `kHiddenStateTolerance`
+`Lib/Tests/Dnn/Models/Qwen/QwenModel.Parity.Cuda.cpp` `kHiddenStateTolerance`
 
 #### The Gemma 4 26B-A4B leaves Claude Code about 7,000 tokens of working room on a 16 GB card
 
@@ -817,7 +817,7 @@ Pinned by UUID, the same build at `+68` (a change that touches no model code) pa
 at token 402, measured 2026-10-05. Not checked: on which card that was measured, and the token at which they part on
 the 4070.
 
-`Tests/Dnn/Models/Gemma/Gemma.DraftModel.Cuda.cpp:367` `Gemma4_12B_GreedyGenerationIsUnchanged`
+`Lib/Tests/Dnn/Models/Gemma/Gemma.DraftModel.Cuda.cpp:367` `Gemma4_12B_GreedyGenerationIsUnchanged`
 
 ### Internal fixes
 
@@ -1069,7 +1069,7 @@ at a near-tie its reply depends on what the server ran before -- the case an eng
 server is in. Not checked: how often greedy flips on real prompts, and whether greedy calls should also prefill
 whole.
 
-`Lib/Bindings/Mila_py.Wrappers.cpp` (reuse off only with a seed) · `Specifications/PromptCaching.md` section 5
+`Lib/Bindings/Python/Mila_py.Wrappers.cpp` (reuse off only with a seed) · `Specifications/PromptCaching.md` section 5
 
 #### Library doc comments still describe the retired operation registry and the removed operation bases
 
@@ -1090,7 +1090,7 @@ This is the bounded part of `Vnext.md`'s "Public Doxygen still describes a world
 Retired code is deleted and git history is the archive (Todd, 2026-10-11). Wholly retired files, out of the build:
 `Gqa.Decode.Bf16.cu`, `Gqa.Flash.Wmma.cu`, `Gqa.Flash.Bf16.cu`, `CudaRopeOp.Cache.ixx`, `MLP.Dispatch.ixx`,
 Chat's `Chat.GemmaToolCallParser.ixx` and `Chat.QwenProtocol.ixx`, and the tests `CudaRopeOp.Calculated.Cuda.cpp` and `Gemma.DelegatedFeedForward.Cuda.cpp`, with
-their commented-out entries in `Lib/CMakeLists.txt:276` and `Tests/CMakeLists.txt:253`. Retired functions
+their commented-out entries in `Lib/CMakeLists.txt:276` and `Lib/Tests/CMakeLists.txt:253`. Retired functions
 inside live modules: `Tools/Quantization/pack_qwen.py:162` and `artifact.py:181`. Specs that cite a retired file as a
 reference are reread when it goes.
 
@@ -1138,7 +1138,7 @@ leaves no file.
 Gate: the full suite passes with the 26B's BF16 weights absent, partial and complete, and a conversion killed part
 way leaves no file at its destination.
 
-`Tests/Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Load.Cuda.cpp:76` · `Lib/Tools/Converters/Gemma/`
+`Lib/Tests/Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Load.Cuda.cpp:76` · `Lib/Tools/Converters/Gemma/`
 
 #### The inference server logs a client's dropped connection on Windows as an error with a traceback
 

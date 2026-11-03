@@ -702,7 +702,7 @@ gate on a logit-5 argmax would be measured on noise.
 
 ### Layer-streamed parity gate, written before any run
 
-`Tests/Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Parity.Cuda.cpp`, RTX 5060 Ti pinned by UUID: the 18-token
+`Lib/Tests/Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Parity.Cuda.cpp`, RTX 5060 Ti pinned by UUID: the 18-token
 chat prompt through all 30 layers at BF16 on the converted weights, one block resident at a time, each block
 built from `GemmaModel::configFromMetadata` with its workspaces from `makeGemmaBlockWorkspace` and
 `makeGqaWorkspace` — the factories `GemmaTransformer` calls. The tolerance is the one the BF16 wiring gate was
@@ -758,7 +758,7 @@ After the revert every target builds and the harness reproduces the passing run 
 
 ### FP4 load gate, written before any run
 
-`Tests/Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Fp4.Cuda.cpp` (since `+24`, `.Load.Cuda.cpp`), RTX 5060 Ti pinned by UUID:
+`Lib/Tests/Dnn/Models/Gemma/GemmaModel.MixtureOfExperts.Fp4.Cuda.cpp` (since `+24`, `.Load.Cuda.cpp`), RTX 5060 Ti pinned by UUID:
 `GemmaModel::load` on the BF16 weights with `WeightQuantization::FP4` at context 8192 — the routed
 dispatch at `PerGroupFp4<64>`, quantized on load. The row it was built for is `MixtureOfExperts.md` §8's
 `PerGroupFp4<64>` row, 13.54 GiB of weights.

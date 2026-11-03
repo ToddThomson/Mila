@@ -7,7 +7,7 @@
 # supported way to consume a C++23 module library. (Module BMIs are not portable, so a
 # consumer recompiles Mila's module units regardless; FetchContent does it in one coherent
 # toolchain, with no install step and no prebuilt/recompiled ABI split. find_package was
-# removed in 0.20.0-beta.3 -- see Tests/Packaging/CMakeLists.txt for why.)
+# removed in 0.20.0-beta.3 -- see Lib/Tests/Packaging/CMakeLists.txt for why.)
 #
 # The target and project names below are ours; in your own project call them whatever you
 # like. Only the FetchContent block and the Mila::Mila link are load-bearing.

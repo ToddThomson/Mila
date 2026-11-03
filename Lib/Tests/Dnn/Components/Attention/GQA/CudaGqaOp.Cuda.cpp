@@ -16,7 +16,7 @@
  *                      still reproduce the windowed full-cache result (summation
  *                      order differs, hence a tolerance rather than equality).
  *
- * Compiled only under MILA_ENABLE_CUDA (Tests/CMakeLists.txt CUDA block); SetUp()
+ * Compiled only under MILA_ENABLE_CUDA (Lib/Tests/CMakeLists.txt CUDA block); SetUp()
  * skips when no device is present.
  */
 

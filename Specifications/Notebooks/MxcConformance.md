@@ -158,7 +158,7 @@ Scripts `policy-conformance-7.ps1` and `-8.ps1`, `walk-time.exe`; the host progr
   folder (7,410 files, 5.8 s): 35,866 events, none lost. A clean rebuild of every Mila target (1,801 steps, 350 s)
   with the whole repository watched: 18,123 events and no overflow with a 64 KB buffer; a 4 KB buffer beside it
   overflowed 19 times.
-- **The watcher on NTFS** (2026-10-31, `Tests/AI/SecondNameWatch.cpp` under the system's temporary folder on C:,
+- **The watcher on NTFS** (2026-10-31, `Lib/Tests/AI/SecondNameWatch.cpp` under the system's temporary folder on C:,
   NTFS): a name made outside for a file inside is **not reported under any filter**; the same test on D: (ReFS)
   passes. A name made inside, a file's other name removed, and a folder moved in are reported on both. NTFS's change
   journal records a link added or removed (`USN_REASON_HARD_LINK_CHANGE`, `USN_RECORD_V2` docs); reading it without

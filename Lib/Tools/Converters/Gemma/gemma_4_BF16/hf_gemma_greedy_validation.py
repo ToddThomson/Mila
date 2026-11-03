@@ -60,7 +60,7 @@ print( "generated ids :", gen_ids )
 print( "all ids       :", all_ids )
 print( "text          :", tokenizer.decode( all_ids ) )
 
-# Copy-paste straight into Tests/Dnn/Models/GemmaModel.Parity.Cuda.cpp.
+# Copy-paste straight into Lib/Tests/Dnn/Models/GemmaModel.Parity.Cuda.cpp.
 print()
 print( "kPromptIds   = {", ", ".join( map( str, prompt_ids ) ), "};" )
 print( "kExpectedGen = {", ", ".join( map( str, gen_ids ) ), "};" )

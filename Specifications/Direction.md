@@ -334,7 +334,7 @@ from the handle (decided 2026-10-03, Todd; `ModelFamilyParity.md` 8.3, Q5).
 prefills only the results it adds, and the next message prefills only what the template requires --
 what it renders differently from what the model holds, such as the reasoning it drops. Restated
 2026-10-25 (Todd) from "prefill tokens per turn equal the tokens the turn added", which no template
-that drops earlier reasoning can meet. Met at `0.21.0-dev+99` (`Tests/Agents/Agent.Cuda.cpp`): a second
+that drops earlier reasoning can meet. Met at `0.21.0-dev+99` (`Lib/Tests/Agents/Agent.Cuda.cpp`): a second
 round prefilled 20 tokens of 21 its results added on Gemma 4 26B-A4B, 24 of 25 on Qwen 3.8 27B and 19
 of 19 on Llama 3.1 8B -- the first is the token the reply stopped at, already in the cache when the
 reply ends on the token the results open with -- and Qwen's next message resumed from the end of the
@@ -488,7 +488,7 @@ Settled 2026-09-23, each on the leaning this section recorded, when section 5 be
    and `Mila::Agents`'s rule 1 keeps it small enough to be cheap. Its first form, over today's binding surface
    and experimental, is `DotNetBinding.md` (2026-10-21).
 4. **Where the applications live: `Apps/Chat`, `Apps/Desktop` and `Apps/Server`** (Todd, 2026-11-02). Mila is the
-   repository and the brand; at its top are `Lib/`, `Apps/`, `Tests/`, `Specifications/` and `Issues/`. An application
+   repository and the brand; at its top are `Lib/`, `Apps/`, `Specifications/` and `Issues/`, and a test lives with what it tests, in `Lib/Tests` or the app's own folder. An application
    beside the library read as a peer of it, as Mila::Agents did. Samples stay teaching code, in `Lib/Samples`; the applications
    stay maintained products, and `mila-store` stays in `Lib/Store`, the store from the shell. The folders were
    `Applications`, brought forward to v0.21.0 on 2026-10-11 (`Notebooks/MilaCommandLineReview.md` 4.1), then top-level

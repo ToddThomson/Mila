@@ -275,7 +275,7 @@ One type each, in `Lib/Src/Agents/` unless named:
    thread's desktop holds; a denied file is refused, its folder still listed; the streaming surface stops a run in
    40 ms and caps its output; the environment is set by Mila; telemetry stays off; and two findings changed the
    design -- the walk's cost (4.3, decision 7) and the registry (4.9, decision 8).
-2. **The library.** Built 2026-10-31 (`Tests/Agents/ToolGrant.Programs.cpp`, `Tests/Agents/SecondNameWatch.cpp`). The
+2. **The library.** Built 2026-10-31 (`Lib/Tests/Agents/ToolGrant.Programs.cpp`, `Lib/Tests/Agents/SecondNameWatch.cpp`). The
    watcher of 4.3 measured first, outside the repository. Then section 7's types, the walk and its watcher, and
    the grant's `runProgram`, with tests that each pair an access the grant's
    container refuses with the same access inside it accepted -- a file outside, a name inside of a file outside, a

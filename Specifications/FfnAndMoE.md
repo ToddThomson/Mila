@@ -106,7 +106,7 @@ Src/Dnn/Components/
     Swiglu/       Swiglu.ixx, Swiglu.Config.ixx, Swiglu.Dispatch.ixx               (moved from Activations/)
 ```
 
-The test tree mirrors this exactly (`Tests/Dnn/Components/FFN/MLP/`,
+The test tree mirrors this exactly (`Lib/Tests/Dnn/Components/FFN/MLP/`,
 `FFN/GatedMLP/`, `FFN/Swiglu/`).
 
 **Module names are flat** — `Dnn.Components.MLP`, `Dnn.Components.GatedMLP`,

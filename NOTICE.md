@@ -14,7 +14,7 @@ so in the Modified column and in the file itself.
 
 | Path | Origin | License | Modified |
 |---|---|---|---|
-| `Cmake/CPM.cmake` | [CPM.cmake](https://github.com/cpm-cmake/CPM.cmake) — Lars Melchior and contributors | MIT — full text in the file's own header | No |
+| `Lib/Deps/cpm/CPM.cmake` | [CPM.cmake](https://github.com/cpm-cmake/CPM.cmake) — Lars Melchior and contributors | MIT — full text in the file's own header | No |
 | `Apps/Server/tests/reference/gemma4_12b_chat_template.jinja` | [google/gemma-4-12B-it](https://huggingface.co/google/gemma-4-12B-it) — retrieved 2026-07-16, SHA-256 `ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4` | Distributed under the [Gemma Terms of Use](https://ai.google.dev/gemma/terms) | No |
 
 The Gemma chat template is **test-only**: it is the oracle for Mila's Gemma 4 prompt construction
@@ -48,6 +48,6 @@ on Docker Hub are **binary distributions that link this material** — the wheel
 miniz and pybind11, and the container images additionally carry curl. Each carries the
 licence texts itself, copied from the fetched sources at their pinned versions: a wheel in its
 `.dist-info/licenses/`, an image in `/usr/share/doc/mila/`. A wheel build refuses to run without them
-(`Lib/Bindings/Package/setup.py`), and `scripts/dockerhub/verify-image.sh` checks the image. The
+(`Lib/Bindings/Python/Package/setup.py`), and `scripts/dockerhub/verify-image.sh` checks the image. The
 `0.20.0b3` wheels and the images published alongside them predate this and carry only Mila's own
 licence.

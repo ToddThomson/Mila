@@ -286,13 +286,13 @@ it costs one small file.
 
 `build` · `binding`
 
-`Lib/Bindings/CMakeLists.txt:121` stages it with `copy_if_different` off
+`Lib/Bindings/Python/CMakeLists.txt:121` stages it with `copy_if_different` off
 `add_custom_command(TARGET MilaPy POST_BUILD)`, which runs only when `MilaPy` relinks — so a change
 to `__init__.py` and nothing else leaves `<build dir>/python/mila/` holding the old copy, and a
 sample fails with a missing attribute. `add_custom_command(OUTPUT ...)` with `DEPENDS` on the source
 is the fix.
 
-Local development only: the wheel packages `__init__.py` from `Bindings/Package/src/mila/`, where
+Local development only: the wheel packages `__init__.py` from `Bindings/Python/Package/src/mila/`, where
 the file is tracked, so nothing stale can reach a published wheel.
 
 ## Two models cannot share an execution context
@@ -469,7 +469,7 @@ files covering the dispatch mechanism itself, and the CPU arm running in CI as a
 compiled.
 
 What is left is the tail that was never re-enabled — the entries still commented out in
-`Tests/CMakeLists.txt`'s disabled section and its CUDA block: `Network.cpp`,
+`Lib/Tests/CMakeLists.txt`'s disabled section and its CUDA block: `Network.cpp`,
 `CrossEntropy.Config.cpp`, `Model.cpp`, `ModelArchive.cpp`, `ZipSerializer.cpp`,
 `TensorBuffer.Tracking.cpp`, `SoftmaxCrossEntropy.Cuda.cpp`, `CudaDevice.cpp`.
 
@@ -495,7 +495,7 @@ prompt exceeds the deployment context and `:363` returns `ContextOverflow` when 
 past it; nothing exercises either. The comment at `:359-362` states the stakes precisely — RoPE is
 computed rather than looked up, so there is no positional table to run off the end of and nothing
 crashes. Where GPT-2 crashes, Llama overruns the cache quietly, so absence of reports is not
-evidence. `Tests/Dnn/Models/GptModel.Cuda.cpp` is the template: a weightless checkpoint at a small
+evidence. `Lib/Tests/Dnn/Models/GptModel.Cuda.cpp` is the template: a weightless checkpoint at a small
 deployment context.
 
 ## A download that fails part-way does not say that running it again resumes

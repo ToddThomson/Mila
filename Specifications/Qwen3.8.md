@@ -472,7 +472,7 @@ Ordered by dependency, not priority. Nothing here is scheduled.
    (`NextTokenLogProbabilityOp`, one block per row, the exponentials summed in double), the results
    written to pinned host memory, and the model synchronized once per sequence rather than once per
    window. The host reduction, now `Dnn::nextTokenLogProbability`, is the op's oracle
-   (`Tests/Dnn/Core/SequenceLogLikelihood.Cuda.cpp`). On the Llama 3.1 8B at window 64, 15,496
+   (`Lib/Tests/Dnn/Core/SequenceLogLikelihood.Cuda.cpp`). On the Llama 3.1 8B at window 64, 15,496
    wikitext positions scored in 4.1 s against 15 s with the host reduction (RTX 4070 against the
    5060 Ti's earlier run, so the card differs too).
    The oracle is the generation path itself: scoring position p must equal what a prefill of
@@ -1427,7 +1427,7 @@ tensors, and 50.10 GiB is the 53.8 GB text-only GGUF anchor Section 2 reconciles
 which is not a gap in `QwenModel` but the precise reason Phase 4's parity harness must stream
 layer by layer. What can be exercised is the converter's `--max-layers 4` fixture: three
 DeltaNet layers and one full-attention layer, every block kind and every transform, at
-7.57 GiB. `Tests/Dnn/Models/QwenModel.Load.Cuda.cpp` drives it and skips without it. Four of
+7.57 GiB. `Lib/Tests/Dnn/Models/QwenModel.Load.Cuda.cpp` drives it and skips without it. Four of
 sixty-four layers produce meaningless tokens, so nothing there asserts what is generated.
 
 Three properties the model carries, none recoverable from a diff:
@@ -1551,7 +1551,7 @@ change, and it leaves the harness itself outside `Lib/Src`.
 
 ### Phase 4's parity gate is MET on next-token agreement (2026-08-19)
 
-`Tests/Dnn/Models/QwenModel.Parity.Cuda.cpp` streams the 50 GiB BF16 artifact one block at a
+`Lib/Tests/Dnn/Models/QwenModel.Parity.Cuda.cpp` streams the 50 GiB BF16 artifact one block at a
 time on the 12 GiB card and compares against the reference above, layer by layer. **On "The
 capital of France is" Mila's last-position argmax is 11751 = ` Paris`, the same token the
 HuggingFace reference predicts, through all 64 layers at reference precision on real checkpoint
@@ -2001,7 +2001,7 @@ not have is undefined. It now dispatches on `is_host_accessible`, which is what 
 `copy()` has always done. This was latent for any host-accessible parameter, not only this one.
 
 **Measured cost** (RTX 4070, real 248320 x 5120 geometry, `DISABLED_GatherCost` in
-`Tests/Dnn/Components/Embeddings/TokenEmbedding.Cuda.cpp`):
+`Lib/Tests/Dnn/Components/Embeddings/TokenEmbedding.Cuda.cpp`):
 
 | | device-resident | host-resident |
 |---|---|---|
@@ -2727,7 +2727,7 @@ lm_head takes it** — only the codebook policies do not. Gated on numerics, not
 **A method defect this comparison exposed.** Gemma's first prefill measurement read **-0.04
 ms/token**: it has prompt-prefix reuse, the warm-up and both timed prompts shared a prefix, and
 nothing re-prefilled. Qwen never showed it because `QwenDeltaNetBlock::rewindKvCache` always
-refuses. `Tests/Common/GenerationRates.h` now salts all three prompts so none is a prefix of
+refuses. `Lib/Tests/Common/GenerationRates.h` now salts all three prompts so none is a prefix of
 another; Qwen re-measured at 621 against 620, confirming the change is neutral where reuse is
 absent. **Any rate harness on a chassis that caches prefixes has this bug until it is salted.**
 

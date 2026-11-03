@@ -21,11 +21,11 @@ endif()
 #   QuickStart/Cpp     a standalone FetchContent(Mila) project standing in for a
 #                      downstream app, so it configures on its own and fetches Mila
 #                      itself (an in-tree add_subdirectory would be circular). The
-#                      Tests/Packaging packaging_fetchcontent_consumer gate validates
+#                      Lib/Tests/Packaging packaging_fetchcontent_consumer gate validates
 #                      the same mechanism against the local tree.
 #   QuickStart/Python  scripts over the MilaPy extension, with nothing to build. They
 #                      locate the extension at run time in the neutral output directory
-#                      MilaPy publishes to (see Bindings/CMakeLists.txt).
+#                      MilaPy publishes to (see Bindings/Python/CMakeLists.txt).
 #
 # See QuickStart/README.md.
 

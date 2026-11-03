@@ -9,8 +9,8 @@
 # It has two halves, like the MIS README describes -- but the container collapses the
 # painful one:
 #   Half 1  the `mila` binding: a version-locked CPython extension built by the MilaPy
-#           CMake target. Its POST_BUILD step (Lib/Bindings/CMakeLists.txt) stages the
-#           built .so into Lib/Bindings/Package, which the venv installs editable -- so
+#           CMake target. Its POST_BUILD step (Lib/Bindings/Python/CMakeLists.txt) stages the
+#           built .so into Lib/Bindings/Python/Package, which the venv installs editable -- so
 #           a later rebuild is picked up with no reinstall.
 #   Half 2  the Python server deps (fastapi/uvicorn/pydantic), installed into a venv.
 # On the host these must be reconciled by hand (an isolated 3.13 venv, PATH-shadow
@@ -79,7 +79,7 @@ fi
 # published wheel is cp313/x86_64 and would not match this container's interpreter, and
 # the whole point of building here is to serve the binding just built. --no-deps because
 # the CUDA libraries come from the container's toolkit, not from NVIDIA's wheels.
-"${VENV}/bin/pip" install --no-deps -e "${SRC}/Lib/Bindings/Package"
+"${VENV}/bin/pip" install --no-deps -e "${SRC}/Lib/Bindings/Python/Package"
 
 echo "MIS built: mila binding (arch ${MILA_CUDA_ARCH}) + server venv at ${VENV}."
 echo "Run it with: mila-mis"

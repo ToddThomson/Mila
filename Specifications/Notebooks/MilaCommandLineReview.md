@@ -223,7 +223,7 @@ part.
 
 - **Moves.** `Mila/Adaptors/Chat` to `Apps/Chat`; `Mila/Adaptors/Inference/Server` to `Apps/Server`, with
   the harness guide that was `Inference/README.md` now `Server/docs/harnesses.md`; `Lib/Tools/Cli` to
-  `Apps/Tools/Store`; `Tests/Adaptors` to `Tests/Apps`. The gate is `MILA_ENABLE_APPS`, and the
+  `Apps/Tools/Store`; `Lib/Tests/Adaptors` to `Lib/Tests/Apps`. The gate is `MILA_ENABLE_APPS`, and the
   area tag `apps`.
 - **`mila-store`** (`Store.ixx`, module `Mila.Store`) builds beside `mila-chat` at the build root, on any backend:
   the CPU-only presets keep the apps on so it proves it builds without CUDA or HTTP. `install` takes a name or a

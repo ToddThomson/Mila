@@ -117,7 +117,7 @@ Two findings change the order of work:
    mutation-checked: a GELU backward that ignores its output gradient, a LayerNorm backward missing its mean
    term, an AdamW update without its second-moment bias correction, and a Softmax backward that ignores its
    output gradient each fail the tests that should catch them. `AdamW.Cuda.cpp` had never been built (it sat
-   disabled in `Tests/CMakeLists.txt`); it is revived on the exported `AdamWOptimizer`, and of its 41 tests only
+   disabled in `Lib/Tests/CMakeLists.txt`); it is revived on the exported `AdamWOptimizer`, and of its 41 tests only
    the new host-reference step caught the bias-correction mutation.
 2. **Done 2026-10-11:** the CUDA operations for `GatedResidual` and `NgramEmbedding`, FP32 and BF16, gated against
    the same capture (`Qwen4.md` Phase 2 progress). The CPU gates had been skipping on the development machine,

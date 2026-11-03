@@ -148,7 +148,7 @@ opened through the model handle. The spec's proof that adding an architecture is
 
 ## Llama 3.1 8B FP4 answers as though a tool's result were made up
 
-`Tests/Agents/Agent.Cuda.cpp` (`askForTheWeather`); scratch-store package `Llama-3.1-8B-Instruct-fp4` @ efa24591
+`Lib/Tests/Agents/Agent.Cuda.cpp` (`askForTheWeather`); scratch-store package `Llama-3.1-8B-Instruct-fp4` @ efa24591
 
 Measured 2026-10-25 through `Mila::Agents::Agent`, the publisher's sampling, seeds 1 to 6, one question about the weather
 in Paris and a tool returning "Sunny, 17 degrees Celsius." The rendered prompt is Meta's template: the result is an

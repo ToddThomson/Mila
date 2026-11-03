@@ -100,7 +100,7 @@ uploads.
 `record_template_goldens.py qwen|gemma [--case NAME]` renders a fixed set of conversations -- tools, one and
 several calls, results out of order, multi-turn, every template variable at each value -- through the
 checkpoint's own `chat_template.jinja` with transformers' `render_jinja_template`, and prints each as a C++
-literal. Those are the goldens `Tests/Dnn/Models/*/*.ChatProtocol.cpp` hold each protocol to
+literal. Those are the goldens `Lib/Tests/Dnn/Models/*/*.ChatProtocol.cpp` hold each protocol to
 (`Specifications/ModelHandle.md` P1). Needs `transformers` and `jinja2`, no PyTorch, and the checkpoint's
 template in the HuggingFace cache.
 

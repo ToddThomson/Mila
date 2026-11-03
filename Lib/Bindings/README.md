@@ -1,40 +1,45 @@
-# Bindings — Mila's Python projection
+# Bindings
 
-The `mila` pybind11 extension: a **runtime-adjacent** binding surface that projects the
-Mila C++ runtime into Python. Module `Mila.Bindings`; built target `MilaPy` → `_mila`,
-the private half of the `mila` package published to PyPI as `mila-llm`.
+Mila from other languages. Each language has a folder:
 
-It is a peer of the runtime, **not an app**. It is consumer-blind: everything it
-exposes is model-intrinsic (`Tokenizer`, `LlamaSession` / `GemmaSession`: load, `generate`,
-`generateStreaming`, `getConfig`) or store-intrinsic (`ModelStoreHandle`), and none of it
-knows about chat, agents, or any wire protocol. That is why it lives here beside `Src`
-rather than in an app's project.
+| Folder | What it is | Status |
+|---|---|---|
+| [`Python/`](Python/) | The `mila` extension, published to PyPI as `mila-llm` | Shipped |
+| [`DotNet/`](DotNet/README.md) | A C# library over the C interface | Experimental; runs against a mock (`Specifications/DotNetBinding.md`) |
+| [`Native/`](Native/mila.h) | `mila.h`, the C interface the C# library calls | Experimental |
 
-It does carry HTTP *types* — `HttpResponseInfo`, `HttpFetchDelegate` — and that is not a
-contradiction: the delegate exists so a build with no HTTP client at all can still pull,
-by having Python move the bytes. The knowledge stays in the library (which URL, which
-token, which digest); the binding projects a byte pipe, not a protocol.
+Every binding is **consumer-blind**, and that is why the bindings live in the library rather than in an app's project:
+everything one exposes is about a model or the model store, and none of it knows about Chat, the inference server or a
+wire protocol. A binding projects sessions, never components.
 
-Two consumers today, which is the point:
+## Python
 
-- **MIS** (`Apps/Server`) — the inference server imports `mila` to serve the
-  model over an OpenAI/Anthropic-compatible API.
-- **Parity / converter tooling** (`Lib/Tools/Converters/...`) — the HuggingFace token-for-token
-  parity harness imports `mila` directly; it is in fact `GemmaSession`'s primary consumer.
+Built target `MilaPy`, which makes `_mila`, the private half of the `mila` package. `Python/Package/` is the rest of the
+package: `__init__.py`, which registers the CUDA library folders before the extension loads, and what the wheel is built
+from. The module is `Mila.Bindings`.
 
-## Build
+It exposes models (`Tokenizer`; `LlamaSession`, `GemmaSession` and `QwenSession`: load, `generate`, `generateStreaming`,
+`getConfig`), the store (`ModelStoreHandle`), what runs on a device, and each chat template's protocol.
 
-Gated by `MILA_ENABLE_PYTHON_BINDINGS` (default ON) and requires CUDA. The build stages the
-extension into two neutral places and no consumer-specific one: the wheel source tree
-(`Package/src/mila/`, so `pip install -e Lib/Bindings/Package` tracks every rebuild) and
-`<build dir>/python/` (put on `sys.path` and `import mila` works). The MIS-specific copy was
-removed — the server directory is first on `sys.path`, so it shadowed any installed
-`mila-llm`.
+It does carry HTTP *types* -- `HttpResponseInfo`, `HttpFetchDelegate` -- and that is not a contradiction: the delegate
+exists so a build with no HTTP client at all can still pull, by having Python move the bytes. The knowledge stays in the
+library (which URL, which token, which digest); the binding projects a byte pipe, not a protocol.
 
-## Design note
+Two consumers today:
 
-`Mila_py.cpp` binds against the std-only opaque handles declared in `Mila_py.Wrappers.ixx`
-and never `import Mila;` — the latest VS2026 MSVC raises C2079 when `Mila` is imported into an
-ordinary `.cpp` that also includes std headers. The Mila-touching bodies live in
-`Mila_py.Wrappers.cpp`, kept unreachable to the binding TU so pybind never instantiates a Mila
-template.
+- **The inference server** (`Apps/Server`) imports `mila` to serve a model over OpenAI- and Anthropic-compatible APIs.
+- **Parity and converter tooling** (`Lib/Tools/Converters/`): the HuggingFace token-for-token parity harness imports
+  `mila` directly, and is `GemmaSession`'s primary consumer.
+
+### Build
+
+Gated by `MILA_ENABLE_PYTHON_BINDINGS` (on for a top-level build) and requires CUDA. The build stages the extension into
+two neutral places: the wheel source tree (`Python/Package/src/mila/`, so `pip install -e Lib/Bindings/Python/Package`
+tracks every rebuild) and `<build dir>/python/` (put it on `sys.path` and `import mila` works).
+
+### Design note
+
+`Mila_py.cpp` binds against the std-only opaque handles declared in `Mila_py.Wrappers.ixx` and never does `import Mila;`.
+Its stated reason is that MSVC raises C2079 when `Mila` is imported into an ordinary `.cpp` that also includes standard
+headers. The bodies that touch Mila live in `Mila_py.Wrappers.cpp`, unreachable from the binding's translation unit, so
+pybind11 never instantiates a Mila template.

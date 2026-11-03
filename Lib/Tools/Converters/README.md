@@ -178,7 +178,7 @@ python Gemma/convert_weights.py --model google/gemma-4-26B-A4B-it-qat-q4_0-unqua
 > `▁` (U+2581) spaces and byte fallback, so the Mila *runtime* loader (`BpeVocabulary::loadGemma`, with a
 > SentencePiece pre-tokenization) is the piece that makes it usable end-to-end. The binary does not mark
 > which pieces are special, so the loader names `tokenizer.json`'s 24 added tokens itself.
-> `Tests/Data/Tokenizers/Bpe/BpeTokenizer.Gemma.cpp` holds it to HuggingFace's ids on agentic text --
+> `Lib/Tests/Data/Tokenizers/Bpe/BpeTokenizer.Gemma.cpp` holds it to HuggingFace's ids on agentic text --
 > indentation, runs of spaces and the tool-call delimiter `<|"|>` -- which a single-spaced sentence, the
 > check the script prints, cannot catch.
 
@@ -290,7 +290,7 @@ python Qwen/qwen38_BF16/hf_qwen_layer_stream.py --model Qwen/Qwen3.8-27B --max-l
 
 Output is a MILA `.bin` — the format `WeightsReader` already reads — holding the
 last-token hidden state after every layer, after the final norm, and the last-position logits.
-The Mila side is `Tests/Dnn/Models/QwenModel.Parity.Cuda.cpp`.
+The Mila side is `Lib/Tests/Dnn/Models/QwenModel.Parity.Cuda.cpp`.
 
 > **Run `--self-test` first.** It builds a small random model, runs it both whole and streamed,
 > and requires bitwise agreement, plus a negative control that drops the causal mask and must

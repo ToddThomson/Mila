@@ -384,7 +384,7 @@ is not means the arms are wrong. Expected, by arithmetic from section 5: about 1
 JSON parsing.
 
 **Result**, 2026-10-24, Todd's development machine, four runs from one build, CPU otherwise idle (3% load before
-the runs). The harness is `Tests/Apps/ToolBroker/RoundTrip.Windows.cpp` (`ToolBrokerRoundTrip`), the worker the
+the runs). The harness is `Lib/Tests/Apps/ToolBroker/RoundTrip.Windows.cpp` (`ToolBrokerRoundTrip`), the worker the
 tests' echo worker in its MCP mode. Messages came out at 259 and 1,028 bytes, a few over the targets because
 later ids have more digits than the one the sizes were fitted with.
 

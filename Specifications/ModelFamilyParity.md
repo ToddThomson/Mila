@@ -229,7 +229,7 @@ the third family calls, rather than making a third copy.
 diagnostic, a profiling run or a measurement is not a reason for a `Lib/Src` public member. For each public
 member of the family's model, network and config types, and for each setting they add to the shared
 deployment request, name the end user who calls it and what goes wrong for them without it. Where the only
-callers are tests or tools, the member moves to the consumer: a harness in `Tests/` or `Tools/` that builds
+callers are tests or tools, the member moves to the consumer: a harness in `Lib/Tests/` or `Tools/` that builds
 the network itself. Or it is deleted, when a general mechanism such as `LanguageModel::observe` already
 serves it. The same audit checks names: a name must say what it produces in the domain's own term, so that a
 reader who knows the domain can tell what it returns without opening its documentation. What the audit finds

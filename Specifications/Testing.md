@@ -18,16 +18,16 @@ Complete public-API coverage means **one test file per public module**. The test
 tree mirrors `Lib/Src` exactly:
 
 ```
-Src/Dnn/Core/Component.ixx                       -> Tests/Dnn/Core/Component.cpp
-Src/Dnn/Components/Activations/Gelu/Gelu.ixx     -> Tests/Dnn/Components/Activations/Gelu/Gelu.Cuda.cpp
+Src/Dnn/Core/Component.ixx                       -> Lib/Tests/Dnn/Core/Component.cpp
+Src/Dnn/Components/Activations/Gelu/Gelu.ixx     -> Lib/Tests/Dnn/Components/Activations/Gelu/Gelu.Cuda.cpp
 ```
 
-The **test namespace mirrors the physical path** under `Tests/`, rooted at
+The **test namespace mirrors the physical path** under `Lib/Tests/`, rooted at
 `Mila::Tests`:
 
 ```
-Tests/Dnn/Core/Component.cpp                       -> namespace Mila::Tests::Dnn::Core
-Tests/Dnn/Components/Activations/Gelu/Gelu.Cuda.cpp -> namespace Mila::Tests::Dnn::Components::Activations::Gelu
+Lib/Tests/Dnn/Core/Component.cpp                       -> namespace Mila::Tests::Dnn::Core
+Lib/Tests/Dnn/Components/Activations/Gelu/Gelu.Cuda.cpp -> namespace Mila::Tests::Dnn::Components::Activations::Gelu
 ```
 
 This makes location self-describing and gives every file's helper types a unique
@@ -50,7 +50,7 @@ enclosing namespace. Note two distinct uniqueness rules:
 | **Base contract** | `Core/Component.cpp`, `Core/ComponentConfig.cpp` | the inherited lifecycle / state machine, via a spy-capable harness | anything component-specific |
 | **Config** | `*Config.cpp` (e.g. `GeluConfig.cpp`) | fluent setters, `validate()`, metadata round-trip | forward / backward |
 | **Concrete component** | `*.Cuda.cpp` (e.g. `Gelu.Cuda.cpp`) | the *delta*: construction, build, forward/backward numerics, component-specific accessors, parameter load | the base machinery (already guaranteed by `Component.cpp`) |
-| **Operation** | `<Op>.Cuda.cpp` under `Tests/Dnn/Compute/.../Operations/` (e.g. `CudaLinearOp.Cuda.cpp`) | ONLY the residue **unreachable** through the public component API — in practice the weight-quantization white-box (per-channel/per-group absmax scales, FP4 nibble packing, exactly-representable round-trip). See the reachability rule below | kernel forward/backward numerics and the prefill/decode path split — both reachable through the component, so re-checking them at the op layer is a redundant mirror; all component orchestration |
+| **Operation** | `<Op>.Cuda.cpp` under `Lib/Tests/Dnn/Compute/.../Operations/` (e.g. `CudaLinearOp.Cuda.cpp`) | ONLY the residue **unreachable** through the public component API — in practice the weight-quantization white-box (per-channel/per-group absmax scales, FP4 nibble packing, exactly-representable round-trip). See the reachability rule below | kernel forward/backward numerics and the prefill/decode path split — both reachable through the component, so re-checking them at the op layer is a redundant mirror; all component orchestration |
 | **Value type / god-module** | `<Subject>.<Area>.cpp` / `.Cuda.cpp` (e.g. `Tensor.Constructors.cpp`) | a large non-component module (no Component/Operation lifecycle) split by API *area*, each area file exhaustive against the source surface; throws as negative tests; dtype as a typed sweep only where behavior varies by dtype | the component/operation machinery (there is none) |
 
 The payoff is leverage: because `Component.cpp` proves the base contract once,
@@ -139,7 +139,7 @@ far too big for the "one test file per module" rule of §0. For these:
 The authored suite was **forward-only** — inference validated forward passes
 against HuggingFace, so every `backward()` the training samples drive had zero
 coverage. Section F is where that gap is closed, and the reusable verifier lives
-in `Tests/Common/GradientCheck.h` so no component re-derives an analytic
+in `Lib/Tests/Common/GradientCheck.h` so no component re-derives an analytic
 reference.
 
 The check is **black-box**. For a fixed upstream gradient `g`, form the scalar
@@ -261,7 +261,7 @@ translation unit; it has to be the file boundary:
 - Device-agnostic base logic (`Component.cpp`) goes in the always-compiled
   `add_executable` list so it rides the `MILA_ENABLE_CUDA=OFF` CI gate.
 - `Component.Cuda.cpp` goes in the `if(MILA_ENABLE_CUDA)` `target_sources(...)`
-  block in `Tests/CMakeLists.txt`. New `*.Cuda.cpp` / `Cuda*.cpp` files belong in
+  block in `Lib/Tests/CMakeLists.txt`. New `*.Cuda.cpp` / `Cuda*.cpp` files belong in
   that block, never in the always-compiled list.
 
 This is the structural reason the ratchet stays green: a CPU-only build compiles
