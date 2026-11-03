@@ -131,22 +131,22 @@ SITES: tuple[Site, ...] = (
         "evaluate band, chat command",
     ),
     Site(
-        "scripts/dockerhub/verify-image.sh",
+        "Publishing/dockerhub/verify-image.sh",
         rf'MILA_IMAGE:=mila-llm:(?P<ver>{VERSION_PATTERN})-runtime',
         "default image, or the script verifies the previous release",
     ),
     Site(
-        "scripts/dockerhub/overview.md",
+        "Publishing/dockerhub/overview.md",
         rf"mila-llm:(?P<ver>{VERSION_PATTERN})-runtime install",
         "Docker Hub overview, install command",
     ),
     Site(
-        "scripts/dockerhub/overview.md",
+        "Publishing/dockerhub/overview.md",
         rf"mila-llm:(?P<ver>{VERSION_PATTERN})-runtime chat",
         "Docker Hub overview, chat command",
     ),
     Site(
-        "scripts/dockerhub/overview.md",
+        "Publishing/dockerhub/overview.md",
         rf"mila-llm:(?P<ver>{VERSION_PATTERN})-devel",
         "Docker Hub overview, devel image",
     ),
@@ -217,7 +217,7 @@ def find_all() -> list[tuple[Site, str]]:
             raise SystemExit(
                 f"{site.path}: expected exactly one match for the {site.note!r} site, "
                 f"found {len(matches)}.\n"
-                "  The file changed shape. Fix the pattern in scripts/release/version_sites.py "
+                "  The file changed shape. Fix the pattern in Publishing/release/version_sites.py "
                 "rather than editing the site by hand -- an unmatched site is one nothing checks."
             )
 
@@ -259,7 +259,7 @@ def command_check(expect: str | None) -> int:
     if expect is not None and current != expect:
         print(
             f"FAIL: the {len(found)} sites consistently name {current}, but this release is "
-            f"{expect}.\n\n  Run:  python scripts/release/version_sites.py --set {expect}"
+            f"{expect}.\n\n  Run:  python Publishing/release/version_sites.py --set {expect}"
         )
 
         return 1
@@ -298,7 +298,7 @@ def command_set(version: str) -> int:
     print(f"Set {len(SITES)} sites to {version} across {len(edits)} files ({changed} changed).")
     print("\nNOT done by this script, and owed by a production release:")
     print("  - Version.txt itself (the release-prep commit sets it)")
-    print("  - the positioning prose: python scripts/release/version_sites.py --audit-prose")
+    print("  - the positioning prose: python Publishing/release/version_sites.py --audit-prose")
 
     return 0
 

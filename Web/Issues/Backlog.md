@@ -28,7 +28,7 @@ the site and the release tag must ship naming the same version. They have alread
 other once — the tab pinned `beta.2` against `beta.3` output for a whole cycle.
 
 Held today by procedure rather than by derivation: `RELEASING.md` step 2 lists all five, plus
-`scripts/dockerhub/verify-image.sh`'s `MILA_IMAGE` default, as one edit.
+`Publishing/dockerhub/verify-image.sh`'s `MILA_IMAGE` default, as one edit.
 `Web/layouts/index.html` — `#p-cpp` steps 1 and 3, `#p-docker`, `#evaluate`.
 
 ## `[ ]` The Docker tab never says how to get back into the container

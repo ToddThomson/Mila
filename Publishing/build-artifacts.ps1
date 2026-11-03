@@ -39,9 +39,9 @@
     on ENOSPC at minute 90 is the expensive failure this guards.
 
 .EXAMPLE
-    scripts/build-artifacts.ps1 -DryRun
-    scripts/build-artifacts.ps1
-    scripts/build-artifacts.ps1 -Phase 3,4
+    Publishing/build-artifacts.ps1 -DryRun
+    Publishing/build-artifacts.ps1
+    Publishing/build-artifacts.ps1 -Phase 3,4
 #>
 [CmdletBinding()]
 param(
@@ -87,7 +87,7 @@ $phases = @(
        What = "cmake --build x64-claude-verify, then ctest. Fail-fast gate for everything below." }
 
     @{ Id = 2; Name = "Windows wheels (3.12, 3.13)"; Kind = "native"; Estimate = "~4 min warm"
-       What = "scripts/pypi/build-wheel-windows.ps1 -> out/wheel/*win_amd64.whl" }
+       What = "Publishing/pypi/build-wheel-windows.ps1 -> out/wheel/*win_amd64.whl" }
 
     @{ Id = 3; Name = "Linux wheels (3.12, 3.13)"; Kind = "docker"; Estimate = "~12 min warm"
        What = "docker compose -f Docker/docker-compose.wheel.yml -> out/wheel/*manylinux*.whl" }
@@ -95,7 +95,7 @@ $phases = @(
     # The longest phase, and the one least helped by a warm cache: MILA_CLEAN_BUILD=1 forces the
     # module graph to recompile, which is the point (it matches what publish-image.sh does).
     @{ Id = 4; Name = "Container images (runtime, devel)"; Kind = "docker"; Estimate = "~22 min"
-       What = "scripts/dockerhub/build-runtime-image.sh -> mila-llm:local-{runtime,devel}" }
+       What = "Publishing/dockerhub/build-runtime-image.sh -> mila-llm:local-{runtime,devel}" }
 
     @{ Id = 5; Name = "Website (Hugo + Doxygen)"; Kind = "native"; Estimate = "~1 min"
        What = "Doxygen WARN_AS_ERROR + hugo build. Catches what silently blocks publish-site.yml." }
@@ -162,7 +162,7 @@ function Invoke-Preflight
         # The wheel build declares its own toolkit (see build-wheel-windows.ps1). Report what is
         # ambient anyway: a mismatch is not an error, but it IS the thing that makes a local
         # result differ from the one the release will produce.
-        $declared = Select-String -Path (Join-Path $repo "scripts\pypi\build-wheel-windows.ps1") `
+        $declared = Select-String -Path (Join-Path $repo "Publishing\pypi\build-wheel-windows.ps1") `
                                   -Pattern '^\$cudaVersion = if .* else \{ "([\d.]+)" \}' |
                     ForEach-Object { $_.Matches.Groups[1].Value } | Select-Object -First 1
 
@@ -395,7 +395,7 @@ if (Test-PhaseSelected 1) {
 # --- Phase 2 -- Windows wheels ---------------------------------------------
 if (Test-PhaseSelected 2) {
     Invoke-BuildPhase ($phases | Where-Object Id -eq 2) {
-        & (Join-Path $repo "scripts\pypi\build-wheel-windows.ps1")
+        & (Join-Path $repo "Publishing\pypi\build-wheel-windows.ps1")
     }
 }
 
@@ -420,7 +420,7 @@ if (Test-PhaseSelected 3) {
 # is deliberately NOT set here -- see the note in verify-image.sh.
 if (Test-PhaseSelected 4) {
     Invoke-BuildPhase ($phases | Where-Object Id -eq 4) {
-        $script = "scripts/dockerhub/build-runtime-image.sh"
+        $script = "Publishing/dockerhub/build-runtime-image.sh"
         $posixRepo = $repo -replace '\\', '/'
 
         foreach ($target in @("runtime", "devel")) {

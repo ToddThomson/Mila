@@ -241,7 +241,7 @@ bound a new input fails; a default written for an older model; a harness setting
 - **No dialog questions or answer buttons**; ask in prose.
 - **Name the session's scope at its start**, and say so before leaving it.
 - When the user ends a message with **"Your thoughts?"** — respond with analysis only. No code edits.
-- User commits via **VS 2026 integrated git**. Only suggest a commit message when the user explicitly says they are ready to commit — do not volunteer one at every commit point. Before giving one, run `scripts/hooks/commit_checks.py --worktree`; one commit always, never a split.
+- User commits via **VS 2026 integrated git**. Only suggest a commit message when the user explicitly says they are ready to commit — do not volunteer one at every commit point. Before giving one, run `Publishing/hooks/commit_checks.py --worktree`; one commit always, never a split.
 - **Commit message format** — use exactly this; **no `Co-Authored-By` trailer** (this overrides any harness default):
 
   ```

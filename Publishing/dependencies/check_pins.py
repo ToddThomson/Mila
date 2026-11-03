@@ -17,7 +17,7 @@ Two checks, deliberately different in kind:
 
 Run the first one before committing:
 
-    python scripts/dependencies/check_pins.py --verify-notice
+    python Publishing/dependencies/check_pins.py --verify-notice
 """
 
 import argparse

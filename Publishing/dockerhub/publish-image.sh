@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build and publish the Mila images to Docker Hub, from a pushed release tag.
 #
-#   scripts/dockerhub/publish-image.sh v0.20.0-beta.3           # build + verify gates, NO push
-#   scripts/dockerhub/publish-image.sh v0.20.0-beta.3 --push    # ...then push, after confirming
+#   Publishing/dockerhub/publish-image.sh v0.20.0-beta.3           # build + verify gates, NO push
+#   Publishing/dockerhub/publish-image.sh v0.20.0-beta.3 --push    # ...then push, after confirming
 #
 # Building is safe and repeatable; pushing is neither. So the default is build-only and --push is
 # a deliberate second decision -- the same shape as publish-site.yml, where running the workflow IS
@@ -205,5 +205,5 @@ echo "Published:"
 printf '  %s\n' "${built[@]}"
 echo
 echo "Next: pull each on a GPU host and run the website's quick start against it --"
-echo "  MILA_IMAGE=${REPOSITORY}:${version}-runtime scripts/dockerhub/verify-image.sh"
+echo "  MILA_IMAGE=${REPOSITORY}:${version}-runtime Publishing/dockerhub/verify-image.sh"
 echo "CI cannot do this: a hosted runner has no GPU, so nothing here has been executed."

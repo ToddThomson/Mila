@@ -16,7 +16,7 @@
 # transport from Python through the binding's HttpFetchDelegate. curl's system OpenSSL
 # is what the manylinux whitelist refuses, and this image never introduces it.
 #
-# Driven by scripts/build-wheel.{ps1,sh} -- see Docker/README.md.
+# Driven by Docker/build-wheel.sh -- see Docker/README.md.
 #
 FROM nvidia/cuda:13.4.3-devel-ubuntu24.04
 

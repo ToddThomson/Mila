@@ -594,7 +594,7 @@ The supported architecture list is `80;86;89;90;120` on the reasoning that SM 8.
 Mila's kernels draw — the FP4 GEMM gates on `major >= 8` (`CudaLinearOp.ixx:661`) and both GQA
 flash prefill paths throw below it (`Gqa.Flash.Fa2.cu:513`, `Gqa.Flash.Wmma.cu:632`). No one has
 observed it: the dev box has only sm_89 and sm_120. At `rc.1+24` the published "what you need" lines
-(website x5, `getting-started.md`, `scripts/dockerhub/overview.md`) were narrowed from RTX 30-series
+(website x5, `getting-started.md`, `Publishing/dockerhub/overview.md`) were narrowed from RTX 30-series
 to RTX 40-series (Todd), so a rented A10G or A100 hour is what widens them again.
 
 The Turing half is closed: at `rc.1+27` `MILA_LIBRARY_CUDA_ARCHITECTURES` dropped 75, so nothing in

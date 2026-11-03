@@ -2,14 +2,14 @@
 """
 Cut a Mila release, locally.
 
-    python scripts/release/release.py prepare minor     set the release version on dev, uncommitted
-    python scripts/release/release.py prepare patch
-    python scripts/release/release.py finish            commit, build, ask, merge, tag, reopen dev
+    python Publishing/release/release.py prepare minor     set the release version on dev, uncommitted
+    python Publishing/release/release.py prepare patch
+    python Publishing/release/release.py finish            commit, build, ask, merge, tag, reopen dev
 
-    python scripts/release/release.py build                  build and verify HEAD's release files
-    python scripts/release/release.py build --commit <ref>   any commit
-    python scripts/release/release.py build --resume         rerun only what has not passed
-    python scripts/release/release.py build --only images    one stage (comma-separate several)
+    python Publishing/release/release.py build                  build and verify HEAD's release files
+    python Publishing/release/release.py build --commit <ref>   any commit
+    python Publishing/release/release.py build --resume         rerun only what has not passed
+    python Publishing/release/release.py build --only images    one stage (comma-separate several)
 
 `prepare` edits the working tree and stops, because the prose a release makes false is a
 judgement: review the diff, rewrite what it lists, then run `finish`. `finish` stops once
@@ -62,9 +62,9 @@ HEARTBEAT_SECONDS = 60
 
 # The scripts that judge the built files, copied into each run from the checkout running this.
 CHECKS = (
-    Path("scripts/pypi/verify_wheel_cleanroom.py"),
-    Path("scripts/dockerhub/verify-image.sh"),
-    Path("scripts/dockerhub/verify-devel-image.sh"),
+    Path("Publishing/pypi/verify_wheel_cleanroom.py"),
+    Path("Publishing/dockerhub/verify-image.sh"),
+    Path("Publishing/dockerhub/verify-devel-image.sh"),
 )
 
 
@@ -243,7 +243,7 @@ def copy_checks(run: Run, log: Path) -> None:
 def stage_windows_wheels(run: Run, log: Path) -> None:
     run_logged(
         ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-         str(run.source / "scripts" / "pypi" / "build-wheel-windows.ps1")],
+         str(run.source / "Publishing" / "pypi" / "build-wheel-windows.ps1")],
         log,
     )
 
@@ -355,7 +355,7 @@ def stage_images(run: Run, log: Path) -> None:
         wsl(
             f"cd {run.wsl_source}\n"
             f"MILA_RUNTIME_IMAGE_TAG={run.image(target)} MILA_IMAGE_TARGET={target} MILA_CLEAN_BUILD=1 "
-            f"bash scripts/dockerhub/build-runtime-image.sh\n",
+            f"bash Publishing/dockerhub/build-runtime-image.sh\n",
             log,
         )
 
@@ -560,7 +560,7 @@ def version_file() -> Path:
 
 def version_sites(*arguments: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, str(repository / "scripts" / "release" / "version_sites.py"), *arguments],
+        [sys.executable, str(repository / "Publishing" / "release" / "version_sites.py"), *arguments],
         cwd=repository,
         capture_output=True,
         text=True,
@@ -601,7 +601,7 @@ def prepare(arguments: argparse.Namespace) -> int:
         print()
         print("A patch is a tag only: no wheels, no images, no site, and no version sites move.")
         print("Version.txt is the only change. Review it, then run:")
-        print("  python scripts/release/release.py finish")
+        print("  python Publishing/release/release.py finish")
         return 0
 
     # The sixteen hand-written sites a reader copies. --expect proves they now name this release.
@@ -622,7 +622,7 @@ def prepare(arguments: argparse.Namespace) -> int:
     print("Also: reconcile BACKLOG.md and ROADMAP.md, and clear any 'not published yet' copy.")
     print()
     print("Nothing is committed. Review the diff in Visual Studio, make the prose edits, then run:")
-    print("  python scripts/release/release.py finish")
+    print("  python Publishing/release/release.py finish")
 
     return 0
 

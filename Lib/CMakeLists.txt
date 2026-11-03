@@ -28,7 +28,7 @@ target_link_libraries( Mila PUBLIC MilaStd )
 # below it (Gqa.Flash.Fa2.cu, Gqa.Flash.Packed.cu). Every bound model uses GQA, so
 # sm_75 codegen was a compile pass for hardware the runtime refuses at runtime. This list
 # is the supported set, and the published wheels and images carry the same one -- keep it in
-# step with x64-wheel, linux-wheel and ARCHITECTURES in scripts/dockerhub/publish-image.sh.
+# step with x64-wheel, linux-wheel and ARCHITECTURES in Publishing/dockerhub/publish-image.sh.
 #
 # 120 is Blackwell consumer (RTX 50-series). It is listed so those cards get native
 # cubin rather than a PTX JIT from 90 at first launch; nothing in Mila uses sm_120

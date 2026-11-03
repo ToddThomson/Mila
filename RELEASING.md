@@ -284,9 +284,9 @@ on this page.
 | Onboarding path | Site anchor | What the reader consumes | Published by | Step |
 |---|---|---|---|---|
 | C++ | `#p-cpp` | the git tag, via FetchContent | pushing the tag | 6, gated at 7 |
-| Python | `#p-python` | `mila-llm` wheels on PyPI | `scripts/pypi/…` + hand upload | 1 validates, 8 publishes |
+| Python | `#p-python` | `mila-llm` wheels on PyPI | `Publishing/pypi/…` + hand upload | 1 validates, 8 publishes |
 | Inference server | — | `mila-llm-server` on PyPI | `python -m build` + hand upload | 1 validates, 8 publishes |
-| Docker — environment | `#p-docker` | `toddthomson/mila-llm:<version>-devel` | `scripts/dockerhub/publish-image.sh` | 9 |
+| Docker — environment | `#p-docker` | `toddthomson/mila-llm:<version>-devel` | `Publishing/dockerhub/publish-image.sh` | 9 |
 | Clone | `#p-clone` | the tag, built from source | pushing the tag | 6 |
 | Try it | `#evaluate` | `toddthomson/mila-llm:<version>-runtime` | the same script, the same invocation | 9 |
 | _the index itself_ | mila.toddt.me | the Pages deployment | `publish-site.yml`, dispatched | 10 |
@@ -328,7 +328,7 @@ Discussion, and only then discovered the wheels could not be validated at all. U
 lands while nothing is immutable yet.
 
 **Before step 1, review the dependency pins.** Run
-`python scripts/dependencies/check_pins.py --check-upstream` and decide, per pin, whether it moves
+`python Publishing/dependencies/check_pins.py --check-upstream` and decide, per pin, whether it moves
 this cycle. This comes first for the same reason wheel validation does: a bump changes what the
 wheels and images contain, so taking one after validating them throws that validation away. The
 weekly `Dependency pins` workflow reports the same thing between releases, but a production tag is
@@ -359,8 +359,8 @@ fails.
    one that says nothing. Two commands and an audit cover it, below.
    **Bump the sixteen version sites with one command:**
    ```
-   python scripts/release/version_sites.py --set 0.21.0
-   python scripts/release/version_sites.py --check --expect
+   python Publishing/release/version_sites.py --set 0.21.0
+   python Publishing/release/version_sites.py --check --expect
    ```
    Run `--expect` *after* `Version.txt` is set. Before that it reports a pass with "nothing to
    compare", because the sites correctly name the last release while `Version.txt` still names a dev
@@ -369,7 +369,7 @@ fails.
    (`Lib/Samples/QuickStart/Cpp/CMakeLists.txt`, that sample's README including its `URL` archive
    line, `getting-started.md` §7), the website's five (`Web/layouts/index.html`: the C++ tab's
    `GIT_TAG` and its sample output, the `-devel` tag, and the `-runtime` tag in **both** `#evaluate`
-   commands), `scripts/dockerhub/overview.md`'s three, `verify-image.sh`'s `MILA_IMAGE` default, the
+   commands), `Publishing/dockerhub/overview.md`'s three, `verify-image.sh`'s `MILA_IMAGE` default, the
    `README.md` status callout, and this document's "Last checkpoint tagged" line. Nothing derived
    them and nothing checked them, which cost a downstream consumer a checkout failure against an
    unreleased tag and once left the C++ tab pinned a release behind the output beside it. The
@@ -377,7 +377,7 @@ fails.
    is the stronger release-time assertion that they name *this* release. A site that moved makes the
    script abort rather than skip — fix the pattern, never the file.
    **The prose is separate, and is not bumped — it is rewritten.**
-   `python scripts/release/version_sites.py --audit-prose` lists the sentences a release can
+   `python Publishing/release/version_sites.py --audit-prose` lists the sentences a release can
    falsify — the *Current Status* section, the README status callout, and the `pre-1.0` claims that
    go at 1.0. No pattern can decide what those should say instead. **The listed set is not the whole
    set:** at `0.20.0` the beta wording also sat in `SECURITY.md` and the feature-request template,
@@ -508,7 +508,7 @@ below it). The five sites are the two wheel presets, `MILA_LIBRARY_CUDA_ARCHITEC
 in `Dockerfile.runtime`; they are one list and move together. The library default was the sixth
 entry out of step until `rc.1+27`, when Turing was dropped from it — a compile pass for hardware
 the runtime refuses. The toolkit is declared the same way:
-`$cudaVersion` in `scripts/pypi/build-wheel-windows.ps1` for Windows, the base image in
+`$cudaVersion` in `Publishing/pypi/build-wheel-windows.ps1` for Windows, the base image in
 `Docker/Dockerfile.wheel` and `Docker/Dockerfile.runtime` for Linux — currently **13.4.3** across all
 four. Before that the Windows wheel took whatever `CUDA_PATH` resolved to, so installing a toolkit
 on the dev box silently changed a published wheel; 13.4 landed mid-cycle and would have split one
@@ -561,7 +561,7 @@ step below exists to prevent, and why it is not optional.
    the server's.
    Each script clears only its own platform's wheels from `out/wheel`, because all four land there
    and all four are published from one glob.
-   - Windows: `scripts/pypi/build-wheel-windows.ps1` — enters the VS developer shell, then configures the
+   - Windows: `Publishing/pypi/build-wheel-windows.ps1` — enters the VS developer shell, then configures the
      `x64-wheel` preset once per interpreter and packages from a copy of the package tree. The
      interpreter list is `$interpreters` at the top of the script and must match `requires-python`
      in `pyproject.toml`.
@@ -595,7 +595,7 @@ step below exists to prevent, and why it is not optional.
 4. **Dispatch the `Wheel clean room` workflow** (Actions -> Wheel clean room -> Run workflow) with the
    exact version (`0.20.0b3.dev38`) and index `testpypi`. It runs a six-leg matrix — `windows-latest` and
    `ubuntu-latest` x Python 3.12, 3.13 and 3.14, one leg per published wheel, none of them carrying a CUDA
-   Toolkit — and runs `scripts/pypi/verify_wheel_cleanroom.py`, which asserts that absence *before* it
+   Toolkit — and runs `Publishing/pypi/verify_wheel_cleanroom.py`, which asserts that absence *before* it
    asserts anything else. A developer machine cannot answer this question, because a wheel quietly
    leaning on a host Toolkit passes there exactly the way a correct one does. Each leg installs
    `mila-llm-server`, which brings that leg's wheel as its pinned dependency, and checks that the
@@ -644,7 +644,7 @@ table each stopped an installed model loading.
 onboarding paths: **`-runtime`** backs the `#evaluate` band (run a model, nothing else) and
 **`-devel`** backs the `#p-docker` tab (a built tree the reader edits). Both come from
 `Docker/Dockerfile.runtime` as separate targets sharing one builder stage, so one script builds
-both and the compile happens once. `scripts/dockerhub/publish-image.sh` is the only writer.
+both and the compile happens once. `Publishing/dockerhub/publish-image.sh` is the only writer.
 
 This runs at **release step 9**, and it is post-tag by construction rather than by convention: the
 script's gates refuse to build unless the tag resolves locally, exists on `origin`, equals `HEAD`,
@@ -657,7 +657,7 @@ it came from anywhere but a public tag there is nothing for them to reproduce ag
    long. Do not start it while a native build is running; the two contend for the same machine.
 3. **Build both images, without pushing:**
    ```bash
-   scripts/dockerhub/publish-image.sh v0.21.0
+   Publishing/dockerhub/publish-image.sh v0.21.0
    ```
    Build-only is the default and `--push` is a deliberate second decision, the same shape as the
    site workflow. `MILA_CLEAN_BUILD` is forced rather than inherited: `--no-cache` invalidates
@@ -669,7 +669,7 @@ it came from anywhere but a public tag there is nothing for them to reproduce ag
    image is pulled by hardware the builder never saw.
 4. **Run the `#evaluate` sequence against the local `-runtime` image, on a GPU host:**
    ```bash
-   MILA_IMAGE=toddthomson/mila-llm:0.21.0-runtime scripts/dockerhub/verify-image.sh
+   MILA_IMAGE=toddthomson/mila-llm:0.21.0-runtime Publishing/dockerhub/verify-image.sh
    ```
    It reproduces the website's two commands with exactly two substitutions — the image reference
    and a throwaway store volume, fresh per run so `install` cannot report success by finding the
@@ -683,13 +683,13 @@ it came from anywhere but a public tag there is nothing for them to reproduce ag
    neither of which touches `-devel` — and fails the reader.
 6. **Push**, once 4 and 5 are green:
    ```bash
-   scripts/dockerhub/publish-image.sh v0.21.0 --push
+   Publishing/dockerhub/publish-image.sh v0.21.0 --push
    ```
    It asks for the version string rather than a `y/n`, because a reflexive "y" is not a decision.
    **A pushed tag cannot be withdrawn, only superseded** — which is the one thing here that is
    gentler than PyPI, and the reason a re-publish over a bad image is a real remedy.
-7. **Update the Overview page.** Its source is `scripts/dockerhub/overview.md`, and the short
-   description is `scripts/dockerhub/description.txt`. Move the image tags in `overview.md` to the new
+7. **Update the Overview page.** Its source is `Publishing/dockerhub/overview.md`, and the short
+   description is `Publishing/dockerhub/description.txt`. Move the image tags in `overview.md` to the new
    version in the release commit, then paste both into the repository's settings on Docker Hub. Never
    edit the page in the browser without the file: the file is the record.
 

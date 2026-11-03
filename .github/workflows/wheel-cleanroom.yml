@@ -4,7 +4,7 @@ name: Wheel clean room
 # CUDA Toolkit -- the machine a wheel exists to serve, and the one configuration a
 # developer box can never be -- and that mila-llm-server of the same version installs
 # from the index, brings that wheel with it, and starts. GitHub's hosted runners ship no CUDA, which is what makes
-# them the right instrument here; scripts/pypi/verify_wheel_cleanroom.py asserts that
+# them the right instrument here; Publishing/pypi/verify_wheel_cleanroom.py asserts that
 # absence before it asserts anything else, so a runner image that gained a Toolkit
 # fails loudly instead of quietly reporting a pass it did not earn.
 #
@@ -52,7 +52,7 @@ jobs:
       # Only the verification script is needed; nothing here builds from source.
       - uses: actions/checkout@v5
         with:
-          sparse-checkout: scripts/pypi/verify_wheel_cleanroom.py
+          sparse-checkout: Publishing/pypi/verify_wheel_cleanroom.py
           sparse-checkout-cone-mode: false
 
       # Exactly the matrix version, never a range: each wheel is cp-tagged, so an
@@ -108,7 +108,7 @@ jobs:
         shell: bash
         working-directory: ${{ runner.temp }}
         run: |
-          python "${GITHUB_WORKSPACE}/scripts/pypi/verify_wheel_cleanroom.py" \
+          python "${GITHUB_WORKSPACE}/Publishing/pypi/verify_wheel_cleanroom.py" \
             --expect-version "${{ inputs.version }}"
 
       # The server on a runner with no model installed and no GPU must refuse to start,

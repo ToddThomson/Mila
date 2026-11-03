@@ -13,9 +13,9 @@
 # bash script, so continuations are correct here and a 130-character line would not be. Same
 # arguments in the same order; only the wrapping differs.
 #
-#   scripts/dockerhub/verify-image.sh
-#   MILA_IMAGE=mila-llm:local scripts/dockerhub/verify-image.sh
-#   MILA_KEEP_VOLUME=1 scripts/dockerhub/verify-image.sh   # leave the store behind to poke at
+#   Publishing/dockerhub/verify-image.sh
+#   MILA_IMAGE=mila-llm:local Publishing/dockerhub/verify-image.sh
+#   MILA_KEEP_VOLUME=1 Publishing/dockerhub/verify-image.sh   # leave the store behind to poke at
 set -euo pipefail
 
 # Git Bash rewrites POSIX-looking arguments into Windows paths before handing them to a native
@@ -49,7 +49,7 @@ fail() { echo; echo "FAILED: $*" >&2; exit 1; }
 
 if ! docker image inspect "${MILA_IMAGE}" >/dev/null 2>&1; then
     fail "no local image ${MILA_IMAGE}. Build one first:
-    MILA_RUNTIME_IMAGE_TAG=${MILA_IMAGE} MILA_CLEAN_BUILD=1 scripts/dockerhub/build-runtime-image.sh"
+    MILA_RUNTIME_IMAGE_TAG=${MILA_IMAGE} MILA_CLEAN_BUILD=1 Publishing/dockerhub/build-runtime-image.sh"
 fi
 
 echo "Image  : ${MILA_IMAGE}"

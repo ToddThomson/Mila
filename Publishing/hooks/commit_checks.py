@@ -10,9 +10,9 @@ of after a push.
 They run against the STAGED tree, exported to a temporary directory, not the working
 tree. A commit that stages half a change is judged on the half it carries.
 
-    python scripts/hooks/commit_checks.py              run the checks on the staged tree
-    python scripts/hooks/commit_checks.py --worktree   run them on the working tree instead
-    python scripts/hooks/commit_checks.py --install    install the git pre-commit hook
+    python Publishing/hooks/commit_checks.py              run the checks on the staged tree
+    python Publishing/hooks/commit_checks.py --worktree   run them on the working tree instead
+    python Publishing/hooks/commit_checks.py --install    install the git pre-commit hook
 
 A failing check blocks the commit. `git commit --no-verify` bypasses the hook when a
 commit genuinely has to land broken.
@@ -31,17 +31,17 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-HOOK_MARKER = "# Installed by scripts/hooks/commit_checks.py"
+HOOK_MARKER = "hooks/commit_checks.py"
 
 # Written into .git/hooks, which git does not track, so the hook itself stays a shim and
 # every behaviour lives in this tracked file. `py` first: on Windows `python` can resolve to
 # whatever virtual environment last put itself on PATH.
 HOOK_SCRIPT = f"""#!/bin/sh
-{HOOK_MARKER} -- edit that file, not this one.
+# Installed by Publishing/{HOOK_MARKER} -- edit that file, not this one.
 root=$(git rev-parse --show-toplevel)
 for python in "py -3" python3 python; do
     if command -v ${{python%% *}} >/dev/null 2>&1; then
-        exec $python "$root/scripts/hooks/commit_checks.py"
+        exec $python "$root/Publishing/hooks/commit_checks.py"
     fi
 done
 echo "pre-commit: no Python found; the commit checks did not run." >&2
@@ -116,12 +116,12 @@ def run_checks(root: Path, scratch: Path) -> bool:
     results = [
         run_check(
             "NOTICE.md matches the dependency pins",
-            [python, "scripts/dependencies/check_pins.py", "--verify-notice"],
+            [python, "Publishing/dependencies/check_pins.py", "--verify-notice"],
             root,
         ),
         run_check(
             "The release version is written consistently",
-            [python, "scripts/release/version_sites.py", "--check"],
+            [python, "Publishing/release/version_sites.py", "--check"],
             root,
         ),
         run_doxygen(root, scratch / "docs"),

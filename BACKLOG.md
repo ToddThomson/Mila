@@ -887,7 +887,7 @@ and each later patch replaced the one before it rather than adding a second move
 
 The sites (RELEASING.md, toolkit paragraph): the base images in `Docker/Dockerfile.wheel`,
 `Docker/Dockerfile.runtime`, `Docker/Dockerfile` and `build-pipeline.yml` name the patch; `$cudaVersion` in
-`scripts/pypi/build-wheel-windows.ps1` names the `v13.4` directory, so the Windows wheel takes whatever 13.4
+`Publishing/pypi/build-wheel-windows.ps1` names the `v13.4` directory, so the Windows wheel takes whatever 13.4
 patch is installed there. The docs name the minor, except `getting-started.md`'s WSL installer URL and
 filename, which carry the patch. `RELEASING.md` records what the `0.20.0b3` wheels were built on and stays.
 
@@ -916,7 +916,7 @@ wheels are built on 13.4.3 and pass the clean room; no document declares a toolk
 
 `open` · `ci` · `build` · `distribution`
 
-`scripts/release/release.py` (`+2`) builds and verifies a release locally from a `git archive` export — the
+`Publishing/release/release.py` (`+2`) builds and verifies a release locally from a `git archive` export — the
 Windows and Linux wheels, their install tests, both images and their checks, nine stages unattended in about an
 hour — and `prepare` / `finish` set the version, merge `dev` into `master` and tag, all in the local repository.
 What it does not do is everything a publish is (`RELEASING.md`, steps 1 and 8 to 11), and what has changed since:
@@ -934,7 +934,7 @@ be finished in this release.
 
 Gate: v0.21.0 is released by the script, from one command, with Todd's approvals the only manual steps.
 
-`scripts/release/release.py` · `Specifications/ReleaseAutomation.md` · `RELEASING.md`
+`Publishing/release/release.py` · `Specifications/ReleaseAutomation.md` · `RELEASING.md`
 
 #### The deployment types repeat their namespace in their names
 

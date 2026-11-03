@@ -16,7 +16,7 @@
 # `mila-store install` code is already proven by verify-image.sh; what only this image can get wrong is
 # that the command exists and runs, and a store that already holds the model still exercises that.
 #
-#   MILA_IMAGE=mila-release:<commit>-devel scripts/dockerhub/verify-devel-image.sh
+#   MILA_IMAGE=mila-release:<commit>-devel Publishing/dockerhub/verify-devel-image.sh
 set -euo pipefail
 
 # See verify-image.sh: nothing here passes a host path to docker, so disabling Git Bash's path

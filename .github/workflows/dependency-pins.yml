@@ -40,7 +40,7 @@ jobs:
           # unauthenticated rate limit on a busy runner.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python3 scripts/dependencies/check_pins.py --check-upstream | tee report.txt
+          python3 Publishing/dependencies/check_pins.py --check-upstream | tee report.txt
           if grep -q "BEHIND\|moving branch" report.txt; then
             echo "stale=true" >> "$GITHUB_OUTPUT"
           else

@@ -36,7 +36,7 @@ what terms?" in one place.
 | [pybind11](https://github.com/pybind/pybind11) | v3.1.0 | BSD-3-Clause | `MILA_ENABLE_PYTHON_BINDINGS` |
 | [googletest](https://github.com/google/googletest) | v1.17.0 | BSD-3-Clause | Tests |
 
-This table is checked mechanically against the build — `scripts/dependencies/check_pins.py
+This table is checked mechanically against the build — `Publishing/dependencies/check_pins.py
 --verify-notice` fails if a pin and its row disagree, or if a fetched dependency has no row.
 Change a pin and this table in the same commit.
 
@@ -48,6 +48,6 @@ on Docker Hub are **binary distributions that link this material** — the wheel
 miniz and pybind11, and the container images additionally carry curl. Each carries the
 licence texts itself, copied from the fetched sources at their pinned versions: a wheel in its
 `.dist-info/licenses/`, an image in `/usr/share/doc/mila/`. A wheel build refuses to run without them
-(`Lib/Bindings/Python/Package/setup.py`), and `scripts/dockerhub/verify-image.sh` checks the image. The
+(`Lib/Bindings/Python/Package/setup.py`), and `Publishing/dockerhub/verify-image.sh` checks the image. The
 `0.20.0b3` wheels and the images published alongside them predate this and carry only Mila's own
 licence.

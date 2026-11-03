@@ -10,11 +10,11 @@ Auth comes from the GitHub CLI: this shells out to `gh` and never handles a toke
 `gh auth status` must be green.
 
 Usage:
-    python Tools/Blog/new_post_discussion.py <slug-or-path> [--category NAME] [--dry-run] [--force]
+    python Publishing/blog/new_post_discussion.py <slug-or-path> [--category NAME] [--dry-run] [--force]
 
 Examples:
-    python Tools/Blog/new_post_discussion.py flash-decoding-mqa-cuda --dry-run
-    python Tools/Blog/new_post_discussion.py flash-decoding-mqa-cuda
+    python Publishing/blog/new_post_discussion.py flash-decoding-mqa-cuda --dry-run
+    python Publishing/blog/new_post_discussion.py flash-decoding-mqa-cuda
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ Discussion lives here — questions, corrections, and war stories welcome below.
 
 
 def repo_root() -> Path:
-    # This file lives at <root>/Tools/Blog/new_post_discussion.py.
+    # This file lives at <root>/Publishing/blog/new_post_discussion.py.
     return Path(__file__).resolve().parents[2]
 
 

@@ -380,7 +380,7 @@ Needs `uv python install 3.14` on Windows and one deadsnakes line in `Dockerfile
 Adds MSVC and GCC 16 to clang-21 — the second module-compiler oracle. Moved here by the
 Linux/clang item's own conclusion.
 
-## Nothing cites `scripts/dockerhub/`
+## Nothing cites `Publishing/dockerhub/`
 
 `ci` · `docs`
 
@@ -717,7 +717,7 @@ The microscaling data path and finer per-arch gating.
 Every preset and the library default build for plain `120` (`CMakePresets.json:118`, `Lib/CMakeLists.txt:31`), and
 block-scaled FP4 on SM120 needs the family-specific `120f` (`MixtureOfExperts.md` 7.2(b)); nothing in Mila uses
 sm_120 instructions yet. It becomes a blocker the day a CUTLASS grouped kernel or an NVFP4 path lands, and the list
-is kept in step across both wheel presets and `scripts/dockerhub/publish-image.sh`. CUTLASS's own SM12x guard fix
+is kept in step across both wheel presets and `Publishing/dockerhub/publish-image.sh`. CUTLASS's own SM12x guard fix
 (PR #3082) was closed unmerged; `MixtureOfExperts.md` 7.3 records what that means for the `120f` route.
 
 ## Compute backends beyond CUDA

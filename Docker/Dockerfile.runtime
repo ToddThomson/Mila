@@ -269,7 +269,7 @@ COPY Docker/entrypoint-runtime.sh /usr/local/bin/mila-entrypoint
 RUN chmod +x /usr/local/bin/mila-entrypoint
 
 # MIS's own default is 8000; the image serves on 6452 (distinctive, collision-unlikely --
-# "MILA" on a phone keypad), which is what EXPOSE and scripts/run-runtime-image.sh publish.
+# "MILA" on a phone keypad), which is what EXPOSE publishes.
 # The variable and the EXPOSE must move together: without it MIS bound 8000 while 6452 was
 # published, so `serve` answered on no reachable port.
 ENV MILA_PORT=6452
