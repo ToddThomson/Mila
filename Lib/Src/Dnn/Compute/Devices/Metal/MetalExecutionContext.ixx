@@ -100,6 +100,11 @@ namespace Mila::Dnn::Compute
                 device_->deallocate( decode_position_ );
             }
 
+            if ( scratch_ )
+            {
+                device_->deallocate( scratch_ );
+            }
+
             queue_->release();
         }
 
@@ -148,6 +153,43 @@ namespace Mila::Dnn::Compute
         [[nodiscard]] MetalDevice& device() const noexcept
         {
             return *device_;
+        }
+
+        /// @copydoc IExecutionContext::reserveScratch
+        void reserveScratch( std::size_t bytes ) override
+        {
+            replaceScratch( bytes );
+            scratch_reserved_ = true;
+        }
+
+        /**
+         * @brief The scratch buffer every operation on this context shares.
+         *
+         * Work on one context runs in the order it was encoded, so an operation's use of this buffer ends before the next one's starts.
+         * Fetch it once per use and never keep the address: until a network reserves it, a larger request replaces it. Work already
+         * encoded on the old buffer still completes, since a command buffer keeps its buffers.
+         *
+         * @throws std::logic_error For a request past the reservation, which is a defect in an operation's `getRequiredScratchBytes`.
+         * @throws MetalBadAlloc When the GPU cannot make the buffer.
+         */
+        [[nodiscard]] void* getDeviceScratchBuffer( std::size_t required_bytes )
+        {
+            if ( required_bytes <= scratch_bytes_ )
+            {
+                return scratch_;
+            }
+
+            if ( scratch_reserved_ )
+            {
+                throw std::logic_error( std::format(
+                    "MetalExecutionContext: a scratch request of {} bytes exceeds the {} bytes the network reserved; "
+                    "an operation's getRequiredScratchBytes() understates what it requests",
+                    required_bytes, scratch_bytes_ ) );
+            }
+
+            replaceScratch( required_bytes );
+
+            return scratch_;
         }
 
         /**
@@ -341,6 +383,22 @@ namespace Mila::Dnn::Compute
 
     private:
 
+        void replaceScratch( std::size_t bytes )
+        {
+            if ( scratch_ )
+            {
+                device_->deallocate( scratch_ );
+                scratch_ = nullptr;
+                scratch_bytes_ = 0;
+            }
+
+            if ( bytes > 0 )
+            {
+                scratch_ = device_->allocate( bytes );
+                scratch_bytes_ = bytes;
+            }
+        }
+
         /// A new tensor over a view. The caller owns the one reference it returns.
         static MTL::Tensor* makeTensor( const MetalMatrixView& view, const MetalBufferLocation& location )
         {
@@ -446,5 +504,8 @@ namespace Mila::Dnn::Compute
         MTL::BlitCommandEncoder* blit_encoder_{ nullptr };
         std::vector<MTL::Tensor*> tensors_in_flight_;
         int* decode_position_{ nullptr };
+        void* scratch_{ nullptr };
+        std::size_t scratch_bytes_{ 0 };
+        bool scratch_reserved_{ false };
     };
 }

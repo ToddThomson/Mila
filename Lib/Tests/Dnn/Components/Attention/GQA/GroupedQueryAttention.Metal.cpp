@@ -301,6 +301,20 @@ namespace Mila::Tests::Dnn::Components
         EXPECT_LE( stack.errorOfStep( 1, 16, true ), kAttentionBar<kPrecision> );
     }
 
+    TYPED_TEST( GqaMetal, AsksForNoScratch )
+    {
+        constexpr TensorDataType kPrecision = TypeParam::value;
+
+        Stack<kPrecision> stack( Geometry{} );
+
+        stack.attention.getExecutionContext()->reserveScratch( 0 );
+
+        // After 16 tokens, 3 more are 6 rows over 19 positions: a tile would fit their outputs, and rows of 2 to 7 are left over.
+        EXPECT_LE( stack.errorOfStep( 16, 0, false ), kAttentionBar<kPrecision> );
+        EXPECT_LE( stack.errorOfStep( 3, 16, false ), kAttentionBar<kPrecision> );
+        EXPECT_EQ( stack.attention.getMemoryStats().device_scratch_bytes, std::size_t{ 0 } );
+    }
+
     TYPED_TEST( GqaMetal, RefusesWhatItDoesNotCarry )
     {
         constexpr TensorDataType kPrecision = TypeParam::value;

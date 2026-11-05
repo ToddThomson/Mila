@@ -95,6 +95,74 @@ namespace Mila::Tests::Dnn::Compute
         EXPECT_EQ( allocation.values()[kElements - 1], 3.0f );
     }
 
+    TEST( MetalExecutionContext, ScratchGrowsOnDemandUntilItIsReserved )
+    {
+        MetalExecutionContext context( Device::Metal( 0 ) );
+
+        void* const first = context.getDeviceScratchBuffer( 100 );
+
+        EXPECT_NE( first, nullptr );
+        EXPECT_EQ( context.getDeviceScratchBuffer( 100 ), first );
+        EXPECT_EQ( context.getDeviceScratchBuffer( 50 ), first );
+        EXPECT_NO_THROW( (void)context.getDeviceScratchBuffer( 4096 ) );
+
+        context.reserveScratch( 300 );
+
+        EXPECT_NE( context.getDeviceScratchBuffer( 300 ), nullptr );
+        EXPECT_THROW( (void)context.getDeviceScratchBuffer( 301 ), std::logic_error );
+    }
+
+    TEST( MetalExecutionContext, ReservingNoScratchRefusesEveryRequest )
+    {
+        MetalExecutionContext context( Device::Metal( 0 ) );
+
+        context.reserveScratch( 0 );
+
+        EXPECT_THROW( (void)context.getDeviceScratchBuffer( 1 ), std::logic_error );
+    }
+
+    TEST( MetalExecutionContext, WorkEncodedOnScratchStillRunsAfterItIsReplaced )
+    {
+        Allocation allocation;
+        MetalExecutionContext context( Device::Metal( 0 ) );
+
+        auto* const scratch = static_cast<float*>( context.getDeviceScratchBuffer( kElements * sizeof( float ) ) );
+        std::fill_n( scratch, kElements, 9.0f );
+
+        context.copyBytes( scratch, allocation.values(), kElements * sizeof( float ) );
+
+        EXPECT_NE( context.getDeviceScratchBuffer( 2 * kElements * sizeof( float ) ), scratch );
+
+        context.synchronize();
+
+        EXPECT_EQ( allocation.values()[0], 9.0f );
+        EXPECT_EQ( allocation.values()[kElements - 1], 9.0f );
+    }
+
+    TEST( MetalExecutionContext, ScratchIsFreedWhenItIsReplacedAndWithItsContext )
+    {
+        constexpr std::size_t kBytes = std::size_t{ 64 } * 1024 * 1024;
+
+        const std::shared_ptr<MetalDevice> device = MetalDevice::at( 0 );
+        const std::size_t free_before = device->getMemoryInfo().free_bytes;
+
+        {
+            MetalExecutionContext context( Device::Metal( 0 ) );
+
+            (void)context.getDeviceScratchBuffer( kBytes );
+
+            EXPECT_LE( device->getMemoryInfo().free_bytes + kBytes, free_before );
+
+            // Still large, so that freeing it with the context shows.
+            context.reserveScratch( kBytes / 2 );
+
+            EXPECT_GT( device->getMemoryInfo().free_bytes + kBytes, free_before );
+            EXPECT_LE( device->getMemoryInfo().free_bytes + kBytes / 2, free_before );
+        }
+
+        EXPECT_EQ( device->getMemoryInfo().free_bytes, free_before );
+    }
+
     TEST( MetalExecutionContext, AKernelBindsAnInteriorAddressAndWritesOnlyItsElements )
     {
         Allocation allocation;

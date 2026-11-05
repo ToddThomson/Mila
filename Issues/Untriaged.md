@@ -10,9 +10,15 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## An agent cannot start a process and keep working while it runs
+
+`Lib/Src/Agents/Programs/ProgramContainer.ixx`; `Lib/Src/Agents/Grants/ToolGrant.ixx` (`runProgram`); `Specifications/ContainedPrograms.md` 4 @ 0.21.0-dev+119
+
+Todd, 2026-11-05: the case that matters is long-lived, an agent running a process across its tool calls. `ProgramContainer::run` starts a program and waits for it, and nothing it starts outlives the run, so a dev server cannot stay up while later tool calls test against it, except inside one command. The model sees output only when the run ends, and nothing can be typed into a running program. `run_command` caps a run at 600 seconds. Under the wait, `MxcProgramContainer` already uses `mxc_spawn_json`, reads each output stream on its own thread and polls `mxc_sandbox_try_wait` (`ContainedPrograms.md` 4.8), so MXC gives what a handle would stand on. Not designed: a handle that lasts across calls, how long it may live, when the person is asked, and how a model reads its output and stops it. Windows only, as all of the container is.
+
 ## Rope's angle loses accuracy far into a context, on both backends
 
-`Lib/Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Angle.cuh`; `Lib/Src/Dnn/Compute/Devices/Metal/Kernels/Rope.metal` @ 0.21.0-dev+118
+`Lib/Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Angle.cuh`; `Lib/Src/Dnn/Compute/Devices/Metal/Operations/Encodings/Rope/Kernels/Rope.metal` @ 0.21.0-dev+120
 
 Both compute position times frequency in single precision before taking the cosine and sine. Arithmetic, not measured: at position 8192 and a frequency of 1, the angle's own rounding is about 5e-4 radians, and at 128000 about 8e-3. Found writing Metal's Rope test against a double-precision reference, which holds the bar only to position 2048. Reducing the angle before the multiplication would remove it.
 

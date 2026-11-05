@@ -70,6 +70,7 @@ namespace Mila::Dnn::Compute::Metal::Linear
 
             inputs_ = narrowToKernelIndex( config_.getInputFeatures() );
             outputs_ = narrowToKernelIndex( config_.getOutputFeatures() );
+            scratch_bytes_ = scratchBytesFor( input_shape );
 
             Operation<DeviceType::Metal, TComputePrecision>::build( build_context );
         }
@@ -82,7 +83,7 @@ namespace Mila::Dnn::Compute::Metal::Linear
 
             encodeMatrixProduct<TComputePrecision>( *context_, MatrixProduct{
                 static_cast<const ITensor&>( input ).rawData(), static_cast<const ITensor*>( weight_ )->rawData(), output_address,
-                rows, inputs_, outputs_, outputs_ } );
+                rows, inputs_, outputs_, outputs_, kFewestMultipliesToPad } );
 
             if ( config_.hasBias() )
             {
@@ -100,7 +101,30 @@ namespace Mila::Dnn::Compute::Metal::Linear
             return "Metal.Linear";
         }
 
+        [[nodiscard]] std::size_t getScratchBytes() const override
+        {
+            return scratch_bytes_;
+        }
+
+        [[nodiscard]] std::size_t getRequiredScratchBytes( const BuildContext& build_context ) const override
+        {
+            return scratchBytesFor( build_context.inputShape() );
+        }
+
     private:
+
+        // Measured on the M1 Pro at Linear's shapes, in FP16: from here up padding won every shape by more than Phase 2's 10%, and below
+        // it one shape won by only 3%. Notebooks/MetalLlamaOperations.md has the table.
+        static constexpr std::int64_t kFewestMultipliesToPad = 50'000'000;
+
+        // A Linear built for one row, as a generating model's output layer is, never holds rows to pad.
+        [[nodiscard]] std::size_t scratchBytesFor( const shape_t& input_shape ) const
+        {
+            return matrixProductScratchBytes<TComputePrecision>(
+                narrowToKernelIndex( elementCount( input_shape ) / config_.getInputFeatures() ),
+                narrowToKernelIndex( config_.getInputFeatures() ), narrowToKernelIndex( config_.getOutputFeatures() ),
+                kFewestMultipliesToPad );
+        }
 
         void encodeBias( const void* output, int rows ) const
         {
@@ -119,5 +143,6 @@ namespace Mila::Dnn::Compute::Metal::Linear
         ITensor* bias_{ nullptr };
         int inputs_{ 0 };
         int outputs_{ 0 };
+        std::size_t scratch_bytes_{ 0 };
     };
 }

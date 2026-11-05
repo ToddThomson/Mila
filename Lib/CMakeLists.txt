@@ -973,15 +973,15 @@ if(MILA_HAS_METAL)
                 "Src/Dnn/Compute/Devices/Metal/MetalKernelLimits.ixx"
                 "Src/Dnn/Compute/Devices/Metal/MetalMatrixView.ixx"
                 "Src/Dnn/Compute/Devices/Metal/MetalMemoryResource.ixx"
-                "Src/Dnn/Compute/Devices/Metal/Operations/Activations/MetalSwigluOp.ixx"
-                "Src/Dnn/Compute/Devices/Metal/Operations/Attention/MetalGqaOp.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Operations/Activations/Swiglu/MetalSwigluOp.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Operations/Attention/GQA/MetalGqaOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/Embeddings/MetalTokenEmbeddingOp.ixx"
-                "Src/Dnn/Compute/Devices/Metal/Operations/Encodings/MetalRopeOp.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Operations/Encodings/Rope/MetalRopeOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/Linear/MetalLinearOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/Linear/MetalMatrixProduct.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/LogLikelihood/MetalNextTokenLogProbabilityOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/Sampling/MetalSamplingOp.ixx"
-                "Src/Dnn/Compute/Devices/Metal/Operations/Normalizations/MetalRmsNormOp.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Operations/Normalizations/RmsNorm/MetalRmsNormOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/OperationTraits.Metal.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/Residual/MetalResidualOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Tensors/MetalTensorDataTypeMap.ixx"
@@ -1005,13 +1005,27 @@ if(MILA_HAS_METAL)
     target_include_directories(Mila PRIVATE "${metal_cpp_SOURCE_DIR}")
 
     # Kernels are compiled at run time from source carried in the library (MetalBackend.md section 4.3).
-    # Each file is one raw string, rewritten only when it changes.
+    # Each lives in Kernels/ beside the operation that launches it, as on CUDA, and becomes one raw string,
+    # named by its file alone and rewritten only when it changes.
     set(metal_kernel_directory "${CMAKE_CURRENT_BINARY_DIR}/MetalKernels")
 
-    foreach(kernel_file "TensorOps.Fill.metal" "TensorOps.Scale.metal" "TensorOps.Structural.metal" "Linear.metal" "TokenEmbedding.metal" "RmsNorm.metal" "Rope.metal" "Swiglu.metal" "Residual.metal" "GroupedQueryAttention.metal" "Sampling.metal" "NextTokenLogProbability.metal")
-        set(kernel_path "${CMAKE_CURRENT_SOURCE_DIR}/Src/Dnn/Compute/Devices/Metal/Kernels/${kernel_file}")
+    foreach(kernel_file
+        "Tensors/Operations/Kernels/TensorOps.Fill.metal"
+        "Tensors/Operations/Kernels/TensorOps.Scale.metal"
+        "Tensors/Operations/Kernels/TensorOps.Structural.metal"
+        "Operations/Linear/Kernels/Linear.metal"
+        "Operations/Embeddings/Kernels/TokenEmbedding.metal"
+        "Operations/Normalizations/RmsNorm/Kernels/RmsNorm.metal"
+        "Operations/Encodings/Rope/Kernels/Rope.metal"
+        "Operations/Activations/Swiglu/Kernels/Swiglu.metal"
+        "Operations/Residual/Kernels/Residual.metal"
+        "Operations/Attention/GQA/Kernels/GroupedQueryAttention.metal"
+        "Operations/Sampling/Kernels/Sampling.metal"
+        "Operations/LogLikelihood/Kernels/NextTokenLogProbability.metal")
+        set(kernel_path "${CMAKE_CURRENT_SOURCE_DIR}/Src/Dnn/Compute/Devices/Metal/${kernel_file}")
+        get_filename_component(kernel_name "${kernel_file}" NAME)
         file(READ "${kernel_path}" kernel_source)
-        file(CONFIGURE OUTPUT "${metal_kernel_directory}/${kernel_file}.inc"
+        file(CONFIGURE OUTPUT "${metal_kernel_directory}/${kernel_name}.inc"
             CONTENT "R\"metal(${kernel_source})metal\"\n" @ONLY)
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${kernel_path}")
     endforeach()

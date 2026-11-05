@@ -85,7 +85,47 @@ Milliseconds, FP16, normal data, the middle of three process runs of 15 rounds e
 | 8192 x 2048 | 0.309 | 0.210 | 1.023 | 0.207 | 1.47 to 4.94 |
 | 2048 x 2048 | 0.124 | 0.106 | 0.391 | 0.105 | 1.17 to 3.72 |
 
-**By the rule TensorOps wins from M = 2, as Phase 2's arithmetic expected.** 10 of the 36 shapes differed between runs by more than the 15% that makes a result unstable, all at small shapes, up to 2.4 times. The own kernel's error matches: 2.0e-4 to 2.1e-4. **Linear does not use this yet.** Padding needs a scratch buffer and two copies, and it was agreed that these rows go through the own kernel until this was timed. What it costs today (arithmetic): on Llama 3.1 8B, a partial chunk of 7 rows takes about 8 ms more per layer in its two MLP Linears and its fused projection, so about 260 ms once per prompt over 32 layers. A full chunk costs nothing.
+**By the rule TensorOps wins from M = 2, as Phase 2's arithmetic expected.** 10 of the 36 shapes differed between runs by more than the 15% that makes a result unstable, all at small shapes, up to 2.4 times. The own kernel's error matches: 2.0e-4 to 2.1e-4. This table leaves padding's own cost out; the next section has it in.
+
+### M = 2 to 7 through the real path, copies and all
+
+After Phase 3, Todd agreed that Linears pad, and that attention pads only if timing earns it. `Lib/Tools/MetalMatrixTiming/ProductTiming.cpp` times `encodeMatrixProduct` itself: 32 products to a command buffer, as a network chains its layers, each padded product with its copy in, zeroing, tile, and copies out. Milliseconds per product, FP16 middle of three process runs of 15 rounds, BF16 one run. Own over padded: more than 1 means padding wins. Scripts and full logs are `D:\Claude\metal\padding` (`timing.sh`, `timing2.sh`, `table.py`).
+
+Linears, outputs x inputs:
+
+| Shape | M = 2 own | M = 2 padded | M = 7 own | M = 7 padded | Own over padded, M = 2 to 7, FP16 | BF16 |
+|---|---|---|---|---|---|---|
+| 28672 x 4096 (8B's gate and up) | 2.52 | 1.55 | 8.69 | 1.55 | 1.63 to 5.60 | 1.04 to 3.57 |
+| 4096 x 14336 (8B's down) | 2.27 | 0.99 | 9.30 | 1.00 | 2.29 to 9.33 | 0.93 to 3.69 |
+| 6144 x 4096 (8B's fused projection) | 0.59 | 0.41 | 1.89 | 0.41 | 1.42 to 4.58 | 1.03 to 3.34 |
+| 4096 x 4096 (8B's output projection) | 0.33 | 0.29 | 1.14 | 0.30 | 1.14 to 3.87 | 0.93 to 2.87 |
+| 8192 x 2048 | 0.34 | 0.27 | 1.15 | 0.28 | 1.25 to 4.13 | 0.86 to 2.75 |
+| 2048 x 8192 | 0.31 | 0.30 | 0.76 | 0.31 | 1.03 to 2.47 | 0.65 to 1.63 |
+| 2048 x 2048 | 0.057 | 0.081 | 0.160 | 0.085 | 0.71 to 1.89 | 0.43 to 1.11 |
+
+Attention's shapes, N = 128. Q x K^T is outputs K x inputs 128. Attention x V is timed here as outputs 128 x inputs K, the same multiplies, on `linear_lanes`; its real leftover path is `gqa_value_elements`, so that row is a guide:
+
+| Shape | M = 2 own | M = 2 padded | M = 7 own | M = 7 padded | Own over padded, M = 2 to 7, FP16 | BF16 |
+|---|---|---|---|---|---|---|
+| Q x K^T, K = 64 | 0.012 | 0.059 | 0.018 | 0.060 | 0.20 to 0.30 | 0.22 to 0.30 |
+| K = 256 | 0.018 | 0.058 | 0.021 | 0.060 | 0.31 to 0.35 | 0.30 to 0.35 |
+| K = 1024 | 0.024 | 0.058 | 0.028 | 0.060 | 0.36 to 0.49 | 0.23 to 0.48 |
+| K = 4096 | 0.031 | 0.060 | 0.043 | 0.062 | 0.45 to 0.69 | 0.45 to 0.74 |
+| K = 16384 | 0.047 | 0.064 | 0.132 | 0.066 | 0.73 to 2.02 (M = 2, 4, 7) | 0.59 to 1.68 |
+| K = 65536 | 0.150 | 0.114 | 0.484 | 0.123 | 1.32 to 3.93 (M = 2, 4, 7) | 0.89 to 2.77 |
+| Attention x V, K = 4096 | 0.049 | 0.099 | 0.049 | 0.104 | 0.47 to 0.49 | 0.23 to 0.26 |
+| K = 16384 | 0.166 | 0.237 | 0.163 | 0.238 | 0.69 to 0.70 (M = 2, 4, 7) | 0.29 |
+| K = 65536 | 0.661 | 0.876 | 0.666 | 0.882 | 0.75 to 0.76 (M = 2, 4, 7) | 0.28 |
+
+**Linears pad from 50 million multiplies.** Padding costs about 60 microseconds at its smallest, and its cost then follows K x N, not M. By rows x inputs x outputs, FP16 passes Phase 2's 10% at every shape from 50.3 million up, the lowest timed being 1.42 at 2 x 6144 x 4096 and 1.46 at 3 x 2048 x 8192. Below that the answer turns on the shape: 33.5 million gives 1.03 to 1.25, and 12.6 million gives 1.02. So 2 x 4096 x 4096 stays on the own kernel and 3 x 4096 x 4096 pads. No shape was timed between 33.5 and 50.3 million, so the point is measured no closer than that. 50 million leaves BF16 at 0.93 to 1.04 for two rows of 8B's Linears, and at 0.94 at 3 x 2048 x 8192, which is under emulation on this chip and no worse than 7% against. Timed on the M1 Pro at Linear's shapes alone. Spread between runs: at most 1.10 on the Linear rows.
+
+**What it gives (arithmetic from these rows):** on Llama 3.1 8B, over 32 layers and its four Linears, once per prompt, a partial chunk with 2 rows left over saves 78 ms and with 7 saves 568 ms. A full chunk gains nothing. Phase 3's estimate was about 260 ms at 7, from unchained timings of fewer Linears.
+
+**Attention does not pad.** Up to K = 4096 padding loses at every row count in both precisions, with the ratios at most 0.74, and attention x V loses at every length. Q x K^T wins from K = 16384 at 4 rows and more. Llama 3.1 8B's groups are 4 rows, so at K = 65536 that is about 0.17 ms a product over 8 groups and 32 layers: **about 42 ms once per prompt at 64K, arithmetic.** It would also mean reserving about 1 MB of scratch, and attention x V would keep the own kernel either way. So attention stays with the own kernel, and Phase 4's long-context runs can reopen this. The own arm's spread reaches 1.87 at these small shapes; the padded arm's stays within 1.04.
+
+**Padded rows give the same bits as the tile they would have joined:** rows 2 to 7, 10, 15 and 127 alone equal the same rows of a 128-row product exactly, in both precisions. Scratch is 8 x (inputs + the outputs of whole tiles) elements, for example 295 KB at 8B's 4096 x 14336. A Linear built for one row, as a generating model's output layer is, reserves none.
+
+**35 forced failures on padding, all caught** (`D:\Claude\metal\padding\mutate.py`). 33 on the first run. The two survivors were gaps in the tests: a context's scratch not freed at its destruction, which the test could not see because its last buffer was too small for the device's count to show it; and the own kernel running the padded rows again after the tile, which small shapes cannot show since the two paths give the same bits there. Both tests were changed, and both failures are now caught. Nothing here has run on a model; a network's reservation is Phase 4's to exercise, and the footprint test holds a single Linear to it.
 
 ### First-load compile
 

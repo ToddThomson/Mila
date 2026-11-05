@@ -17,7 +17,7 @@ namespace Mila::Dnn::Compute
 {
     namespace
     {
-        // Each file under Kernels/, embedded at configure time by Lib/CMakeLists.txt.
+        // Each operation's kernels, from the Kernels/ folder beside it, embedded at configure time by Lib/CMakeLists.txt.
         const char* const kKernelSources[] = {
 #include "TensorOps.Fill.metal.inc"
             ,

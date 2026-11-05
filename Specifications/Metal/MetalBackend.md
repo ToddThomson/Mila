@@ -172,7 +172,7 @@ shows the error of a wide accumulator (inferred). An own FP16 matrix kernel accu
 now. This is the design claim the ROADMAP names, and this port is its first test across vendors: a component that needs
 a `#if` for Metal is a finding.
 
-Kernels are MSL source using MSL templates, one source for FP16 and BF16 where that serves.
+Kernels are MSL source using MSL templates, one source for FP16 and BF16 where that serves. Each lives in a `Kernels/` folder beside the operation that launches it, at the same path as its CUDA counterpart.
 
 ### 4.2 Two matrix paths
 
@@ -184,7 +184,7 @@ Kernels are MSL source using MSL templates, one source for FP16 and BF16 where t
 | **Its precedent in Mila** | cuBLASLt, on CUDA | The hand kernels, on CUDA |
 
 **Measured on the M1 Pro (Phase 2, `Notebooks/MetalMatrixPath.md`): Linear uses its own kernel at M = 1, and TensorOps from M = 8 up, with
-both paths tuned.** Phase 3 timed M = 2 to 7, and TensorOps padded to 8 rows wins by the same rule, by 1.2 to 6.2 times; Linear does not pad yet, and runs those rows through the own kernel. The own kernel reads the weights at nearly the chip's
+both paths tuned.** **M = 2 to 7 depends on the shape, so a product says when it pads.** Padding copies the rows into scratch, zeroes the rest of a tile of 8, runs the tile and copies the rows back, and that costs at least about 60 microseconds. Timed through the real path (`Notebooks/MetalLlamaOperations.md`): **a Linear pads rows left over from 50 million multiplies up**, rows x inputs x outputs, the point above which every shape timed won by more than Phase 2's 10% in FP16. **Attention does not pad, and asks for no scratch.** The own kernel beats padding at every context up to 4096, and attention x V loses at every length timed. Q x K^T wins from 16384 positions and at least 4 rows, which is about 40 ms once per prompt on Llama 3.1 8B at 64K (arithmetic). One row stays with the own kernel, as above. The own kernel reads the weights at nearly the chip's
 bandwidth, widening inside itself to 32 bits, which needs no storage. TensorOps needs at least 8 rows in a tile. Own tiles do not ship: they take 1.6 to
 4.8 times TensorOps, and FP16's sum in a tile misses the accuracy bar. llama.cpp keeps TensorOps off before M5 on its own measurements
 (its source comment: M2 Ultra about 5% slower, M4 no significant difference), and it was not looked into why that differs here. Phase 4 compares
@@ -355,7 +355,7 @@ In order: Linear, TokenEmbedding, RmsNorm, Rope, Swiglu, Residual, grouped-query
 NextTokenLogProbability. BF16 weights first, quantized in Phase 5. BF16 kernels are tested here through the emulation layer:
 that shows correctness, and says nothing about the speed of native BF16.
 
-**Agreed for this phase (Todd, 2026-11-05).** Weights reach a test as a BF16 blob through `loadParameter`, in both precisions, since that is what a model hands them. Attention's decode is one own kernel, which reads the position from memory; its prefill is TensorOps, a softmax kernel, then TensorOps, and a fused prefill follows only on a Phase 4 measurement. TensorOps writes FP16, not FP32. Rows and outputs off a multiple of the tile go through the own kernel, and M = 2 to 7 is timed against padding. Metal operations declare no `backward`. Left to later phases: `Llama.ixx`'s load synchronization (Phase 4), the scratch buffer (Phase 5), and `Linear::decode` over several rows (Phase 6).
+**Agreed for this phase (Todd, 2026-11-05).** Weights reach a test as a BF16 blob through `loadParameter`, in both precisions, since that is what a model hands them. Attention's decode is one own kernel, which reads the position from memory; its prefill is TensorOps, a softmax kernel, then TensorOps, and a fused prefill follows only on a Phase 4 measurement. TensorOps writes FP16, not FP32. Rows and outputs off a multiple of the tile go through the own kernel, and M = 2 to 7 is timed against padding. Metal operations declare no `backward`. Left to later phases: `Llama.ixx`'s load synchronization (Phase 4) and `Linear::decode` over several rows (Phase 6). The scratch buffer, planned for Phase 5, came with padding after this phase (Todd, 2026-11-05).
 
 **Tests:** each against a double-precision reference in both precisions, with the decode rule (`CLAUDE.md`) held by a test that
 sets the position first. **Notebook:** `Notebooks/MetalLlamaOperations.md`.
@@ -436,3 +436,4 @@ development Mac and neither can reach a user's.
 | Metal stays GPU only for now. MLX may later lead to optimizations, or to CPU use that makes sense (`Issues/Untriaged.md`) | Todd, 2026-11-04 |
 | Every format Mila's components use on CUDA runs on Metal (section 1) | Todd, 2026-11-05 |
 | No published model stores FP16, so an FP16 parameter reads BF16 weights, from Phase 3 on (section 5) | Todd, 2026-11-05 |
+| Pad 2 to 7 rows before Phase 4, with the scratch buffer here and not in Phase 5, and the rows that pad a tile zero. Attention pads only if its timing earns it (section 4.2) | Todd, 2026-11-05 |
