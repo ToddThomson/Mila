@@ -34,6 +34,7 @@ what terms?" in one place.
 | [miniz](https://github.com/richgel999/miniz) | 3.1.2 | MIT | Always |
 | [curl](https://github.com/curl/curl) | curl-8_22_0 | [curl](https://curl.se/docs/copyright.html) (SPDX `curl`) | `MILA_ENABLE_LIBCURL` |
 | [pybind11](https://github.com/pybind/pybind11) | v3.1.0 | BSD-3-Clause | `MILA_ENABLE_PYTHON_BINDINGS` |
+| [metal-cpp](https://github.com/apple/metal-cpp) | release/metal-cpp_macOS27.0.1_iOS27.0.1 | Apache-2.0 | `MILA_ENABLE_METAL` |
 | [googletest](https://github.com/google/googletest) | v1.17.0 | BSD-3-Clause | Tests |
 
 This table is checked mechanically against the build — `Publishing/dependencies/check_pins.py

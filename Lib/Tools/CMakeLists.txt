@@ -1,6 +1,12 @@
 # Mila Tools CMakeLists.txt
 add_subdirectory( Tokenize )
 
+# What a Mac's GPU reports, and whether Mila's kernels compile on it (Specifications/Metal/MetalBackend.md).
+if(MILA_HAS_METAL)
+    add_subdirectory( MetalMatrixTiming )
+    add_subdirectory( MetalReport )
+endif()
+
 # Artifact export needs a built, weights-loaded model to read quantized weights off
 # the device, so it is CUDA-only.
 if(MILA_ENABLE_CUDA)

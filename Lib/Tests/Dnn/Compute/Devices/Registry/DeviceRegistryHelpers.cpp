@@ -20,8 +20,9 @@ namespace Dnn::Compute::Registry::Tests
 
         int gpu_device_count = static_cast<int>( registry.getDeviceCount( DeviceType::Cuda ) );
         int cpu_device_count = static_cast<int>( registry.getDeviceCount( DeviceType::Cpu ) );
+        int metal_device_count = static_cast<int>( registry.getDeviceCount( DeviceType::Metal ) );
 
-        int expected_device_count = cpu_device_count + gpu_device_count;
+        int expected_device_count = cpu_device_count + gpu_device_count + metal_device_count;
 
         std::vector<std::string> devices = listDevicesByName();
 

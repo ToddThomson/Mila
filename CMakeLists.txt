@@ -105,8 +105,9 @@ option(MILA_ENABLE_LIBCURL "Build Mila's libcurl HTTP transport." ON)
 
 option(MILA_ENABLE_CUDA "Enable CUDA compute backend" ON)
 
-# The Metal and ROCm backends are currently for internal testing only. Please leave them disabled.
-option(MILA_ENABLE_METAL "Enable Metal compute backend (macOS/iOS only)" OFF)
+# Metal is being built (Specifications/Metal/MetalBackend.md) and runs no model yet; the macOS preset turns it on.
+# ROCm is for internal testing only. Please leave it disabled.
+option(MILA_ENABLE_METAL "Enable Metal compute backend (macOS on Apple silicon only)" OFF)
 option(MILA_ENABLE_ROCM "Enable ROCm compute backend" OFF)
 
 # =============================================================================
@@ -139,14 +140,11 @@ if(MILA_ENABLE_METAL)
         set(MILA_HAS_METAL FALSE)
     else()
         find_library(METAL_FRAMEWORK Metal)
-        find_library(METALPERFORMANCESHADERS_FRAMEWORK MetalPerformanceShaders)
         find_library(FOUNDATION_FRAMEWORK Foundation)
-        
-        if(METAL_FRAMEWORK AND METALPERFORMANCESHADERS_FRAMEWORK AND FOUNDATION_FRAMEWORK)
+
+        if(METAL_FRAMEWORK AND FOUNDATION_FRAMEWORK)
             set(MILA_HAS_METAL TRUE)
-            enable_language(OBJCXX)
             message(STATUS "Metal backend: enabled")
-            message(STATUS " Note: Internal testing only (FUTURE)")
         else()
             set(MILA_HAS_METAL FALSE)
             message(STATUS "Metal backend: disabled (required frameworks not found)")
@@ -198,7 +196,7 @@ message(STATUS "Mila Compute Backend Summary:")
 message(STATUS "===========================================")
 message(STATUS "  CPU:     ${MILA_HAS_CPU}")
 message(STATUS "  CUDA:    ${MILA_HAS_CUDA}")
-message(STATUS "  Metal:   ${MILA_HAS_METAL}  (NOTE: Internal testing only)")
+message(STATUS "  Metal:   ${MILA_HAS_METAL}")
 message(STATUS "  ROCm:    ${MILA_HAS_ROCM}  (NOTE: Internal testing only)")
 
 # A Mila build with no compute backend cannot construct an execution context or run
@@ -225,6 +223,16 @@ if(NOT COMMAND CPMAddPackage)
         )
     endif()
     include(${CPM_PATH})
+endif()
+
+# Host code for Metal is C++ through Apple's headers (Specifications/Metal/MetalBackend.md section 7).
+if(MILA_HAS_METAL)
+    CPMAddPackage(
+        NAME metal_cpp
+        GITHUB_REPOSITORY apple/metal-cpp
+        GIT_TAG release/metal-cpp_macOS27.0.1_iOS27.0.1
+        DOWNLOAD_ONLY YES
+    )
 endif()
 
 CPMAddPackage(

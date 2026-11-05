@@ -10,7 +10,7 @@ FP8 weights.
 math mode.
 
 The program, the gate and the raw log are outside the tree, in `D:\Claude\metal\precision-speed\` (`precision.m`,
-`gate.md`, `analyze.py`, `all.log`). `MetalBackend.md` Phase 2 brings the program under `Lib/Tools/`.
+`gate.md`, `analyze.py`, `all.log`). `MetalBackend.md` Phase 2 replaced it in the tree with `Lib/Tools/MetalMatrixTiming`, on Linear's shapes.
 
 ---
 
@@ -116,8 +116,8 @@ and at S 1.05 and 1.77, so the size of the penalty follows the shape.
 **The claim as a cause:** arithmetic alone costs 1.14 to 1.44. Most of the penalty at L therefore appears to be data
 size and memory, not the math. This is inferred from the shape dependence; no run isolated it.
 
-**16-bit storage with FP32 math** is out for own kernels, at 5.55 times own FP16 at L. It survives only in TensorOps,
-where it costs nothing.
+**16-bit storage with FP32 math** is out for own kernels through threadgroup memory, at 5.55 times own FP16 at L. It survives in TensorOps,
+where it costs nothing, and at decode in an own kernel Phase 2 found (`MetalMatrixPath.md`), widening in registers.
 
 ## 5. What else it showed
 
@@ -129,8 +129,8 @@ where it costs nothing.
    step. That supports Todd's premise that BF16 is emulated on the M1, and does not prove it.
 4. **FP16 by hand loses accuracy with K:** 1.32e-2 at K = 8192, about 60 times TensorOps at the same shape.
 5. **Scalar BF16 costs 2.42 times FP16**, and 1.68 times FP32. Elementwise BF16 costs no more than FP16.
-6. **Unexplained, and stable across all three runs:** TensorOps BF16 at D takes 0.48 of FP16, though it takes 1.9 times
-   at S and L. Its output is correct. The tile differs at D (8 rows, not 64). Nothing here explains it.
+6. **Explained since, in `MetalMatrixPath.md` section 4:** TensorOps BF16 at D takes 0.48 of FP16, though it takes 1.9 times
+   at S and L. The tile at D makes FP16 slow, on this program's weight layout, so FP16's `matmul2d` figure at D is not a fair one.
 7. **TensorOps takes a quarter of `gemm-direct` at S and L** and about the same at D. `gemm-direct` is untuned, so this
    is not a verdict on either. llama.cpp keeps TensorOps off before M5 on its own measurements (its source comment:
    M2 Ultra about 5% slower, M4 no significant difference), which is the reason to tune before concluding.

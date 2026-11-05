@@ -960,22 +960,57 @@ if(MILA_HAS_METAL)
         PUBLIC
             FILE_SET metal_modules
                TYPE CXX_MODULES FILES
+                "Src/Dnn/Compute/Devices/Metal/MetalAllocationMap.ixx"
+                "Src/Dnn/Compute/Devices/Metal/MetalBadAlloc.ixx"
+                "Src/Dnn/Compute/Devices/Metal/MetalBufferLocation.ixx"
+                "Src/Dnn/Compute/Devices/Metal/MetalCapabilities.ixx"
                 "Src/Dnn/Compute/Devices/Metal/MetalDevice.ixx"
+                "Src/Dnn/Compute/Devices/Metal/MetalDeviceRegistrar.ixx"
+                "Src/Dnn/Compute/Devices/Metal/MetalDeviceTypeTraits.ixx"
                 "Src/Dnn/Compute/Devices/Metal/MetalExecutionContext.ixx"
-                "Src/Dnn/Compute/Devices/Metal/MetalDevicePlugin.ixx"
+                "Src/Dnn/Compute/Devices/Metal/MetalExecutionContext.Traits.ixx"
+                "Src/Dnn/Compute/Devices/Metal/MetalKernelLibrary.ixx"
+                "Src/Dnn/Compute/Devices/Metal/MetalKernelLimits.ixx"
                 "Src/Dnn/Compute/Devices/Metal/MetalMemoryResource.ixx"
-                "Src/Dnn/Compute/Devices/Metal/Tensors/MetalTensorTraits.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Tensors/MetalTensorDataTypeMap.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Tensors/Operations/MetalTensorOps.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Tensors/Operations/MetalTensorOps.Fill.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Tensors/Operations/MetalTensorOps.HostConversion.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Tensors/Operations/MetalTensorOps.Traits.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Tensors/Operations/MetalTensorOps.Transfer.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Tensors/Operations/MetalTensorOps.Zero.ixx"
     )
-    
-    target_link_libraries(Mila PUBLIC 
+
+    # metal-cpp's README asks for one file to hold its implementation, and this is that file.
+    target_sources(Mila
+        PRIVATE
+            "Src/Dnn/Compute/Devices/Metal/MetalCppImplementation.cpp"
+    )
+
+    target_include_directories(Mila PRIVATE "${metal_cpp_SOURCE_DIR}")
+
+    # Kernels are compiled at run time from source carried in the library (MetalBackend.md section 4.3).
+    # Each file is one raw string, rewritten only when it changes.
+    set(metal_kernel_directory "${CMAKE_CURRENT_BINARY_DIR}/MetalKernels")
+
+    foreach(kernel_file "TensorOps.Fill.metal")
+        set(kernel_path "${CMAKE_CURRENT_SOURCE_DIR}/Src/Dnn/Compute/Devices/Metal/Kernels/${kernel_file}")
+        file(READ "${kernel_path}" kernel_source)
+        file(CONFIGURE OUTPUT "${metal_kernel_directory}/${kernel_file}.inc"
+            CONTENT "R\"metal(${kernel_source})metal\"\n" @ONLY)
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${kernel_path}")
+    endforeach()
+
+    target_include_directories(Mila PRIVATE "${metal_kernel_directory}")
+
+    target_link_libraries(Mila PUBLIC
         ${METAL_FRAMEWORK}
-        ${METALPERFORMANCESHADERS_FRAMEWORK}
         ${FOUNDATION_FRAMEWORK}
     )
 
     target_compile_definitions(Mila PUBLIC MILA_HAS_METAL )
 
-    message(STATUS "Added Metal backend module partition (STUB)")
+    message(STATUS "Added Metal backend modules")
 endif()
 
 # ----------------------------------------------------------------------------

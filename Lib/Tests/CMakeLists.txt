@@ -224,6 +224,17 @@ endif()
 # transport, so the rules that matter are pinned in every build rather than only where
 # libcurl happens to be compiled.
 
+# Metal-only test translation units, for the same reason as the CUDA ones below.
+if(MILA_HAS_METAL)
+    target_sources( MilaTests PRIVATE
+        "Dnn/Compute/Devices/Metal/MetalAllocationMap.Metal.cpp"
+        "Dnn/Compute/Devices/Metal/MetalCapabilities.Metal.cpp"
+        "Dnn/Compute/Devices/Metal/MetalDevice.Metal.cpp"
+        "Dnn/Compute/Devices/Metal/MetalExecutionContext.Metal.cpp"
+        "Dnn/Tensors/TensorOps/Metal.TensorOps.Metal.cpp"
+    )
+endif()
+
 # CUDA-only test translation units. These exercise CUDA memory resources,
 # execution contexts, and kernels directly and have no CPU-only meaning, so they
 # are compiled only when the CUDA backend is enabled. New *.Cuda.cpp / Cuda*.cpp

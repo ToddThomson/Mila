@@ -12,6 +12,9 @@ import Compute.CudaDeviceMemoryResource;
 import Compute.CudaManagedMemoryResource;
 import Compute.CudaPinnedMemoryResource;
 #endif
+#ifdef MILA_HAS_METAL
+import Compute.MetalMemoryResource;
+#endif
 
 namespace Mila::Dnn::Compute
 {
@@ -76,6 +79,20 @@ namespace Mila::Dnn::Compute
         static constexpr bool is_cpu_resource = false;
         static constexpr bool is_cuda_resource = true;
         static constexpr bool is_metal_resource = false;
+        static constexpr bool is_opencl_resource = false;
+        static constexpr bool is_vulkan_resource = false;
+    };
+#endif
+
+#ifdef MILA_HAS_METAL
+    /**
+     * @brief Metal Memory Resource Specialization
+     */
+    template<>
+    struct MemoryResourceTraits<MetalMemoryResource> {
+        static constexpr bool is_cpu_resource = false;
+        static constexpr bool is_cuda_resource = false;
+        static constexpr bool is_metal_resource = true;
         static constexpr bool is_opencl_resource = false;
         static constexpr bool is_vulkan_resource = false;
     };

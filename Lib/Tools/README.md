@@ -11,6 +11,8 @@ FetchContent never configures it.
 | `Drafting/` | C++ | Whether a draft model pays on its target: what a verify costs, and how many drafts are accepted |
 | `Evaluation/` | Python | Standard benchmarks (IFEval, GSM8K, RULER, BFCL) on Mila, transformers and llama.cpp from the same token ids, compared by document; Hugging Face Hub benchmarks (MMLU-Pro) run to their own definition and written as the model repo's result |
 | `ExportArtifact/` | C++ | Artifact, package and local-store lifecycle |
+| `MetalMatrixTiming/` | C++ | Linear's matrix multiply on Metal, timed by each path and tile, each output checked against a double-precision reference |
+| `MetalReport/` | C++ | What a Mac's GPU reports, and whether every Metal kernel compiles on it |
 | `Measurement/` | C++ | Header-only harness: a network built from weights, scored teacher-forced; PG-19 books |
 | `Publishing/` | Python | Uploads a model package to the HuggingFace Hub |
 | `Quantization/` | Python | Fits, encodes and gates a sub-4-bit weight quantization scheme |

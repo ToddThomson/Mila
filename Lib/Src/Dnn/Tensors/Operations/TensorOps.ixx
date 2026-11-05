@@ -14,6 +14,10 @@ import Compute.CpuTensorOps;
 export import Dnn.TensorOpsTraits.Cuda;
 import Compute.CudaTensorOps;
 #endif
+#ifdef MILA_HAS_METAL
+export import Dnn.TensorOpsTraits.Metal;
+import Compute.MetalTensorOps;
+#endif
 
 // REVIEW: Zero, Random and Fill are all related to initialization and should be grouped together under a TensorOps.Init
 export import :Zero;

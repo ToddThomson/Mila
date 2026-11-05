@@ -1,219 +1,260 @@
-cpp Lib\Src\Dnn\Compute\Devices\Metal\MetalExecutionContext.ixx
 /**
  * @file MetalExecutionContext.ixx
- * @brief Metal-specific execution context specialization.
+ * @brief One queue of Metal work, encoded in order and run when synchronized.
  */
 
-    module;
-#include <memory>
-#include <string>
-#include <stdexcept>
-#include <mutex>
+module;
+
+#include <Foundation/Foundation.hpp>
+#include <Metal/Metal.hpp>
 
 export module Compute.MetalExecutionContext;
 
-import Compute.ExecutionContext;
-import Compute.IExecutionContext;
-import Compute.Device;
+import std;
 import Compute.DeviceId;
-import Compute.MetalDevice;
 import Compute.DeviceType;
+import Compute.IExecutionContext;
+import Compute.MetalBufferLocation;
+import Compute.MetalDevice;
 
 namespace Mila::Dnn::Compute
 {
+    namespace
+    {
+        // What Metal hands back unowned goes to the innermost pool, and there is none unless the caller is an
+        // Objective-C program. The objects this file keeps are retained first, so each call can drain its own.
+        class LocalPool
+        {
+        public:
+
+            LocalPool()
+                : pool_( NS::AutoreleasePool::alloc()->init() )
+            {
+            }
+
+            ~LocalPool()
+            {
+                pool_->release();
+            }
+
+            LocalPool( const LocalPool& ) = delete;
+            LocalPool& operator=( const LocalPool& ) = delete;
+
+        private:
+
+            NS::AutoreleasePool* pool_;
+        };
+
+        DeviceId validated( DeviceId device_id )
+        {
+            if ( device_id.type != DeviceType::Metal )
+            {
+                throw std::invalid_argument( std::format(
+                    "MetalExecutionContext requires a Metal device, got '{}'", device_id.toString() ) );
+            }
+
+            return device_id;
+        }
+    }
+
     /**
-     * @brief Metal execution context specialization.
+     * @brief A command queue, with one open command buffer that work is encoded into.
      *
-     * Provides the ExecutionContext<DeviceType::Metal> specialization.
-     * This class mirrors the shape and usage patterns of the CUDA specialization
-     * but currently provides placeholders where platform-specific Metal
-     * implementation would be required.
+     * Nothing runs until `synchronize()`, which commits and waits. Work on one context runs in the order it was encoded,
+     * and Metal tracks what each step reads and writes across compute and blit. Like a CUDA stream, a context is used
+     * from one thread at a time. Its work is ordered against nothing on any other context.
      */
-    export template<>
-        class ExecutionContext<DeviceType::Metal> : public IExecutionContext
+    export class MetalExecutionContext : public IExecutionContext
     {
     public:
-        /**
-         * @brief Constructs Metal execution context for a device id.
-         *
-         * Creates a MetalDevice instance and initializes execution resources.
-         *
-         * @param device_id Device identifier for the Metal device (use DeviceId::Cuda/DeviceId::Cpu helpers).
-         * @throws std::invalid_argument If device_id is invalid (handled by MetalDevice)
-         */
-        explicit ExecutionContext( DeviceId device_id )
-            : IExecutionContext( DeviceType::Metal ),
-            device_( std::make_shared<MetalDevice>( device_id.index ) )
+
+        /// @throws std::invalid_argument For a device that is not Metal.
+        /// @throws std::runtime_error When this Mac cannot run Mila on its GPU.
+        explicit MetalExecutionContext( DeviceId device_id )
+            : device_id_( validated( device_id ) ),
+              device_( MetalDevice::at( device_id.index ) ),
+              queue_( device_->handle()->newCommandQueue() )
         {
-            initializeExecutionResources();
-        }
-
-        ///**
-        // * @brief Constructs Metal execution context from existing device.
-        // *
-        // * Shares device ownership and initializes execution resources.
-        // *
-        // * @param device Shared ComputeDevice instance; must be a Metal device
-        // * @throws std::invalid_argument If device is null or not Metal
-        // */
-        //explicit ExecutionContext( std::shared_ptr<Device> device )
-        //    : IExecutionContext( DeviceType::Metal ), device_( validateDevice( device ) )
-        //{
-        //    initializeExecutionResources();
-        //}
-
-        /**
-         * @brief Destructor with proper resource cleanup.
-         */
-        ~ExecutionContext()
-        {
-            releaseResources();
-        }
-
-        // Non-copyable, non-movable (owns device-specific resources)
-        ExecutionContext( const ExecutionContext& ) = delete;
-        ExecutionContext& operator=( const ExecutionContext& ) = delete;
-        ExecutionContext( ExecutionContext&& ) = delete;
-        ExecutionContext& operator=( ExecutionContext&& ) = delete;
-
-        /**
-         * @brief Synchronizes the execution queue.
-         *
-         * Currently this implementation is a placeholder: if a real Metal
-         * command queue is available and Metal support is implemented this
-         * method should wait for completion of submitted commands.
-         *
-         * @throws std::runtime_error If synchronization cannot be performed
-         */
-        void synchronize()
-        {
-            // No-op placeholder: Metal synchronization is not implemented yet.
-            // If future implementation creates a platform-specific command queue,
-            // replace this with the appropriate synchronization call.
-            if ( !queue_created_ )
+            if ( !queue_ )
             {
-                // Nothing to synchronize
+                throw std::runtime_error( "The GPU could not make a Metal command queue." );
+            }
+        }
+
+        ~MetalExecutionContext() override
+        {
+            try
+            {
+                synchronize();
+            }
+            catch ( const std::exception& error )
+            {
+                std::println( std::cerr, "MetalExecutionContext: work still open at destruction failed: {}", error.what() );
+            }
+
+            queue_->release();
+        }
+
+        MetalExecutionContext( const MetalExecutionContext& ) = delete;
+        MetalExecutionContext& operator=( const MetalExecutionContext& ) = delete;
+
+        [[nodiscard]] DeviceId getDeviceId() const noexcept override
+        {
+            return device_id_;
+        }
+
+        /// @throws std::runtime_error When the GPU reports that the work failed, saying why.
+        void synchronize() override
+        {
+            if ( !commands_ )
+            {
                 return;
             }
 
-            // If Metal support is added, perform actual synchronization here.
-            throw std::runtime_error( "Metal synchronization not implemented" );
-        }
+            LocalPool pool;
 
-        /**
-         * @brief Gets the device type (always Metal).
-         */
-        static constexpr DeviceType getDeviceType()
-        {
-            return DeviceType::Metal;
-        }
+            endEncoding();
+            commands_->commit();
+            commands_->waitUntilCompleted();
 
-        /**
-         * @brief Gets the device name (e.g., "Metal:0" or device-provided name).
-         */
-        std::string getDeviceName() const
-        {
-            return device_->getDeviceName();
-        }
+            const bool failed = commands_->status() == MTL::CommandBufferStatusError;
+            const std::string reason = failed && commands_->error()
+                ? commands_->error()->localizedDescription()->utf8String() : "no reason given";
 
-        /**
-         * @brief Gets the device id.
-         */
-        DeviceId getDeviceId() const
-        {
-            return device_->getDeviceId();
-        }
+            commands_->release();
+            commands_ = nullptr;
 
-        /**
-         * @brief Checks if this is a Metal device (always true).
-         */
-        static constexpr bool isMetalDevice()
-        {
-            return true;
-        }
-
-        /**
-         * @brief Checks if this is a CPU device (always false).
-         */
-        static constexpr bool isCpuDevice()
-        {
-            return false;
-        }
-
-        /**
-         * @brief Returns an opaque pointer representing the Metal command queue.
-         *
-         * This is a placeholder. Real Metal support should return a typed
-         * command queue handle (Objective-C id<MTLCommandQueue> or wrapper).
-         *
-         * @throws std::runtime_error If Metal command queue is not available
-         */
-        void* getCommandQueue() const
-        {
-            std::lock_guard<std::mutex> lock( handle_mutex_ );
-
-            if ( !queue_created_ )
+            if ( failed )
             {
-                throw std::runtime_error( "Metal command queue is not available; Metal support not implemented" );
+                throw std::runtime_error( std::format( "The GPU failed to run Mila's work: {}", reason ) );
+            }
+        }
+
+        [[nodiscard]] MetalDevice& device() const noexcept
+        {
+            return *device_;
+        }
+
+        /**
+         * @brief Encode a kernel over `elements` threads.
+         *
+         * Buffers are bound in order from index 0, each by an address inside a live allocation of this device, and the
+         * constants follow them at the next index. A `narrowToKernelIndex` at the caller is what bounds `elements`.
+         */
+        void dispatch(
+            MTL::ComputePipelineState* pipeline,
+            std::span<const void* const> buffers,
+            std::span<const std::byte> constants,
+            std::size_t elements )
+        {
+            LocalPool pool;
+
+            MTL::ComputeCommandEncoder* const encoder = computeEncoder();
+            encoder->setComputePipelineState( pipeline );
+
+            NS::UInteger index = 0;
+
+            for ( const void* const address : buffers )
+            {
+                const MetalBufferLocation location = device_->locate( address );
+                encoder->setBuffer( location.buffer, location.offset, index++ );
             }
 
-            return command_queue_;
+            if ( !constants.empty() )
+            {
+                encoder->setBytes( constants.data(), constants.size(), index );
+            }
+
+            encoder->dispatchThreads( MTL::Size( elements, 1, 1 ), MTL::Size( pipeline->threadExecutionWidth(), 1, 1 ) );
+        }
+
+        /// Encode a copy between two addresses inside live allocations of this device.
+        void copyBytes( const void* source, void* destination, std::size_t bytes )
+        {
+            LocalPool pool;
+
+            const MetalBufferLocation from = device_->locate( source );
+            const MetalBufferLocation to = device_->locate( destination );
+
+            blitEncoder()->copyFromBuffer( from.buffer, from.offset, to.buffer, to.offset, bytes );
+        }
+
+        /// Encode writing zero to `bytes` bytes at an address inside a live allocation of this device.
+        void zeroBytes( void* destination, std::size_t bytes )
+        {
+            LocalPool pool;
+
+            const MetalBufferLocation location = device_->locate( destination );
+
+            blitEncoder()->fillBuffer( location.buffer, NS::Range( location.offset, bytes ), 0 );
         }
 
     private:
-        std::shared_ptr<Device> device_;
-        mutable void* command_queue_{ nullptr }; // opaque placeholder for platform queue
-        bool queue_created_{ false };
-        mutable std::mutex handle_mutex_;
 
-        /**
-         * @brief Validates device for construction.
-         */
-        static std::shared_ptr<Device> validateDevice(
-            std::shared_ptr<Device> device )
+        /// The open command buffer, starting one when none is open.
+        MTL::CommandBuffer* openCommands()
         {
-
-            if ( !device )
+            if ( !commands_ )
             {
-                throw std::invalid_argument( "Device cannot be null" );
+                commands_ = queue_->commandBuffer()->retain();
             }
 
-            if ( device->getDeviceType() != DeviceType::Metal )
+            return commands_;
+        }
+
+        /// The compute encoder, ending a blit one so that order is kept. Blit is the same the other way.
+        MTL::ComputeCommandEncoder* computeEncoder()
+        {
+            if ( blit_encoder_ )
             {
-                throw std::invalid_argument(
-                    "Metal ExecutionContext requires Metal device, got: " +
-                    std::string( deviceTypeToString( device->getDeviceType() ) )
-                );
+                endEncoding();
             }
 
-            return device;
+            if ( !compute_encoder_ )
+            {
+                compute_encoder_ = openCommands()->computeCommandEncoder()->retain();
+            }
+
+            return compute_encoder_;
         }
 
-        /**
-         * @brief Initializes execution resources.
-         *
-         * Currently leaves platform-specific resources uncreated. In a full
-         * implementation this would create the Metal device, command queue and
-         * any per-context resources.
-         */
-        void initializeExecutionResources()
+        MTL::BlitCommandEncoder* blitEncoder()
         {
-            // Placeholder: real Metal initialization would go here.
-            // For now, leave command_queue_ null to indicate unimplemented.
-            queue_created_ = false;
+            if ( compute_encoder_ )
+            {
+                endEncoding();
+            }
+
+            if ( !blit_encoder_ )
+            {
+                blit_encoder_ = openCommands()->blitCommandEncoder()->retain();
+            }
+
+            return blit_encoder_;
         }
 
-        /**
-         * @brief Releases all resources.
-         *
-         * Called by destructor - must not throw.
-         */
-        void releaseResources() noexcept
+        void endEncoding() noexcept
         {
-            // If a real Metal command queue was created it should be released here.
-            std::lock_guard<std::mutex> lock( handle_mutex_ );
-            command_queue_ = nullptr;
-            queue_created_ = false;
+            if ( compute_encoder_ )
+            {
+                compute_encoder_->endEncoding();
+                compute_encoder_->release();
+                compute_encoder_ = nullptr;
+            }
+
+            if ( blit_encoder_ )
+            {
+                blit_encoder_->endEncoding();
+                blit_encoder_->release();
+                blit_encoder_ = nullptr;
+            }
         }
+
+        DeviceId device_id_;
+        std::shared_ptr<MetalDevice> device_;
+        MTL::CommandQueue* queue_{ nullptr };
+        MTL::CommandBuffer* commands_{ nullptr };
+        MTL::ComputeCommandEncoder* compute_encoder_{ nullptr };
+        MTL::BlitCommandEncoder* blit_encoder_{ nullptr };
     };
 }

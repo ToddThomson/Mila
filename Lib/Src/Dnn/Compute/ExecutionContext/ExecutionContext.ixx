@@ -33,8 +33,13 @@ export import Compute.ExecutionContextTraits.Cuda;
 import Compute.CudaExecutionContext;
 #endif
 
-// Metal and Rocm have no binding here: neither backend has ever been compiled, and their
-// context files declare standalone modules rather than partitions of this one.
+#ifdef MILA_HAS_METAL
+export import Compute.ExecutionContextTraits.Metal;
+import Compute.MetalExecutionContext;
+#endif
+
+// Rocm has no binding here: that backend has never been compiled, and its context file
+// declares a standalone module rather than a partition of this one.
 
 import Compute.DeviceType;
 import Compute.DeviceId;

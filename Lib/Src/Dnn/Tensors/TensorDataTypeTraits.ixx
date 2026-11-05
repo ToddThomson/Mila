@@ -69,7 +69,7 @@ namespace Mila::Dnn
         static constexpr const char* type_name = "FP32"; ///< Human-readable type identifier
         static constexpr bool supported_on_cpu = true;
         static constexpr bool supported_on_cuda = true;
-        static constexpr bool supported_on_metal = true;
+        static constexpr bool supported_on_metal = false; ///< A tensor may hold it; a model may not compute in it (MetalBackend.md 3.2)
     };
 
     /**
@@ -108,7 +108,7 @@ namespace Mila::Dnn
         static constexpr const char* type_name = "BF16"; ///< Human-readable type identifier
         static constexpr bool supported_on_cpu = false;
         static constexpr bool supported_on_cuda = true;
-        static constexpr bool supported_on_metal = false;
+        static constexpr bool supported_on_metal = true;
     };
 
     /**

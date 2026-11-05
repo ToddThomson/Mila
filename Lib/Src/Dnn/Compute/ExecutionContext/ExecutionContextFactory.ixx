@@ -27,6 +27,11 @@ namespace Mila::Dnn::Compute
                 return std::make_unique<ExecutionContext<DeviceType::Cuda>>( device_id );
             #endif
 
+            #ifdef MILA_HAS_METAL
+            case DeviceType::Metal:
+                return std::make_unique<ExecutionContext<DeviceType::Metal>>( device_id );
+            #endif
+
             default:
                 throw std::invalid_argument(
                     std::format( "Unsupported device type: {}", deviceTypeToString( device_id.type ) )

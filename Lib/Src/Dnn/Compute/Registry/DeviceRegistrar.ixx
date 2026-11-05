@@ -19,7 +19,7 @@ import Compute.CudaDevice;
 #endif
 
 #if defined(MILA_HAS_METAL)
-import Compute.MetalDevice;
+import Compute.MetalDeviceRegistrar;
 #endif
 
 #if defined(MILA_HAS_ROCM)

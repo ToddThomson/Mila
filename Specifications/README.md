@@ -109,7 +109,9 @@ means a status line or target is out of date and the rest has not been re-read.
 | Document | Role | Decides or records | Notes |
 |---|---|---|---|
 | [Metal/MetalBackend.md](Metal/MetalBackend.md) | Design | Mila on Apple M-series GPUs: how a capability is checked across chips, which precision runs where, the matrix paths, memory, the build, and the phases | Agreed 2026-11-04 (Todd, decisions in section 10); no code beyond a scaffold it replaces |
-| [Notebooks/MetalPrecisionTiming.md](Notebooks/MetalPrecisionTiming.md) | Notebook | FP16, BF16 and FP32 math timed on the M1 Pro, with TensorOps and own kernels, 2026-11-04 | Evidence for `Metal/MetalBackend.md` sections 2 and 3. Not a model run. Its program is outside the tree until that design's Phase 2 |
+| [Notebooks/MetalDeviceAndMemory.md](Notebooks/MetalDeviceAndMemory.md) | Notebook | Phase 1 of the Metal backend: its gate, the device and memory tests, and what compiling, committing and binding cost |
+| [Notebooks/MetalMatrixPath.md](Notebooks/MetalMatrixPath.md) | Notebook | Phase 2 of the Metal backend: its gate, own kernels and TensorOps tuned and compared on Llama's shapes in every weight format, and the BF16 anomaly explained |
+| [Notebooks/MetalPrecisionTiming.md](Notebooks/MetalPrecisionTiming.md) | Notebook | FP16, BF16 and FP32 math timed on the M1 Pro, with TensorOps and own kernels, 2026-11-04 | Evidence for `Metal/MetalBackend.md` sections 2 and 3. Not a model run. Its program stays outside the tree; `Lib/Tools/MetalMatrixTiming` replaced it |
 
 ### Quantization
 

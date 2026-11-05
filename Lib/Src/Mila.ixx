@@ -70,6 +70,10 @@ export import Compute.CpuDevice;
 export import Compute.DeviceTypeTraits.Cuda;
 export import Compute.CudaDevice;
 #endif
+#ifdef MILA_HAS_METAL
+export import Compute.DeviceTypeTraits.Metal;
+export import Compute.MetalDevice;
+#endif
 
 // ============================================================================
 // Compute - Optimizers
@@ -102,6 +106,9 @@ export import Compute.CudaDeviceMemoryResource;
 export import Compute.CudaManagedMemoryResource;
 export import Compute.CudaPinnedMemoryResource;
 #endif
+#ifdef MILA_HAS_METAL
+export import Compute.MetalMemoryResource;
+#endif
 
 // ====================================================================
 // Compute - Operations Registry
@@ -126,7 +133,6 @@ export import Compute.CudaPinnedMemoryResource;
 // ====================================================================
 //export import Compute.CudaTensorDataType;
 //export import Compute.CpuTensorDataTypeTraits;
-// FUTURE: export import Compute.MetalTensorTraits;
 // FUTURE: export import Compute.OpenCLTensorTraits;
 // FUTURE: export import Compute.VulkanTensorTraits;
 

@@ -10,6 +10,12 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## What MLX does on Apple silicon has not been studied for Metal's speed or for work on the CPU
+
+`Specifications/Metal/MetalBackend.md` decisions (GPU only, no CPU compute); an absence -- the spec does not mention MLX @ 0.21.0-dev+117
+
+Todd, 2026-11-04: Metal stays GPU only for now, and MLX may lead to optimizations, or to CPU use that makes sense. Read so far from its docs and Apple's posts only, nothing run: MLX chooses CPU or GPU per operation over unified memory, with its scheduler ordering work across the two; its docs halve a long chain of small operations on an M1 Max by moving them to the CPU. On the M1 Pro in Phase 1, a commit and wait costs about 220 us and a further dispatch about 3 us, on kernels doing almost nothing. Sampling is the first candidate, since it already sits outside the decode step (`DecodeGraph.md` 4.5). Timed on a real decode step, once Phase 4 has one.
+
 ## The token loader's test hung the full suite for two and a half hours
 
 `Lib/Tests/Data/Loaders/TokenSequenceLoader.cpp` (`Reset_Functionality`); `Lib/Src/Data/Loaders/TokenSequenceLoader.ixx` (`~TokenSequenceLoader`, `producerThreadFunc`) @ 73e4c0ad
@@ -53,11 +59,17 @@ after the model finishes, no longer holds in the library: `Conversation::ReplyRe
 as they arrive since Chat moved onto it. The binding does not expose the reader, and it knows no consumer, so that is
 where the fix starts.
 
-## The Metal device's capability checks ask the wrong questions
+## Zeroing a view on CUDA writes past the view, and can run past its buffer
 
-`Lib/Src/Dnn/Compute/Devices/Metal/MetalDevice.ixx:174` `supportsGPUFamily`, `:191` `supportsComputeShaders` @ 0.21.0-dev+116
+`Lib/Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Zero.ixx:69` @ 0.21.0-dev+117
 
-Both test `MTLGPUFamilyCommon1` or `MTLGPUFamilyMac2`, which the macOS 27 SDK deprecates, and the first ORs three families into one answer that says nothing about any of them. `getDeviceMemorySize` returns `recommendedMaxWorkingSetSize`, which is a recommendation and not a memory size. The file is not built, so nothing is wrong at run time yet.
+`bytes` is `getStorageSize()`, the whole buffer's, and `dst` is `rawData()`, which starts at the view's offset. So a view at offset k zeroes k elements past the buffer's end. Found by reading, while the same line failed a test on Metal. Not run on CUDA, and whether any caller zeroes a view has not been looked at. `Tensor::getStorageSize` has other callers, none checked for views.
+
+## Host accessors on a pinned or managed FP16 or BF16 tensor read elements as `float`
+
+`Lib/Src/Dnn/Tensors/Tensor.ixx:351` `item`, `:386` `operator[]`, `:509` `data`; `TensorHostTypeMap.ixx:80` @ 0.21.0-dev+117
+
+`TensorHostTypeMap` maps FP16 and BF16 to `float`, and the accessors cast the buffer to it, so element i reads 4 bytes at 4i of a 2-byte array. Found by reading while deciding that a Metal tensor has no host accessors (`MetalBackend.md` 5). Not run on CUDA, and which callers use these on a reduced-precision tensor has not been looked at. `Tensor::outputBuffer` uses the same map.
 
 ## Clang warns on two operations' `setParameters` and on `TensorOps.Random` reaching a TU-local entity
 

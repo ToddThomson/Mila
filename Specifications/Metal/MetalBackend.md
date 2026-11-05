@@ -3,15 +3,27 @@
 How Mila runs on Apple M-series GPUs: which chips, how a capability is checked, which precision runs where, the kernels,
 memory, the build, and the phases that get there with their tests and measurements.
 
-**Status:** agreed 2026-11-04 (Todd, decisions in section 10). No Metal code exists beyond the
-scaffold in `Lib/Src/Dnn/Compute/Devices/Metal/`, which section 7 replaces. No release is attached. Evidence:
-`Notebooks/MetalPrecisionTiming.md`.
+**Status:** agreed 2026-11-04 (Todd, decisions in section 10). Phases 0, 1 and 2 have passed (section 9); no model runs yet. No release is attached. Evidence:
+`Notebooks/MetalPrecisionTiming.md`, `Notebooks/MetalDeviceAndMemory.md`, `Notebooks/MetalMatrixPath.md`.
 
 ---
 
 ## 1. Scope
 
 **In:** the GPU on M-series chips, M1 onward, on macOS. Inference, for the families Mila runs on CUDA.
+
+**Every format Mila's components use on CUDA runs on Metal** (Todd, 2026-11-05). FP16 weights cannot carry the models Mila is for: Gemma 4 12B
+alone would take about 22 GiB, against this Mac's 11.84 GiB working set (arithmetic). The list is `OperationTraits.Cuda.ixx`:
+
+| Where | Formats |
+|---|---|
+| **Linear** | Unquantized; FP8 per channel; FP4 per group, 128 and 64; Q4_0; Q6_K; codebook 2-bit, groups 32 and 64; codebook 3-bit, groups 64 and 128 |
+| **TokenEmbedding** | Unquantized; FP8 per channel; Q6_K, shared with a tied head |
+| **Mixture of experts** | Unquantized; FP4 per group; Q4_0 |
+| **Attention's KV cache** | Uncompressed; FP8 per token; a sliding window of each |
+| **A family's designs** | Qwen 3.8's per-role plans, `Plan` and `Fp4Codebook3` |
+
+These are storage: the precision a kernel computes in is section 3's. FP32 compute stays out (section 10), so CUDA's FP32 specializations are not on this list.
 
 **Out:**
 
@@ -167,19 +179,31 @@ Kernels are MSL source using MSL templates, one source for FP16 and BF16 where t
 | | TensorOps `matmul2d` | Own SIMD-group kernels |
 |---|---|---|
 | **Same code on every chip** | Yes. Apple: from M1 to M5, using accelerators where they exist and shader implementations elsewhere | Yes, without the accelerators |
-| **M1 Pro, prefill size, FP16** (measured) | 25 ms | 101 ms, untuned |
-| **M1 Pro, decode-like, FP16** (measured) | 2.79 ms | 2.58 ms, untuned |
+| **M1 Pro, 2048 x 4096 x 14336, FP16** (measured) | 59 ms, error 2.1e-4 | 188 ms tuned, error 9.4e-3 |
+| **M1 Pro, 1 x 4096 x 14336, FP16** (measured) | 0.70 ms, padded to 8 rows | 0.64 ms, error 2.0e-4 |
 | **Its precedent in Mila** | cuBLASLt, on CUDA | The hand kernels, on CUDA |
 
-**The own kernel is not tuned, so this is not a verdict.** llama.cpp keeps TensorOps off before M5 on its own measurements
-(its source comment: M2 Ultra about 5% slower, M4 no significant difference). Phase 2 tunes before choosing, and the
-choice is per shape: prefill and decode need not use the same path. Beyond the M1, *BaseRT: Advancing Best-in-Class LLM
+**Measured on the M1 Pro (Phase 2, `Notebooks/MetalMatrixPath.md`): Linear uses its own kernel at M = 1, and TensorOps from M = 8 up, with
+both paths tuned.** M = 2 to 7 is expected to follow TensorOps, which Phase 3 checks. The own kernel reads the weights at nearly the chip's
+bandwidth, widening inside itself to 32 bits, which needs no storage. TensorOps needs at least 8 rows in a tile. Own tiles do not ship: they take 1.6 to
+4.8 times TensorOps, and FP16's sum in a tile misses the accuracy bar. llama.cpp keeps TensorOps off before M5 on its own measurements
+(its source comment: M2 Ultra about 5% slower, M4 no significant difference), and it was not looked into why that differs here. Phase 4 compares
+the two on a model. Beyond the M1, *BaseRT: Advancing Best-in-Class LLM
 Inference with Apple M5 Neural Accelerators*, arXiv 2607.19438 (abstract read only), routes compute-bound matmuls through
 the accelerators and keeps memory-bound decoding on existing kernels. Apple also says prefill is compute-bound and decode
 is bandwidth-bound (`mlx-distributed-inference`, machinelearning.apple.com).
 
-**TensorOps and FP4.** The M1 Pro compiles `matmul2d` with FP4 E2M1 weights at MSL 4.1. Whether that runs correctly and fast,
-and whether it can take Mila's per-group scales or only Metal's own block-scale planes, is Phase 5's question.
+**Every other format (`Notebooks/MetalMatrixPath.md` section 6).** TensorOps cannot carry Mila's scales: a block scale must be `metal_fp8_ue8m0_format`, a power of two per exactly 32 (Apple's header),
+which is NVFP4's shape, and it has no six-bit or codebook weights. FP8 is the exception, since its scale belongs to one output and comes out of the sum.
+
+| Rows (M) | FP8 | FP4, Q4_0, Q6_K, codebooks |
+|---|---|---|
+| 1 | Own lanes | Own lanes |
+| 8 | TensorOps on the bare codes, scales after | Own lanes |
+| 128 | TensorOps on the bare codes, scales after | TensorOps, on FP16 expanded a block of outputs at a time |
+| 2048 | TensorOps, expanded | TensorOps, expanded |
+
+Expanding costs 1% to 5% at M = 2048, and a scratch buffer of 8 to 29 MB. Decode reads less memory than FP16 and is limited by arithmetic: 0.20 ms for FP4 and 0.24 ms for Q4_0 against 0.65 ms unquantized, at 1 x 4096 x 14336. These are weights in isolation, on normal values.
 
 **Binding.** Measured: a tensor bound alone at a buffer index gave all-zero output with no error, and a struct of resource
 ids at one index worked. So every kernel test checks values, and a test that only checks completion is not a test here.
@@ -187,8 +211,9 @@ ids at one index worked. So every kernel test checks values, and a test that onl
 ### 4.3 Compiling kernels
 
 Compile at run time from source embedded in the library, first. It needs nothing but the OS; offline `metallib`s need full
-Xcode, which the development Mac does not have. Phase 1 measures what run-time compilation costs a first load. A
-`metallib` or a pipeline cache follows only if that cost earns it.
+Xcode, which the development Mac does not have. Measured: about 35 ms on a first load with today's 9 small kernels, and under
+1 ms once the OS's cache has the source (`Notebooks/MetalDeviceAndMemory.md`). A `metallib` or a pipeline cache follows only if
+that cost earns it, which is asked again when Phase 3 adds real kernels.
 
 ### 4.4 Decode
 
@@ -196,17 +221,29 @@ Xcode, which the development Mac does not have. Phase 1 measures what run-time c
 still binds, so that replay remains possible: read the position from the execution context, no per-token launch argument.
 Indirect command buffers (Apple3 and later) are the candidate for replay, and only after Phase 4 shows what a call costs.
 
-`synchronize()` commits and waits. How much a command buffer costs per token is measured in Phase 1, since a decode step
-with a dozen operations should not pay for a dozen commits.
+`synchronize()` commits and waits, and an operation only encodes. Measured: a commit and wait is about 220 us and a further
+dispatch about 3 us, so a decode step commits once.
 
 ## 5. Memory
 
-**Storage mode:** shared. The allocator returns the buffer's `contents` as the host pointer, so `is_host_accessible` is
-true. The scaffold's bridged handle is not a host pointer, and goes.
+**Storage mode:** shared. The allocator returns the buffer's `contents` as the pointer a tensor holds, and the scaffold's
+bridged handle goes. **`is_host_accessible` is false, though the memory is shared.** A host read has to wait for the GPU, and
+`Tensor`'s host accessors do neither that nor the right element type: they read FP16 and BF16 as `float`. Being false takes
+those accessors away at compile time and sends every copy through Metal's own path, which waits. The host still reads and
+writes this memory, inside Metal's tensor operations.
 
-**Binding by pointer.** A Mila tensor holds a pointer; Metal binds a buffer and an offset, or a GPU address. The memory
-resource keeps the map from address range to buffer, and every operation binds through it. Phase 1 decides between
-binding each buffer on the encoder and one residency set with `gpuAddress` (residency sets are Apple6 and later).
+**Binding by pointer.** A Mila tensor holds a pointer; Metal binds a buffer and an offset, or a GPU address. The
+device keeps the map from address range to buffer, since a `TensorBuffer` makes a memory resource of its own and a kernel
+binds buffers from many, and every operation binds through it. Measured at 300 allocations: the map costs nothing visible,
+and one residency set with `gpuAddress` saves 4% of the overhead of 200 dispatches. So each buffer is bound on the encoder,
+which also lets Metal order dependent dispatches. Phase 4 can reopen this on a real decode step.
+
+**Three modules include metal-cpp:** `MetalDevice`, `MetalKernelLibrary` and `MetalExecutionContext`, in the global module
+fragment, with their code in the `.ixx` like the rest of the library. Every other module names its types by forward
+declaration, or goes through `MetalExecutionContext::dispatch` and needs none. The count is what matters: each adds about
+14 MB of Clang's 2048 MB of source locations to every importer of Mila, and these three take a file that imports Mila from
+3.1% to 5.1% (`Notebooks/MetalDeviceAndMemory.md` section 4). Mila's own count on CUDA, 68 files with its runtime header,
+would be about 950 MB here (arithmetic).
 
 **Limits.** `maxBufferLength` is below the working set on this machine (9.5 GB against 12.7 GB, both measured), so a tensor
 above it is refused by the planner with the number, not split. `dim_t` and `narrowToKernelIndex()` carry over.
@@ -238,12 +275,13 @@ in module units, Intel and discrete paths, one type defined twice (`Issues/Vnext
 checks that ask the wrong questions (`Issues/Untriaged.md`). `Lib/CMakeLists.txt`'s `MILA_HAS_METAL` block goes with it.
 
 **Host code is C++ through metal-cpp** (`github.com/apple/metal-cpp`, header-only, tagged to macOS 27.0.1, with
-`MTLTensor.hpp` and `MTLResidencySet.hpp`), pinned as other dependencies are. No Objective-C in module units. Whether it
-coexists with `import std;` under Clang is the first thing Phase 0 tries.
+`MTLTensor.hpp` and `MTLResidencySet.hpp`), pinned as other dependencies are. No Objective-C in module units. Measured in
+Phase 0: it works in a module's global fragment beside `import std;` under Clang, and `newTensor` returns null until the
+descriptor's strides are set.
 
 **CUDA in the wrong places.** 75 files outside `Devices/Cuda` name it (a text search, so some are comments and some are
 legitimate), 11 under `Components/Transformers`, and `Llama.ixx` imports `Compute.CudaPinnedMemoryResource`. Each is either a
-trait or a finding. A build with CUDA off compiles today, apart from `mila-store`; running on Metal is what tests the rest.
+trait or a finding. A build with CUDA off compiles and passes; running on Metal is what tests the rest.
 
 ## 8. What this changes elsewhere
 
@@ -266,6 +304,13 @@ Setup only. **Question:** does the tree build and pass on macOS with CUDA off, f
 
 **Gate:** all targets and the full suite on the Mac with no local patches; Windows unaffected.
 
+**Passed, 2026-11-04, at `0.21.0-dev+117`.** On the Mac, from a clean build directory and no local patches: configure 93 s,
+build 69 s, `MilaTests` 1237 pass and 1 skip (a CUDA buffer test, rightly), Agents 10, Chat 33, Desktop 14. On Windows,
+`x64-claude-verify`: all targets, and the suite at 2475 pass, 12 skip and the 4 failures already filed (one Gemma 12B drafter
+test, three on a partial Gemma 26B file). With CUDA off, `mila-store` builds and lists the store. metal-cpp in a module unit
+beside `import std;`: a kernel dispatched correctly, 0 of 1024 values wrong, and a tensor was created. **Not run:** Todd's
+`x64-profile`.
+
 ### Phase 1 -- Device, memory, one kernel
 
 **Question:** can Mila allocate, dispatch and read back through its own device and memory types?
@@ -280,6 +325,9 @@ cost per dispatch; binding per buffer against a residency set.
 
 **Gate:** tensor tests pass on `DeviceType::Metal`, and the report runs.
 
+**Passed, 2026-11-04.** `Notebooks/MetalDeviceAndMemory.md` has the gate, its 12 forced failures and the measurements. The
+report is `Lib/Tools/MetalReport`.
+
 ### Phase 2 -- The matrix path
 
 **Question:** which path does Linear use, per shape, and what is the anomaly?
@@ -291,6 +339,12 @@ cost per dispatch; binding per buffer against a residency set.
   explained, no decision rests on it.
 
 **Gate:** a written choice of path per shape, with the numbers, in the notebook.
+
+**Passed, 2026-11-04.** `Notebooks/MetalMatrixPath.md`, with `Lib/Tools/MetalMatrixTiming`, on 34 of Llama's shapes, three process runs each. Own at M = 1, by 6% to 54%; TensorOps at
+M = 8 to 2048, where no tuned own kernel came within 1.6 times, or met the accuracy bar short of 3.2 times. FP16 inputs with FP32 output cost nothing and took the error from 2.1e-4 to about 1e-6.
+The anomaly is one slow FP16 tile on the earlier program's weight layout, which Linear's layout does not show; why that tile is slow is not known. Not a model run.
+
+**Extended 2026-11-05 to every weight format that a Linear reads** (Todd, section 1), 308 arms, three process runs each, none differing by more than 11%. The choice per format is in section 4.2. Not run: FP8's KV cache, TokenEmbedding, mixture of experts, M = 2 to 7, and M between 8 and 128.
 
 ### Phase 3 -- Llama's operations
 
@@ -321,19 +375,21 @@ no-copy weights; llama.cpp on the same Mac.
 
 ### Phase 5 -- Quantized weights and the KV cache
 
-**Question:** do FP8 and FP4 run correctly, and can TensorOps' formats carry Mila's?
+**Question:** does every format in section 1 run correctly, and can TensorOps' formats carry Mila's?
 
-Llama 3.2 3B FP8 and FP4, Llama 3.1 8B FP4. Whether `metal_fp4_e2m1_format` can take Mila's per-group scales, or the kernels
-dequantize. Per-token KV compression.
+Llama 3.2 3B FP8 and FP4, Llama 3.1 8B FP4, then the rest of the list on the model that uses each, with the paths of section 4.2. Per-token KV compression, and its sliding window.
 
-**Gate:** as Phase 4, per format.
+`dispatchWeightQuantization` refuses every quantized format below BF16 compute, and `dispatchKvCacheCompression` refuses FP8 off CUDA. Both are `Lib/Src`,
+and FP16 compute needs them changed, proposed when this phase starts.
+
+**Gate:** as Phase 4, per format, and a Metal specialization for every entry in section 1, with its own test against a reference.
 
 ### Phase 6 -- The other families
 
 **Question:** do Gemma and Qwen hold FP16 too? FP16's gate is per model, and they are the agentic ones.
 
-Gemma 4 12B and Qwen 3.8 27B, on what 16 GB of unified memory allows, with the agentic quality bar unchanged. Family parity
-holds: build order justifies no gap. Apple states Qwen 3.8 is native BF16.
+Gemma 4 12B and Qwen 3.8 27B, on what 16 GB of unified memory allows, with the agentic quality bar unchanged, in their own formats: Gemma's Q4_0 with its Q6_K
+table, Qwen's FP4 and its plans, and mixture of experts. Family parity holds: build order justifies no gap. Apple states Qwen 3.8 is native BF16.
 
 **Gate:** as Phase 4, per model.
 
@@ -350,7 +406,9 @@ choice of Phase 2 may become per family.
 ### Phase 8 -- Apps and distribution
 
 Chat, Mila Desktop's session process and the server on macOS; how a Mac user installs Mila; what the model cards may claim.
-Planned when Phase 6 is done. An app adds no capability to the library.
+Planned when Phase 6 is done. An app adds no capability to the library. Today's binaries link Homebrew's libc++, libunwind
+and OpenSSL, and the linker warns that those were built for macOS 27.2 against the preset's 27.0. Both are fine on the
+development Mac and neither can reach a user's.
 
 ## 10. Decisions
 
@@ -368,5 +426,7 @@ Planned when Phase 6 is done. An app adds no capability to the library.
 | The minimum macOS is 27. It brings the FP4 formats and the current SDK, and the floor can drop later if Phase 5 does not use the 4.1 formats. Whether every M1 model runs macOS 27 has not been checked | Todd, 2026-11-04 |
 | "A model runs in the format it was trained for" is about weights. FP16 compute on BF16-trained weights does not break it, and FP16's gate stands for the rest | Todd, 2026-11-04 |
 | The first model is Llama 3.2 3B, smallest with the smallest op set. Gemma 4 12B is the first agentic model, in Phase 6 | Todd, 2026-11-04 |
-| Host code uses metal-cpp, subject to Phase 0 showing it works beside `import std;`. The alternative is Objective-C++ implementation units behind a C++ interface | Todd, 2026-11-04 |
+| Host code uses metal-cpp. Phase 0 showed it works beside `import std;` | Todd, 2026-11-04 |
 | Whether a kernel calls TensorOps is what Phase 2 measures, with own kernels kept where the result is close | Todd, 2026-11-04 |
+| Metal stays GPU only for now. MLX may later lead to optimizations, or to CPU use that makes sense (`Issues/Untriaged.md`) | Todd, 2026-11-04 |
+| Every format Mila's components use on CUDA runs on Metal (section 1) | Todd, 2026-11-05 |
