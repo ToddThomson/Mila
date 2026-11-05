@@ -971,11 +971,26 @@ if(MILA_HAS_METAL)
                 "Src/Dnn/Compute/Devices/Metal/MetalExecutionContext.Traits.ixx"
                 "Src/Dnn/Compute/Devices/Metal/MetalKernelLibrary.ixx"
                 "Src/Dnn/Compute/Devices/Metal/MetalKernelLimits.ixx"
+                "Src/Dnn/Compute/Devices/Metal/MetalMatrixView.ixx"
                 "Src/Dnn/Compute/Devices/Metal/MetalMemoryResource.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Operations/Activations/MetalSwigluOp.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Operations/Attention/MetalGqaOp.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Operations/Embeddings/MetalTokenEmbeddingOp.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Operations/Encodings/MetalRopeOp.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Operations/Linear/MetalLinearOp.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Operations/Linear/MetalMatrixProduct.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Operations/LogLikelihood/MetalNextTokenLogProbabilityOp.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Operations/Sampling/MetalSamplingOp.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Operations/Normalizations/MetalRmsNormOp.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Operations/OperationTraits.Metal.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Operations/Residual/MetalResidualOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Tensors/MetalTensorDataTypeMap.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Tensors/Operations/MetalTensorOps.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Tensors/Operations/MetalTensorOps.Fill.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Tensors/Operations/MetalTensorOps.HostConversion.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Tensors/Operations/MetalTensorOps.Random.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Tensors/Operations/MetalTensorOps.Scale.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Tensors/Operations/MetalTensorOps.Structural.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Tensors/Operations/MetalTensorOps.Traits.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Tensors/Operations/MetalTensorOps.Transfer.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Tensors/Operations/MetalTensorOps.Zero.ixx"
@@ -993,7 +1008,7 @@ if(MILA_HAS_METAL)
     # Each file is one raw string, rewritten only when it changes.
     set(metal_kernel_directory "${CMAKE_CURRENT_BINARY_DIR}/MetalKernels")
 
-    foreach(kernel_file "TensorOps.Fill.metal")
+    foreach(kernel_file "TensorOps.Fill.metal" "TensorOps.Scale.metal" "TensorOps.Structural.metal" "Linear.metal" "TokenEmbedding.metal" "RmsNorm.metal" "Rope.metal" "Swiglu.metal" "Residual.metal" "GroupedQueryAttention.metal" "Sampling.metal" "NextTokenLogProbability.metal")
         set(kernel_path "${CMAKE_CURRENT_SOURCE_DIR}/Src/Dnn/Compute/Devices/Metal/Kernels/${kernel_file}")
         file(READ "${kernel_path}" kernel_source)
         file(CONFIGURE OUTPUT "${metal_kernel_directory}/${kernel_file}.inc"

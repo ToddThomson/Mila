@@ -1051,7 +1051,8 @@ namespace Mila::Dnn
         /**
          * @brief Load a tensor blob into a parameter tensor with validation.
          *
-         * Validates dtype and shape match then copies blob data into the tensor.
+         * Validates dtype and shape match then copies blob data into the tensor. An FP16 parameter
+         * also takes BF16, converted here: no published model stores FP16 (MetalBackend.md section 5).
          * Intended for use in loadParameter() overrides.
          *
          * @param param_name  Parameter name (used in error messages).
@@ -1059,7 +1060,7 @@ namespace Mila::Dnn
          * @param target      Destination tensor (must be initialized).
          * @param expected_shape Expected tensor shape for validation.
          *
-         * @throws std::invalid_argument if dtype or shape mismatch.
+         * @throws std::invalid_argument if dtype or shape mismatch, or a BF16 value FP16 cannot hold.
          */
         template<TensorDataType TParameterPrecision, typename TMemoryResource>
         void loadParameterFromBlob(
@@ -1068,7 +1069,10 @@ namespace Mila::Dnn
             Tensor<TParameterPrecision, TMemoryResource>& target,
             const shape_t& expected_shape )
         {
-            if ( blob.getMetadata().dtype != TParameterPrecision )
+            constexpr bool reads_bf16_as_fp16 = TParameterPrecision == TensorDataType::FP16;
+            const bool converts = reads_bf16_as_fp16 && blob.getMetadata().dtype == TensorDataType::BF16;
+
+            if ( blob.getMetadata().dtype != TParameterPrecision && !converts )
             {
                 throw std::invalid_argument(
                     std::format( "Parameter '{}' dtype mismatch. Expected {}, got {}",
@@ -1085,6 +1089,16 @@ namespace Mila::Dnn
                         param_name,
                         shapeToString( expected_shape ),
                         shapeToString( blob.getMetadata().shape)));
+            }
+
+            if constexpr ( reads_bf16_as_fp16 )
+            {
+                if ( converts )
+                {
+                    copyFromBlobWithConversion<TensorDataType::BF16>( blob, target );
+
+                    return;
+                }
             }
 
             copyFromBlob( blob, target );

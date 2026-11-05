@@ -16,6 +16,9 @@ import Compute.DeviceType;
 import Compute.IExecutionContext;
 import Compute.MetalBufferLocation;
 import Compute.MetalDevice;
+import Compute.MetalMatrixView;
+import Dnn.TensorDataType;
+import Dnn.TensorTypes;
 
 namespace Mila::Dnn::Compute
 {
@@ -92,6 +95,11 @@ namespace Mila::Dnn::Compute
                 std::println( std::cerr, "MetalExecutionContext: work still open at destruction failed: {}", error.what() );
             }
 
+            if ( decode_position_ )
+            {
+                device_->deallocate( decode_position_ );
+            }
+
             queue_->release();
         }
 
@@ -124,6 +132,13 @@ namespace Mila::Dnn::Compute
             commands_->release();
             commands_ = nullptr;
 
+            for ( MTL::Tensor* const tensor : tensors_in_flight_ )
+            {
+                tensor->release();
+            }
+
+            tensors_in_flight_.clear();
+
             if ( failed )
             {
                 throw std::runtime_error( std::format( "The GPU failed to run Mila's work: {}", reason ) );
@@ -133,6 +148,35 @@ namespace Mila::Dnn::Compute
         [[nodiscard]] MetalDevice& device() const noexcept
         {
             return *device_;
+        }
+
+        /**
+         * @brief Write the position the next decode step runs at, where its kernels read it.
+         *
+         * Open work finishes first, since the host writes this memory directly and that work may read the old position. A
+         * decode step ends by reading its token back, so at a step's start there is normally none.
+         */
+        void setDecodePosition( dim_t position ) override
+        {
+            synchronize();
+
+            if ( !decode_position_ )
+            {
+                decode_position_ = static_cast<int*>( device_->allocate( sizeof( int ) ) );
+            }
+
+            *decode_position_ = narrowToKernelIndex( position );
+        }
+
+        /// Where a decode kernel binds the position. @throws std::logic_error Before the position has been set.
+        [[nodiscard]] const void* decodePositionAddress() const
+        {
+            if ( !decode_position_ )
+            {
+                throw std::logic_error( "A Metal decode ran before its position was set on the execution context." );
+            }
+
+            return decode_position_;
         }
 
         /**
@@ -168,6 +212,112 @@ namespace Mila::Dnn::Compute
             encoder->dispatchThreads( MTL::Size( elements, 1, 1 ), MTL::Size( pipeline->threadExecutionWidth(), 1, 1 ) );
         }
 
+        /**
+         * @brief Encode a kernel over a grid of threadgroups, each of `simdgroups` SIMD-groups.
+         *
+         * Buffers and constants bind as `dispatch` binds them. A kernel written for one SIMD-group per threadgroup reads
+         * its position in this grid from `threadgroup_position_in_grid`.
+         */
+        void dispatchThreadgroups(
+            MTL::ComputePipelineState* pipeline,
+            std::span<const void* const> buffers,
+            std::span<const std::byte> constants,
+            std::size_t width,
+            std::size_t height,
+            std::size_t simdgroups = 1 )
+        {
+            LocalPool pool;
+
+            MTL::ComputeCommandEncoder* const encoder = computeEncoder();
+            encoder->setComputePipelineState( pipeline );
+
+            NS::UInteger index = 0;
+
+            for ( const void* const address : buffers )
+            {
+                const MetalBufferLocation location = device_->locate( address );
+                encoder->setBuffer( location.buffer, location.offset, index++ );
+            }
+
+            if ( !constants.empty() )
+            {
+                encoder->setBytes( constants.data(), constants.size(), index );
+            }
+
+            encoder->dispatchThreadgroups(
+                MTL::Size( width, height, 1 ), MTL::Size( pipeline->threadExecutionWidth() * simdgroups, 1, 1 ) );
+        }
+
+        /// As `dispatchThreadgroups` with one SIMD-group, and two separate constants at the indices after the buffers.
+        void dispatchThreadgroupsWithTwoConstants(
+            MTL::ComputePipelineState* pipeline,
+            std::span<const void* const> buffers,
+            std::span<const std::byte> first_constants,
+            std::span<const std::byte> second_constants,
+            std::size_t width,
+            std::size_t height )
+        {
+            LocalPool pool;
+
+            MTL::ComputeCommandEncoder* const encoder = computeEncoder();
+            encoder->setComputePipelineState( pipeline );
+
+            NS::UInteger index = 0;
+
+            for ( const void* const address : buffers )
+            {
+                const MetalBufferLocation location = device_->locate( address );
+                encoder->setBuffer( location.buffer, location.offset, index++ );
+            }
+
+            encoder->setBytes( first_constants.data(), first_constants.size(), index++ );
+            encoder->setBytes( second_constants.data(), second_constants.size(), index );
+
+            encoder->dispatchThreadgroups( MTL::Size( width, height, 1 ), MTL::Size( pipeline->threadExecutionWidth(), 1, 1 ) );
+        }
+
+        /**
+         * @brief Encode a kernel that takes its matrices as Metal tensors, gathered in one struct at index 0.
+         *
+         * The tensors live until the work has finished. The last matrix is the one written; a measured trap is that a
+         * tensor bound alone gives all-zero output with no error, which is why these go through a struct of resource ids
+         * (MetalBackend.md section 4.2).
+         *
+         * @throws std::runtime_error When Metal refuses a tensor, saying why.
+         */
+        void dispatchMatrices(
+            MTL::ComputePipelineState* pipeline,
+            std::span<const MetalMatrixView> matrices,
+            std::size_t width,
+            std::size_t height,
+            std::size_t simdgroups )
+        {
+            LocalPool pool;
+
+            MTL::ComputeCommandEncoder* const encoder = computeEncoder();
+            encoder->setComputePipelineState( pipeline );
+
+            std::vector<MTL::ResourceID> identifiers;
+            identifiers.reserve( matrices.size() );
+
+            for ( std::size_t i = 0; i < matrices.size(); ++i )
+            {
+                const MetalBufferLocation location = device_->locate( matrices[i].address );
+                MTL::Tensor* const tensor = makeTensor( matrices[i], location );
+                const MTL::ResourceUsage usage = i + 1 == matrices.size() ? MTL::ResourceUsageWrite : MTL::ResourceUsageRead;
+
+                tensors_in_flight_.push_back( tensor );
+                identifiers.push_back( tensor->gpuResourceID() );
+
+                encoder->useResource( tensor, usage );
+                encoder->useResource( location.buffer, usage );
+            }
+
+            encoder->setBytes( identifiers.data(), identifiers.size() * sizeof( MTL::ResourceID ), 0 );
+            encoder->dispatchThreadgroups(
+                MTL::Size( width, height, 1 ), MTL::Size( pipeline->threadExecutionWidth() * simdgroups, 1, 1 ) );
+        }
+
         /// Encode a copy between two addresses inside live allocations of this device.
         void copyBytes( const void* source, void* destination, std::size_t bytes )
         {
@@ -190,6 +340,44 @@ namespace Mila::Dnn::Compute
         }
 
     private:
+
+        /// A new tensor over a view. The caller owns the one reference it returns.
+        static MTL::Tensor* makeTensor( const MetalMatrixView& view, const MetalBufferLocation& location )
+        {
+            if ( view.data_type != TensorDataType::FP16 && view.data_type != TensorDataType::BF16 )
+            {
+                throw std::logic_error( "A Metal matrix multiply takes FP16 or BF16." );
+            }
+
+            // Metal lists a tensor's axes from the fastest varying, the opposite of a row and column.
+            NS::Integer extents[2] = { view.columns, view.rows };
+            NS::Integer strides[2] = { 1, view.row_stride };
+
+            MTL::TensorExtents* const dimensions = MTL::TensorExtents::alloc()->init( 2, extents );
+            MTL::TensorExtents* const steps = MTL::TensorExtents::alloc()->init( 2, strides );
+            MTL::TensorDescriptor* const descriptor = MTL::TensorDescriptor::alloc()->init();
+
+            descriptor->setDataType( view.data_type == TensorDataType::FP16 ? MTL::TensorDataTypeFloat16 : MTL::TensorDataTypeBFloat16 );
+            descriptor->setUsage( MTL::TensorUsageCompute );
+            descriptor->setDimensions( dimensions );
+            descriptor->setStrides( steps );
+
+            NS::Error* error = nullptr;
+            MTL::Tensor* const tensor = location.buffer->newTensor( descriptor, location.offset, &error );
+
+            const std::string reason = tensor || !error ? std::string{} : error->localizedDescription()->utf8String();
+
+            descriptor->release();
+            steps->release();
+            dimensions->release();
+
+            if ( !tensor )
+            {
+                throw std::runtime_error( std::format( "Metal refused a matrix of {} by {}: {}", view.rows, view.columns, reason ) );
+            }
+
+            return tensor;
+        }
 
         /// The open command buffer, starting one when none is open.
         MTL::CommandBuffer* openCommands()
@@ -256,5 +444,7 @@ namespace Mila::Dnn::Compute
         MTL::CommandBuffer* commands_{ nullptr };
         MTL::ComputeCommandEncoder* compute_encoder_{ nullptr };
         MTL::BlitCommandEncoder* blit_encoder_{ nullptr };
+        std::vector<MTL::Tensor*> tensors_in_flight_;
+        int* decode_position_{ nullptr };
     };
 }

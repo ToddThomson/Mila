@@ -231,6 +231,15 @@ if(MILA_HAS_METAL)
         "Dnn/Compute/Devices/Metal/MetalCapabilities.Metal.cpp"
         "Dnn/Compute/Devices/Metal/MetalDevice.Metal.cpp"
         "Dnn/Compute/Devices/Metal/MetalExecutionContext.Metal.cpp"
+        "Dnn/Components/Attention/GQA/GroupedQueryAttention.Metal.cpp"
+        "Dnn/Components/Connections/Residual.Metal.cpp"
+        "Dnn/Components/Embeddings/TokenEmbedding.Metal.cpp"
+        "Dnn/Components/Encodings/Rope/Rope.Metal.cpp"
+        "Dnn/Components/FFN/Swiglu/Swiglu.Metal.cpp"
+        "Dnn/Components/Linear/Linear.Metal.cpp"
+        "Dnn/Components/Normalization/RmsNorm/RmsNorm.Metal.cpp"
+        "Dnn/Components/Transformers/Llama/Llama.Block.Metal.cpp"
+        "Dnn/Samplers/Sampling.Metal.cpp"
         "Dnn/Tensors/TensorOps/Metal.TensorOps.Metal.cpp"
     )
 endif()

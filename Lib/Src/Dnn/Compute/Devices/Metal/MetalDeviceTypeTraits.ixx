@@ -6,7 +6,6 @@
 export module Compute.DeviceTypeTraits.Metal;
 
 import std;
-import Compute.CpuMemoryResource;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.MetalMemoryResource;
@@ -18,7 +17,8 @@ namespace Mila::Dnn::Compute
     {
         using memory_resource = MetalMemoryResource;
 
-        // Unified memory has no staging step to speed up, so a host tensor is what a transfer goes through.
-        using host_staging_memory_resource = CpuMemoryResource;
+        // Unified memory has no staging step to speed up, and FP16 and BF16 tensors need device-accessible memory, which
+        // this is. The host reaches it after a wait, as `copy` already does.
+        using host_staging_memory_resource = MetalMemoryResource;
     };
 }

@@ -3,8 +3,8 @@
 How Mila runs on Apple M-series GPUs: which chips, how a capability is checked, which precision runs where, the kernels,
 memory, the build, and the phases that get there with their tests and measurements.
 
-**Status:** agreed 2026-11-04 (Todd, decisions in section 10). Phases 0, 1 and 2 have passed (section 9); no model runs yet. No release is attached. Evidence:
-`Notebooks/MetalPrecisionTiming.md`, `Notebooks/MetalDeviceAndMemory.md`, `Notebooks/MetalMatrixPath.md`.
+**Status:** agreed 2026-11-04 (Todd, decisions in section 10). Phases 0 to 3 have passed (section 9); no model runs yet. No release is attached. Evidence:
+`Notebooks/MetalPrecisionTiming.md`, `Notebooks/MetalDeviceAndMemory.md`, `Notebooks/MetalMatrixPath.md`, `Notebooks/MetalLlamaOperations.md`.
 
 ---
 
@@ -184,7 +184,7 @@ Kernels are MSL source using MSL templates, one source for FP16 and BF16 where t
 | **Its precedent in Mila** | cuBLASLt, on CUDA | The hand kernels, on CUDA |
 
 **Measured on the M1 Pro (Phase 2, `Notebooks/MetalMatrixPath.md`): Linear uses its own kernel at M = 1, and TensorOps from M = 8 up, with
-both paths tuned.** M = 2 to 7 is expected to follow TensorOps, which Phase 3 checks. The own kernel reads the weights at nearly the chip's
+both paths tuned.** Phase 3 timed M = 2 to 7, and TensorOps padded to 8 rows wins by the same rule, by 1.2 to 6.2 times; Linear does not pad yet, and runs those rows through the own kernel. The own kernel reads the weights at nearly the chip's
 bandwidth, widening inside itself to 32 bits, which needs no storage. TensorOps needs at least 8 rows in a tile. Own tiles do not ship: they take 1.6 to
 4.8 times TensorOps, and FP16's sum in a tile misses the accuracy bar. llama.cpp keeps TensorOps off before M5 on its own measurements
 (its source comment: M2 Ultra about 5% slower, M4 no significant difference), and it was not looked into why that differs here. Phase 4 compares
@@ -211,9 +211,8 @@ ids at one index worked. So every kernel test checks values, and a test that onl
 ### 4.3 Compiling kernels
 
 Compile at run time from source embedded in the library, first. It needs nothing but the OS; offline `metallib`s need full
-Xcode, which the development Mac does not have. Measured: about 35 ms on a first load with today's 9 small kernels, and under
-1 ms once the OS's cache has the source (`Notebooks/MetalDeviceAndMemory.md`). A `metallib` or a pipeline cache follows only if
-that cost earns it, which is asked again when Phase 3 adds real kernels.
+Xcode, which the development Mac does not have. Measured with Phase 3's 63 kernels: about 400 ms on a first load, against about 35 ms with Phase 1's 9, and under
+1 ms once the OS's cache has the source (`Notebooks/MetalLlamaOperations.md`). It is paid once per Mac and kernel source, so a `metallib` or a pipeline cache is not earned yet, and Phase 4 can reopen it on a first run.
 
 ### 4.4 Decode
 
@@ -223,6 +222,8 @@ Indirect command buffers (Apple3 and later) are the candidate for replay, and on
 
 `synchronize()` commits and waits, and an operation only encodes. Measured: a commit and wait is about 220 us and a further
 dispatch about 3 us, so a decode step commits once.
+
+**Attention's decode is own kernels, reading the position from memory.** Three dispatches of a fixed grid: the cache write, the scores and softmax, and the values. It was agreed as one kernel. A single dispatch would need each lane to keep a whole head's running sum, which at a head of 256 is all of the M1 Pro's 32 KB of threadgroup memory, so the scores go through the workspace's decode buffers, as on CUDA's non-fused path. A fused kernel remains open if Phase 4 shows what the three cost. The decode position is written by the host once the context's open work has finished.
 
 ## 5. Memory
 
@@ -253,7 +254,7 @@ memory is shared with everything else the Mac is doing, so Phase 4 measures how 
 
 **Weights.** A file whose stored form is the run form (FP4, FP8) is mapped and wrapped without a copy, which is the question
 `Issues/Future.md` *Compute backends beyond CUDA* raises, if `newBufferWithBytesNoCopy` accepts a file mapping of this size;
-Phase 4 tries it. BF16 weights running as FP16 are converted once at load. Published packages do not change:
+Phase 4 tries it. **No published Mila model stores FP16 weights** (Todd, 2026-11-05), so an FP16 parameter always reads BF16 weights, converted once at load, and that conversion is part of Phase 3 rather than of the first model. Published packages do not change:
 `ModelDistribution.md` *Compatibility* holds.
 
 ## 6. Tests and measurement
@@ -354,10 +355,14 @@ In order: Linear, TokenEmbedding, RmsNorm, Rope, Swiglu, Residual, grouped-query
 NextTokenLogProbability. BF16 weights first, quantized in Phase 5. BF16 kernels are tested here through the emulation layer:
 that shows correctness, and says nothing about the speed of native BF16.
 
+**Agreed for this phase (Todd, 2026-11-05).** Weights reach a test as a BF16 blob through `loadParameter`, in both precisions, since that is what a model hands them. Attention's decode is one own kernel, which reads the position from memory; its prefill is TensorOps, a softmax kernel, then TensorOps, and a fused prefill follows only on a Phase 4 measurement. TensorOps writes FP16, not FP32. Rows and outputs off a multiple of the tile go through the own kernel, and M = 2 to 7 is timed against padding. Metal operations declare no `backward`. Left to later phases: `Llama.ixx`'s load synchronization (Phase 4), the scratch buffer (Phase 5), and `Linear::decode` over several rows (Phase 6).
+
 **Tests:** each against a double-precision reference in both precisions, with the decode rule (`CLAUDE.md`) held by a test that
-sets the position first.
+sets the position first. **Notebook:** `Notebooks/MetalLlamaOperations.md`.
 
 **Gate:** all pass, and a missing specialization is a compile error, not a skip.
+
+**Passed, 2026-11-05.** `Notebooks/MetalLlamaOperations.md` has the gate, its 111 forced failures and the results. Every operation holds its bar in FP16 and BF16 with weights read as BF16 blobs, a Llama block's prefill equals its decode, and no component needed a `#if` for Metal. **Not a model run.**
 
 ### Phase 4 -- First model, both ways
 
@@ -430,3 +435,4 @@ development Mac and neither can reach a user's.
 | Whether a kernel calls TensorOps is what Phase 2 measures, with own kernels kept where the result is close | Todd, 2026-11-04 |
 | Metal stays GPU only for now. MLX may later lead to optimizations, or to CPU use that makes sense (`Issues/Untriaged.md`) | Todd, 2026-11-04 |
 | Every format Mila's components use on CUDA runs on Metal (section 1) | Todd, 2026-11-05 |
+| No published model stores FP16, so an FP16 parameter reads BF16 weights, from Phase 3 on (section 5) | Todd, 2026-11-05 |

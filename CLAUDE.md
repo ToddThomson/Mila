@@ -74,7 +74,7 @@ using OpType = typename Compute::OperationTraits<
     TDeviceType, TComputePrecision, TWeightQuantization>::type;
 ```
 
-The `OperationTraits` primary template is in `Compute/Operations/OperationTraits.Template.ixx`. Specializations live in `OperationTraits.Cuda.ixx` (`:Cuda` partition); CUDA is the only compute backend. A missing specialization is a **hard compile error**, not a runtime miss. The old `OperationRegistry` string-keyed runtime dispatch is retired (`Mila.ixx`); a few components' doc comments still describe it, and are wrong.
+The `OperationTraits` primary template is in `Compute/Operations/OperationTraits.Template.ixx`. Specializations live in `OperationTraits.Cuda.ixx` (`:Cuda` partition) and `OperationTraits.Metal.ixx` (`:Metal`, Llama's operations so far, `Specifications/Metal/MetalBackend.md`). A missing specialization is a **hard compile error**, not a runtime miss. The old `OperationRegistry` string-keyed runtime dispatch is retired (`Mila.ixx`); a few components' doc comments still describe it, and are wrong.
 
 `Linear` is the canonical reference implementation of the full dispatch pattern.
 

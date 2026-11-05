@@ -57,6 +57,96 @@ namespace Mila::Tests::Dnn::Tensors
     // What the types allow
     // ====================================================================
 
+    TEST( MetalScale, MultipliesInPlaceAndOutOfPlace )
+    {
+        const std::array<float, 3> values{ 1.0f, -2.0f, 0.5f };
+
+        MetalTensor<TensorDataType::FP16> input( Device::Metal( 0 ), shape_t{ 3 } );
+        MetalTensor<TensorDataType::FP16> output( Device::Metal( 0 ), shape_t{ 3 } );
+        fill( input, std::span<const float>( values ) );
+
+        scale( input, 4.0f, output );
+        EXPECT_EQ( readFloats( output ), ( std::vector<float>{ 4.0f, -8.0f, 2.0f } ) );
+
+        scale( input, 2.0f, input );
+        EXPECT_EQ( readFloats( input ), ( std::vector<float>{ 2.0f, -4.0f, 1.0f } ) );
+    }
+
+    TEST( MetalScale, RefusesDifferentShapes )
+    {
+        MetalTensor<TensorDataType::BF16> input( Device::Metal( 0 ), shape_t{ 3 } );
+        MetalTensor<TensorDataType::BF16> output( Device::Metal( 0 ), shape_t{ 4 } );
+
+        EXPECT_THROW( scale( input, 2.0f, output ), std::invalid_argument );
+    }
+
+    TEST( MetalSplit, ThreeOutputsTakeTheirOwnColumnsOfEveryRow )
+    {
+        // Two rows of six columns, each value naming its place.
+        const std::array<float, 12> values{ 0.0f, 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 10.0f, 11.0f, 12.0f, 13.0f, 14.0f, 15.0f };
+
+        MetalTensor<TensorDataType::FP16> input( Device::Metal( 0 ), shape_t{ 1, 2, 6 } );
+        MetalTensor<TensorDataType::FP16> a( Device::Metal( 0 ), shape_t{ 1, 2, 1 } );
+        MetalTensor<TensorDataType::FP16> b( Device::Metal( 0 ), shape_t{ 1, 2, 2 } );
+        MetalTensor<TensorDataType::FP16> c( Device::Metal( 0 ), shape_t{ 1, 2, 3 } );
+        fill( input, std::span<const float>( values ) );
+
+        split( input, a, b, c );
+
+        EXPECT_EQ( readFloats( a ), ( std::vector<float>{ 0.0f, 10.0f } ) );
+        EXPECT_EQ( readFloats( b ), ( std::vector<float>{ 1.0f, 2.0f, 11.0f, 12.0f } ) );
+        EXPECT_EQ( readFloats( c ), ( std::vector<float>{ 3.0f, 4.0f, 5.0f, 13.0f, 14.0f, 15.0f } ) );
+    }
+
+    TEST( MetalSplit, TwoOutputsTakeTheirOwnColumnsOfEveryRow )
+    {
+        const std::array<float, 8> values{ 0.0f, 1.0f, 2.0f, 3.0f, 10.0f, 11.0f, 12.0f, 13.0f };
+
+        MetalTensor<TensorDataType::BF16> input( Device::Metal( 0 ), shape_t{ 1, 2, 4 } );
+        MetalTensor<TensorDataType::BF16> a( Device::Metal( 0 ), shape_t{ 1, 2, 3 } );
+        MetalTensor<TensorDataType::BF16> b( Device::Metal( 0 ), shape_t{ 1, 2, 1 } );
+        fill( input, std::span<const float>( values ) );
+
+        split( input, a, b );
+
+        EXPECT_EQ( readFloats( a ), ( std::vector<float>{ 0.0f, 1.0f, 2.0f, 10.0f, 11.0f, 12.0f } ) );
+        EXPECT_EQ( readFloats( b ), ( std::vector<float>{ 3.0f, 13.0f } ) );
+    }
+
+    TEST( MetalSplit, RefusesOutputsThatDoNotAddUp )
+    {
+        MetalTensor<TensorDataType::FP16> input( Device::Metal( 0 ), shape_t{ 1, 2, 4 } );
+        MetalTensor<TensorDataType::FP16> a( Device::Metal( 0 ), shape_t{ 1, 2, 3 } );
+        MetalTensor<TensorDataType::FP16> b( Device::Metal( 0 ), shape_t{ 1, 2, 2 } );
+        MetalTensor<TensorDataType::FP16> other_rows( Device::Metal( 0 ), shape_t{ 1, 3, 1 } );
+
+        EXPECT_THROW( split( input, a, b ), std::invalid_argument );
+        EXPECT_THROW( split( input, a, other_rows ), std::invalid_argument );
+    }
+
+    TEST( MetalRandom, UniformValuesStayInTheirRangeAndVary )
+    {
+        MetalTensor<TensorDataType::FP16> tensor( Device::Metal( 0 ), shape_t{ 1024 } );
+        fill_uniform( tensor, -0.5f, 0.5f );
+
+        const std::vector<float> values = readFloats( tensor );
+
+        EXPECT_GE( std::ranges::min( values ), -0.5f );
+        EXPECT_LE( std::ranges::max( values ), 0.5f );
+        EXPECT_NE( std::ranges::min( values ), std::ranges::max( values ) );
+    }
+
+    TEST( MetalRandom, NormalValuesHaveTheirMean )
+    {
+        MetalTensor<TensorDataType::BF16> tensor( Device::Metal( 0 ), shape_t{ 8192 } );
+        fill_normal( tensor, 2.0f, 0.5f );
+
+        const std::vector<float> values = readFloats( tensor );
+        const double mean = std::accumulate( values.begin(), values.end(), 0.0 ) / static_cast<double>( values.size() );
+
+        EXPECT_NEAR( mean, 2.0, 0.05 );
+    }
+
     TEST( MetalTensorTypes, AMetalTensorHasNoHostAccessors )
     {
         EXPECT_FALSE( HasHostAccess<MetalTensor<TensorDataType::FP16>> );

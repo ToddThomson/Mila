@@ -10,6 +10,12 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Rope's angle loses accuracy far into a context, on both backends
+
+`Lib/Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Angle.cuh`; `Lib/Src/Dnn/Compute/Devices/Metal/Kernels/Rope.metal` @ 0.21.0-dev+118
+
+Both compute position times frequency in single precision before taking the cosine and sine. Arithmetic, not measured: at position 8192 and a frequency of 1, the angle's own rounding is about 5e-4 radians, and at 128000 about 8e-3. Found writing Metal's Rope test against a double-precision reference, which holds the bar only to position 2048. Reducing the angle before the multiplication would remove it.
+
 ## What MLX does on Apple silicon has not been studied for Metal's speed or for work on the CPU
 
 `Specifications/Metal/MetalBackend.md` decisions (GPU only, no CPU compute); an absence -- the spec does not mention MLX @ 0.21.0-dev+117

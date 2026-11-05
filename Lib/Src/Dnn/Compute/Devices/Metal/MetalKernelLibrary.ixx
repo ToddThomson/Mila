@@ -20,6 +20,28 @@ namespace Mila::Dnn::Compute
         // Each file under Kernels/, embedded at configure time by Lib/CMakeLists.txt.
         const char* const kKernelSources[] = {
 #include "TensorOps.Fill.metal.inc"
+            ,
+#include "TensorOps.Scale.metal.inc"
+            ,
+#include "TensorOps.Structural.metal.inc"
+            ,
+#include "GroupedQueryAttention.metal.inc"
+            ,
+#include "Sampling.metal.inc"
+            ,
+#include "NextTokenLogProbability.metal.inc"
+            ,
+#include "Linear.metal.inc"
+            ,
+#include "TokenEmbedding.metal.inc"
+            ,
+#include "RmsNorm.metal.inc"
+            ,
+#include "Rope.metal.inc"
+            ,
+#include "Swiglu.metal.inc"
+            ,
+#include "Residual.metal.inc"
         };
 
         std::string describe( const NS::Error* error )
