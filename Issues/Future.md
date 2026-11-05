@@ -736,6 +736,9 @@ where metal-cpp (Apple's header-only C++ wrapper) keeps host code C++. Unified m
 stage weights through a copy -- the question the next entry raises for coherent memory. A decode step on Metal is
 called every step: `IExecutionContext::createDecodeRecording()` is null there, so replay needs nothing from it.
 
+Metal, 2026-11-04: the M1 Pro arrived, and `Specifications/Metal/MetalBackend.md` is now the design and its phases. That
+spec decides anything above that it contradicts, including the CPU-first order: Mac means the GPU only.
+
 ## Platform portability — aarch64 + coherent memory
 
 `build`
@@ -791,6 +794,9 @@ classified by name): 64 of 455 kernels are FP16, 174 KiB of 1984 KiB device code
 11 of them training kernels. Its five FP16-named `.cu` files took 97 s of the 990 s of CUDA compile time in
 the ninja log (9.8%). For comparison, FP32 is 171 kernels and 778 KiB (39.2%): 260 KiB of that is DeltaNet's
 FP32 instantiations and 150 KiB is training kernels. Todd, 2026-09-26: Mila models use BF16, not FP16.
+
+2026-11-04: FP16 stays for Metal (`Specifications/Metal/MetalBackend.md` section 3), so this entry can only mean CUDA's
+FP16 rows and their kernels. Its measurements above are all CUDA's and still stand.
 
 ## The dev container's Chat wrapper shares its name with the binary it wraps
 

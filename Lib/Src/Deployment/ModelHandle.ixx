@@ -9,6 +9,7 @@ export module Deployment.ModelHandle;
 
 import std;
 import Compute.DeviceType;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.LanguageModel;

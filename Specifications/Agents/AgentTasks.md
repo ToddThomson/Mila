@@ -31,7 +31,7 @@ Read from `Lib/Src/Agents/` on 2026-11-03:
   names. `MilaDesktop.md` leaves open what Get Things Done needs of `Mila::Agents`; this is the answer proposed.
 
 One thing is already right. A new response re-renders the conversation and the model skips what its KV cache holds:
-`reuse_kv_prefix` is on by default and the agent leaves it on, read in Gemma's and Qwen's `generate` (Llama's not read).
+`reuse_kv_prefix` is on by default and the agent leaves it on, read in each family's `generate`.
 So the claim "without re-reading its own history" is true across responses today, until something changes the prefix.
 Compaction changes it by design (section 7), and so does a template that drops past reasoning.
 
@@ -236,8 +236,8 @@ gives the window nothing new it must show.
 - **Library-written prompts.** The "go on or finish" message and the tools' descriptions are text the library puts in
   front of the model, and they change what it does. They are the policy's to replace, and the defaults are measured.
 - **Format promise.** A versioned trace and `task.json` are a compatibility surface from the first published minor.
-- **Which models.** Suitability is measured (`agentic`), so `run` does not refuse a model by name or by tag. Whether it
-  It reports the model's tag (decision 6).
+- **Which models.** Suitability is measured (`agentic`), so `run` does not refuse a model by name or by tag. It reports
+  the model's tag (decision 6).
 
 ## 10. Decisions
 

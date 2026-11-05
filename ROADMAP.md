@@ -291,8 +291,8 @@ and a Python function can be a tool. The binding's per-family sessions stay besi
 inference server runs on them. The binding gains no component-level surface.
 
 **A long session continues.** A conversation that grows toward the depth where its model stops being reliable is
-compacted rather than ended: reasoning from earlier turns is dropped, and the history is summarized into a fresh
-context that keeps its instructions verbatim, reusing the system prompt's cached prefix. The depth comes from
+compacted rather than ended: reasoning from earlier turns is dropped under that pressure, and the history is summarized
+into a fresh context that keeps its instructions verbatim. The depth comes from
 measurement of that model and format (`ContextProfile.md`), not a guess. Compaction is mechanism; what a summary keeps
 is a policy the application may replace.
 
@@ -479,7 +479,9 @@ OpenAI and Anthropic wire shapes -- still pass unchanged.
   type is a compile-time template parameter and dispatch resolves through an explicit `OperationTraits`
   table, a backend should be a new partition of specializations rather than conditional compilation
   threaded through the components — that is the design claim, and a port is the first honest test of
-  whether it holds across a second GPU vendor. Gated on hardware access (see SPONSORING.md).
+  whether it holds across a second GPU vendor. Metal now has a development Mac and a design,
+  `Specifications/Metal/MetalBackend.md`, with no release attached; ROCm stays gated on hardware access
+  (see SPONSORING.md).
   Success bar: an existing validated model path reproduces its token-for-token reference result on the
   new backend, with the component sources unchanged.
 - **Platform portability** — `aarch64` as a build and correctness target (Mila is x86-64 Windows and

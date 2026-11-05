@@ -275,9 +275,18 @@ namespace Mila::Dnn::Llama
         /// 3.2's default, as strftime_now("%d %b %Y") writes it.
         static std::string today()
         {
-            const auto now = std::chrono::current_zone()->to_local( std::chrono::system_clock::now() );
+            const std::time_t now = std::chrono::system_clock::to_time_t( std::chrono::system_clock::now() );
 
-            return std::format( "{:%d %b %Y}", std::chrono::floor<std::chrono::days>( now ) );
+            // The C library reads the machine's offset itself, where std::chrono::current_zone() throws on a zone the
+            // standard library cannot name: Windows' British Columbia Standard Time reaches it as Etc/Unknown. The
+            // deprecation is about the shared result, which a racing call would only fill with this same day, and it
+            // arrives from the std module, where no macro defined here can lift it.
+#pragma warning( suppress : 4996 )
+            const std::tm local = *std::localtime( &now );
+
+            return std::format( "{:%d %b %Y}", std::chrono::year_month_day{ std::chrono::year{ local.tm_year + 1900 },
+                std::chrono::month{ static_cast<unsigned>( local.tm_mon + 1 ) },
+                std::chrono::day{ static_cast<unsigned>( local.tm_mday ) } } );
         }
 
         static std::string_view roleSpelling( Conversation::Role role )

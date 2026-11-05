@@ -203,7 +203,7 @@ template.
 
 ### 4.2 Rules
 
-1. **Small.** `Mila::Agents` is a contract, not a catalogue: create, respond (whole or streamed), the
+1. **Small.** `Mila::Agents` is a contract, not a catalogue: create, respond (whole or streamed), compact, the
    session it holds -- its tools and its conversation (4.3) --, `plan()`, `model()`. A capability one model has and another lacks is
    discovered from the handle, never added as a method that throws on the others.
 2. **It never decides a deployment.** Creation calls the planner and keeps the plan. There is one
@@ -233,7 +233,7 @@ is `Mila::Agents::Session`: "context" in Mila is the model's window
 **The session** is everything a program gives an agent, and the conversation: the system prompt, the tool gate
 (the tools, the rules, the grant and the tools the person allowed for that conversation), the way the person is
 asked, the limits, the conversation, and the template variables and sampling the program asked for (Todd,
-2026-10-27). It needs no model, so a program builds one before it has chosen a model. It is copied freely: a copy
+2026-10-27), and its compaction policy (`Agents/Compaction.md`). It needs no model, so a program builds one before it has chosen a model. It is copied freely: a copy
 is a fork of the conversation. Its builders are the only ones: the agent has none that forward to it.
 
 **The agent** is a model handle and a session. It checks what the session asks of the model against that model's

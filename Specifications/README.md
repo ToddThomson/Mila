@@ -104,6 +104,13 @@ means a status line or target is out of date and the rest has not been re-read.
 | [LayerSplit.md](LayerSplit.md) | Design | One model's blocks across several devices | Draft; `Deployment.md` Phase 5, after v0.21.0 |
 | [WeightTying.md](WeightTying.md) | Design | One table for a tied embedding and output head | |
 
+### Metal
+
+| Document | Role | Decides or records | Notes |
+|---|---|---|---|
+| [Metal/MetalBackend.md](Metal/MetalBackend.md) | Design | Mila on Apple M-series GPUs: how a capability is checked across chips, which precision runs where, the matrix paths, memory, the build, and the phases | Agreed 2026-11-04 (Todd, decisions in section 10); no code beyond a scaffold it replaces |
+| [Notebooks/MetalPrecisionTiming.md](Notebooks/MetalPrecisionTiming.md) | Notebook | FP16, BF16 and FP32 math timed on the M1 Pro, with TensorOps and own kernels, 2026-11-04 | Evidence for `Metal/MetalBackend.md` sections 2 and 3. Not a model run. Its program is outside the tree until that design's Phase 2 |
+
 ### Quantization
 
 | Document | Role | Decides or records | Notes |
@@ -142,6 +149,8 @@ means a status line or target is out of date and the rest has not been re-read.
 | [ToolBroker.md](ToolBroker.md) | Design | The per-user tool broker as designed and built on 2026-10-24: one local MCP service holding the rules for each user and agent and running every tool in a worker process of its own | Replaced by `ToolCalling.md` (2026-10-25); its code is refit to that spec. Its approval round trip and path and address checks carry over |
 | [Notebooks/AgentsTargetMerge.md](Notebooks/AgentsTargetMerge.md) | Notebook | What it costs to build `Mila::Agents` inside the `Mila` target and to bring it with `import Mila;`, MSVC and Clang, 2026-11-03 | Evidence for reopening `Direction.md` decision 2 |
 | [Agents/AgentTasks.md](Agents/AgentTasks.md) | Design | How an agent carries a task to its end over many responses and knows how it ended: the task, its budget, the autonomy policy, the trace and the task folder, and the seam compaction must leave for them | Agreed 2026-11-03 (Todd, decisions in section 10). After v0.22.0, no code; compaction's seam is v0.21.0's |
+| [Agents/Compaction.md](Agents/Compaction.md) | Design | How an agent carries a conversation past its context or its model's reliable depth: the policy, the boundaries it runs at, the summary, what the conversation holds afterwards, and what it costs on each family | Agreed 2026-11-03 (Todd, decisions in section 9); being built |
+| [Notebooks/CompactionSummaries.md](Notebooks/CompactionSummaries.md) | Notebook | How long a compaction summary runs and what its prompt costs on Gemma and Qwen, at each thinking setting, 2026-11-03 | Evidence for `Agents/Compaction.md` section 9 |
 | [ContainedPrograms.md](ContainedPrograms.md) | Design | How a tool runs a program held to its grant through Microsoft's MXC -- the grant's container, the policy it makes, files with more than one name, a desktop of Mila's own, the switch -- and Mila Desktop's shell as its first use | Agreed, 2026-10-27 and 2026-10-31 (decisions in section 9); the library and the tool built 2026-10-31. Experimental in v0.21.0, off by default (Todd, 2026-10-27) |
 | [Notebooks/MxcConformance.md](Notebooks/MxcConformance.md) | Notebook | What MXC v1.0.1's policy accepts and refuses on Windows and Linux, 2026-10-26 and 2026-10-27, and how Codex and NVIDIA OpenShell set it | Evidence for `ContainedPrograms.md` |
 | [Notebooks/LocalToolService.md](Notebooks/LocalToolService.md) | Notebook | How the tool broker was reached, 2026-10-23 to 2026-10-24: placement, identity, secrets, the *Harness^2* paper's bearing, the round-trip measurement, prior art on Windows (Codex, NVIDIA OpenShell, Microsoft's MXC), and the decision to ship the first tools without an operating-system sandbox | Its placement decisions are replaced by `ToolCalling.md`; the reading and measurements stand. Phase 1 measured a warm named-pipe round trip at about 7 us median against about 14 ms to start a process per call |

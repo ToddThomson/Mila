@@ -33,6 +33,8 @@ import Agents.ToolOutcome;
 import Agents.ToolGate;
 import Agents.AgentEvent;
 import Agents.AgentLimits;
+import Agents.CompactionOutcome;
+import Agents.CompactionPolicy;
 import Agents.Response;
 import Agents.Session;
 import Agents.SamplingOverride;
@@ -331,6 +333,10 @@ namespace Mila::Agents
          * the reply as the model generated it, followed by the results as the template frames them, so the model
          * prefills only the results; a reply that left its last call open is rendered again instead.
          *
+         * Under the session's compaction policy the conversation is compacted before the response, between its
+         * rounds, and before a result would be cut, reported by events. A summary counts against the response's time
+         * and not its reply tokens. After one fails, the response does not try again.
+         *
          * @param message  What the user says.
          * @param on_event Every event in order; may be empty.
          * @param stop     Stops the reply; a call waiting for the person's answer does not run, and a call running is
@@ -363,20 +369,42 @@ namespace Mila::Agents
             Conversation::Prompt& prompt = next.prompt;
             std::vector<std::int32_t>& tokens = next.tokens;
 
-            if ( !fitsContext( tokens ) )
-            {
-                // Never answered, so it never joined: the conversation stays one the context holds.
-                history.pop_back();
-                response.status = GenerateStatus::ContextOverflow;
-
-                return response;
-            }
-
             // One stop for everything the response runs: the caller's, or its own time running out.
             std::stop_source halt;
             const std::stop_callback forward_stop( stop, [&halt] { halt.request_stop(); } );
             ResponseClock clock( limits.time, halt );
             const std::stop_token halted = halt.get_token();
+
+            CompactionRun compaction{ message, halted, response };
+
+            // A message too long for the context even alone is refused below, and costs the conversation nothing.
+            if ( compactionIsDue( tokens, compaction ) && messageFitsAlone( message )
+                && compactNow( compaction, emit ) )
+            {
+                next = nextRound();
+            }
+
+            if ( !fitsContext( tokens ) && compaction.gave_up && !halted.stop_requested() && hasTurnsToDrop() )
+            {
+                dropOldestUnread( message, emit );
+                ++response.compactions;
+                next = nextRound();
+            }
+
+            if ( !fitsContext( tokens ) )
+            {
+                // Never answered, so it never joined: the conversation stays one the context holds.
+                if ( history.size() == 1 && isSummaryTurn( history.front() ) )
+                {
+                    takeMessageFromSummaryTurn( message );
+                } else {
+                    history.pop_back();
+                }
+
+                response.status = GenerateStatus::ContextOverflow;
+
+                return response;
+            }
 
             GenerateParams params;
             params.sampling = sampling();
@@ -487,7 +515,7 @@ namespace Mila::Agents
 
                 for ( std::size_t index = 0; index < reply.tool_calls.size(); ++index )
                 {
-                    if ( !answerCall( reply.tool_calls[ index ], emit, halted, clock ) )
+                    if ( !answerCall( reply.tool_calls[ index ], emit, halted, clock, compaction ) )
                     {
                         for ( std::size_t rest = index + 1; rest < reply.tool_calls.size(); ++rest )
                         {
@@ -505,6 +533,11 @@ namespace Mila::Agents
                 next = nextRound();
                 continued_.reset();
 
+                if ( compactionIsDue( tokens, compaction ) && compactNow( compaction, emit ) )
+                {
+                    next = nextRound();
+                }
+
                 if ( !fitsContext( tokens ) )
                 {
                     response.status = GenerateStatus::ContextOverflow;
@@ -512,6 +545,33 @@ namespace Mila::Agents
                     return response;
                 }
             }
+        }
+
+        /**
+         * @brief Compact the conversation now, whatever the trigger, under the session's policy. Between responses.
+         *
+         * @param on_event Compaction's events; may be empty.
+         * @param stop     Stops a summary being written, leaving the conversation as it was.
+         * @throws std::logic_error when the session has no policy, which is what says how a summary is written.
+         */
+        CompactionOutcome compact( const EventSink& on_event = {}, std::stop_token stop = {} )
+        {
+            if ( !session_.compaction() )
+            {
+                throw std::logic_error( "a session with no compaction policy cannot compact" );
+            }
+
+            const auto emit = [&]( const AgentEvent& event )
+                {
+                    if ( on_event )
+                    {
+                        on_event( event );
+                    }
+                };
+
+            continued_.reset();
+
+            return compactConversation( std::nullopt, emit, stop );
         }
 
         /// The plan the model was loaded on.
@@ -539,6 +599,36 @@ namespace Mila::Agents
          */
         [[nodiscard]] bool thinks() const
         {
+            return thinksWith( session_.templateVariables() );
+        }
+
+        /**
+         * @brief The sampling the next response runs at: each setting the session asks for, over the publisher's for
+         *        the thinking in effect, over the sampler's neutral values.
+         */
+        [[nodiscard]] SamplingParams sampling() const
+        {
+            return samplingWith( session_.templateVariables() );
+        }
+
+    private:
+
+        static constexpr std::string_view kStoppedResult = "The user stopped the reply before this tool call ran.";
+        static constexpr std::string_view kStoppedWhileRunningResult =
+            "The user stopped the reply while this tool call ran, so it may not have finished.";
+        static constexpr std::string_view kOutOfTimeResult = "The response ran out of time before this tool call ran.";
+        static constexpr std::string_view kOutOfTimeWhileRunningResult =
+            "The response ran out of time while this tool call ran, so it may not have finished.";
+
+        // How the turn that replaces a history begins, which is also how a later compaction knows it for one.
+        static constexpr std::string_view kSummaryHeading = "A summary of the conversation so far:";
+        static constexpr std::string_view kKeptHeading = "Keep to these, word for word:";
+        static constexpr std::string_view kMessageHeading = "The message being answered:";
+        static constexpr std::string_view kTurnsDroppedNote =
+            "Earlier turns of this conversation are gone, because no summary of them could be written.";
+
+        [[nodiscard]] bool thinksWith( const std::map<std::string, std::string>& asked ) const
+        {
             if ( !handle_.capabilities().thinking )
             {
                 return false;
@@ -551,21 +641,17 @@ namespace Mila::Agents
                 return true;
             }
 
-            return Conversation::resolveTemplateVariable( variables, session_.templateVariables(), "enable_thinking" ) == "true";
+            return Conversation::resolveTemplateVariable( variables, asked, "enable_thinking" ) == "true";
         }
 
-        /**
-         * @brief The sampling the next response runs at: each setting the session asks for, over the publisher's for
-         *        the thinking in effect, over the sampler's neutral values.
-         */
-        [[nodiscard]] SamplingParams sampling() const
+        [[nodiscard]] SamplingParams samplingWith( const std::map<std::string, std::string>& variables ) const
         {
             SamplingParams sampling;
 
             // The family's published settings where the manifest carries none, as every application opens at.
             const std::vector<SamplingRecommendation> recommendations = recommendedSampling( handle_.installed().stored().record );
 
-            if ( const auto* recommended = matchingSampling( recommendations, thinks() ) )
+            if ( const auto* recommended = matchingSampling( recommendations, thinksWith( variables ) ) )
             {
                 sampling.temperature = recommended->temperature.value_or( sampling.temperature );
                 sampling.top_k = recommended->top_k.value_or( sampling.top_k );
@@ -582,15 +668,6 @@ namespace Mila::Agents
 
             return sampling;
         }
-
-    private:
-
-        static constexpr std::string_view kStoppedResult = "The user stopped the reply before this tool call ran.";
-        static constexpr std::string_view kStoppedWhileRunningResult =
-            "The user stopped the reply while this tool call ran, so it may not have finished.";
-        static constexpr std::string_view kOutOfTimeResult = "The response ran out of time before this tool call ran.";
-        static constexpr std::string_view kOutOfTimeWhileRunningResult =
-            "The response ran out of time while this tool call ran, so it may not have finished.";
 
         static OpenRefusal baseModelRefusal( std::string_view name )
         {
@@ -730,8 +807,11 @@ namespace Mila::Agents
 
         Conversation::Prompt render( std::span<const Conversation::Turn> history ) const
         {
-            const Conversation::PromptOptions options = promptOptions();
+            return render( history, promptOptions() );
+        }
 
+        Conversation::Prompt render( std::span<const Conversation::Turn> history, const Conversation::PromptOptions& options ) const
+        {
             std::vector<Conversation::Turn> turns;
             turns.reserve( history.size() + 1 );
 
@@ -769,6 +849,515 @@ namespace Mila::Agents
         std::vector<std::int32_t> encode( const Conversation::Prompt& prompt ) const
         {
             return handle_.tokenizer().encode( prompt.text );
+        }
+
+        // ---- Compaction (Specifications/Agents/Compaction.md) --------------------------------
+
+        /// One response's compaction: what it answers, what stops it, and whether it has failed once already.
+        struct CompactionRun
+        {
+            std::string_view message;
+            std::stop_token stop;
+            Response& response;
+            bool gave_up{ false };
+        };
+
+        /// The prompt length that sets compaction off here. A summary always has its room below the limit.
+        [[nodiscard]] dim_t compactionTrigger( const CompactionPolicy& policy ) const
+        {
+            const dim_t limit = handle_.plan().contextLength();
+
+            return std::min( policy.trigger_tokens.value_or( limit ), limit - policy.summary_tokens );
+        }
+
+        [[nodiscard]] bool compactionIsDue( const std::vector<std::int32_t>& tokens, const CompactionRun& run ) const
+        {
+            const std::optional<CompactionPolicy>& policy = session_.compaction();
+
+            if ( !policy || run.gave_up || policy->summary_tokens >= handle_.plan().contextLength() )
+            {
+                return false;
+            }
+
+            return static_cast<dim_t>( tokens.size() ) >= compactionTrigger( *policy );
+        }
+
+        [[nodiscard]] bool messageFitsAlone( std::string_view message ) const
+        {
+            const std::array<Conversation::Turn, 1> alone{ Conversation::Turn{ Conversation::Role::User, std::string( message ) } };
+
+            return fitsContext( encode( render( alone ) ) );
+        }
+
+        /// @return True when the conversation changed. Whatever else happened, this response tries no more.
+        template<typename TEmit>
+        bool compactNow( CompactionRun& run, const TEmit& emit )
+        {
+            const CompactionOutcome outcome = compactConversation( run.message, emit, run.stop );
+
+            if ( outcome == CompactionOutcome::Compacted || outcome == CompactionOutcome::ReasoningCleared )
+            {
+                ++run.response.compactions;
+
+                return true;
+            }
+
+            run.gave_up = true;
+
+            return false;
+        }
+
+        [[nodiscard]] static bool isSummaryTurn( const Conversation::Turn& turn ) noexcept
+        {
+            return turn.role == Conversation::Role::User && turn.content.starts_with( kSummaryHeading );
+        }
+
+        [[nodiscard]] static std::string messageSection( std::string_view message )
+        {
+            return std::format( "\n\n{}\n\n{}", kMessageHeading, message );
+        }
+
+        /// A message that turned out not to fit even beside its summary leaves the conversation as a dropped one does.
+        void takeMessageFromSummaryTurn( std::string_view message )
+        {
+            std::string& content = session_.turns().front().content;
+            content.resize( content.size() - messageSection( message ).size() );
+        }
+
+        /// Where the turn in progress begins: the message not yet answered, or the latest reply with calls and its
+        /// results. Those stay as they stand.
+        [[nodiscard]] std::size_t turnInProgress( bool message_is_pending ) const
+        {
+            const std::span<const Conversation::Turn> history = session_.conversation();
+
+            if ( message_is_pending )
+            {
+                return history.size() - 1;
+            }
+
+            std::size_t first = history.size();
+
+            while ( first > 0 && history[ first - 1 ].role == Conversation::Role::Tool )
+            {
+                --first;
+            }
+
+            if ( first > 0 && history[ first - 1 ].role == Conversation::Role::Assistant && !history[ first - 1 ].tool_calls.empty() )
+            {
+                return first - 1;
+            }
+
+            return first;
+        }
+
+        /// The prompt options a summary is written under: the session's, with the policy's variables over them.
+        [[nodiscard]] Conversation::PromptOptions summaryOptions( const CompactionPolicy& policy ) const
+        {
+            Conversation::PromptOptions options = promptOptions();
+
+            for ( const auto& [name, value] : policy.template_variables )
+            {
+                try
+                {
+                    Conversation::validateTemplateVariables( handle_.protocol()->templateVariables(), { { name, value } } );
+                    options.template_variables[ name ] = value;
+                }
+                catch ( const std::invalid_argument& )
+                {
+                    // Another model's switch, such as a thinking switch on a model that always reasons.
+                }
+            }
+
+            return options;
+        }
+
+        /// Drop the oldest reply with its results, or the oldest turn; an earlier summary goes last.
+        static void dropOldestTurns( std::vector<Conversation::Turn>& turns )
+        {
+            const std::size_t first = turns.size() > 1 && isSummaryTurn( turns.front() ) ? 1 : 0;
+
+            turns.erase( turns.begin() + static_cast<std::ptrdiff_t>( first ) );
+
+            while ( turns.size() > first && turns[ first ].role == Conversation::Role::Tool )
+            {
+                turns.erase( turns.begin() + static_cast<std::ptrdiff_t>( first ) );
+            }
+        }
+
+        /**
+         * @brief Cut the one turn left so a summary can read its beginning. A reply that ran to the context limit would
+         *        otherwise leave nothing a summary could read, and the conversation could never go on.
+         *
+         * @return False when no text of it would be left.
+         */
+        [[nodiscard]] bool cutToLeaveRoom( Conversation::Turn& turn, dim_t tokens_over ) const
+        {
+            // The note below is itself tokens, and decoding a cut can round either way.
+            static constexpr dim_t kMarginTokens = 32;
+
+            const std::vector<std::int32_t> tokens = handle_.tokenizer().encode( turn.content );
+            const dim_t kept = static_cast<dim_t>( tokens.size() ) - tokens_over - kMarginTokens;
+
+            if ( kept <= 0 )
+            {
+                return false;
+            }
+
+            turn.content = handle_.tokenizer().decode(
+                std::span<const std::int32_t>( tokens.data(), static_cast<std::size_t>( kept ) ) );
+
+            dropIncompleteLastCharacter( turn.content );
+            turn.content += "\n[The rest of this turn was too long to read.]";
+
+            return true;
+        }
+
+        /// @param text Holds something other than space.
+        [[nodiscard]] static std::string_view withoutOuterSpace( std::string_view text ) noexcept
+        {
+            static constexpr std::string_view kSpace = " \t\r\n";
+
+            text.remove_prefix( text.find_first_not_of( kSpace ) );
+            text.remove_suffix( text.size() - text.find_last_not_of( kSpace ) - 1 );
+
+            return text;
+        }
+
+        /**
+         * @brief Ask the model for the summary. Generates in place of a round, reporting nothing of it.
+         *
+         * @param earlier The turn holding the summary before this one, if any. A summary it already holds says nothing of
+         *        what came since, and accepting it would lose that without a word.
+         *
+         * @return The summary, or nothing with failure set to why, and worth_another_try when a second attempt may differ.
+         */
+        [[nodiscard]] std::optional<std::string> writeSummary( const CompactionPolicy& policy,
+            const Conversation::Prompt& prompt, const std::vector<std::int32_t>& tokens,
+            const std::map<std::string, std::string>& variables, std::string_view earlier, std::stop_token stop,
+            std::string& failure, bool& worth_another_try )
+        {
+            worth_another_try = false;
+
+            GenerateParams params;
+            params.sampling = samplingWith( variables );
+            params.max_new_tokens = static_cast<int>( std::min<dim_t>( policy.summary_tokens, std::numeric_limits<int>::max() ) );
+
+            Conversation::ReplyReader reader = handle_.protocol()->readReply( prompt );
+
+            const GenerateStatus status = handle_.model().generate(
+                tokens,
+                [&]( std::int32_t token )
+                {
+                    // What the reader returns is the summary's own text and reasoning, which are no reply of the model's.
+                    (void)reader.feed( handle_.tokenizer().decode( std::span<const std::int32_t>( &token, 1 ) ) );
+                },
+                params,
+                stop );
+
+            (void)reader.finish();
+
+            const Conversation::Reply& reply = reader.reply();
+
+            if ( status == GenerateStatus::MaxNewTokensReached )
+            {
+                failure = std::format( "the summary did not finish in {} tokens", policy.summary_tokens );
+            } else if ( status != GenerateStatus::Success ) {
+                failure = "the summary was stopped";
+            } else if ( !reply.tool_calls.empty() || !reply.malformed_tool_calls.empty() ) {
+                failure = "the model called a tool instead of writing the summary";
+                worth_another_try = true;
+            } else if ( reply.content.find_first_not_of( " \t\r\n" ) == std::string::npos ) {
+                failure = "the model wrote no summary";
+            } else if ( earlier.contains( withoutOuterSpace( reply.content ) ) ) {
+                failure = "the summary added nothing to the earlier one";
+                worth_another_try = true;
+            }
+
+            if ( !failure.empty() )
+            {
+                return std::nullopt;
+            }
+
+            return reply.content;
+        }
+
+        template<typename TEmit>
+        CompactionOutcome compactConversation( std::optional<std::string_view> message, const TEmit& emit, std::stop_token stop )
+        {
+            const CompactionPolicy& policy = *session_.compaction();
+            std::vector<Conversation::Turn>& history = session_.turns();
+
+            const bool message_is_pending = message && !history.empty() && history.back().role == Conversation::Role::User
+                && history.back().content == *message;
+            const std::size_t turn_in_progress = turnInProgress( message_is_pending );
+
+            if ( turn_in_progress == 0 || ( turn_in_progress == 1 && isSummaryTurn( history.front() ) ) )
+            {
+                return CompactionOutcome::NothingToReplace;
+            }
+
+            const dim_t tokens_before = static_cast<dim_t>( encode( render( history ) ).size() );
+
+            AgentEvent began{ AgentEvent::Kind::CompactionBegan };
+            began.tokens_before = tokens_before;
+            emit( began );
+
+            const auto clearReasoning = [&]( std::vector<Conversation::Turn>& turns )
+                {
+                    const std::size_t end = std::min( turn_in_progress, turns.size() );
+
+                    for ( std::size_t index = 0; index < end; ++index )
+                    {
+                        turns[ index ].reasoning.clear();
+                    }
+                };
+
+            // Where a template renders past reasoning, clearing it changes the prompt from its first turn that has
+            // any. So it is done alone only when that is enough; otherwise the summary reads what the model holds.
+            {
+                std::vector<Conversation::Turn> cleared = history;
+                clearReasoning( cleared );
+
+                const dim_t tokens_cleared = static_cast<dim_t>( encode( render( cleared ) ).size() );
+
+                if ( tokens_cleared < tokens_before && tokens_cleared < compactionTrigger( policy ) )
+                {
+                    std::vector<Conversation::Turn> replaced = std::move( cleared );
+                    replaced.swap( history );
+                    continued_.reset();
+
+                    AgentEvent compacted{ AgentEvent::Kind::Compacted };
+                    compacted.replaced_turns = std::span<const Conversation::Turn>( replaced ).first( turn_in_progress );
+                    compacted.tokens_before = tokens_before;
+                    compacted.tokens_after = tokens_cleared;
+                    emit( compacted );
+
+                    return CompactionOutcome::ReasoningCleared;
+                }
+            }
+
+            std::vector<Conversation::Turn> read( history.begin(), history.end() - ( message_is_pending ? 1 : 0 ) );
+            const std::size_t turns_to_replace = turn_in_progress;
+            std::size_t dropped = 0;
+            std::string failure;
+            std::optional<std::string> summary;
+
+            if ( policy.summarizer )
+            {
+                try
+                {
+                    read.resize( turns_to_replace );
+                    summary = policy.summarizer( read, stop );
+
+                    if ( !summary )
+                    {
+                        failure = "the program's summarizer wrote nothing";
+                    }
+                }
+                catch ( const std::exception& thrown )
+                {
+                    failure = std::format( "the program's summarizer failed: {}", thrown.what() );
+                }
+            } else {
+                const Conversation::PromptOptions options = summaryOptions( policy );
+                const Conversation::Turn instruction{ Conversation::Role::User,
+                    policy.instruction.empty() ? defaultCompactionInstruction( policy.summary_tokens ) : policy.instruction };
+
+                Conversation::Prompt prompt;
+                std::vector<std::int32_t> tokens;
+
+                const auto fits = [&]()
+                    {
+                        std::vector<Conversation::Turn> asked = read;
+                        asked.push_back( instruction );
+                        prompt = render( asked, options );
+                        tokens = encode( prompt );
+
+                        return static_cast<dim_t>( tokens.size() ) + policy.summary_tokens <= handle_.plan().contextLength();
+                    };
+
+                // The turn in progress stays word for word anyway, then reasoning goes, then the oldest turns: what
+                // is dropped reaches no summary, and still reaches the application.
+                if ( !fits() )
+                {
+                    read.resize( turns_to_replace );
+
+                    if ( !fits() )
+                    {
+                        clearReasoning( read );
+
+                        while ( !read.empty() && !fits() )
+                        {
+                            if ( read.size() > 1 )
+                            {
+                                const std::size_t held = read.size();
+                                dropOldestTurns( read );
+                                dropped += held - read.size();
+                            } else if ( !cutToLeaveRoom( read.front(), tokens.size() + policy.summary_tokens - handle_.plan().contextLength() ) ) {
+                                read.clear();
+                            }
+                        }
+                    }
+                }
+
+                if ( read.empty() )
+                {
+                    failure = "there is no room to write a summary";
+                } else {
+                    const std::string_view earlier = isSummaryTurn( history.front() ) ? std::string_view( history.front().content ) : std::string_view{};
+                    bool worth_another_try = false;
+                    summary = writeSummary( policy, prompt, tokens, options.template_variables, earlier, stop, failure, worth_another_try );
+
+                    // Keeping the tools spares a re-read of the whole conversation, but the instruction not to call
+                    // one does not always hold, and a model may copy an earlier summary. Once it has done either, the
+                    // re-read is the smaller cost.
+                    if ( worth_another_try )
+                    {
+                        Conversation::PromptOptions no_tools = options;
+                        no_tools.tools_json.clear();
+
+                        std::vector<Conversation::Turn> asked = read;
+                        asked.push_back( instruction );
+                        prompt = render( asked, no_tools );
+                        tokens = encode( prompt );
+                        failure.clear();
+                        summary = writeSummary( policy, prompt, tokens, no_tools.template_variables, earlier, stop, failure, worth_another_try );
+                    }
+                }
+            }
+
+            if ( !summary )
+            {
+                AgentEvent failed{ AgentEvent::Kind::CompactionFailed, failure };
+                emit( failed );
+
+                return stop.stop_requested() ? CompactionOutcome::Stopped : CompactionOutcome::Failed;
+            }
+
+            std::string text = std::format( "{}\n\n{}", kSummaryHeading, *summary );
+
+            if ( !policy.kept.empty() )
+            {
+                text += std::format( "\n\n{}", kKeptHeading );
+
+                for ( const std::string& entry : policy.kept )
+                {
+                    text += std::format( "\n\n{}", entry );
+                }
+            }
+
+            if ( message )
+            {
+                text += messageSection( *message );
+            }
+
+            // The vector the response holds a reference to stays the same object.
+            std::vector<Conversation::Turn> replaced;
+            replaced.swap( history );
+
+            history.push_back( { Conversation::Role::User, std::move( text ) } );
+            history.insert( history.end(),
+                replaced.begin() + static_cast<std::ptrdiff_t>( turns_to_replace + ( message_is_pending ? 1 : 0 ) ), replaced.end() );
+
+            continued_.reset();
+
+            AgentEvent compacted{ AgentEvent::Kind::Compacted, *summary };
+            compacted.replaced_turns = std::span<const Conversation::Turn>( replaced ).first( turns_to_replace );
+            compacted.dropped_turns = dropped;
+            compacted.tokens_before = tokens_before;
+            compacted.tokens_after = static_cast<dim_t>( encode( render( history ) ).size() );
+            emit( compacted );
+
+            return CompactionOutcome::Compacted;
+        }
+
+        /// Anything but the message pending and an earlier summary.
+        [[nodiscard]] bool hasTurnsToDrop() const
+        {
+            const std::span<const Conversation::Turn> history = session_.conversation();
+
+            return history.size() > ( isSummaryTurn( history.front() ) ? 2u : 1u );
+        }
+
+        /**
+         * @brief The last resort before a response, when no summary could be written and the message does not fit:
+         *        drop the oldest turns unread, so a session that cannot summarize is not refused for good.
+         *
+         * Goes below the trigger and not just below the limit, so the next message does not pay for another failed
+         * summary. The oldest go first and an earlier summary stays, and the conversation's first turn tells the model
+         * that something is gone. The message pending is the conversation's last turn.
+         */
+        template<typename TEmit>
+        void dropOldestUnread( std::string_view message, const TEmit& emit )
+        {
+            const CompactionPolicy& policy = *session_.compaction();
+            std::vector<Conversation::Turn>& history = session_.turns();
+
+            const dim_t tokens_before = static_cast<dim_t>( encode( render( history ) ).size() );
+            const std::size_t first_droppable = isSummaryTurn( history.front() ) ? 1 : 0;
+            const std::size_t pending = history.size() - 1;
+
+            std::string opening = first_droppable == 1 ? history.front().content : std::string( kSummaryHeading );
+
+            if ( !opening.contains( kTurnsDroppedNote ) )
+            {
+                opening += std::format( "\n\n{}", kTurnsDroppedNote );
+            }
+
+            if ( first_droppable == 0 && !policy.kept.empty() )
+            {
+                opening += std::format( "\n\n{}", kKeptHeading );
+
+                for ( const std::string& entry : policy.kept )
+                {
+                    opening += std::format( "\n\n{}", entry );
+                }
+            }
+
+            // The opening joins the first turn kept, or the message as a summary's turn does, so that a template that
+            // wants turns to alternate is given what it always is.
+            const auto keepingFrom = [&]( std::size_t first )
+                {
+                    std::vector<Conversation::Turn> remaining( history.begin() + static_cast<std::ptrdiff_t>( first ), history.end() );
+
+                    for ( Conversation::Turn& turn : remaining )
+                    {
+                        turn.reasoning.clear();
+                    }
+
+                    remaining.front().content = first == pending
+                        ? opening + messageSection( message )
+                        : std::format( "{}\n\n{}", opening, remaining.front().content );
+
+                    return remaining;
+                };
+
+            std::size_t first = first_droppable;
+            std::vector<Conversation::Turn> remaining = keepingFrom( first );
+
+            while ( first < pending
+                && ( history[ first ].role != Conversation::Role::User
+                    || static_cast<dim_t>( encode( render( remaining ) ).size() ) >= compactionTrigger( policy ) ) )
+            {
+                ++first;
+
+                if ( history[ first ].role == Conversation::Role::User )
+                {
+                    remaining = keepingFrom( first );
+                }
+            }
+
+            std::vector<Conversation::Turn> replaced = std::move( remaining );
+            replaced.swap( history );
+
+            continued_.reset();
+
+            AgentEvent compacted{ AgentEvent::Kind::Compacted };
+            compacted.replaced_turns = std::span<const Conversation::Turn>( replaced ).subspan( first_droppable, first - first_droppable );
+            compacted.dropped_turns = first - first_droppable;
+            compacted.tokens_before = tokens_before;
+            compacted.tokens_after = static_cast<dim_t>( encode( render( history ) ).size() );
+            emit( compacted );
         }
 
         /// A prompt that leaves the model no position to answer in is not generated from.
@@ -824,7 +1413,8 @@ namespace Mila::Agents
          *         result says so, nothing reports it, and the response ends.
          */
         template<typename TEmit>
-        bool answerCall( const Conversation::ToolCall& call, const TEmit& emit, std::stop_token halted, ResponseClock& clock )
+        bool answerCall( const Conversation::ToolCall& call, const TEmit& emit, std::stop_token halted, ResponseClock& clock,
+            CompactionRun& compaction )
         {
             Session::Asker ask;
 
@@ -856,7 +1446,7 @@ namespace Mila::Agents
                 cutToResultTokens( outcome );
             }
 
-            addResult( call, std::move( outcome ), emit );
+            addResult( call, std::move( outcome ), emit, compaction );
 
             return true;
         }
@@ -910,12 +1500,13 @@ namespace Mila::Agents
         /**
          * @brief Put a call's result in the conversation, cut to the context left, and report it.
          *
-         * A result the context cannot hold is cut to its first tokens that fit, and the model told it was cut and by
-         * how much; one with no room at all is refused, and the model told so. Never left to overflow the next
-         * prompt, which would end the response with no word of why.
+         * A result the context cannot hold first has the conversation compacted around it, under a policy. If it
+         * still does not fit it is cut to its first tokens that fit, and the model told it was cut and by how much;
+         * one with no room at all is refused, and the model told so. Never left to overflow the next prompt, which
+         * would end the response with no word of why.
          */
         template<typename TEmit>
-        void addResult( const Conversation::ToolCall& call, ToolOutcome outcome, const TEmit& emit )
+        void addResult( const Conversation::ToolCall& call, ToolOutcome outcome, const TEmit& emit, CompactionRun& compaction )
         {
             std::string& result = outcome.result;
             bool is_error = outcome.is_error;
@@ -924,6 +1515,11 @@ namespace Mila::Agents
             history.push_back( { Conversation::Role::Tool, result, {}, call.name } );
 
             std::vector<std::int32_t> prompt_tokens = nextRound().tokens;
+
+            if ( !fitsContext( prompt_tokens ) && compactionIsDue( prompt_tokens, compaction ) && compactNow( compaction, emit ) )
+            {
+                prompt_tokens = nextRound().tokens;
+            }
 
             if ( !fitsContext( prompt_tokens ) )
             {

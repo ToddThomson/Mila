@@ -10,6 +10,7 @@ import Dnn.GenerateStatus;
 import Dnn.TensorTypes;
 import Dnn.Models.Conversation.ToolCall;
 import Dnn.Models.Conversation.Reply;
+import Dnn.Models.Conversation.Turn;
 import Agents.ToolDecision;
 
 namespace Mila::Agents
@@ -48,12 +49,23 @@ namespace Mila::Agents
 
             /// The round's generation stopped, for the reason in status.
             RoundEnded,
+
+            /// A compaction starts: a long wait, with nothing streaming. tokens_before is what the prompt holds.
+            CompactionBegan,
+
+            /// The conversation was compacted: replaced_turns is what the session no longer holds, kept by the
+            /// application if it wants them.
+            Compacted,
+
+            /// A compaction failed and the conversation is unchanged; the text says why.
+            CompactionFailed,
         };
 
         Kind kind;
 
         /// Token: the decoded token. Reasoning and Answer: the text. ToolCalled: the result the model reads.
-        /// MalformedToolCall: the span. Valid for the duration of the event only.
+        /// MalformedToolCall: the span. Compacted: the summary, empty when only reasoning was cleared.
+        /// CompactionFailed: why. Valid for the duration of the event only.
         std::string_view text;
 
         /// ToolCalled: the call answered. Null for every other kind.
@@ -81,5 +93,16 @@ namespace Mila::Agents
 
         /// RoundEnded: the round's reply as the template read it. Null for every other kind.
         const Mila::Dnn::Conversation::Reply* reply{ nullptr };
+
+        /// Compacted: the turns as they stood before it. Valid for the duration of the event only.
+        std::span<const Mila::Dnn::Conversation::Turn> replaced_turns;
+
+        /// Compacted: how many of replaced_turns the summary never read, for want of room. With an empty text, no
+        /// summary was written: all of replaced_turns were dropped, the last resort when one failed before a response.
+        std::size_t dropped_turns{ 0 };
+
+        /// CompactionBegan and Compacted: the prompt's tokens before. Compacted: and after.
+        std::optional<Mila::Dnn::dim_t> tokens_before;
+        std::optional<Mila::Dnn::dim_t> tokens_after;
     };
 }

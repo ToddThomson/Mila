@@ -10,11 +10,54 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
-## `mila-store` does not build with CUDA off
+## The token loader's test hung the full suite for two and a half hours
 
-`Lib/Store/Store.ixx:237` `fittingWeightQuantizations<DeviceType::Cuda>` @ 0.21.0-dev+114
+`Lib/Tests/Data/Loaders/TokenSequenceLoader.cpp` (`Reset_Functionality`); `Lib/Src/Data/Loaders/TokenSequenceLoader.ixx` (`~TokenSequenceLoader`, `producerThreadFunc`) @ 73e4c0ad
 
-With `MILA_ENABLE_CUDA=OFF` (MSVC, `x64-debug-cpu-only`), Store.ixx instantiates a CUDA model, and `DeviceTypeTraits<DeviceType::Cuda>` has no definition there: C2027 from `LanguageModel.ixx(245)`. The same on a clean tree at `+114`, so not from the agents merge. `Store.ixx`'s last change was `+111`.
+Seen 2026-11-04 in a full suite on the compaction build: the log stopped at this test at 15:56 and the process used no CPU when looked at, 2.5 hours later. It passed in 190 ms in the run before, and 123 repeats alone passed, cut off by the machine's reboot. Read, not proven: the destructor sets `stop_` without holding `mutex_`, so it can fall between the producer's check of `stop_` and its untimed `cv_producer_.wait`; the notify is lost, and `join` never returns. The test destroys the loader just as the producer reaches that wait. The likely fix is to set `stop_` under the lock.
+
+## Compaction summarizes old tool results that could be cut without asking the model
+
+`Lib/Src/Agents/Agent.ixx` `compactConversation` · `Specifications/Agents/Compaction.md` section 4 @ 0.21.0-dev+116
+
+Tool results are most of the tokens in the sessions measured (`Notebooks/CompactionSummaries.md`), and every one but the latest
+goes to the model to summarize. Hermes first replaces long old outputs with a stub, with no model call
+(`agent/context_compressor.py`, read in part). A step here would sit after clearing reasoning and before the summary: if it
+brings the prompt below the trigger, no summary is written, which on Qwen 3.8 could replace minutes of generation. Against it:
+it changes the prompt from the first result cut, so what follows is read again, from zero on Qwen; and whether a model reads a
+file again after losing it is unmeasured. Measured on the captured sessions first, as its own change (Todd, 2026-11-03: file it).
+Beside it: Codex keeps recent user messages word for word along with its summary (`codex-rs/core/src/compact.rs`), where here
+only the message being answered and the policy's `kept` list are sure to survive.
+
+## An agent does not know how much of its context it has left
+
+`Lib/Src/Agents/Agent.ixx` `addResult` · `Apps/Server/src/mila_llm_server/conversation.py`, `InferenceServerWire.md` 3.6 @ 0.21.0-dev+116
+
+The model is told nothing of its budget, so it cannot plan around it: whether to read a large file, or finish now. Claude Code 2.1.300
+sends `<total_tokens>N tokens left</total_tokens>` after every tool result. The agent could add one line to a result as it renders:
+no tool, which would cost a round and be asked only when the model already suspects a problem; no new turn; and only the end of the
+prompt changes, so the cached prefix holds. The number should be the reliable depth, not the context limit. It informs and never
+enforces: the runtime keeps every limit. Unmeasured whether a model uses it or rushes because of it, every round or only at
+thresholds; no evidence found beyond blogs. Measured on the captured sessions, with the pruning entry above (Todd, 2026-11-03: file it).
+Master and worker streams would need this and more (`.internal/Ideas/AgentStreams.md`).
+
+## The inference server's streamed chat reply arrives whole, after the model has finished
+
+`Apps/Server/src/mila_llm_server/routes/factory.py` `_stream_chat` · `Specifications/InferenceServerWire.md` 3.5, Phase 4 @ 0.21.0-dev+116
+
+Every chat API, asked to stream, sends an opening chunk and keepalives while the model works, then the reply in one piece
+once the turn ends (found by reading it; Todd, 2026-11-03: "It should" stream). So a client shows nothing until the end,
+however long the reply, and cannot time a prefill from its first token. Dated `+68`. The spec plans the fix as Phase 4 and
+recommends it for v0.22.0, and nothing in `BACKLOG.md` or `Issues/` carried it. The reason it gives, that the parse runs
+after the model finishes, no longer holds in the library: `Conversation::ReplyReader` has routed reasoning, answer and calls
+as they arrive since Chat moved onto it. The binding does not expose the reader, and it knows no consumer, so that is
+where the fix starts.
+
+## The Metal device's capability checks ask the wrong questions
+
+`Lib/Src/Dnn/Compute/Devices/Metal/MetalDevice.ixx:174` `supportsGPUFamily`, `:191` `supportsComputeShaders` @ 0.21.0-dev+116
+
+Both test `MTLGPUFamilyCommon1` or `MTLGPUFamilyMac2`, which the macOS 27 SDK deprecates, and the first ORs three families into one answer that says nothing about any of them. `getDeviceMemorySize` returns `recommendedMaxWorkingSetSize`, which is a recommendation and not a memory size. The file is not built, so nothing is wrong at run time yet.
 
 ## Clang warns on two operations' `setParameters` and on `TensorOps.Random` reaching a TU-local entity
 
@@ -295,16 +338,6 @@ Removed 2026-10-26 when the installer began carrying the session (`MilaDesktop.m
 refuses to run without `Window/session/` staged from a C++ build, and the app's workflow (`desktop.yml`) has no C++ build. Before
 that the job's upload was an installer that ran only the mock. Nothing builds the installer now but a person
 with a Release build directory (`Apps/Desktop/README.md`, *Staging it for the window*).
-
-## Llama's date default throws when the standard library cannot name the machine's time zone
-
-`Lib/Src/Dnn/Models/LlaMa/Llama.ChatProtocol.ixx:278` (`std::chrono::current_zone`) @ 0.21.0-dev+114
-
-`current_zone()` throws "unable to locate time_zone with given name" on a machine whose Windows zone is British
-Columbia Standard Time, seen 2026-11-02. Three `MilaTests` fail on it: `LlamaChatProtocol.ASystemTurnAfterAReplyRendersWhereItStands`,
-`LlamaChatProtocolVariables.TheDateDefaultsAsEachTemplateDefaultsIt`, `LlamaChatProtocolContinuation.IsWhatTheTemplateRendersAfterTheCall`.
-The test's own expectation calls `current_zone()` too (`Lib/Tests/Dnn/Models/LlaMa/Llama.ChatProtocol.cpp:574`). The zone as the cause
-is not confirmed, and a real load or turn was not run.
 
 ## The contained-run tests fail, not skip, in an MXC build with no `MILA_MXC_LIBRARY`
 

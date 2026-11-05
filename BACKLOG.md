@@ -462,20 +462,20 @@ narrowed the Models criterion and `README.md`'s Llama section; the theme's crite
 
 #### A conversation that fills its context stops, and nothing carries it forward
 
-`open` · `agents` · `apps`
+`in progress` · `agents` · `apps`
 
 Chat ends a reply at the context limit ("finish: context_limit") and nothing shortens the history, so a long tool
-session cannot continue. Two levels, both mechanism in `Mila::Agents`: reasoning from earlier turns dropped at turn
-boundaries -- kept within a turn, which is the opposite of the failure in "Gemma loses its own reasoning between tool
-calls in a turn" -- and text compaction, the history summarized into a fresh context with instructions kept verbatim,
-reusing the system prompt's cached prefix. It triggers at the configuration's reliable depth, which ContextProfile
-measures, so it needs that tool's first profiles; Qwen resumes from the position it saved at the end of each prompt
+session cannot continue. Two levels, both mechanism in `Mila::Agents`: reasoning from earlier turns cleared under pressure
+and never each turn -- kept within a turn, which is the opposite of the failure in "Gemma loses its own reasoning between tool
+calls in a turn" -- and text compaction, the history summarized into a fresh context with instructions kept verbatim
+(`Compaction.md`). What remains is the depth: it triggers at the configuration's reliable depth, which ContextProfile
+measures, so it needs that tool's retention and tool-call arms and its first profiles; Qwen prefills from zero after a compaction, resuming only from the end of a prompt it saved
 (`savePosition`, `+33`). What is kept verbatim is a list a program can add to, not the system prompt alone, and
 compaction runs between rounds as well as between responses, since one response can fill the context
 (`AgentTasks.md` 7). Compaction in the cache itself (deleting spans in place) is research, outside this item
 (`.internal/Ideas/AgentStreams.md`).
 
-`Lib/Src/Agents/Agent.ixx` · `Specifications/ContextProfile.md` · `Specifications/Agents/AgentTasks.md`
+`Lib/Src/Agents/Agent.ixx` · `Specifications/Agents/Compaction.md` · `Specifications/ContextProfile.md` · `Specifications/Agents/AgentTasks.md`
 
 #### A program that skips Mila's initialization is told its GPU reports no memory
 

@@ -20,6 +20,56 @@ namespace Mila::Tests::AI
     using namespace Mila::Agents;
     using namespace Mila::Dnn;
 
+    TEST( SessionCompaction, IsOffUntilAProgramAsks )
+    {
+        Session session;
+
+        EXPECT_FALSE( session.compaction().has_value() );
+
+        session.withCompaction( { .summary_tokens = 100 } );
+        EXPECT_TRUE( session.compaction().has_value() );
+
+        session.withoutCompaction();
+        EXPECT_FALSE( session.compaction().has_value() );
+    }
+
+    TEST( SessionCompaction, RefusesAPolicyThatCouldNeverRun )
+    {
+        Session session;
+
+        EXPECT_THROW( session.withCompaction( {} ), std::invalid_argument ) << "no room for the model's summary";
+        EXPECT_THROW( session.withCompaction( { .summary_tokens = -1 } ), std::invalid_argument );
+        EXPECT_THROW( session.withCompaction( { .trigger_tokens = 0, .summary_tokens = 100 } ), std::invalid_argument );
+        EXPECT_FALSE( session.compaction().has_value() ) << "a refused policy took effect";
+    }
+
+    TEST( SessionCompaction, TheDefaultInstructionAsksForALengthItsBudgetHolds )
+    {
+        EXPECT_NE( defaultCompactionInstruction( 4096 ).find( "under 1638 words" ), std::string::npos );
+        EXPECT_NE( defaultCompactionInstruction( 6000 ).find( "under 2400 words" ), std::string::npos );
+    }
+
+    TEST( SessionCompaction, AProgramsSummarizerNeedsNoRoom )
+    {
+        Session session;
+
+        session.withCompaction( { .summarizer = []( auto, auto ) { return std::optional<std::string>( "summary" ); } } );
+
+        EXPECT_TRUE( session.compaction().has_value() );
+    }
+
+    TEST( SessionCompaction, ACopyKeepsThePolicyAsAForkDoes )
+    {
+        Session session;
+        session.withCompaction( { .summary_tokens = 100, .kept = { "The goal." } } );
+
+        Session fork = session;
+        fork.withoutCompaction();
+
+        ASSERT_TRUE( session.compaction().has_value() );
+        EXPECT_EQ( session.compaction()->kept.front(), "The goal." );
+    }
+
     namespace
     {
         constexpr const char* kParameters =

@@ -28,6 +28,17 @@ function(mila_find_std_module_sources std_variable compat_variable)
         set(manifest "")
     endforeach()
 
+    # Homebrew's LLVM keeps libc++ in lib/c++ beside the compiler, off the path -print-file-name searches.
+    if(NOT manifest)
+        cmake_path(GET CMAKE_CXX_COMPILER PARENT_PATH compiler_directory)
+        cmake_path(APPEND compiler_directory "../lib/c++/libc++.modules.json" OUTPUT_VARIABLE beside_compiler)
+        cmake_path(NORMAL_PATH beside_compiler)
+
+        if(EXISTS "${beside_compiler}")
+            set(manifest "${beside_compiler}")
+        endif()
+    endif()
+
     if(NOT manifest)
         message(FATAL_ERROR "${CMAKE_CXX_COMPILER}'s standard library ships no std module; Mila needs libstdc++ 15 or libc++ 17")
     endif()

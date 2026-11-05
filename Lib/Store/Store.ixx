@@ -212,18 +212,22 @@ namespace Mila::StoreApp
             return failures == 0 ? 0 : 1;
         }
 
+        /// The device a model's fit is asked of.
+        constexpr auto kFitDevice = Mila::Dnn::Compute::DeviceType::Cuda;
+
+        /// Whether this build has the device at all: a device left out of the build has no traits to plan with.
+        template<Mila::Dnn::Compute::DeviceType TDevice>
+        concept BuiltDevice = requires { typename Mila::Dnn::Compute::DeviceTypeTraits<TDevice>::memory_resource; };
+
         /**
          * Whether the model runs on the card, as the planner answers against the card's whole memory: so a model
-         * already loaded elsewhere does not count against it. Empty when there is no card to ask.
+         * already loaded elsewhere does not count against it.
          */
-        std::string fitOn( const Mila::Deployment::InstalledModel& model, bool has_device )
+        template<Mila::Dnn::Compute::DeviceType TDevice>
+            requires BuiltDevice<TDevice>
+        std::string plannedFit( const Mila::Deployment::InstalledModel& model )
         {
             using Mila::Dnn::WeightQuantization;
-
-            if ( !has_device )
-            {
-                return {};
-            }
 
             if ( !model.isComplete() )
             {
@@ -234,7 +238,7 @@ namespace Mila::StoreApp
             request.withWholeDeviceMemory();
 
             const auto fitting =
-                Mila::Deployment::fittingWeightQuantizations<Mila::Dnn::Compute::DeviceType::Cuda>( model, request );
+                Mila::Deployment::fittingWeightQuantizations<TDevice>( model, request );
 
             if ( !fitting.has_value() )
             {
@@ -263,13 +267,24 @@ namespace Mila::StoreApp
             return "yes, at " + forms;
         }
 
+        /// The model's fit on the card. Empty when there is no card to ask, or the build has no such device.
+        template<Mila::Dnn::Compute::DeviceType TDevice>
+        std::string fitOn( const Mila::Deployment::InstalledModel& model, bool has_device )
+        {
+            if constexpr ( BuiltDevice<TDevice> )
+            {
+                return has_device ? plannedFit<TDevice>( model ) : std::string{};
+            } else {
+                return {};
+            }
+        }
+
         /// Whether CUDA device 0 is present, reading the runtime's devices once.
         bool hasDevice()
         {
             Mila::initialize();
 
-            return Mila::Dnn::Compute::DeviceRegistry::instance().getDeviceCount(
-                Mila::Dnn::Compute::DeviceType::Cuda ) > 0;
+            return Mila::Dnn::Compute::DeviceRegistry::instance().getDeviceCount( kFitDevice ) > 0;
         }
 
         int listInstalled()
@@ -293,7 +308,7 @@ namespace Mila::StoreApp
                 std::cout << std::format( "{:<36}  {:>10}  {}{}\n",
                     model.name(),
                     formatBytes( model.stored().bytes_on_disk ),
-                    fitOn( model, has_device ),
+                    fitOn<kFitDevice>( model, has_device ),
                     model.isComplete() ? "" : "  (incomplete)" );
             }
 
@@ -356,7 +371,7 @@ namespace Mila::StoreApp
 
             if ( has_device )
             {
-                field( "GPU fit", fitOn( *model, has_device ) );
+                field( "GPU fit", fitOn<kFitDevice>( *model, has_device ) );
             }
 
             return 0;

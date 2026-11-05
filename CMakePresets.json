@@ -64,6 +64,43 @@
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     },
     {
+      "name": "macos-clang-base",
+      "hidden": true,
+      "description": "macOS on Apple silicon: Homebrew's Clang and libc++, CUDA off. Metal is the only compute backend a Mac has (Specifications/Metal/MetalBackend.md).",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "installDir": "${sourceDir}/out/install/${presetName}",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "/opt/homebrew/opt/llvm/bin/clang",
+        "CMAKE_CXX_COMPILER": "/opt/homebrew/opt/llvm/bin/clang++",
+        "CMAKE_CXX_STANDARD": "23",
+        "CMAKE_CXX_STANDARD_REQUIRED": "ON",
+        "CMAKE_CXX_EXTENSIONS": "OFF",
+        "CMAKE_OSX_SYSROOT": "macosx",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "27.0",
+        "CMAKE_EXE_LINKER_FLAGS": "-L/opt/homebrew/opt/llvm/lib/c++ -L/opt/homebrew/opt/llvm/lib/unwind -lunwind",
+        "MILA_ENABLE_CUDA": "OFF",
+        "MILA_ENABLE_TESTING": "ON",
+        "MILA_ENABLE_SAMPLES": "OFF",
+        "MILA_ENABLE_PYTHON_BINDINGS": "OFF",
+        "MILA_ENABLE_PROFILING": "OFF",
+        "MILA_ENABLE_DOCS": "OFF",
+        "MILA_COMPILE_JOB_POOL_SIZE": "6"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
+    },
+    {
+      "name": "macos-clang-release",
+      "displayName": "macOS Clang Release",
+      "description": "Release build on macOS, the Mac's full suite.",
+      "inherits": "macos-clang-base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
       "name": "windows-base",
       "description": "Target Windows with the Visual Studio development environment.",
       "hidden": true,

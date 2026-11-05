@@ -560,6 +560,22 @@ namespace Mila::Desktop
                     endRound( timer, event, stop );
                     break;
 
+                case Kind::CompactionBegan:
+                    send( "info", { { "text", std::format(
+                        "The conversation holds {} tokens, so it is being compacted.", *event.tokens_before ) } } );
+                    break;
+
+                case Kind::Compacted:
+                    send( "info", { { "text", event.text.empty() && event.dropped_turns > 0
+                        ? std::format( "The {} oldest turns were dropped unread, taking the conversation from {} tokens to {}.",
+                            event.dropped_turns, *event.tokens_before, *event.tokens_after )
+                        : std::format( "Compacted from {} tokens to {}.", *event.tokens_before, *event.tokens_after ) } } );
+                    break;
+
+                case Kind::CompactionFailed:
+                    send( "info", { { "text", std::format( "The conversation could not be compacted: {}.", event.text ) } } );
+                    break;
+
                 case Kind::ReasoningClosed:
                 case Kind::ToolCallOpened:
                     break;
@@ -1868,6 +1884,13 @@ namespace Mila::Desktop
             }
 
             model_.agent().withTemplateVariables( std::move( variables ) );
+
+            // Thinking off: Qwen 3.8 at its default effort ran out of 8192 tokens writing a summary, in 4 of 6
+            // (Notebooks/CompactionSummaries.md). 6000 is above the longest thinking-off summary measured, from a small
+            // sample (Agents/Compaction.md, decision 8); a quarter of a short context leaves it room to answer.
+            session().withCompaction( {
+                .summary_tokens = std::min<Mila::Dnn::dim_t>( 6000, model_.agent().plan().contextLength() / 4 ),
+                .template_variables = { { "enable_thinking", "false" } } } );
         }
 
         // ---- Attachments ------------------------------------------------------------------

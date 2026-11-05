@@ -14,7 +14,8 @@ namespace Mila::Agents
     /**
      * @brief The limits on one response (ToolCalling.md sections 3.2 and 4). A limit not set does not apply.
      *
-     * With none set a response still ends: the conversation grows each round, and the context bounds it.
+     * With none set a response ends when the model stops calling tools, or when the conversation has grown to its
+     * context. A session that compacts removes the second: only a limit here, or stop, ends a model that never stops.
      */
     export struct AgentLimits
     {

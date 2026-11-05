@@ -14,6 +14,7 @@ import Agents.ToolRules;
 import Agents.ToolGrant;
 import Agents.ToolGate;
 import Agents.AgentLimits;
+import Agents.CompactionPolicy;
 import Agents.SamplingOverride;
 
 namespace Mila::Agents
@@ -210,6 +211,34 @@ namespace Mila::Agents
             return std::move( *this );
         }
 
+        /**
+         * @brief Carry the conversation past its context, or a depth the program names, from the next response on.
+         *        Off until this is called. See Specifications/Agents/Compaction.md.
+         *
+         * @throws std::invalid_argument for a trigger of zero or less, or no room for a summary the model is to write.
+         */
+        Session& withCompaction( CompactionPolicy policy ) &
+        {
+            setCompaction( std::move( policy ) );
+
+            return *this;
+        }
+
+        Session&& withCompaction( CompactionPolicy policy ) &&
+        {
+            setCompaction( std::move( policy ) );
+
+            return std::move( *this );
+        }
+
+        /// Compact no more, from the next response on.
+        Session& withoutCompaction() noexcept
+        {
+            compaction_.reset();
+
+            return *this;
+        }
+
         /// Forget the conversation, and every tool allowed for it. Tools and settings stay.
         void newConversation()
         {
@@ -285,7 +314,29 @@ namespace Mila::Agents
             return sampling_;
         }
 
+        [[nodiscard]] const std::optional<CompactionPolicy>& compaction() const noexcept
+        {
+            return compaction_;
+        }
+
     private:
+
+        void setCompaction( CompactionPolicy policy )
+        {
+            if ( policy.trigger_tokens && *policy.trigger_tokens <= 0 )
+            {
+                throw std::invalid_argument(
+                    std::format( "a conversation cannot compact at {} tokens", *policy.trigger_tokens ) );
+            }
+
+            if ( policy.summary_tokens < 0 || ( policy.summary_tokens == 0 && !policy.summarizer ) )
+            {
+                throw std::invalid_argument(
+                    std::format( "a summary the model writes needs tokens to write it in, not {}", policy.summary_tokens ) );
+            }
+
+            compaction_ = std::move( policy );
+        }
 
         void setLimits( const AgentLimits& limits )
         {
@@ -325,6 +376,7 @@ namespace Mila::Agents
         AgentLimits limits_;
         std::map<std::string, std::string> template_variables_;
         SamplingOverride sampling_;
+        std::optional<CompactionPolicy> compaction_;
         std::vector<Conversation::Turn> conversation_;
     };
 }

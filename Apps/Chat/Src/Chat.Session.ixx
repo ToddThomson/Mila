@@ -201,6 +201,33 @@ namespace Mila::ChatApp
             clearHistory();
         }
 
+        /// Replace the conversation so far with a summary, now, whatever its length.
+        void compactConversation()
+        {
+            if ( !agent_ )
+            {
+                events_.info( "No model is loaded." );
+
+                return;
+            }
+
+            const std::stop_token stop_token = [this]
+                {
+                    std::lock_guard<std::mutex> lock( stop_mutex_ );
+                    stop_src_ = std::stop_source{};
+
+                    return stop_src_.get_token();
+                }();
+
+            const Mila::Agents::CompactionOutcome outcome = agent_->compact(
+                [this]( const Mila::Agents::AgentEvent& event ) { reportCompaction( event ); }, stop_token );
+
+            if ( outcome == Mila::Agents::CompactionOutcome::NothingToReplace )
+            {
+                events_.info( "There is nothing to compact yet." );
+            }
+        }
+
         /**
          * @brief How far each response may run from the next on; with none, Chat's own: its tool rounds and a reply
          *        of max_new_tokens across them.
@@ -690,6 +717,9 @@ namespace Mila::ChatApp
         /// The context a fixed-context session opens at when no layer names one.
         static constexpr std::size_t kDefaultContextLength = 4096;
 
+        // Above the longest thinking-off summary measured, from a small sample (Agents/Compaction.md, decision 8).
+        static constexpr dim_t kSummaryTokens = 6000;
+
         /// The resident agent's session, or the one held while nothing is resident.
         Mila::Agents::Session& session() noexcept
         {
@@ -1010,6 +1040,12 @@ namespace Mila::ChatApp
                         case Kind::RoundEnded:
                             endRound( timer, event );
                             break;
+
+                        case Kind::CompactionBegan:
+                        case Kind::Compacted:
+                        case Kind::CompactionFailed:
+                            reportCompaction( event );
+                            break;
                     }
                 },
                 stop_token );
@@ -1020,6 +1056,23 @@ namespace Mila::ChatApp
                     "The prompt is {} tokens and the context is {}, so there is no room to "
                     "answer. Start a new conversation, or choose a longer context.",
                     agent_->model().tokenizer().encode( agent_->prompt( text ).text ).size(), config_.context_length ) );
+            }
+        }
+
+        void reportCompaction( const Mila::Agents::AgentEvent& event )
+        {
+            using Kind = Mila::Agents::AgentEvent::Kind;
+
+            if ( event.kind == Kind::CompactionBegan )
+            {
+                events_.info( std::format( "The conversation holds {} tokens, so it is being compacted.", *event.tokens_before ) );
+            } else if ( event.kind == Kind::Compacted ) {
+                events_.info( event.text.empty() && event.dropped_turns > 0
+                    ? std::format( "The {} oldest turns were dropped unread, taking the conversation from {} tokens to {}.",
+                        event.dropped_turns, *event.tokens_before, *event.tokens_after )
+                    : std::format( "Compacted from {} tokens to {}.", *event.tokens_before, *event.tokens_after ) );
+            } else {
+                events_.info( std::format( "The conversation could not be compacted: {}.", event.text ) );
             }
         }
 
@@ -1208,6 +1261,12 @@ namespace Mila::ChatApp
             if ( agent_ )
             {
                 agent_->withTemplateVariables( templateVariables() );
+
+                // Thinking off: Qwen 3.8 at its default effort ran out of 8192 tokens writing a summary, in 4 of 6
+                // (Notebooks/CompactionSummaries.md). A quarter of a short context leaves it room to answer.
+                agent_->session().withCompaction( {
+                    .summary_tokens = std::min<dim_t>( kSummaryTokens, agent_->plan().contextLength() / 4 ),
+                    .template_variables = { { "enable_thinking", "false" } } } );
             }
         }
 

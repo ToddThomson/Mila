@@ -61,7 +61,7 @@ Browse the tree for what is where. What the tree does not tell you:
 Every component and operation is templated on independent axes:
 
 - **`TDeviceType`** (`DeviceType::Cuda`; `DeviceType::Cpu` is the host, with memory and tensor ops but no compute operations since 2026-10-11) — determines memory resource and kernel dispatch.
-- **`TPrecision`** (`TensorDataType::FP32`, `BF16`, etc.) — activation input and compute type. BF16 is the primary reduced-precision target; FP16 is not used.
+- **`TPrecision`** (`TensorDataType::FP32`, `BF16`, etc.) — activation input and compute type. BF16 is the primary reduced-precision target; FP16 is not used on CUDA, and is the planned Metal precision on chips without native BF16 (`Metal/MetalBackend.md`).
 - **`TWeightQuantization`** (on `Linear` only) — compile-time weight quantization policy. Defaults to `NoWeightQuant`. Setting `PerChannelFp8<>`, `PerGroupFp4<128>` or a codebook policy selects the storage format the weights must already carry — no runtime config object.
 
 ### Operation Dispatch — OperationTraits

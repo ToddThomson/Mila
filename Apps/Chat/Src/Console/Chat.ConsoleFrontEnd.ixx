@@ -640,6 +640,12 @@ namespace Mila::ChatApp
                 return;
             }
 
+            if ( cmd == "compact" )
+            {
+                session_.compactConversation();
+                return;
+            }
+
             if ( cmd == "context" || cmd.starts_with( "context " ) )
             {
                 const std::vector<std::string_view> args =
@@ -1679,6 +1685,7 @@ Available commands:
                                      unquantized weights on load: none, fp8, fp4, q4_0.
   /model install <name>              Install a published model
   /model remove <name>               Remove an installed model and reclaim its blobs
+  /compact                           Replace the conversation so far with a summary
   /context                           Show the context window and the largest that fits
   /context <n>|auto                  Set the context window (rebuilds, keeps the conversation)
   /thinking [on|off]                 Show or set the reasoning channel

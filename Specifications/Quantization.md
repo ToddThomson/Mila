@@ -1163,7 +1163,8 @@ Replaced by `TWeightQuant = NoWeightQuant`.
 - **Asymmetric K/V compression.** K and V use the same policy symmetrically.
 - **Fitting sub-4-bit formats at load time.** Codebook tables are fitted offline against
   calibration data. Only the absmax formats, FP8 and FP4, are fitted during a load.
-- **FP16 support.** BF16 supersedes FP16 for all Mila compute targets.
+- **FP16 support on CUDA.** BF16 supersedes FP16 there. Metal on a chip without native BF16 runs FP16
+  (`Metal/MetalBackend.md` section 3).
 - **Training with quantized weights or compressed KV cache.** Both are inference
   optimizations.
 - **MLA / low-rank KV projection.** Deferred; `KvCachePolicy` accommodates it.

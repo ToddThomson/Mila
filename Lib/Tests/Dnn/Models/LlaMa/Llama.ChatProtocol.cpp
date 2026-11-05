@@ -571,8 +571,13 @@ namespace Mila::Tests::Dnn::Models
     TEST( LlamaChatProtocolVariables, TheDateDefaultsAsEachTemplateDefaultsIt )
     {
         const std::vector<Conversation::Turn> history{ user( kCapital ) };
-        const auto now = std::chrono::current_zone()->to_local( std::chrono::system_clock::now() );
-        const std::string today = std::format( "{:%d %b %Y}", std::chrono::floor<std::chrono::days>( now ) );
+        const std::time_t now = std::time( nullptr );
+        std::array<char, 32> written{};
+
+        // What the template's strftime_now writes, read as it reads it.
+#pragma warning( suppress : 4996 )
+        const std::size_t length = std::strftime( written.data(), written.size(), "%d %b %Y", std::localtime( &now ) );
+        const std::string today( written.data(), length );
 
         EXPECT_NE( LlamaChatProtocol::llama31().formatPrompt( history, {} ).text.find( "Today Date: 26 Jul 2024\n" ), std::string::npos );
         EXPECT_NE( LlamaChatProtocol::llama32().formatPrompt( history, {} ).text.find( "Today Date: " + today + "\n" ), std::string::npos );

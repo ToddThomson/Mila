@@ -9,6 +9,7 @@
 
 #include <gtest/gtest.h>
 #include <chrono>
+#include <cctype>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -1435,5 +1436,745 @@ namespace Mila::Tests::AI
         }
 
         agent_->withTemplateVariables( {} );
+    }
+
+    // ================================================================
+    // Compaction (Specifications/Agents/Compaction.md)
+    // ================================================================
+
+    namespace
+    {
+        /// Text of about this many thousand tokens, each line different so nothing compresses it.
+        std::string paddingOf( int thousands )
+        {
+            std::string text;
+
+            for ( int line = 0; line < thousands * 40; ++line )
+            {
+                text += std::format( "Record {}: the part numbered {} ships from warehouse {} on day {}.\n",
+                    line, line * 7, line % 13, line % 29 );
+            }
+
+            return text;
+        }
+
+        /// Whole turns of this many thousand tokens, every pair a question and its answer.
+        std::vector<Conversation::Turn> earlierTurns( int thousands )
+        {
+            std::vector<Conversation::Turn> turns;
+
+            for ( int pair = 0; pair < thousands; ++pair )
+            {
+                turns.push_back( { Conversation::Role::User, std::format( "Please list batch {}.", pair ) } );
+                turns.push_back( { Conversation::Role::Assistant, paddingOf( 1 ) } );
+            }
+
+            return turns;
+        }
+
+        constexpr std::string_view kSummary = "The summary, as the program wrote it.";
+
+        /// The word in any case: models answer "heliotrope" as readily as they were told "HELIOTROPE".
+        bool saysTheCodeWord( std::string reply )
+        {
+            for ( char& character : reply )
+            {
+                character = static_cast<char>( std::tolower( static_cast<unsigned char>( character ) ) );
+            }
+
+            return reply.find( "heliotrope" ) != std::string::npos;
+        }
+
+        std::string renderedTurns( std::span<const Conversation::Turn> turns )
+        {
+            std::string text;
+
+            for ( const Conversation::Turn& turn : turns )
+            {
+                text += std::format( "{}|{}|{}|{}|{}\n", static_cast<int>( turn.role ), turn.content, turn.tool_name,
+                    turn.reasoning, turn.tool_calls.size() );
+            }
+
+            return text;
+        }
+    }
+
+    class AgentCompactsOnGemmaCuda : public AgentOnGemmaCuda
+    {
+    protected:
+
+        void SetUp() override
+        {
+            AgentOnGemmaCuda::SetUp();
+
+            if ( !IsSkipped() )
+            {
+                agent_->session().withoutCompaction();
+            }
+        }
+
+        void TearDown() override
+        {
+            if ( agent_ )
+            {
+                agent_->session().withoutCompaction();
+            }
+        }
+
+        /// A policy whose summaries are written here, recording what each was given.
+        CompactionPolicy writtenHere( std::optional<dim_t> trigger )
+        {
+            CompactionPolicy policy;
+            policy.trigger_tokens = trigger;
+            policy.summary_tokens = 512;
+            policy.summarizer = [this]( std::span<const Conversation::Turn> turns, std::stop_token )
+                {
+                    summarized_.push_back( turns.size() );
+
+                    return std::optional<std::string>( kSummary );
+                };
+
+            return policy;
+        }
+
+        /// Every compaction event of a response or a compact().
+        AgentEvent::Kind noteEvent( const AgentEvent& event )
+        {
+            if ( event.kind == AgentEvent::Kind::CompactionBegan )
+            {
+                ++began_;
+            } else if ( event.kind == AgentEvent::Kind::Compacted ) {
+                compacted_summaries_.emplace_back( event.text );
+                replaced_.push_back( event.replaced_turns.size() );
+                dropped_.push_back( event.dropped_turns );
+            } else if ( event.kind == AgentEvent::Kind::CompactionFailed ) {
+                failures_.emplace_back( event.text );
+            } else if ( event.kind == AgentEvent::Kind::Token ) {
+                ++tokens_seen_;
+            } else if ( event.kind == AgentEvent::Kind::ToolCalled ) {
+                called_results_.emplace_back( event.text );
+            }
+
+            return event.kind;
+        }
+
+        Response answer( std::string_view message, std::stop_token stop = {} )
+        {
+            return agent_->respond( message, [this]( const AgentEvent& event ) { noteEvent( event ); }, stop );
+        }
+
+        CompactionOutcome compactNow( std::stop_token stop = {} )
+        {
+            return agent_->compact( [this]( const AgentEvent& event ) { noteEvent( event ); }, stop );
+        }
+
+        std::span<const Conversation::Turn> conversation() const
+        {
+            return agent_->session().conversation();
+        }
+
+        std::vector<std::size_t> summarized_;
+        std::vector<std::string> compacted_summaries_;
+        std::vector<std::size_t> replaced_;
+        std::vector<std::size_t> dropped_;
+        std::vector<std::string> failures_;
+        std::vector<std::string> called_results_;
+        int began_ = 0;
+        int tokens_seen_ = 0;
+    };
+
+    TEST_F( AgentCompactsOnGemmaCuda, ATriggerNotReachedChangesNothing )
+    {
+        const std::string before_policy = agent_->prompt( "Say hello." ).text;
+
+        agent_->session().withCompaction( writtenHere( 6000 ) );
+
+        EXPECT_EQ( agent_->prompt( "Say hello." ).text, before_policy );
+
+        const Response response = answer( "Say hello." );
+
+        EXPECT_EQ( response.compactions, 0 );
+        EXPECT_EQ( began_, 0 );
+        EXPECT_TRUE( summarized_.empty() );
+        ASSERT_EQ( conversation().size(), 2u );
+        EXPECT_EQ( conversation()[ 0 ].content, "Say hello." );
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, BeforeAResponseTheHistoryBecomesOneTurnHoldingTheSummaryKeptTextAndMessage )
+    {
+        const std::vector<Conversation::Turn> earlier = earlierTurns( 3 );
+
+        agent_->session().withSystemPrompt( "You are terse." );
+        agent_->session().openConversation( earlier );
+
+        CompactionPolicy policy = writtenHere( 2000 );
+        policy.kept = { "Always name the warehouse.", "Never guess." };
+        agent_->session().withCompaction( std::move( policy ) );
+
+        const Response response = answer( "Say hello." );
+
+        EXPECT_EQ( response.compactions, 1 );
+        EXPECT_EQ( response.status, GenerateStatus::Success ) << to_string( response.status );
+        EXPECT_EQ( began_, 1 );
+        ASSERT_EQ( summarized_.size(), 1u );
+        EXPECT_EQ( summarized_.front(), earlier.size() ) << "the message not yet answered is no history";
+        ASSERT_EQ( replaced_.size(), 1u );
+        EXPECT_EQ( replaced_.front(), earlier.size() );
+        EXPECT_EQ( compacted_summaries_.front(), kSummary );
+
+        ASSERT_EQ( conversation().size(), 2u );
+        const Conversation::Turn& turn = conversation().front();
+
+        EXPECT_EQ( turn.role, Conversation::Role::User );
+        EXPECT_NE( turn.content.find( kSummary ), std::string::npos );
+        EXPECT_NE( turn.content.find( "Always name the warehouse." ), std::string::npos );
+        EXPECT_NE( turn.content.find( "Never guess." ), std::string::npos );
+        EXPECT_TRUE( turn.content.ends_with( "Say hello." ) ) << turn.content;
+        EXPECT_EQ( conversation()[ 1 ].role, Conversation::Role::Assistant );
+
+        EXPECT_NE( agent_->prompt( "Next." ).text.find( "You are terse." ), std::string::npos )
+            << "the system prompt left with the history";
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, BetweenRoundsTheLatestCallAndItsResultStayAsTheyStand )
+    {
+        allowEveryCall();
+        agent_->session().openConversation( earlierTurns( 1 ) );
+        agent_->session().withCompaction( writtenHere( 3000 ) );
+
+        const std::string result = paddingOf( 3 );
+        tool_body_ = [&result]( std::stop_token ) { return result; };
+
+        const Response response = answer( "What is the weather in Paris right now?" );
+
+        ASSERT_FALSE( arguments_seen_.empty() ) << "Gemma answered without calling the tool: " << response.text;
+        EXPECT_EQ( response.compactions, 1 );
+        EXPECT_EQ( response.rounds, 2 );
+
+        ASSERT_GE( conversation().size(), 4u );
+        EXPECT_NE( conversation()[ 0 ].content.find( "What is the weather in Paris right now?" ), std::string::npos );
+        EXPECT_EQ( conversation()[ 1 ].role, Conversation::Role::Assistant );
+        EXPECT_EQ( conversation()[ 1 ].tool_calls.size(), arguments_seen_.size() );
+        EXPECT_EQ( conversation()[ 2 ].role, Conversation::Role::Tool );
+        EXPECT_EQ( conversation()[ 2 ].content, result );
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, AResultThatWouldBeCutIsKeptWholeWhenCompactingMakesItsRoom )
+    {
+        allowEveryCall();
+        agent_->session().openConversation( earlierTurns( 4 ) );
+        agent_->session().withCompaction( writtenHere( std::nullopt ) );
+
+        const std::string result = paddingOf( 5 );
+        tool_body_ = [&result]( std::stop_token ) { return result; };
+
+        const Response response = answer( "What is the weather in Paris right now?" );
+
+        ASSERT_FALSE( called_results_.empty() ) << "Gemma answered without calling the tool: " << response.text;
+        EXPECT_EQ( response.compactions, 1 );
+        EXPECT_EQ( called_results_.front(), result ) << "the result was cut though compacting made its room";
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, ASummaryThatFailsLeavesTheConversationAndIsTriedOncePerResponse )
+    {
+        allowEveryCall();
+
+        const std::vector<Conversation::Turn> earlier = earlierTurns( 2 );
+
+        agent_->session().openConversation( earlier );
+
+        CompactionPolicy policy = writtenHere( 500 );
+        policy.summarizer = [this]( auto, auto )
+            {
+                summarized_.push_back( 0 );
+
+                return std::optional<std::string>{};
+            };
+        agent_->session().withCompaction( std::move( policy ) );
+
+        const Response response = answer( "What is the weather in Paris right now?" );
+
+        ASSERT_FALSE( arguments_seen_.empty() ) << "Gemma answered without calling the tool: " << response.text;
+        EXPECT_EQ( response.compactions, 0 );
+        EXPECT_EQ( summarized_.size(), 1u ) << "a later round of the same response tried again";
+        ASSERT_EQ( failures_.size(), 1u );
+        EXPECT_EQ( renderedTurns( conversation().first( earlier.size() ) ), renderedTurns( earlier ) );
+
+        answer( "Say hello." );
+        EXPECT_EQ( summarized_.size(), 2u ) << "the next response may try again";
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, ASummarizerThatThrowsIsAFailureSaidInItsOwnWords )
+    {
+        const std::vector<Conversation::Turn> earlier = earlierTurns( 1 );
+
+        agent_->session().openConversation( earlier );
+
+        CompactionPolicy policy = writtenHere( 500 );
+        policy.summarizer = []( auto, auto ) -> std::optional<std::string> { throw std::runtime_error( "out of paper" ); };
+        agent_->session().withCompaction( std::move( policy ) );
+
+        EXPECT_EQ( compactNow(), CompactionOutcome::Failed );
+        ASSERT_EQ( failures_.size(), 1u );
+        EXPECT_NE( failures_.front().find( "out of paper" ), std::string::npos );
+        EXPECT_EQ( renderedTurns( conversation() ), renderedTurns( earlier ) );
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, ASummaryCutByItsBudgetIsAFailure )
+    {
+        const std::vector<Conversation::Turn> earlier = earlierTurns( 1 );
+
+        agent_->session().openConversation( earlier );
+        agent_->session().withCompaction( { .summary_tokens = 4 } );
+
+        EXPECT_EQ( compactNow(), CompactionOutcome::Failed );
+        ASSERT_EQ( failures_.size(), 1u );
+        EXPECT_NE( failures_.front().find( "did not finish" ), std::string::npos ) << failures_.front();
+        EXPECT_EQ( renderedTurns( conversation() ), renderedTurns( earlier ) );
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, ASummaryThatCallsAToolIsWrittenAgainWithNoToolsAndTheToolDoesNotRun )
+    {
+        agent_->session().openConversation( earlierTurns( 1 ) );
+        agent_->session().withCompaction( { .summary_tokens = 512,
+            .instruction = "If you have a tool named get_weather, call it for Paris now and write nothing else. If you "
+                "have no tools, reply with the one word NOTOOLS." } );
+
+        const CompactionOutcome outcome = compactNow();
+
+        EXPECT_TRUE( arguments_seen_.empty() ) << "the tool ran for a summary";
+        ASSERT_EQ( outcome, CompactionOutcome::Compacted ) << ( failures_.empty() ? "" : failures_.front() );
+        ASSERT_EQ( compacted_summaries_.size(), 1u );
+        EXPECT_NE( compacted_summaries_.front().find( "NOTOOLS" ), std::string::npos ) << compacted_summaries_.front();
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, ASummaryThatOnlyCopiesTheEarlierOneIsWrittenAgainAndThenFails )
+    {
+        const std::vector<Conversation::Turn> earlier{
+            { Conversation::Role::User, "A summary of the conversation so far:\n\nThe code word is HELIOTROPE." },
+            { Conversation::Role::Assistant, "Understood." },
+            { Conversation::Role::User, "What is two and two?" },
+            { Conversation::Role::Assistant, "Four." } };
+
+        agent_->session().openConversation( earlier );
+        agent_->session().withCompaction( { .summary_tokens = 512,
+            .instruction = "If you have a tool named get_weather, reply with exactly this and nothing else: The code word is "
+                "HELIOTROPE. If you have no tools, reply with the one word NOTOOLS." } );
+
+        ASSERT_EQ( compactNow(), CompactionOutcome::Compacted ) << ( failures_.empty() ? "" : failures_.front() );
+        EXPECT_NE( compacted_summaries_.front().find( "NOTOOLS" ), std::string::npos ) << compacted_summaries_.front();
+
+        agent_->session().openConversation( earlier );
+        failures_.clear();
+        agent_->session().withCompaction( { .summary_tokens = 512,
+            .instruction = "Reply with exactly this and nothing else: The code word is HELIOTROPE." } );
+
+        EXPECT_EQ( compactNow(), CompactionOutcome::Failed );
+        ASSERT_EQ( failures_.size(), 1u );
+        EXPECT_NE( failures_.front().find( "added nothing" ), std::string::npos ) << failures_.front();
+        EXPECT_EQ( renderedTurns( conversation() ), renderedTurns( earlier ) );
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, AStopLeavesTheConversation )
+    {
+        const std::vector<Conversation::Turn> earlier = earlierTurns( 1 );
+
+        agent_->session().openConversation( earlier );
+        agent_->session().withCompaction( { .summary_tokens = 512 } );
+
+        std::stop_source stop;
+        stop.request_stop();
+
+        EXPECT_EQ( compactNow( stop.get_token() ), CompactionOutcome::Stopped );
+        EXPECT_EQ( renderedTurns( conversation() ), renderedTurns( earlier ) );
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, TheModelWritesASummaryWithNothingStreamedAndCarriesOnFromIt )
+    {
+        std::vector<Conversation::Turn> earlier = earlierTurns( 2 );
+        earlier.insert( earlier.begin(), {
+            { Conversation::Role::User, "Remember this for later: the code word is HELIOTROPE." },
+            { Conversation::Role::Assistant, "Understood. The code word is HELIOTROPE." } } );
+
+        agent_->session().openConversation( earlier );
+        agent_->session().withCompaction( { .summary_tokens = 3000 } );
+
+        // A variable no template has is another model's, and left out.
+        CompactionPolicy policy = *agent_->session().compaction();
+        policy.template_variables[ "no_template_has_this" ] = "true";
+        agent_->session().withCompaction( std::move( policy ) );
+
+        ASSERT_EQ( compactNow(), CompactionOutcome::Compacted ) << ( failures_.empty() ? "" : failures_.front() );
+        EXPECT_EQ( tokens_seen_, 0 ) << "a summary is no reply of the model's";
+        ASSERT_EQ( conversation().size(), 1u );
+        EXPECT_FALSE( compacted_summaries_.front().empty() );
+
+        const Response response = answer( "What is the code word? Answer with the word alone." );
+
+        EXPECT_TRUE( saysTheCodeWord( response.text ) ) << response.text;
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, ASummaryKeepsItsRoomWhenTheTriggerIsLaterThanThat )
+    {
+        constexpr std::string_view message = "Say hello.";
+        const std::vector<Conversation::Turn> earlier = earlierTurns( 1 );
+
+        agent_->session().openConversation( earlier );
+
+        const dim_t limit = agent_->plan().contextLength();
+        const dim_t tokens = static_cast<dim_t>( agent_->model().tokenizer().encode( agent_->prompt( message ).text ).size() );
+
+        // One token more than the summary's budget leaves: no compaction is due yet.
+        CompactionPolicy roomy = writtenHere( limit );
+        roomy.summary_tokens = limit - tokens - 1;
+        agent_->session().withCompaction( std::move( roomy ) );
+
+        EXPECT_EQ( answer( message ).compactions, 0 );
+        EXPECT_TRUE( summarized_.empty() );
+
+        agent_->session().openConversation( earlier );
+
+        CompactionPolicy exact = writtenHere( limit );
+        exact.summary_tokens = limit - tokens;
+        agent_->session().withCompaction( std::move( exact ) );
+
+        EXPECT_EQ( answer( message ).compactions, 1 );
+        EXPECT_EQ( summarized_.size(), 1u );
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, ASummaryReadsOnlyWhatTheModelDoesNotHold )
+    {
+        agent_->session().openConversation( earlierTurns( 3 ) );
+        agent_->session().withCompaction( { .trigger_tokens = 7000, .summary_tokens = 3000 } );
+
+        answer( "Say hello." );
+
+        const dim_t held = static_cast<dim_t>( agent_->model().tokenizer().encode( agent_->prompt( "" ).text ).size() );
+
+        ReuseLog reuse;
+        reuse.beginRound();
+
+        ASSERT_EQ( compactNow(), CompactionOutcome::Compacted ) << ( failures_.empty() ? "" : failures_.front() );
+        ASSERT_FALSE( reuse.rounds().empty() );
+        ASSERT_TRUE( reuse.rounds().front().has_value() ) << "the summary prefilled its whole prompt";
+        EXPECT_GT( reuse.rounds().front()->skipped, held - 300 ) << "the tools or the history no longer matched what the model holds";
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, ACompactionAskedForTwiceFindsNothingToReplaceTheSecondTime )
+    {
+        agent_->session().withCompaction( writtenHere( std::nullopt ) );
+
+        EXPECT_EQ( compactNow(), CompactionOutcome::NothingToReplace ) << "an empty conversation";
+
+        agent_->session().openConversation( earlierTurns( 1 ) );
+
+        EXPECT_EQ( compactNow(), CompactionOutcome::Compacted );
+        EXPECT_EQ( compactNow(), CompactionOutcome::NothingToReplace ) << "only a summary is left";
+        EXPECT_EQ( summarized_.size(), 1u );
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, ACompactWithNoPolicyIsRefused )
+    {
+        EXPECT_THROW( agent_->compact(), std::logic_error );
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, AMessageTooLongEvenAloneCompactsNothing )
+    {
+        const std::vector<Conversation::Turn> earlier = earlierTurns( 1 );
+
+        agent_->session().openConversation( earlier );
+        agent_->session().withCompaction( writtenHere( 500 ) );
+
+        const Response response = answer( paddingOf( 12 ) );
+
+        EXPECT_EQ( response.status, GenerateStatus::ContextOverflow );
+        EXPECT_EQ( response.rounds, 0 );
+        EXPECT_TRUE( summarized_.empty() );
+        EXPECT_EQ( renderedTurns( conversation() ), renderedTurns( earlier ) );
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, AMessageThatFitsAloneButNotBesideItsSummaryIsDroppedAndTheSummaryStays )
+    {
+        agent_->session().openConversation( earlierTurns( 1 ) );
+
+        const std::string long_summary = paddingOf( 4 );
+        const std::string message = paddingOf( 5 );
+
+        CompactionPolicy policy = writtenHere( 500 );
+        policy.summarizer = [&long_summary]( auto, auto ) { return std::optional<std::string>( long_summary ); };
+        agent_->session().withCompaction( std::move( policy ) );
+
+        const Response response = answer( message );
+
+        EXPECT_EQ( response.status, GenerateStatus::ContextOverflow );
+        ASSERT_EQ( conversation().size(), 1u );
+        EXPECT_TRUE( conversation().front().content.ends_with( long_summary ) ) << "the message stayed in the summary's turn";
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, AToolAllowedForTheConversationStaysAllowedAcrossACompaction )
+    {
+        int asked = 0;
+
+        agent_->session().onAsk( [&asked]( const ToolQuestion& )
+            {
+                ++asked;
+
+                return ToolAnswer::ForConversation;
+            } );
+
+        ASSERT_FALSE( respond( "What is the weather in Paris right now?" ).empty() ) << last_.text;
+
+        agent_->session().withCompaction( writtenHere( std::nullopt ) );
+        ASSERT_EQ( compactNow(), CompactionOutcome::Compacted );
+
+        ASSERT_FALSE( respond( "And what is the weather in Rome right now?" ).empty() ) << last_.text;
+        EXPECT_EQ( asked, 1 );
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, AnEarlierSummaryGoesLastWhenThereIsNoRoomAndTheDroppedAreCounted )
+    {
+        agent_->session().openConversation( earlierTurns( 7 ) );
+        agent_->session().withCompaction( { .summary_tokens = 3000 } );
+
+        const CompactionOutcome outcome = compactNow();
+
+        ASSERT_EQ( outcome, CompactionOutcome::Compacted ) << ( failures_.empty() ? "" : failures_.front() );
+        ASSERT_EQ( dropped_.size(), 1u );
+        EXPECT_GT( dropped_.front(), 0u ) << "seven thousand tokens and three thousand of room needed nothing dropped";
+        EXPECT_EQ( replaced_.front(), 14u ) << "what the summary never read still reaches the application";
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, ThePolicysTemplateVariablesReachTheSummaryAlone )
+    {
+        // Long enough that a summary under the session's variables would skip far more than the bound below.
+        agent_->session().openConversation( earlierTurns( 3 ) );
+
+        // What the switch does to the prompt shows at the first token. With thinking on, Gemma ran 1,080 to 5,042 tokens
+        // on four short turns, so whether a summary finishes is not what this reads.
+        agent_->session().withCompaction( { .summary_tokens = 16, .template_variables = { { "enable_thinking", "true" } } } );
+
+        answer( "Say hello." );
+
+        ReuseLog reuse;
+        reuse.beginRound();
+
+        (void)compactNow();
+        ASSERT_FALSE( reuse.rounds().empty() );
+
+        // The switch is written at the prompt's head, so the summary shares almost nothing with what the model held.
+        if ( reuse.rounds().front().has_value() )
+        {
+            EXPECT_LT( reuse.rounds().front()->skipped, 100 ) << "the summary was written under the session's variables";
+        }
+
+        EXPECT_EQ( agent_->session().templateVariables().count( "enable_thinking" ), 0u ) << "the session's own changed";
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, AConversationHoldingOneTurnTooLongToReadStillCarriesOn )
+    {
+        // What a reply that ran to the context limit leaves behind: one turn past anything a summary can read.
+        agent_->session().openConversation( {
+            { Conversation::Role::User, "Please list every batch." },
+            { Conversation::Role::Assistant, paddingOf( 9 ) } } );
+        agent_->session().withCompaction( { .summary_tokens = 3000 } );
+
+        const Response response = answer( "Say hello." );
+
+        EXPECT_EQ( response.compactions, 1 ) << ( failures_.empty() ? "" : failures_.front() );
+        EXPECT_EQ( response.status, GenerateStatus::Success ) << to_string( response.status );
+        EXPECT_GE( response.rounds, 1 );
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, NoSummaryLeavesTheOldestTurnsDroppedAndTheMessageAnswered )
+    {
+        const std::vector<Conversation::Turn> earlier = earlierTurns( 9 );
+
+        agent_->session().openConversation( earlier );
+
+        CompactionPolicy policy = writtenHere( std::nullopt );
+        policy.kept = { "Never guess." };
+        policy.summarizer = []( auto, auto ) { return std::optional<std::string>{}; };
+        agent_->session().withCompaction( std::move( policy ) );
+
+        const Response response = answer( "Say hello." );
+
+        EXPECT_EQ( response.status, GenerateStatus::Success ) << to_string( response.status );
+        EXPECT_EQ( response.compactions, 1 );
+        EXPECT_EQ( failures_.size(), 1u );
+        ASSERT_EQ( dropped_.size(), 1u );
+        ASSERT_GT( dropped_.front(), 0u );
+        ASSERT_LT( dropped_.front(), earlier.size() ) << "turns that fit were dropped with the rest";
+        EXPECT_EQ( replaced_.front(), dropped_.front() ) << "what was dropped still reaches the application";
+        EXPECT_TRUE( compacted_summaries_.front().empty() );
+
+        ASSERT_GE( conversation().size(), 2u );
+        EXPECT_EQ( conversation().front().role, Conversation::Role::User );
+        EXPECT_NE( conversation().front().content.find( "are gone" ), std::string::npos ) << "the model was not told";
+        EXPECT_NE( conversation().front().content.find( "Never guess." ), std::string::npos );
+        EXPECT_NE( conversation().front().content.find( earlier[ dropped_.front() ].content ), std::string::npos )
+            << "the first turn kept lost its text to the opening";
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, AnEarlierSummaryStaysWhenTheOldestTurnsAreDropped )
+    {
+        std::vector<Conversation::Turn> earlier = earlierTurns( 9 );
+        earlier.insert( earlier.begin(), {
+            { Conversation::Role::User, "A summary of the conversation so far:\n\nThe code word is HELIOTROPE." },
+            { Conversation::Role::Assistant, "Understood." } } );
+
+        agent_->session().openConversation( earlier );
+
+        CompactionPolicy policy = writtenHere( std::nullopt );
+        policy.summarizer = []( auto, auto ) { return std::optional<std::string>{}; };
+        agent_->session().withCompaction( std::move( policy ) );
+
+        const Response response = answer( "Say hello." );
+
+        EXPECT_EQ( response.status, GenerateStatus::Success ) << to_string( response.status );
+        ASSERT_EQ( dropped_.size(), 1u );
+        EXPECT_NE( conversation().front().content.find( "HELIOTROPE" ), std::string::npos );
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, OneTurnTooLongLeavesOnlyTheMessageWhenNoSummaryCanBeWritten )
+    {
+        agent_->session().openConversation( {
+            { Conversation::Role::User, "Please list every batch." },
+            { Conversation::Role::Assistant, paddingOf( 9 ) } } );
+
+        CompactionPolicy policy = writtenHere( std::nullopt );
+        policy.summarizer = []( auto, auto ) { return std::optional<std::string>{}; };
+        agent_->session().withCompaction( std::move( policy ) );
+
+        const Response response = answer( "Say hello." );
+
+        EXPECT_EQ( response.status, GenerateStatus::Success ) << to_string( response.status );
+        ASSERT_EQ( dropped_.size(), 1u );
+        EXPECT_EQ( dropped_.front(), 2u );
+        EXPECT_TRUE( conversation().front().content.ends_with( "Say hello." ) ) << conversation().front().content;
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, NothingIsDroppedUnreadUnlessAMessageIsWaiting )
+    {
+        const std::vector<Conversation::Turn> earlier = earlierTurns( 9 );
+
+        agent_->session().openConversation( earlier );
+
+        CompactionPolicy policy = writtenHere( std::nullopt );
+        policy.summarizer = []( auto, auto ) { return std::optional<std::string>{}; };
+        agent_->session().withCompaction( std::move( policy ) );
+
+        EXPECT_EQ( compactNow(), CompactionOutcome::Failed );
+        EXPECT_TRUE( dropped_.empty() );
+        EXPECT_EQ( renderedTurns( conversation() ), renderedTurns( earlier ) );
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, AStopIsNoReasonToDropAnything )
+    {
+        const std::vector<Conversation::Turn> earlier = earlierTurns( 9 );
+
+        agent_->session().openConversation( earlier );
+
+        CompactionPolicy policy = writtenHere( std::nullopt );
+        policy.summarizer = []( auto, auto ) { return std::optional<std::string>{}; };
+        agent_->session().withCompaction( std::move( policy ) );
+
+        std::stop_source stop;
+        stop.request_stop();
+
+        const Response response = answer( "Say hello.", stop.get_token() );
+
+        EXPECT_EQ( response.status, GenerateStatus::ContextOverflow ) << to_string( response.status );
+        EXPECT_TRUE( dropped_.empty() );
+        EXPECT_EQ( renderedTurns( conversation() ), renderedTurns( earlier ) );
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, ALoneSummaryIsNotDroppedForAMessageThatDoesNotFitBesideIt )
+    {
+        const std::vector<Conversation::Turn> earlier{
+            { Conversation::Role::User, std::format( "A summary of the conversation so far:\n\n{}", paddingOf( 4 ) ) } };
+
+        agent_->session().openConversation( earlier );
+
+        CompactionPolicy policy = writtenHere( std::nullopt );
+        policy.summarizer = []( auto, auto ) { return std::optional<std::string>{}; };
+        agent_->session().withCompaction( std::move( policy ) );
+
+        const Response response = answer( paddingOf( 5 ) );
+
+        EXPECT_EQ( response.status, GenerateStatus::ContextOverflow ) << to_string( response.status );
+        EXPECT_EQ( response.compactions, 0 );
+        EXPECT_TRUE( dropped_.empty() );
+        EXPECT_EQ( renderedTurns( conversation() ), renderedTurns( earlier ) );
+    }
+
+    /// Every family, to the end: compact a real conversation with the model's own summary, then go on.
+    TEST( AgentCuda, EveryFamilyCarriesOnFromItsOwnSummary )
+    {
+        int ran = 0;
+
+        for ( const auto* name : { "gemma-4-12b-it-q4_0", "gemma-4-12b-it-fp4", "llama-3.1-8b-instruct-fp4", "Qwen3.8-27B-fp4" } )
+        {
+            const auto installed = firstInstalled( { name } );
+
+            if ( whyNotRunnable( installed ).has_value() )
+            {
+                continue;
+            }
+
+            std::vector<Conversation::Turn> earlier = earlierTurns( 2 );
+            earlier.insert( earlier.begin(), {
+                { Conversation::Role::User, "Remember this for later: the code word is HELIOTROPE." },
+                { Conversation::Role::Assistant, "Understood. The code word is HELIOTROPE." } } );
+
+            auto agent = Agent::create( *installed, *requestThatFits( *installed ), Session{}
+                .withCompaction( { .summary_tokens = 3000, .template_variables = { { "enable_thinking", "false" } } } ) );
+
+            agent.model().model().seedSampler( 7 );
+            agent.session().openConversation( earlier );
+
+            ASSERT_EQ( agent.compact(), CompactionOutcome::Compacted ) << *installed;
+            ASSERT_EQ( agent.session().conversation().size(), 1u ) << *installed;
+
+            const Response response = agent.respond( "What is the code word? Answer with the word alone." );
+
+            EXPECT_EQ( response.status, GenerateStatus::Success ) << *installed;
+            EXPECT_TRUE( saysTheCodeWord( response.text ) ) << *installed << ": " << response.text;
+            ++ran;
+        }
+
+        if ( ran == 0 )
+        {
+            GTEST_SKIP() << "no model of any family can run here";
+        }
+    }
+
+    TEST( AgentCuda, QwenClearsReasoningAloneWhenThatIsEnough )
+    {
+        const auto name = firstInstalled( { "Qwen3.8-27B-fp4", "Qwen3.8-27B-fp4-cb3" } );
+
+        if ( const auto skipped = whyNotRunnable( name ) )
+        {
+            GTEST_SKIP() << *skipped;
+        }
+
+        std::vector<Conversation::Turn> earlier = {
+            { Conversation::Role::User, "Please list batch 1." },
+            { Conversation::Role::Assistant, "Listed.", {}, {}, paddingOf( 3 ) },
+            { Conversation::Role::User, "Please list batch 2." },
+            { Conversation::Role::Assistant, "Listed.", {}, {}, paddingOf( 3 ) } };
+
+        auto agent = Agent::create( *name, *requestThatFits( *name ), Session{}
+            .withCompaction( { .trigger_tokens = 3000, .summary_tokens = 512, .summarizer =
+                []( auto, auto ) -> std::optional<std::string> { throw std::logic_error( "no summary was needed" ); } } ) );
+
+        agent.session().openConversation( earlier );
+
+        ASSERT_EQ( agent.compact(), CompactionOutcome::ReasoningCleared );
+        ASSERT_EQ( agent.session().conversation().size(), earlier.size() );
+
+        for ( const Conversation::Turn& turn : agent.session().conversation() )
+        {
+            EXPECT_TRUE( turn.reasoning.empty() );
+        }
     }
 }

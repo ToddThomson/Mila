@@ -477,6 +477,8 @@ export import Agents.ArgumentSchema;
 export import Agents.ToolGate;
 export import Agents.AgentEvent;
 export import Agents.AgentLimits;
+export import Agents.CompactionOutcome;
+export import Agents.CompactionPolicy;
 export import Agents.Response;
 export import Agents.SamplingOverride;
 export import Agents.Session;

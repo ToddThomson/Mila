@@ -32,5 +32,8 @@ namespace Mila::Agents
 
         /// The response's time ran out.
         bool time_limit_reached{ false };
+
+        /// How many times the conversation was compacted while this response ran.
+        int compactions{ 0 };
     };
 }

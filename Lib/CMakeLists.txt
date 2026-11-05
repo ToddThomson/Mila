@@ -1094,6 +1094,8 @@ target_sources(Mila
             "Src/Agents/Tools/ToolGate.ixx"
             "Src/Agents/AgentEvent.ixx"
             "Src/Agents/AgentLimits.ixx"
+            "Src/Agents/CompactionOutcome.ixx"
+            "Src/Agents/CompactionPolicy.ixx"
             "Src/Agents/Response.ixx"
             "Src/Agents/SamplingOverride.ixx"
             "Src/Agents/Session.ixx"
