@@ -32,5 +32,8 @@ namespace Mila::Dnn::Compute
         // A CPU tensor is already host memory, so staging is the identity. The alias
         // exists so a device-agnostic caller never has to name a CUDA type.
         using host_staging_memory_resource = CpuMemoryResource;
+
+        // The host has no compute operations, forward or backward.
+        static constexpr bool supports_training = false;
     };
 }

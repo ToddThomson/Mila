@@ -639,13 +639,10 @@ namespace Mila::Dnn
                 ComponentPtr target = this->findComponent( component_path );
                 target->loadParameter( param_name, blob );
 
-                // The reader reuses its pinned staging slot as soon as this returns, and a
+                // The reader reuses its staging slot as soon as this returns, and a
                 // quantize-on-load H2D is async on the op stream and does not self-
                 // synchronize, so force completion here.
-                if constexpr ( TDeviceType == DeviceType::Cuda )
-                {
-                    this->getExecutionContext()->synchronize();
-                }
+                this->getExecutionContext()->synchronize();
             };
 
 #ifdef MILA_HAS_CUDA
@@ -659,10 +656,7 @@ namespace Mila::Dnn
                 reader.streamTensorBlobs<CpuMemoryResource>( consume );
             }
 
-            if constexpr ( TDeviceType == DeviceType::Cuda )
-            {
-                this->getExecutionContext()->synchronize();
-            }
+            this->getExecutionContext()->synchronize();
 
             // Every tensor has landed, so the buffer full-precision weights were fitted through is
             // not held for the model's lifetime.

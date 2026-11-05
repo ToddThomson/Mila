@@ -10,6 +10,18 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Llama 3.2 3B at BF16 on Metal scores a sequence further from HuggingFace than either accepted BF16 run
+
+`Lib/Tests/Dnn/Models/LlaMa/LlamaModel.HuggingFaceReference.Metal.cpp` (`Bf16.SequenceLogLikelihoodAndRanges`, fails); `Specifications/Notebooks/MetalFirstModel.md` 2 @ 0.21.0-dev+121
+
+Mean negative log-likelihood over 1024 wikitext tokens: +1.25e-3 from HuggingFace FP32, against a bar of 8.97e-4, the further of HuggingFace's own BF16 (+9.0e-4) and Mila's CUDA BF16 (-5.5e-4). Its logits and greedy pass, at the same distance as the other BF16 runs, and FP16 on the same Mac is within 6.8e-5. The M1 selects FP16, so no model runs this path today. Not looked for: which operation loses it. A first step would compare per-layer outputs against CUDA BF16 on the same tokens.
+
+## Every network chooses its load staging by `#ifdef MILA_HAS_CUDA` though the device traits name it
+
+`Lib/Src/Dnn/Components/Transformers/LlaMa/Llama.ixx` (`loadParameters`); the same in `Gemma.ixx`, `Gemma.Drafter.ixx`, `Qwen.ixx`, `GptTransformer.ixx` @ 0.21.0-dev+120
+
+Each streams its weights through `CudaPinnedMemoryResource` under `#ifdef MILA_HAS_CUDA` and `if constexpr ( Cuda )`, and through `CpuMemoryResource` otherwise. `DeviceTypeTraits<D>::host_staging_memory_resource` already names the staging resource per device (Cuda pinned, Cpu and Metal their own), and `TokenEmbedding` and `Component` use it. `streamTensorBlobs` takes a device index only for pinned memory, which is why the branch exists. Found running Llama on Metal, where the CPU branch serves and Metal's own staging resource goes unused.
+
 ## An agent cannot start a process and keep working while it runs
 
 `Lib/Src/Agents/Programs/ProgramContainer.ixx`; `Lib/Src/Agents/Grants/ToolGrant.ixx` (`runProgram`); `Specifications/ContainedPrograms.md` 4 @ 0.21.0-dev+119

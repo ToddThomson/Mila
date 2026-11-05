@@ -366,45 +366,53 @@ namespace Mila::Dnn
 
         TokenIndexType& backward( const TokenIndexType& input, const TensorType& output_grad ) override
         {
-            if ( !this->isBuilt() )
-                throw std::runtime_error( "LlamaTransformer must be built before calling backward()." );
-
-            if ( !this->isTrainingMode() )
+            if constexpr ( !DeviceTypeTraits<TDeviceType>::supports_training )
             {
-                throw std::runtime_error( "LlamaTransformer: backward requires training mode." );
+                throw std::logic_error( std::format( "LlamaTransformer: {} runs inference only, so there is no backward pass",
+                    deviceTypeToString( TDeviceType ) ) );
             }
-
-            for ( std::size_t i = 0; i < transformer_blocks_.size(); ++i )
+            else
             {
-                if ( !block_input_ptrs_[ i ] || !block_output_ptrs_[ i ] )
-                    throw std::runtime_error( std::format( "LlamaTransformer: missing cached activation for block {}", i ) );
-            }
+                if ( !this->isBuilt() )
+                    throw std::runtime_error( "LlamaTransformer must be built before calling backward()." );
 
-            if ( !normalized_ptr_ || !logits_ptr_ )
-                throw std::runtime_error( "LlamaTransformer: missing final activations for backward" );
+                if ( !this->isTrainingMode() )
+                {
+                    throw std::runtime_error( "LlamaTransformer: backward requires training mode." );
+                }
 
-            auto& normalized_grad = lm_head_->backward( *normalized_ptr_, output_grad );
-            this->getExecutionContext()->synchronize();
+                for ( std::size_t i = 0; i < transformer_blocks_.size(); ++i )
+                {
+                    if ( !block_input_ptrs_[ i ] || !block_output_ptrs_[ i ] )
+                        throw std::runtime_error( std::format( "LlamaTransformer: missing cached activation for block {}", i ) );
+                }
 
-            auto& last_block_grad = final_rmsnorm_->backward( *block_output_ptrs_.back(), normalized_grad );
-            this->getExecutionContext()->synchronize();
+                if ( !normalized_ptr_ || !logits_ptr_ )
+                    throw std::runtime_error( "LlamaTransformer: missing final activations for backward" );
 
-            TensorType* curr_grad = &last_block_grad;
-
-            for ( std::int64_t i = static_cast<std::int64_t>(transformer_blocks_.size()) - 1; i >= 0; --i )
-            {
-                auto& block_grad = transformer_blocks_[ static_cast<std::size_t>(i) ]->backward(
-                    *block_input_ptrs_[ static_cast<std::size_t>(i) ], *curr_grad );
-
-                curr_grad = &block_grad;
-
+                auto& normalized_grad = lm_head_->backward( *normalized_ptr_, output_grad );
                 this->getExecutionContext()->synchronize();
+
+                auto& last_block_grad = final_rmsnorm_->backward( *block_output_ptrs_.back(), normalized_grad );
+                this->getExecutionContext()->synchronize();
+
+                TensorType* curr_grad = &last_block_grad;
+
+                for ( std::int64_t i = static_cast<std::int64_t>(transformer_blocks_.size()) - 1; i >= 0; --i )
+                {
+                    auto& block_grad = transformer_blocks_[ static_cast<std::size_t>(i) ]->backward(
+                        *block_input_ptrs_[ static_cast<std::size_t>(i) ], *curr_grad );
+
+                    curr_grad = &block_grad;
+
+                    this->getExecutionContext()->synchronize();
+                }
+
+                auto& input_grad = token_embedding_->backward( input, *curr_grad );
+                this->getExecutionContext()->synchronize();
+
+                return input_grad;
             }
-
-            auto& input_grad = token_embedding_->backward( input, *curr_grad );
-            this->getExecutionContext()->synchronize();
-
-            return input_grad;
         }
 
         // ====================================================================
@@ -623,13 +631,10 @@ namespace Mila::Dnn
                 ComponentPtr target = this->findComponent( component_path );
                 target->loadParameter( param_name, blob );
 
-                // The reader reuses its pinned staging slot as soon as this returns, so the
+                // The reader reuses its staging slot as soon as this returns, so the
                 // device read of blob must be complete. The quantize-on-load H2D is async on
                 // the op stream and does not self-synchronize; force completion here.
-                if constexpr ( TDeviceType == DeviceType::Cuda )
-                {
-                    this->getExecutionContext()->synchronize();
-                }
+                this->getExecutionContext()->synchronize();
             };
 
 #ifdef MILA_HAS_CUDA
@@ -643,10 +648,7 @@ namespace Mila::Dnn
                 reader.streamTensorBlobs<CpuMemoryResource>( consume );
             }
 
-            if constexpr ( TDeviceType == DeviceType::Cuda )
-            {
-                this->getExecutionContext()->synchronize();
-            }
+            this->getExecutionContext()->synchronize();
 
             // Every tensor has landed, so the buffer full-precision weights were fitted through is
             // not held for the model's lifetime.

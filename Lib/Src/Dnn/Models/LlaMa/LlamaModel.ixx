@@ -574,7 +574,7 @@ namespace Mila::Dnn
                 [&]<KvCachePolicy TKvCachePolicy>() -> TResult
                 {
                     // Unconstrained: MSVC loses the concept's name in a constrained lambda nested in another.
-                    return dispatchWeightQuantization<TPrecision, TResult>( weight_quantization, caller,
+                    return dispatchWeightQuantization<TDeviceType, TPrecision, TResult>( weight_quantization, caller,
                         [&]<typename TWeightQuantization>() -> TResult
                         {
                             return action.template operator()<TWeightQuantization, TKvCachePolicy>();

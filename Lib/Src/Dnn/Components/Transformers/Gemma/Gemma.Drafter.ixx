@@ -229,11 +229,8 @@ namespace Mila::Dnn
 
                 this->findComponent( component_path.substr( kWeightsPrefix.size() ) )->loadParameter( param_name, blob );
 
-                // The reader reuses its pinned staging slot when this returns.
-                if constexpr ( TDeviceType == DeviceType::Cuda )
-                {
-                    this->getExecutionContext()->synchronize();
-                }
+                // The reader reuses its staging slot when this returns.
+                this->getExecutionContext()->synchronize();
             };
 
 #ifdef MILA_HAS_CUDA

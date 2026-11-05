@@ -204,56 +204,64 @@ namespace Mila::Dnn
 
         TokenIndexType& backward( const TokenIndexType& input, const TensorType& output_grad ) override
         {
-            if ( !this->isBuilt() )
+            if constexpr ( !DeviceTypeTraits<TDeviceType>::supports_training )
             {
-                throw std::runtime_error( "GptTransformer must be built before calling backward." );
+                throw std::logic_error( std::format( "GptTransformer: {} runs inference only, so there is no backward pass",
+                    deviceTypeToString( TDeviceType ) ) );
             }
-
-            if ( !this->isTrainingMode() )
+            else
             {
-                throw std::runtime_error( "GptTransformer: backward requires training mode." );
-            }
-
-            if ( !encoder_out_ptr_ )
-            {
-                throw std::runtime_error( "GptTransformer: forward activations not present for backward. Call forward() before backward()." );
-            }
-
-            for ( std::size_t i = 0; i < transformer_blocks_.size(); ++i )
-            {
-                if ( !block_input_ptrs_[ i ] || !block_output_ptrs_[ i ] )
+                if ( !this->isBuilt() )
                 {
-                    throw std::runtime_error( std::format( "GptTransformer: missing cached activation for block {}", i ) );
+                    throw std::runtime_error( "GptTransformer must be built before calling backward." );
                 }
-            }
 
-            if ( !normalized_ptr_ || !logits_ptr_ )
-            {
-                throw std::runtime_error( "GptTransformer: missing final activations for backward" );
-            }
+                if ( !this->isTrainingMode() )
+                {
+                    throw std::runtime_error( "GptTransformer: backward requires training mode." );
+                }
 
-            auto& normalized_grad_ptr = lm_head_->backward( *normalized_ptr_, output_grad );
-            this->getExecutionContext()->synchronize();
+                if ( !encoder_out_ptr_ )
+                {
+                    throw std::runtime_error( "GptTransformer: forward activations not present for backward. Call forward() before backward()." );
+                }
 
-            auto& last_block_grad_ptr = final_layernorm_->backward( *block_output_ptrs_.back(), normalized_grad_ptr );
-            this->getExecutionContext()->synchronize();
+                for ( std::size_t i = 0; i < transformer_blocks_.size(); ++i )
+                {
+                    if ( !block_input_ptrs_[ i ] || !block_output_ptrs_[ i ] )
+                    {
+                        throw std::runtime_error( std::format( "GptTransformer: missing cached activation for block {}", i ) );
+                    }
+                }
 
-            TensorType* curr_grad = &last_block_grad_ptr;
+                if ( !normalized_ptr_ || !logits_ptr_ )
+                {
+                    throw std::runtime_error( "GptTransformer: missing final activations for backward" );
+                }
 
-            for ( std::int64_t i = static_cast<std::int64_t>(transformer_blocks_.size()) - 1; i >= 0; --i )
-            {
-                auto& block_grad_ptr = transformer_blocks_[ static_cast<std::size_t>(i) ]->backward(
-                    *block_input_ptrs_[ static_cast<std::size_t>(i) ], *curr_grad );
-
-                curr_grad = &block_grad_ptr;
-
+                auto& normalized_grad_ptr = lm_head_->backward( *normalized_ptr_, output_grad );
                 this->getExecutionContext()->synchronize();
+
+                auto& last_block_grad_ptr = final_layernorm_->backward( *block_output_ptrs_.back(), normalized_grad_ptr );
+                this->getExecutionContext()->synchronize();
+
+                TensorType* curr_grad = &last_block_grad_ptr;
+
+                for ( std::int64_t i = static_cast<std::int64_t>(transformer_blocks_.size()) - 1; i >= 0; --i )
+                {
+                    auto& block_grad_ptr = transformer_blocks_[ static_cast<std::size_t>(i) ]->backward(
+                        *block_input_ptrs_[ static_cast<std::size_t>(i) ], *curr_grad );
+
+                    curr_grad = &block_grad_ptr;
+
+                    this->getExecutionContext()->synchronize();
+                }
+
+                auto& input_grad_ptr = encoder_->backward( input, *curr_grad );
+                this->getExecutionContext()->synchronize();
+
+                return input_grad_ptr;
             }
-
-            auto& input_grad_ptr = encoder_->backward( input, *curr_grad );
-            this->getExecutionContext()->synchronize();
-
-            return input_grad_ptr;
         }
 
         /**
@@ -546,13 +554,10 @@ namespace Mila::Dnn
 
                 target->loadParameter( param_name, blob );
 
-                // The reader reuses its pinned staging slot as soon as this returns, so the
+                // The reader reuses its staging slot as soon as this returns, so the
                 // device read of blob must be complete. The quantize-on-load H2D is async on
                 // the op stream and does not self-synchronize; force completion here.
-                if constexpr ( TDeviceType == DeviceType::Cuda )
-                {
-                    this->getExecutionContext()->synchronize();
-                }
+                this->getExecutionContext()->synchronize();
             };
 
 #ifdef MILA_HAS_CUDA

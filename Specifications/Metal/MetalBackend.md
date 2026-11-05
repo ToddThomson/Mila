@@ -3,8 +3,8 @@
 How Mila runs on Apple M-series GPUs: which chips, how a capability is checked, which precision runs where, the kernels,
 memory, the build, and the phases that get there with their tests and measurements.
 
-**Status:** agreed 2026-11-04 (Todd, decisions in section 10). Phases 0 to 3 have passed (section 9); no model runs yet. No release is attached. Evidence:
-`Notebooks/MetalPrecisionTiming.md`, `Notebooks/MetalDeviceAndMemory.md`, `Notebooks/MetalMatrixPath.md`, `Notebooks/MetalLlamaOperations.md`.
+**Status:** agreed 2026-11-04 (Todd, decisions in section 10). Phases 0 to 3 have passed, and Phase 4's correctness gate on Llama 3.2 3B, with its measures still to run (section 9). No release is attached. Evidence:
+`Notebooks/MetalPrecisionTiming.md`, `Notebooks/MetalDeviceAndMemory.md`, `Notebooks/MetalMatrixPath.md`, `Notebooks/MetalLlamaOperations.md`, `Notebooks/MetalFirstModel.md`.
 
 ---
 
@@ -378,14 +378,16 @@ no-copy weights; llama.cpp on the same Mac.
 
 **Gate:** the 3.2 decision confirmed or changed for this model, in the notebook and here.
 
+**Correctness passed, 2026-11-05: FP16 is confirmed for Llama 3.2 3B.** `Notebooks/MetalFirstModel.md` has the gate, whose bars are two accepted BF16 runs of the model (Mila's on CUDA and HuggingFace's), and the results. FP16 is about ten times closer to HuggingFace FP32 than either: worst logit step 1.9e-3 against a bar of 2.2e-2, log-likelihood over 1024 tokens within 6.8e-5, greedy 32 of 32, activations at most 420 and all finite. Metal BF16 passes its logits and greedy, and misses the log-likelihood bar at +1.25e-3 against 8.97e-4; it is not what the M1 selects, and the cause is not found. The library needed three changes, none of them a `#if` for Metal: the network's `backward` is kept from compiling where `DeviceTypeTraits` says a device does not train, every network's load synchronizes on every device, and `dispatchWeightQuantization` builds a format where `OperationSupported` says its Linear exists. **Not yet run:** the measures above.
+
 ### Phase 5 -- Quantized weights and the KV cache
 
 **Question:** does every format in section 1 run correctly, and can TensorOps' formats carry Mila's?
 
 Llama 3.2 3B FP8 and FP4, Llama 3.1 8B FP4, then the rest of the list on the model that uses each, with the paths of section 4.2. Per-token KV compression, and its sliding window.
 
-`dispatchWeightQuantization` refuses every quantized format below BF16 compute, and `dispatchKvCacheCompression` refuses FP8 off CUDA. Both are `Lib/Src`,
-and FP16 compute needs them changed, proposed when this phase starts.
+`dispatchWeightQuantization` builds a format wherever its Linear operation exists on the device at the precision, so each Metal specialization this phase adds is reached as it lands (Phase 4 made it so). `dispatchKvCacheCompression` still refuses FP8 off CUDA, which is `Lib/Src`
+and is proposed when this phase starts.
 
 **Gate:** as Phase 4, per format, and a Metal specialization for every entry in section 1, with its own test against a reference.
 
@@ -437,3 +439,4 @@ development Mac and neither can reach a user's.
 | Every format Mila's components use on CUDA runs on Metal (section 1) | Todd, 2026-11-05 |
 | No published model stores FP16, so an FP16 parameter reads BF16 weights, from Phase 3 on (section 5) | Todd, 2026-11-05 |
 | Pad 2 to 7 rows before Phase 4, with the scratch buffer here and not in Phase 5, and the rows that pad a tile zero. Attention pads only if its timing earns it (section 4.2) | Todd, 2026-11-05 |
+| Phase 4's library changes: `DeviceTypeTraits` says whether a device trains, every network's load synchronizes on every device, and the weight dispatch builds a format where `OperationSupported` says its Linear exists (`Notebooks/MetalFirstModel.md` section 3) | Todd, 2026-11-05 |

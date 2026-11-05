@@ -16,12 +16,24 @@ import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
 import Dnn.Quantization.KvCache.PerTokenKvFp8;
 import Compute.DeviceType;
+import Compute.OperationTraits;
+import Compute.OperationType;
 
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Quant::Weight;
     using namespace Mila::Dnn::Quant::KvCache;
+
+    /**
+     * @brief Refuse a weight format with no Linear operation on this device at this precision.
+     */
+    template<DeviceType TDeviceType, TensorDataType TPrecision, typename TResult>
+    TResult refuseWeightFormat( std::string_view caller, std::string_view format )
+    {
+        throw std::runtime_error( std::format( "{}: {} weights have no {} operation at {} compute precision",
+            caller, format, deviceTypeToString( TDeviceType ), tensorDataTypeToString( TPrecision ) ) );
+    }
 
     /**
      * @brief Resolve a runtime weight-quantization setting to a policy type and invoke an action.
@@ -33,7 +45,10 @@ namespace Mila::Dnn
      * allocate. That is the exact defect class the footprint work exists to prevent, so the
      * mapping lives once.
      *
-     * @tparam TPrecision      Compute precision; quantized weights require BF16.
+     * @tparam TDeviceType     The device the caller's model runs on.
+     * @tparam TPrecision      Compute precision. A format is built only where its Linear operation exists on
+     *                         this device at this precision (`OperationSupported`), and refused otherwise, so
+     *                         a format a device lacks is never instantiated for it.
      * @tparam TResult         What the action returns -- a model, a plan or a footprint.
      * @tparam kFp4GroupSize   The FP4 group the caller's geometry requires. A compile-time value so
      *                         a family instantiates only the group it can build.
@@ -42,9 +57,10 @@ namespace Mila::Dnn
      * @param caller Prefix for error messages, e.g. "GemmaModel::load".
      * @param action Its call operator is invoked with the weight policy as its one template argument.
      *
-     * @throws std::runtime_error if the requested mode is unsupported at this precision.
+     * @throws std::runtime_error if the requested mode has no operation on this device at this precision.
      */
     export template<
+        DeviceType TDeviceType,
         TensorDataType TPrecision,
         typename TResult,
         int kFp4GroupSize = 128,
@@ -57,36 +73,33 @@ namespace Mila::Dnn
         switch ( weight_quantization )
         {
             case WeightQuantization::FP4:
-                if constexpr ( TPrecision == TensorDataType::BF16 )
+                if constexpr ( OperationSupported<OperationType::LinearOp, TDeviceType, TPrecision, PerGroupFp4<kFp4GroupSize>> )
                 {
                     return action.template operator()<PerGroupFp4<kFp4GroupSize>>();
                 }
                 else
                 {
-                    throw std::runtime_error( std::format(
-                        "{}: FP4 weight quantization requires BF16 compute precision", caller ) );
+                    return refuseWeightFormat<TDeviceType, TPrecision, TResult>( caller, "FP4" );
                 }
 
             case WeightQuantization::FP8:
-                if constexpr ( TPrecision == TensorDataType::BF16 )
+                if constexpr ( OperationSupported<OperationType::LinearOp, TDeviceType, TPrecision, PerChannelFp8<>> )
                 {
                     return action.template operator()<PerChannelFp8<>>();
                 }
                 else
                 {
-                    throw std::runtime_error( std::format(
-                        "{}: FP8 weight quantization requires BF16 compute precision", caller ) );
+                    return refuseWeightFormat<TDeviceType, TPrecision, TResult>( caller, "FP8" );
                 }
 
             case WeightQuantization::Q4_0:
-                if constexpr ( TPrecision == TensorDataType::BF16 )
+                if constexpr ( OperationSupported<OperationType::LinearOp, TDeviceType, TPrecision, PerGroupInt4<32>> )
                 {
                     return action.template operator()<PerGroupInt4<32>>();
                 }
                 else
                 {
-                    throw std::runtime_error( std::format(
-                        "{}: Q4_0 weight quantization requires BF16 compute precision", caller ) );
+                    return refuseWeightFormat<TDeviceType, TPrecision, TResult>( caller, "Q4_0" );
                 }
 
             case WeightQuantization::Plan:

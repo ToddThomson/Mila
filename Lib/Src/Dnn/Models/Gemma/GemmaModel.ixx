@@ -760,7 +760,7 @@ namespace Mila::Dnn
                     if ( routed )
                     {
                         // Unconstrained: MSVC loses the concept's name in a constrained lambda nested in another.
-                        return dispatchWeightQuantization<TPrecision, TResult, fp4GroupSize( GemmaFeedForward::Routed )>(
+                        return dispatchWeightQuantization<TDeviceType, TPrecision, TResult, fp4GroupSize( GemmaFeedForward::Routed )>(
                             weight_quantization, caller,
                             [&]<typename TWeightQuantization>() -> TResult
                             {
@@ -779,7 +779,7 @@ namespace Mila::Dnn
                             } );
                     }
 
-                    return dispatchWeightQuantization<TPrecision, TResult, fp4GroupSize( GemmaFeedForward::Dense )>(
+                    return dispatchWeightQuantization<TDeviceType, TPrecision, TResult, fp4GroupSize( GemmaFeedForward::Dense )>(
                         weight_quantization, caller,
                         [&]<typename TWeightQuantization>() -> TResult
                         {

@@ -34,5 +34,8 @@ namespace Mila::Dnn::Compute
         // through it is a direct DMA with no driver staging copy, and it stays readable
         // host-side for the serialization paths that need to look at the bytes.
         using host_staging_memory_resource = CudaPinnedMemoryResource;
+
+        // Every operation declares a backward pass here.
+        static constexpr bool supports_training = true;
     };
 }
