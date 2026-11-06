@@ -50,8 +50,8 @@ deployment's features, use cases and that rebuild are v0.22.0's (**Future**, bel
 
 **Once it is set, the date is fixed and the scope drains, except for *The Desktop Agent*.** What has not landed by then
 returns to [`Vnext.md`](Issues/Vnext.md) and the release ships with what it has, its claim stated as
-narrowed. **The 26B-A4B's vision tower is tentative and drains first**; the 12B's image and audio are
-committed. *The Desktop Agent* neither drains nor narrows: its code is not compromised to hold the date, and if
+narrowed. **The 26B-A4B's vision tower is tentative and drains first**, with *Mila on Apple Silicon*, which is
+experimental; the 12B's image and audio are committed. *The Desktop Agent* neither drains nor narrows: its code is not compromised to hold the date, and if
 it is not done the date moves (Todd, 2026-10-25).
 
 Pre-1.0 still holds: breaking changes to the API are acceptable. **A model a user installed is not one
@@ -341,6 +341,31 @@ publishes from the same models.
 model, prefill from 512 tokens to the longest context both fit on the card and generation from an empty
 context to that same length, from one script in the repository that reproduces every number.
 
+### Mila on Apple Silicon
+
+*Mila runs your models on a Mac, through Metal, from the same packages -- experimental in this release.*
+
+Mila was CUDA and the CPU until November 2026, when a development Mac arrived and the Metal backend began
+(`Specifications/Metal/MetalBackend.md`). It is the first test of the claim the type axes were built on: a second GPU
+vendor as a new partition of operations, with the components unchanged. On the M1 Pro Llama 3.2 3B already matches
+HuggingFace in FP16, the M1's precision, and decodes at 0.83 of llama.cpp after 4096 tokens. This theme carries that to
+the models this release publishes and to the things a person installs, all of them marked experimental: Mila Desktop
+as a Mac app, signed and notarized, Mila for Python as a wheel for Apple silicon, and Chat and the model store built from
+source as on every other platform (Todd, 2026-11-05). Published packages do not change; Metal reads the ones CUDA
+reads. A 16 GB Mac holds less than a 16 GB card, since the GPU shares that memory with the Mac, so not every published
+model fits one. Mila Desktop on a Mac runs without tools until the grant's checks are tested there, as *The Desktop
+Agent* already says of every platform but Windows.
+
+**Experimental, and the first to drain** (Todd, 2026-11-05): what has not landed by the date returns to `Vnext.md`
+before anything else does.
+
+**Success criteria:** on an M1 Pro with 16 GB and macOS 27, every model this release publishes that the planner admits
+there passes its family's HuggingFace gate on Metal, in its published format; Mila Desktop installs on that Mac from a
+signed, notarized download and runs one of those models in a conversation; `pip install mila-llm` on that Mac opens a
+session on one and generates; Chat and `mila-store` build there from source with the documented toolchain and run one;
+the rates on that Mac are shown beside llama.cpp's on the same Mac, by the same method; and every surface that offers
+a Mac artifact says it is experimental.
+
 ---
 
 ## Future
@@ -479,9 +504,8 @@ OpenAI and Anthropic wire shapes -- still pass unchanged.
   type is a compile-time template parameter and dispatch resolves through an explicit `OperationTraits`
   table, a backend should be a new partition of specializations rather than conditional compilation
   threaded through the components — that is the design claim, and a port is the first honest test of
-  whether it holds across a second GPU vendor. Metal now has a development Mac and a design,
-  `Specifications/Metal/MetalBackend.md`, with no release attached; ROCm stays gated on hardware access
-  (see SPONSORING.md).
+  whether it holds across a second GPU vendor. Metal is now in v0.21.0, experimental (*Mila on Apple
+  Silicon*, above, Todd, 2026-11-05); ROCm stays gated on hardware access (see SPONSORING.md).
   Success bar: an existing validated model path reproduces its token-for-token reference result on the
   new backend, with the component sources unchanged.
 - **Platform portability** — `aarch64` as a build and correctness target (Mila is x86-64 Windows and

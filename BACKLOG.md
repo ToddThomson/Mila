@@ -699,6 +699,50 @@ Gate: the script reruns every cell unattended and enforces the rules above, the 
 every cell from the script's data, and the landing page's performance claim links to that page and claims nothing
 the cells do not show.
 
+### Mila on Apple Silicon
+
+#### A Mac runs only Llama 3.2 3B, and only from its BF16 weights
+
+`in progress` · `architecture` · `quantization` · `mila-src` · `measured`
+
+Phase 4 of the Metal backend passed on Llama 3.2 3B in FP16 and BF16 (`Specifications/Notebooks/MetalFirstModel.md`),
+and its decode attention was rebuilt to 0.83 of llama.cpp after 4096 tokens (`Notebooks/MetalDecodeAttention.md`). The
+published packages are mostly FP4 and Q4_0, which Metal has no Linear for yet, and Gemma and Qwen have no Metal
+operations at all. What remains is the design's Phase 5, every weight format and the KV cache's compression, with
+`dispatchKvCacheCompression`'s refusal of FP8 off CUDA proposed when it starts, and Phase 6, Gemma 4 and Qwen 3.8 on
+what a 16 GB Mac admits, each passing its family's HuggingFace gate. The planner chooses a context at 99% of a Mac's
+working set, where the model runs and macOS swaps the rest of the Mac out (`MetalFirstModel.md` section 5).
+`Specifications/Metal/MetalBackend.md` section 9.
+
+#### Mila Desktop and Chat do not build on a Mac
+
+`open` · `apps` · `agents` · `build` · `distribution`
+
+The root `CMakeLists.txt` adds both apps only with CUDA on. The session asks for a CUDA device when it loads
+(`Apps/Desktop/Session/Src/Desktop.SessionProcess.ixx`, `requestFor`), and `Mila::Agents::Agent` is fixed as
+`BasicAgent<Cuda, BF16>` (`Lib/Src/Agents/Agent.ixx`), where an M1 needs Metal at FP16: the precision a package and a
+device decide, as `Issues/Untriaged.md` already records for programs that name one. The window packages for Windows and
+Linux and has no macOS target (`Apps/Desktop/Window/package.json`). A Mac app is signed and notarized under Todd's
+Apple developer account. Without tools on a Mac until the grant's checks are tested there (*The Desktop Agent*), and
+labelled experimental where it is offered. Not looked at: whether GitHub's macOS runners reach Metal for CI.
+
+#### Mila for Python does not build on a Mac
+
+`open` · `binding` · `build` · `distribution`
+
+`Lib/Bindings/Python/CMakeLists.txt` stops a configure without CUDA, and the binding names the CUDA device in three
+files (`Mila_py.Runtime.cpp`, `Mila_py.Deployment.cpp`, `Wrappers/Mila_py.Wrappers.cpp`). No wheel is built for
+Apple silicon, and none is published. Labelled experimental on PyPI's page and in the README.
+
+#### Nobody can see how Mila performs on a Mac next to llama.cpp
+
+`in progress` · `perf` · `docs` · `measured`
+
+Measured once, on Llama 3.2 3B in FP16 and BF16 against llama.cpp b12138 on the same Mac
+(`Notebooks/MetalFirstModel.md` section 5, `Notebooks/MetalDecodeAttention.md` section 7), by
+`Lib/Tools/MetalModelTiming` and `llama-bench` at the same shapes. Not yet: every model the Mac admits, a script that
+reruns both, and a page that shows them. Absent: no published surface shows a Mac number.
+
 ### Model fixes and parity
 
 A model's own defects, and gaps between the families, the user admitted to this release with no ROADMAP criterion

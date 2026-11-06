@@ -15,6 +15,7 @@ import Compute.IExecutionContext;
 import Compute.IKvInference;
 import Compute.MetalExecutionContext;
 import Compute.MetalKernelLibrary;
+import Compute.MetalKernelLimits;
 import Compute.MetalMatrixProduct;
 import Compute.MetalMatrixView;
 import Compute.MetalMemoryResource;
@@ -35,8 +36,9 @@ namespace Mila::Dnn::Compute::Metal::Gqa
      * @brief Attention with its own [B, NKV, capacity, HS] cache and the shared workspace of the stack it belongs to.
      *
      * Prefill follows CUDA's non-flash pipeline: write the cache, permute Q, Q * K^T, a causal softmax, attention * V, unpermute. A decode
-     * of one token runs own kernels that read the position from the execution context (`MetalBackend.md` section 4.4). Several tokens in
-     * one decode are Phase 6's, with the model that uses them, and are refused here.
+     * of one token writes the cache, then splits the keys over a fixed number of blocks and merges them, reading the position from the
+     * execution context (`MetalBackend.md` section 4.4, `Notebooks/MetalDecodeAttention.md`). Several tokens in one decode are Phase 6's,
+     * with the model that uses them, and are refused here.
      */
     export template<TensorDataType TPrecision>
     class MetalGqaOp : public Operation<DeviceType::Metal, TPrecision>, public IKvInference
@@ -67,8 +69,6 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             wire( preatt_, state.preatt );
             wire( att_, state.att );
             wire( v_out_, state.v_out );
-            wire( preatt_decode_, state.preatt_decode );
-            wire( att_decode_, state.att_decode );
         }
 
         void build( const BuildContext& context ) override
@@ -82,6 +82,23 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             heads_ = narrowToKernelIndex( config_.getNumHeads() );
             kv_heads_ = narrowToKernelIndex( config_.getNumKvHeads() );
             head_size_ = narrowToKernelIndex( config_.getHeadDim() );
+
+            if ( head_size_ > kMostDecodeChannels )
+            {
+                throw std::invalid_argument( std::format(
+                    "MetalGqaOp: a head of {} channels is past the {} that a decode step holds", head_size_, kMostDecodeChannels ) );
+            }
+
+            // A decode threadgroup holds a SIMD-group for each query head of one KV head, and the kernel says how many threads it takes.
+            const MetalKernelLimits limits = context_->device().kernels().limits( decodeKernelName( "gqa_decode_partial" ) );
+            const std::size_t decode_threads = static_cast<std::size_t>( heads_ / kv_heads_ ) * limits.thread_execution_width;
+
+            if ( decode_threads > limits.max_total_threads_per_threadgroup )
+            {
+                throw std::invalid_argument( std::format(
+                    "MetalGqaOp: {} query heads to a KV head take {} threads in a decode step, past the {} this device's kernel takes",
+                    heads_ / kv_heads_, decode_threads, limits.max_total_threads_per_threadgroup ) );
+            }
 
             if ( context.isInferenceMode() )
             {
@@ -198,11 +215,6 @@ namespace Mila::Dnn::Compute::Metal::Gqa
         {
             requireReady();
 
-            if ( preatt_decode_ == nullptr || att_decode_ == nullptr )
-            {
-                throw std::logic_error( "MetalGqaOp::decode needs setState() first" );
-            }
-
             if ( q.shape()[1] != 1 )
             {
                 throw std::logic_error( std::format( "MetalGqaOp::decode takes one token at a time, not {}", q.shape()[1] ) );
@@ -220,13 +232,38 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             encode( "gqa_write_decode", std::array<const void*, 5>{ k.rawData(), v.rawData(), key_cache_->rawData(), value_cache_->rawData(), decode_position },
                 geometry, static_cast<std::size_t>( batches_ * kv_heads_ * head_size_ ) );
 
-            encodeGroups( "gqa_decode_softmax",
-                std::array<const void*, 5>{ q.rawData(), key_cache_->rawData(), preatt_decode_->rawData(), att_decode_->rawData(), decode_position },
-                geometry, static_cast<std::size_t>( batches_ * heads_ ), 1 );
+            // The partials: each block's output, then its largest score and its sum, for every head of every batch.
+            const std::size_t slots = static_cast<std::size_t>( batches_ * heads_ ) * kDecodeBlocks;
+            auto* const partial_output = static_cast<float*>( context_->getDeviceScratchBuffer( decodeScratchBytes() ) );
+            float* const partial_largest = partial_output + slots * static_cast<std::size_t>( head_size_ );
+            float* const partial_sum = partial_largest + slots;
 
-            encodeGroups( "gqa_decode_values",
-                std::array<const void*, 4>{ att_decode_->rawData(), value_cache_->rawData(), output.rawData(), decode_position },
-                geometry, static_cast<std::size_t>( ( head_size_ + kDecodeLaneOutputs - 1 ) / kDecodeLaneOutputs ), static_cast<std::size_t>( batches_ * heads_ ) );
+            auto& pipelines = context_->device().kernels();
+
+            context_->dispatchThreadgroups( pipelines.pipeline( decodeKernelName( "gqa_decode_partial" ) ),
+                std::array<const void*, 7>{ q.rawData(), key_cache_->rawData(), value_cache_->rawData(), partial_output, partial_largest, partial_sum,
+                    decode_position },
+                std::as_bytes( std::span( &geometry, 1 ) ), kDecodeBlocks, static_cast<std::size_t>( batches_ * kv_heads_ ),
+                static_cast<std::size_t>( heads_ / kv_heads_ ) );
+
+            context_->dispatchThreadgroups( pipelines.pipeline( decodeKernelName( "gqa_decode_merge" ) ),
+                std::array<const void*, 4>{ partial_output, partial_largest, partial_sum, output.rawData() },
+                std::as_bytes( std::span( &geometry, 1 ) ), static_cast<std::size_t>( batches_ * heads_ ), 1 );
+        }
+
+        /// A decode step's partials, from the context's scratch: none before the operation is built.
+        [[nodiscard]] std::size_t getScratchBytes() const override
+        {
+            return this->isBuilt() ? decodeScratchBytes() : 0;
+        }
+
+        [[nodiscard]] std::size_t getRequiredScratchBytes( const BuildContext& context ) const override
+        {
+            const shape_t& input_shape = context.inputShape();
+
+            validateInputShape( input_shape );
+
+            return decodeScratchBytesFor( input_shape[0], config_.getNumHeads(), config_.getHeadDim() );
         }
 
         /// @throws std::runtime_error Always: GQA is inference only, as on CUDA, and is driven by prefill() and decode().
@@ -264,7 +301,13 @@ namespace Mila::Dnn::Compute::Metal::Gqa
 
     private:
 
-        static constexpr int kDecodeLaneOutputs = 4;
+        // Fixed, so that a decode step's grid never changes; within 11% of the best count on average over the shapes and depths
+        // measured, 27% at worst (Notebooks/MetalDecodeAttention.md section 2).
+        static constexpr std::size_t kDecodeBlocks = 32;
+
+        // A lane holds at most 16 of a head's channels in a decode step.
+        static constexpr int kMostDecodeChannels = 512;
+
         static constexpr int kSmallTileRows = 8;
         static constexpr int kLargeTileRows = 128;
         static constexpr int kTileColumns = 16;
@@ -281,6 +324,7 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             std::uint32_t window;
             std::uint32_t position_offset;
             float attention_scale;
+            std::uint32_t decode_blocks;
         };
 
         void validateInputShape( const shape_t& shape ) const
@@ -313,7 +357,28 @@ namespace Mila::Dnn::Compute::Metal::Gqa
                 static_cast<std::uint32_t>( capacity_ ),
                 static_cast<std::uint32_t>( config_.getWindow() ),
                 static_cast<std::uint32_t>( position_offset ),
-                config_.getAttentionScale() };
+                config_.getAttentionScale(),
+                static_cast<std::uint32_t>( kDecodeBlocks ) };
+        }
+
+        [[nodiscard]] static std::size_t decodeScratchBytesFor( dim_t batches, dim_t heads, dim_t head_size )
+        {
+            return static_cast<std::size_t>( batches * heads ) * kDecodeBlocks * static_cast<std::size_t>( head_size + 2 ) * sizeof( float );
+        }
+
+        [[nodiscard]] std::size_t decodeScratchBytes() const
+        {
+            return decodeScratchBytesFor( batches_, heads_, head_size_ );
+        }
+
+        /// The head sizes the models use have their own kernels; any other runs the interleaved one.
+        [[nodiscard]] std::string decodeKernelName( std::string_view family ) const
+        {
+            const bool own = head_size_ == 64 || head_size_ == 128 || head_size_ == 256 || head_size_ == 512;
+
+            return own
+                ? std::format( "{}_{}_{}", family, MetalTensorDataTypeMap<TPrecision>::kernel_type, head_size_ )
+                : std::format( "{}_{}_any", family, MetalTensorDataTypeMap<TPrecision>::kernel_type );
         }
 
         [[nodiscard]] static const std::byte* bytesOf( const ITensor* tensor )
@@ -330,13 +395,6 @@ namespace Mila::Dnn::Compute::Metal::Gqa
         void encode( std::string_view family, const std::array<const void*, TBuffers>& buffers, const Geometry& geometry, std::size_t elements ) const
         {
             context_->dispatch( context_->device().kernels().pipeline( kernelName( family ) ), buffers, std::as_bytes( std::span( &geometry, 1 ) ), elements );
-        }
-
-        template<std::size_t TBuffers>
-        void encodeGroups( std::string_view family, const std::array<const void*, TBuffers>& buffers, const Geometry& geometry, std::size_t width, std::size_t height ) const
-        {
-            context_->dispatchThreadgroups(
-                context_->device().kernels().pipeline( kernelName( family ) ), buffers, std::as_bytes( std::span( &geometry, 1 ) ), width, height );
         }
 
         void encodeSoftmax( const Geometry& geometry, int attended, std::size_t rows ) const
@@ -417,8 +475,6 @@ namespace Mila::Dnn::Compute::Metal::Gqa
         const ITensor* preatt_{ nullptr };
         const ITensor* att_{ nullptr };
         const ITensor* v_out_{ nullptr };
-        const ITensor* preatt_decode_{ nullptr };
-        const ITensor* att_decode_{ nullptr };
 
         int batches_{ 0 };
         int capacity_{ 0 };

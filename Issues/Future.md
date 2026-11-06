@@ -23,6 +23,28 @@ generates 53.7 / 50.4 / 48.1 tokens a second at depth 0 / 8K / 32K against llama
 `GqaDecodeAttention.md` section 6, and the merge needs a persistent counter in the op's state. The depth-0 cell also
 carries the output-head difference (FP8 in Mila's package, Q6_K in the GGUF).
 
+## Mila Desktop is not in the Microsoft Store or Apple's
+
+`apps` · `distribution` · `ci`
+
+Todd, 2026-11-05: a Store submission depends on the app's quality and feature set, so it is not v0.21.0's; Mila is
+MIT-licensed and none of this is commercial. Read the same day from Microsoft's and Apple's pages and secondary
+reports, nothing tried:
+
+- **Microsoft.** Partner Center registration is free for an individual (Windows Developer blog, 2025-09-10). Two
+  packages are accepted. **MSIX** is signed by the Store, but a packaged app's *new* folders under `AppData\Local` go to a
+  private per-package location (Microsoft Learn, *How packaged desktop apps run on Windows*), and the app's
+  `%LOCALAPPDATA%\Mila` is shared with `mila-store` and `mila-chat`; turning that off in the manifest, and MXC inside a
+  package, are unmeasured. **The NSIS installer** the app already builds is accepted signed by a certificate chaining
+  to Microsoft's Trusted Root Program, never self-signed, offline, silent, at an HTTPS address that never changes for
+  its version. The SignPath Foundation signs open-source projects free, with the certificate in its own name, but
+  requires no proprietary component, and the installer carries NVIDIA's CUDA libraries and the Visual C++ runtime:
+  ask them first. Microsoft's Artifact Signing lists Canadian individuals, and a Microsoft Q&A answer of March 2026
+  says individual onboarding is paused. A listing also needs a privacy policy, an age rating and the GPU requirement
+  stated (`Untriaged.md`, unsigned download).
+- **Apple.** Todd takes a developer account. Apple's fee waiver is for nonprofits, schools and governments, not
+  individuals; whether notarizing needs the paid membership was not found.
+
 ## Qwen 3 — the dense members
 
 `models` · `quantization` · `mila-src`
@@ -738,6 +760,9 @@ called every step: `IExecutionContext::createDecodeRecording()` is null there, s
 
 Metal, 2026-11-04: the M1 Pro arrived, and `Specifications/Metal/MetalBackend.md` is now the design and its phases. That
 spec decides anything above that it contradicts, including the CPU-first order: Mac means the GPU only.
+
+Metal, 2026-11-05: promoted to v0.21.0, experimental, as `ROADMAP.md` *Mila on Apple Silicon*, whose items are in
+`BACKLOG.md` (Todd). What stays here is ROCm.
 
 ## Platform portability — aarch64 + coherent memory
 

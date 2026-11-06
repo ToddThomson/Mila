@@ -10,6 +10,12 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Every model load on Metal warns that decode replay is off, which is how Metal is designed to run
+
+`Lib/Src/Dnn/Models/LlaMa/LlamaModel.ixx:546` (`setDecodeReplay( true )`), the same in `GemmaModel.ixx:679` and `QwenModel.ixx:503`; `Lib/Src/Dnn/Core/Models/LanguageModelNetwork.ixx:522` @ 0.21.0-dev+121
+
+Each family turns replay on whatever the device, and on Metal `createDecodeRecording()` returns null by design (`Metal/MetalBackend.md` 4.4), so the first decode of every load logs `[WARN] ... replay of the decode step is off for this network -- it could not be recorded; every decode step is called`. Seen 2026-11-05 on Llama 3.2 3B through `mila-metal-model-timing`. The same words would mean a real failure on CUDA. Not decided: whether a device says it records, or the network tells a null recording from a failed one.
+
 ## Llama 3.2 3B at BF16 on Metal scores a sequence further from HuggingFace than either accepted BF16 run
 
 `Lib/Tests/Dnn/Models/LlaMa/LlamaModel.HuggingFaceReference.Metal.cpp` (`Bf16.SequenceLogLikelihoodAndRanges`, fails); `Specifications/Notebooks/MetalFirstModel.md` 2 @ 0.21.0-dev+121

@@ -3,7 +3,7 @@
 How Mila runs on Apple M-series GPUs: which chips, how a capability is checked, which precision runs where, the kernels,
 memory, the build, and the phases that get there with their tests and measurements.
 
-**Status:** agreed 2026-11-04 (Todd, decisions in section 10). Phases 0 to 3 have passed, and Phase 4's correctness gate on Llama 3.2 3B, with its measures still to run (section 9). No release is attached. Evidence:
+**Status:** agreed 2026-11-04 (Todd, decisions in section 10). Phases 0 to 3 have passed, and Phase 4 on Llama 3.2 3B, its correctness gate and its measures (section 9). In v0.21.0, experimental, as `ROADMAP.md` *Mila on Apple Silicon* (Todd, 2026-11-05). Evidence:
 `Notebooks/MetalPrecisionTiming.md`, `Notebooks/MetalDeviceAndMemory.md`, `Notebooks/MetalMatrixPath.md`, `Notebooks/MetalLlamaOperations.md`, `Notebooks/MetalFirstModel.md`.
 
 ---
@@ -212,7 +212,7 @@ ids at one index worked. So every kernel test checks values, and a test that onl
 
 Compile at run time from source embedded in the library, first. It needs nothing but the OS; offline `metallib`s need full
 Xcode, which the development Mac does not have. Measured with Phase 3's 63 kernels: about 400 ms on a first load, against about 35 ms with Phase 1's 9, and under
-1 ms once the OS's cache has the source (`Notebooks/MetalLlamaOperations.md`). It is paid once per Mac and kernel source, so a `metallib` or a pipeline cache is not earned yet, and Phase 4 can reopen it on a first run.
+1 ms once the OS's cache has the source (`Notebooks/MetalLlamaOperations.md`). It is paid once per Mac and kernel source, so a `metallib` or a pipeline cache is not earned yet, and Phase 4 can reopen it on a first run. With the two-pass decode's kernels it is 79 kernels and 578 ms (`Notebooks/MetalDecodeAttention.md` 7). Full Xcode and its Metal Toolchain are on the development Mac since 2026-11-05, so `xcrun metal` compiles a kernel file offline in about 3 s: what stood against a `metallib` is now only that it has not earned its place.
 
 ### 4.4 Decode
 
@@ -223,7 +223,7 @@ Indirect command buffers (Apple3 and later) are the candidate for replay, and on
 `synchronize()` commits and waits, and an operation only encodes. Measured: a commit and wait is about 220 us and a further
 dispatch about 3 us, so a decode step commits once.
 
-**Attention's decode is own kernels, reading the position from memory.** Three dispatches of a fixed grid: the cache write, the scores and softmax, and the values. It was agreed as one kernel. A single dispatch would need each lane to keep a whole head's running sum, which at a head of 256 is all of the M1 Pro's 32 KB of threadgroup memory, so the scores go through the workspace's decode buffers, as on CUDA's non-fused path. A fused kernel remains open if Phase 4 shows what the three cost. The decode position is written by the host once the context's open work has finished.
+**Attention's decode is own kernels, reading the position from memory, in two passes** (`Notebooks/MetalDecodeAttention.md`, Todd, 2026-11-05). Three dispatches of a fixed grid: the cache write; a partial pass that splits the keys over 32 blocks, a threadgroup holding the query heads of one KV head so that they read its rows together, each lane a contiguous run of a head's channels, the softmax online in 32 bits; and a merge that rescales each block to the largest score of all. The shape is MLX's two-pass decode (`ml-explore/mlx`, `sdpa_vector.h`) and the split and merge Flash-Decoding's (Dao, Haziza, Massa, Sizov, 2023). The partials are FP32 in the context's scratch. The heads the models use, 64, 128, 256 and 512, have their own kernels; any other size up to 512 runs a slower one. It replaced one SIMD-group per query head walking whole key rows, which Phase 4 measured at about 22 times llama.cpp's cost a key; on Llama 3.2 3B decode after 4096 went from 7.95 to 18.65 tokens/s in FP16, 0.83 of llama.cpp, and a key now costs about 24 ns in each layer against llama.cpp's 30. The decode position is written by the host once the context's open work has finished.
 
 ## 5. Memory
 
@@ -250,11 +250,11 @@ would be about 950 MB here (arithmetic).
 above it is refused by the planner with the number, not split. `dim_t` and `narrowToKernelIndex()` carry over.
 
 **The planner** (`Deployment.md`) budgets from `recommendedMaxWorkingSetSize`. Apple calls this an approximation, and unified
-memory is shared with everything else the Mac is doing, so Phase 4 measures how near it a model can really run.
+memory is shared with everything else the Mac is doing, so Phase 4 measures how near it a model can really run. **Measured:** at 99% of it Llama 3.2 3B runs within 3% of its rate, and macOS swaps the rest of the Mac out to make room (`Notebooks/MetalFirstModel.md` 5).
 
 **Weights.** A file whose stored form is the run form (FP4, FP8) is mapped and wrapped without a copy, which is the question
 `Issues/Future.md` *Compute backends beyond CUDA* raises, if `newBufferWithBytesNoCopy` accepts a file mapping of this size;
-Phase 4 tries it. **No published Mila model stores FP16 weights** (Todd, 2026-11-05), so an FP16 parameter always reads BF16 weights, converted once at load, and that conversion is part of Phase 3 rather than of the first model. Published packages do not change:
+Phase 4 tries it. **It does:** the whole 7.2 GB file, mapped read-only and wrapped in 0.22 ms, read right by a kernel, and counted by the device as allocated though not by the process (`Notebooks/MetalFirstModel.md` 5). A cold first read from the SSD is not measured. **No published Mila model stores FP16 weights** (Todd, 2026-11-05), so an FP16 parameter always reads BF16 weights, converted once at load, and that conversion is part of Phase 3 rather than of the first model. Published packages do not change:
 `ModelDistribution.md` *Compatibility* holds.
 
 ## 6. Tests and measurement
@@ -378,7 +378,9 @@ no-copy weights; llama.cpp on the same Mac.
 
 **Gate:** the 3.2 decision confirmed or changed for this model, in the notebook and here.
 
-**Correctness passed, 2026-11-05: FP16 is confirmed for Llama 3.2 3B.** `Notebooks/MetalFirstModel.md` has the gate, whose bars are two accepted BF16 runs of the model (Mila's on CUDA and HuggingFace's), and the results. FP16 is about ten times closer to HuggingFace FP32 than either: worst logit step 1.9e-3 against a bar of 2.2e-2, log-likelihood over 1024 tokens within 6.8e-5, greedy 32 of 32, activations at most 420 and all finite. Metal BF16 passes its logits and greedy, and misses the log-likelihood bar at +1.25e-3 against 8.97e-4; it is not what the M1 selects, and the cause is not found. The library needed three changes, none of them a `#if` for Metal: the network's `backward` is kept from compiling where `DeviceTypeTraits` says a device does not train, every network's load synchronizes on every device, and `dispatchWeightQuantization` builds a format where `OperationSupported` says its Linear exists. **Not yet run:** the measures above.
+**Correctness passed, 2026-11-05: FP16 is confirmed for Llama 3.2 3B.** `Notebooks/MetalFirstModel.md` has the gate, whose bars are two accepted BF16 runs of the model (Mila's on CUDA and HuggingFace's), and the results. FP16 is about ten times closer to HuggingFace FP32 than either: worst logit step 1.9e-3 against a bar of 2.2e-2, log-likelihood over 1024 tokens within 6.8e-5, greedy 32 of 32, activations at most 420 and all finite. Metal BF16 passes its logits and greedy, and misses the log-likelihood bar at +1.25e-3 against 8.97e-4; it is not what the M1 selects, and the cause is not found. The library needed three changes, none of them a `#if` for Metal: the network's `backward` is kept from compiling where `DeviceTypeTraits` says a device does not train, every network's load synchronizes on every device, and `dispatchWeightQuantization` builds a format where `OperationSupported` says its Linear exists.
+
+**Measures run, 2026-11-05** (`Notebooks/MetalFirstModel.md` sections 4 and 5). Against llama.cpp b12138 on the same weights, tuned: FP16 prefill of 512 at 0.85 of its rate (555 tokens/s), decode at 0.80 (19.4), decode after 4096 at 0.35 (7.95); BF16 0.59, 0.80 and 0.40. Attention's decode costs about 22 times llama.cpp's for each key in the cache, linear in depth. At a context of 8192 the plan prices what the device allocates, to 0.03%. The planner's own context, 24576, is 99% of the working set: it runs within 3%, while macOS swaps the rest of the Mac out. A file mapping of the whole weights is wrapped without a copy and read right, and counts as allocated. GPU timestamps were not taken: the execution context does not report them. Attention's decode was rebuilt the same day (section 4.4): FP16 decode after 4096 is now 18.65 tokens/s, 0.83 of llama.cpp.
 
 ### Phase 5 -- Quantized weights and the KV cache
 
@@ -440,3 +442,4 @@ development Mac and neither can reach a user's.
 | No published model stores FP16, so an FP16 parameter reads BF16 weights, from Phase 3 on (section 5) | Todd, 2026-11-05 |
 | Pad 2 to 7 rows before Phase 4, with the scratch buffer here and not in Phase 5, and the rows that pad a tile zero. Attention pads only if its timing earns it (section 4.2) | Todd, 2026-11-05 |
 | Phase 4's library changes: `DeviceTypeTraits` says whether a device trains, every network's load synchronizes on every device, and the weight dispatch builds a format where `OperationSupported` says its Linear exists (`Notebooks/MetalFirstModel.md` section 3) | Todd, 2026-11-05 |
+| Attention's decode in two passes on MLX's path, 32 blocks fixed, the partials in the context's scratch (section 4.4, `Notebooks/MetalDecodeAttention.md`) | Todd, 2026-11-05 |

@@ -301,18 +301,86 @@ namespace Mila::Tests::Dnn::Components
         EXPECT_LE( stack.errorOfStep( 1, 16, true ), kAttentionBar<kPrecision> );
     }
 
-    TYPED_TEST( GqaMetal, AsksForNoScratch )
+    TYPED_TEST( GqaMetal, AsksForScratchOnlyForADecodesPartials )
     {
         constexpr TensorDataType kPrecision = TypeParam::value;
 
-        Stack<kPrecision> stack( Geometry{} );
+        const Geometry geometry{ .batches = 2 };
+        Stack<kPrecision> stack( geometry );
 
-        stack.attention.getExecutionContext()->reserveScratch( 0 );
+        // 32 blocks, each with a head's output and its largest score and sum, in FP32, for every head of every batch.
+        const std::size_t partials = static_cast<std::size_t>( geometry.batches * geometry.heads ) * 32
+            * static_cast<std::size_t>( geometry.head_size + 2 ) * sizeof( float );
 
-        // After 16 tokens, 3 more are 6 rows over 19 positions: a tile would fit their outputs, and rows of 2 to 7 are left over.
+        stack.attention.getExecutionContext()->reserveScratch( partials );
+
+        // After 16 tokens, 3 more are 6 rows over 19 positions: a tile would fit their outputs, and rows of 2 to 7 are left over. Prefill
+        // pads nothing, so asks for nothing past the reservation, and a decode asks for no more than it.
         EXPECT_LE( stack.errorOfStep( 16, 0, false ), kAttentionBar<kPrecision> );
         EXPECT_LE( stack.errorOfStep( 3, 16, false ), kAttentionBar<kPrecision> );
-        EXPECT_EQ( stack.attention.getMemoryStats().device_scratch_bytes, std::size_t{ 0 } );
+        EXPECT_LE( stack.errorOfStep( 1, 19, true ), kAttentionBar<kPrecision> );
+
+        const BuildContext context = BuildContext( shape_t{ geometry.batches, geometry.context, ( geometry.heads + 2 * geometry.kv_heads ) * geometry.head_size },
+            RuntimeMode::Inference, false )
+            .withPrefillSize( geometry.chunk )
+            .withAllocationGranularity( allocationGranularity( Device::Metal( 0 ) ) );
+
+        EXPECT_EQ( stack.attention.getMemoryStats().device_scratch_bytes, occupiedDeviceBytes( partials, allocationGranularity( Device::Metal( 0 ) ) ) );
+        EXPECT_EQ( stack.attention.getMemoryStats().device_scratch_bytes, stack.attention.getRequiredMemory( context ).device_scratch_bytes );
+    }
+
+    TYPED_TEST( GqaMetal, EveryDepthAroundTheBlockCount )
+    {
+        // 32 blocks: from one key to one past the count, so that blocks start empty, fill one key at a time, and take a second key.
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .context = 128 }, 0, 34 );
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .head_size = 128, .context = 128 }, 0, 34 );
+    }
+
+    TYPED_TEST( GqaMetal, TheHeadSizesTheModelsUseRunTheirOwnKernels )
+    {
+        for ( const dim_t head_size : { dim_t{ 64 }, dim_t{ 128 }, dim_t{ 256 }, dim_t{ 512 } } )
+        {
+            SCOPED_TRACE( std::format( "head of {}", head_size ) );
+            expectChunksThenDecodes<TypeParam::value>( Geometry{ .head_size = head_size, .context = 256, .chunk = 64 }, 2, 3 );
+        }
+    }
+
+    TYPED_TEST( GqaMetal, EveryGroupingOnTheModelsKernels )
+    {
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .heads = 8, .kv_heads = 2, .head_size = 256, .context = 128, .chunk = 32 }, 2, 2 );
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .heads = 4, .kv_heads = 4, .head_size = 128, .context = 128, .chunk = 32 }, 2, 2 );
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .heads = 8, .kv_heads = 1, .head_size = 128, .context = 128, .chunk = 32 }, 2, 2 );
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .batches = 2, .heads = 6, .kv_heads = 2, .head_size = 128, .context = 128, .chunk = 32 }, 2, 2 );
+    }
+
+    TYPED_TEST( GqaMetal, AWindowThatCutsABlock )
+    {
+        // 37 keys of window over 32 blocks: the first key moves through a block as the position advances.
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .head_size = 128, .context = 160, .chunk = 32, .window = 37 }, 3, 6 );
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .context = 160, .chunk = 32, .window = 37 }, 3, 6 );
+    }
+
+    TYPED_TEST( GqaMetal, ADecodeAtTheCachesLastPosition )
+    {
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .head_size = 128, .context = 64, .chunk = 16 }, 3, 16 );
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .context = 64, .chunk = 16 }, 3, 16 );
+    }
+
+    TYPED_TEST( GqaMetal, AHeadPastWhatADecodeHoldsIsRefused )
+    {
+        GroupedQueryAttention<DeviceType::Metal, TypeParam::value> attention( "attention", GqaConfig( 4 * 544, 4, 2 ), Device::Metal( 0 ) );
+
+        EXPECT_THROW( attention.build( BuildContext( shape_t{ 1, 64, 8 * 544 }, RuntimeMode::Inference, false ).withPrefillSize( 16 ) ),
+            std::invalid_argument );
+    }
+
+    TYPED_TEST( GqaMetal, MoreQueryHeadsToAKvHeadThanAThreadgroupHoldsAreRefused )
+    {
+        // 33 SIMD-groups of 32 is 1056 threads, past the 1024 any Apple GPU's threadgroup takes.
+        GroupedQueryAttention<DeviceType::Metal, TypeParam::value> attention( "attention", GqaConfig( 33 * 64, 33, 1 ), Device::Metal( 0 ) );
+
+        EXPECT_THROW( attention.build( BuildContext( shape_t{ 1, 64, 35 * 64 }, RuntimeMode::Inference, false ).withPrefillSize( 16 ) ),
+            std::invalid_argument );
     }
 
     TYPED_TEST( GqaMetal, RefusesWhatItDoesNotCarry )

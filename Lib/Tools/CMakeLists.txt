@@ -4,6 +4,7 @@ add_subdirectory( Tokenize )
 # What a Mac's GPU reports, and whether Mila's kernels compile on it (Specifications/Metal/MetalBackend.md).
 if(MILA_HAS_METAL)
     add_subdirectory( MetalMatrixTiming )
+    add_subdirectory( MetalModelTiming )
     add_subdirectory( MetalReport )
 endif()
 

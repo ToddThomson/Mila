@@ -22,6 +22,9 @@ struct GqaGeometry
     uint window;
     uint position_offset;
     float attention_scale;
+
+    // How many blocks a decode step splits the keys into (Notebooks/MetalDecodeAttention.md).
+    uint decode_blocks;
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -265,126 +268,276 @@ template [[host_name("gqa_unpermute_output_bfloat")]] kernel void gqa_unpermute_
     device const bfloat*, device bfloat*, constant GqaGeometry&, uint );
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Decode, one token. A SIMD-group per query head of each batch, its lanes walking the keys up to the position.
+// Decode, one token, in two passes (Notebooks/MetalDecodeAttention.md). The partial pass splits the keys over a fixed grid of blocks,
+// a threadgroup taking one KV head's query heads, a SIMD-group each, so that they read the same rows together; block b takes keys
+// b, b + blocks, ... up to the position, with the softmax kept online. The merge rescales each block's output to the largest score of
+// all. The shape is MLX's two-pass decode (ml-explore/mlx, sdpa_vector.h) and the split with its merge Flash-Decoding's (Dao,
+// Haziza, Massa, Sizov, 2023). The partials are FP32 in the context's scratch: output [B * NH, blocks, HS], then largest and sum
+// [B * NH, blocks].
 // ---------------------------------------------------------------------------------------------------------------------
 
-template<typename TElement>
-kernel void gqa_decode_softmax(
-    device const TElement* query [[buffer(0)]],
-    device const TElement* key_cache [[buffer(1)]],
-    device TElement* scores [[buffer(2)]],
-    device TElement* attention [[buffer(3)]],
-    device const int* decode_position [[buffer(4)]],
-    constant GqaGeometry& geometry [[buffer(5)]],
-    uint3 group [[threadgroup_position_in_grid]],
-    uint lane [[thread_index_in_simdgroup]],
-    uint3 threads [[threads_per_threadgroup]] )
+// Head sizes the models use: a lane's channels are a contiguous run of HS / 32, which is what reaches the floor.
+template<uint HS>
+struct GqaContiguousChannels
 {
-    const uint head_of_batch = group.x;
-    const uint head = head_of_batch % geometry.heads;
-    const uint batch = head_of_batch / geometry.heads;
-    const uint kv_head = head / ( geometry.heads / geometry.kv_heads );
+    uint lane;
+
+    uint channel( uint e ) const
+    {
+        return lane * ( HS / 32 ) + e;
+    }
+
+    bool present( uint ) const
+    {
+        return true;
+    }
+};
+
+// Any other head size up to 512: lane l takes channels l, l + 32, ... About three times slower than a contiguous run at the same size
+// (the notebook's section 3), and used by no model Mila runs.
+struct GqaInterleavedChannels
+{
+    uint lane;
+    uint head_size;
+
+    uint channel( uint e ) const
+    {
+        return e * 32 + lane;
+    }
+
+    bool present( uint e ) const
+    {
+        return e * 32 + lane < head_size;
+    }
+};
+
+// One block's keys for one query head, the softmax online: the largest score so far, the sum, the output rescaled as it grows.
+template<typename TElement, uint kPerLane, typename TChannels>
+inline void gqa_decode_block(
+    device const TElement* query, device const TElement* key_cache, device const TElement* value_cache,
+    device float* partial_output, device float* partial_largest, device float* partial_sum, device const int* decode_position,
+    constant GqaGeometry& geometry, uint2 group, uint simd, uint lane, TChannels channels )
+{
+    const uint kv_head_of_batch = group.y;
+    const uint block = group.x;
+    const uint batch = kv_head_of_batch / geometry.kv_heads;
+    const uint kv_head = kv_head_of_batch % geometry.kv_heads;
+    const uint head_of_batch = batch * geometry.heads + kv_head * ( geometry.heads / geometry.kv_heads ) + simd;
+    const uint head_size = geometry.head_size;
+
+    device const TElement* key_rows = key_cache + kv_head_of_batch * geometry.capacity * head_size;
+    device const TElement* value_rows = value_cache + kv_head_of_batch * geometry.capacity * head_size;
 
     const uint position = uint( *decode_position );
     const uint first_key = geometry.window > 0 && position + 1 > geometry.window ? position + 1 - geometry.window : 0;
 
-    device const TElement* q = query + ( batch * geometry.heads + head ) * geometry.head_size;
-    device const TElement* keys = key_cache + ( batch * geometry.kv_heads + kv_head ) * geometry.capacity * geometry.head_size;
-    device TElement* row_scores = scores + head_of_batch * geometry.capacity;
-    device TElement* row_attention = attention + head_of_batch * geometry.capacity;
+    float q[kPerLane];
+    float out[kPerLane];
+
+    for ( uint e = 0; e < kPerLane; ++e )
+    {
+        q[e] = channels.present( e ) ? float( query[head_of_batch * head_size + channels.channel( e )] ) * geometry.attention_scale : 0.0f;
+        out[e] = 0.0f;
+    }
+
+    float largest = -FLT_MAX;
+    float sum = 0.0f;
+
+    for ( uint j = first_key + block; j <= position; j += geometry.decode_blocks )
+    {
+        device const TElement* key = key_rows + j * head_size;
+        float score = 0.0f;
+
+        for ( uint e = 0; e < kPerLane; ++e )
+        {
+            score += channels.present( e ) ? q[e] * float( key[channels.channel( e )] ) : 0.0f;
+        }
+
+        score = simd_sum( score );
+
+        const float next = max( largest, score );
+        const float rescale = exp( largest - next );
+        const float weight = exp( score - next );
+
+        sum = sum * rescale + weight;
+
+        device const TElement* value = value_rows + j * head_size;
+
+        for ( uint e = 0; e < kPerLane; ++e )
+        {
+            out[e] = out[e] * rescale + ( channels.present( e ) ? weight * float( value[channels.channel( e )] ) : 0.0f );
+        }
+
+        largest = next;
+    }
+
+    // A block with no keys writes a sum of zero, and drops out of the merge.
+    const uint slot = head_of_batch * geometry.decode_blocks + block;
+
+    for ( uint e = 0; e < kPerLane; ++e )
+    {
+        if ( channels.present( e ) )
+        {
+            partial_output[slot * head_size + channels.channel( e )] = out[e];
+        }
+    }
+
+    if ( lane == 0 )
+    {
+        partial_largest[slot] = largest;
+        partial_sum[slot] = sum;
+    }
+}
+
+// The grid is (blocks, KV heads of every batch); a threadgroup holds one SIMD-group per query head of its KV head.
+template<typename TElement, uint HS>
+kernel void gqa_decode_partial(
+    device const TElement* query [[buffer(0)]],
+    device const TElement* key_cache [[buffer(1)]],
+    device const TElement* value_cache [[buffer(2)]],
+    device float* partial_output [[buffer(3)]],
+    device float* partial_largest [[buffer(4)]],
+    device float* partial_sum [[buffer(5)]],
+    device const int* decode_position [[buffer(6)]],
+    constant GqaGeometry& geometry [[buffer(7)]],
+    uint2 group [[threadgroup_position_in_grid]],
+    uint simd [[simdgroup_index_in_threadgroup]],
+    uint lane [[thread_index_in_simdgroup]] )
+{
+    gqa_decode_block<TElement, HS / 32>( query, key_cache, value_cache, partial_output, partial_largest, partial_sum, decode_position,
+        geometry, group, simd, lane, GqaContiguousChannels<HS>{ lane } );
+}
+
+template<typename TElement>
+kernel void gqa_decode_partial_any(
+    device const TElement* query [[buffer(0)]],
+    device const TElement* key_cache [[buffer(1)]],
+    device const TElement* value_cache [[buffer(2)]],
+    device float* partial_output [[buffer(3)]],
+    device float* partial_largest [[buffer(4)]],
+    device float* partial_sum [[buffer(5)]],
+    device const int* decode_position [[buffer(6)]],
+    constant GqaGeometry& geometry [[buffer(7)]],
+    uint2 group [[threadgroup_position_in_grid]],
+    uint simd [[simdgroup_index_in_threadgroup]],
+    uint lane [[thread_index_in_simdgroup]] )
+{
+    gqa_decode_block<TElement, 16>( query, key_cache, value_cache, partial_output, partial_largest, partial_sum, decode_position,
+        geometry, group, simd, lane, GqaInterleavedChannels{ lane, geometry.head_size } );
+}
+
+// One SIMD-group per query head of each batch: the largest score of the blocks, then each block's output and sum rescaled to it.
+template<typename TElement, uint kPerLane, typename TChannels>
+inline void gqa_decode_merge_head(
+    device const float* partial_output, device const float* partial_largest, device const float* partial_sum,
+    device TElement* output, constant GqaGeometry& geometry, uint head_of_batch, uint lane, TChannels channels )
+{
+    const uint first_slot = head_of_batch * geometry.decode_blocks;
 
     float largest = -FLT_MAX;
 
-    // Lanes stay at their own residue of the band, so that every key has exactly one lane.
-    for ( uint j = first_key + lane; j <= position; j += threads.x )
+    for ( uint b = lane; b < geometry.decode_blocks; b += 32 )
     {
-        device const TElement* key = keys + j * geometry.head_size;
-        float sum = 0.0f;
-
-        for ( uint s = 0; s < geometry.head_size; ++s )
-        {
-            sum += float( q[s] ) * float( key[s] );
-        }
-
-        const float score = sum * geometry.attention_scale;
-
-        row_scores[j] = TElement( score );
-        largest = max( largest, float( row_scores[j] ) );
+        largest = max( largest, partial_largest[first_slot + b] );
     }
 
     largest = simd_max( largest );
 
     float total = 0.0f;
+    float out[kPerLane];
 
-    for ( uint j = first_key + lane; j <= position; j += threads.x )
+    for ( uint e = 0; e < kPerLane; ++e )
     {
-        total += exp( float( row_scores[j] ) - largest );
+        out[e] = 0.0f;
     }
 
-    total = simd_sum( total );
-
-    for ( uint j = first_key + lane; j <= position; j += threads.x )
+    for ( uint b = 0; b < geometry.decode_blocks; ++b )
     {
-        row_attention[j] = TElement( exp( float( row_scores[j] ) - largest ) / total );
+        const float scale = exp( partial_largest[first_slot + b] - largest );
+
+        total += scale * partial_sum[first_slot + b];
+
+        for ( uint e = 0; e < kPerLane; ++e )
+        {
+            out[e] += channels.present( e ) ? scale * partial_output[( first_slot + b ) * geometry.head_size + channels.channel( e )] : 0.0f;
+        }
+    }
+
+    for ( uint e = 0; e < kPerLane; ++e )
+    {
+        if ( channels.present( e ) )
+        {
+            output[head_of_batch * geometry.head_size + channels.channel( e )] = TElement( out[e] / total );
+        }
     }
 }
 
-template [[host_name("gqa_decode_softmax_half")]] kernel void gqa_decode_softmax<half>(
-    device const half*, device const half*, device half*, device half*, device const int*, constant GqaGeometry&, uint3, uint, uint3 );
-template [[host_name("gqa_decode_softmax_bfloat")]] kernel void gqa_decode_softmax<bfloat>(
-    device const bfloat*, device const bfloat*, device bfloat*, device bfloat*, device const int*, constant GqaGeometry&, uint3, uint, uint3 );
-
-constant uint kGqaDecodeLaneOutputs = 4;
-
-// A SIMD-group per few output channels of each head. The grid is (groups of channels, heads of every batch).
-template<typename TElement>
-kernel void gqa_decode_values(
-    device const TElement* attention [[buffer(0)]],
-    device const TElement* value_cache [[buffer(1)]],
-    device TElement* output [[buffer(2)]],
-    device const int* decode_position [[buffer(3)]],
+template<typename TElement, uint HS>
+kernel void gqa_decode_merge(
+    device const float* partial_output [[buffer(0)]],
+    device const float* partial_largest [[buffer(1)]],
+    device const float* partial_sum [[buffer(2)]],
+    device TElement* output [[buffer(3)]],
     constant GqaGeometry& geometry [[buffer(4)]],
     uint3 group [[threadgroup_position_in_grid]],
-    uint lane [[thread_index_in_simdgroup]],
-    uint3 threads [[threads_per_threadgroup]] )
+    uint lane [[thread_index_in_simdgroup]] )
 {
-    const uint first_channel = group.x * kGqaDecodeLaneOutputs;
-    const uint channels = min( kGqaDecodeLaneOutputs, geometry.head_size - first_channel );
-    const uint head_of_batch = group.y;
-    const uint head = head_of_batch % geometry.heads;
-    const uint batch = head_of_batch / geometry.heads;
-    const uint kv_head = head / ( geometry.heads / geometry.kv_heads );
-
-    const uint position = uint( *decode_position );
-    const uint first_key = geometry.window > 0 && position + 1 > geometry.window ? position + 1 - geometry.window : 0;
-
-    device const TElement* row_attention = attention + head_of_batch * geometry.capacity;
-    device const TElement* values = value_cache + ( batch * geometry.kv_heads + kv_head ) * geometry.capacity * geometry.head_size;
-
-    float sums[kGqaDecodeLaneOutputs] = { 0.0f, 0.0f, 0.0f, 0.0f };
-
-    for ( uint j = first_key + lane; j <= position; j += threads.x )
-    {
-        const float weight = float( row_attention[j] );
-
-        for ( uint r = 0; r < channels; ++r )
-        {
-            sums[r] += weight * float( values[j * geometry.head_size + first_channel + r] );
-        }
-    }
-
-    for ( uint r = 0; r < channels; ++r )
-    {
-        const float total = simd_sum( sums[r] );
-
-        if ( lane == 0 )
-        {
-            output[head_of_batch * geometry.head_size + first_channel + r] = TElement( total );
-        }
-    }
+    gqa_decode_merge_head<TElement, HS / 32>( partial_output, partial_largest, partial_sum, output, geometry, group.x, lane,
+        GqaContiguousChannels<HS>{ lane } );
 }
 
-template [[host_name("gqa_decode_values_half")]] kernel void gqa_decode_values<half>(
-    device const half*, device const half*, device half*, device const int*, constant GqaGeometry&, uint3, uint, uint3 );
-template [[host_name("gqa_decode_values_bfloat")]] kernel void gqa_decode_values<bfloat>(
-    device const bfloat*, device const bfloat*, device bfloat*, device const int*, constant GqaGeometry&, uint3, uint, uint3 );
+template<typename TElement>
+kernel void gqa_decode_merge_any(
+    device const float* partial_output [[buffer(0)]],
+    device const float* partial_largest [[buffer(1)]],
+    device const float* partial_sum [[buffer(2)]],
+    device TElement* output [[buffer(3)]],
+    constant GqaGeometry& geometry [[buffer(4)]],
+    uint3 group [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_simdgroup]] )
+{
+    gqa_decode_merge_head<TElement, 16>( partial_output, partial_largest, partial_sum, output, geometry, group.x, lane,
+        GqaInterleavedChannels{ lane, geometry.head_size } );
+}
+
+template [[host_name("gqa_decode_partial_half_64")]] kernel void gqa_decode_partial<half, 64>(
+    device const half*, device const half*, device const half*, device float*, device float*, device float*, device const int*, constant GqaGeometry&, uint2, uint, uint );
+template [[host_name("gqa_decode_partial_half_128")]] kernel void gqa_decode_partial<half, 128>(
+    device const half*, device const half*, device const half*, device float*, device float*, device float*, device const int*, constant GqaGeometry&, uint2, uint, uint );
+template [[host_name("gqa_decode_partial_half_256")]] kernel void gqa_decode_partial<half, 256>(
+    device const half*, device const half*, device const half*, device float*, device float*, device float*, device const int*, constant GqaGeometry&, uint2, uint, uint );
+template [[host_name("gqa_decode_partial_half_512")]] kernel void gqa_decode_partial<half, 512>(
+    device const half*, device const half*, device const half*, device float*, device float*, device float*, device const int*, constant GqaGeometry&, uint2, uint, uint );
+template [[host_name("gqa_decode_partial_bfloat_64")]] kernel void gqa_decode_partial<bfloat, 64>(
+    device const bfloat*, device const bfloat*, device const bfloat*, device float*, device float*, device float*, device const int*, constant GqaGeometry&, uint2, uint, uint );
+template [[host_name("gqa_decode_partial_bfloat_128")]] kernel void gqa_decode_partial<bfloat, 128>(
+    device const bfloat*, device const bfloat*, device const bfloat*, device float*, device float*, device float*, device const int*, constant GqaGeometry&, uint2, uint, uint );
+template [[host_name("gqa_decode_partial_bfloat_256")]] kernel void gqa_decode_partial<bfloat, 256>(
+    device const bfloat*, device const bfloat*, device const bfloat*, device float*, device float*, device float*, device const int*, constant GqaGeometry&, uint2, uint, uint );
+template [[host_name("gqa_decode_partial_bfloat_512")]] kernel void gqa_decode_partial<bfloat, 512>(
+    device const bfloat*, device const bfloat*, device const bfloat*, device float*, device float*, device float*, device const int*, constant GqaGeometry&, uint2, uint, uint );
+template [[host_name("gqa_decode_partial_half_any")]] kernel void gqa_decode_partial_any<half>(
+    device const half*, device const half*, device const half*, device float*, device float*, device float*, device const int*, constant GqaGeometry&, uint2, uint, uint );
+template [[host_name("gqa_decode_partial_bfloat_any")]] kernel void gqa_decode_partial_any<bfloat>(
+    device const bfloat*, device const bfloat*, device const bfloat*, device float*, device float*, device float*, device const int*, constant GqaGeometry&, uint2, uint, uint );
+
+template [[host_name("gqa_decode_merge_half_64")]] kernel void gqa_decode_merge<half, 64>(
+    device const float*, device const float*, device const float*, device half*, constant GqaGeometry&, uint3, uint );
+template [[host_name("gqa_decode_merge_half_128")]] kernel void gqa_decode_merge<half, 128>(
+    device const float*, device const float*, device const float*, device half*, constant GqaGeometry&, uint3, uint );
+template [[host_name("gqa_decode_merge_half_256")]] kernel void gqa_decode_merge<half, 256>(
+    device const float*, device const float*, device const float*, device half*, constant GqaGeometry&, uint3, uint );
+template [[host_name("gqa_decode_merge_half_512")]] kernel void gqa_decode_merge<half, 512>(
+    device const float*, device const float*, device const float*, device half*, constant GqaGeometry&, uint3, uint );
+template [[host_name("gqa_decode_merge_bfloat_64")]] kernel void gqa_decode_merge<bfloat, 64>(
+    device const float*, device const float*, device const float*, device bfloat*, constant GqaGeometry&, uint3, uint );
+template [[host_name("gqa_decode_merge_bfloat_128")]] kernel void gqa_decode_merge<bfloat, 128>(
+    device const float*, device const float*, device const float*, device bfloat*, constant GqaGeometry&, uint3, uint );
+template [[host_name("gqa_decode_merge_bfloat_256")]] kernel void gqa_decode_merge<bfloat, 256>(
+    device const float*, device const float*, device const float*, device bfloat*, constant GqaGeometry&, uint3, uint );
+template [[host_name("gqa_decode_merge_bfloat_512")]] kernel void gqa_decode_merge<bfloat, 512>(
+    device const float*, device const float*, device const float*, device bfloat*, constant GqaGeometry&, uint3, uint );
+template [[host_name("gqa_decode_merge_half_any")]] kernel void gqa_decode_merge_any<half>(
+    device const float*, device const float*, device const float*, device half*, constant GqaGeometry&, uint3, uint );
+template [[host_name("gqa_decode_merge_bfloat_any")]] kernel void gqa_decode_merge_any<bfloat>(
+    device const float*, device const float*, device const float*, device bfloat*, constant GqaGeometry&, uint3, uint );
