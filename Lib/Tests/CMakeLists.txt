@@ -237,10 +237,12 @@ if(MILA_HAS_METAL)
         "Dnn/Components/Encodings/Rope/Rope.Metal.cpp"
         "Dnn/Components/FFN/Swiglu/Swiglu.Metal.cpp"
         "Dnn/Components/Linear/Linear.Metal.cpp"
+        "Dnn/Components/Linear/Linear.Quantized.Metal.cpp"
         "Dnn/Components/Normalization/RmsNorm/RmsNorm.Metal.cpp"
         "Dnn/Components/Transformers/Llama/Llama.Block.Metal.cpp"
         "Dnn/Components/Transformers/Llama/Llama.HuggingFaceReference.Metal.cpp"
         "Dnn/Models/LlaMa/LlamaModel.HuggingFaceReference.Metal.cpp"
+        "Dnn/Models/LlaMa/LlamaModel.CudaReference.Metal.cpp"
         "Dnn/Samplers/Sampling.Metal.cpp"
         "Dnn/Tensors/TensorOps/Metal.TensorOps.Metal.cpp"
     )
@@ -348,6 +350,7 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Models/LlaMa/LlamaModel.Footprint.Cuda.cpp"
         "Dnn/Models/LlaMa/LlamaModel.Generation.Cuda.cpp"
         "Dnn/Models/LlaMa/LlamaModel.HuggingFaceReference.Cuda.cpp"
+        "Dnn/Models/LlaMa/LlamaModel.CudaReference.Cuda.cpp"
         # The most fewer launches can buy a decode step -- ModelFamilyParity.md 8.4, L5.
         "Dnn/Models/DecodeLaunch.Cuda.cpp"
         # Decode logits against a reference an earlier build dumped -- DecodeGraph.md gate A1.

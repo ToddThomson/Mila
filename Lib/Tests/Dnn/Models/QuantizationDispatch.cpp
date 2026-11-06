@@ -1,7 +1,8 @@
 /**
  * @file QuantizationDispatch.cpp
- * @brief The family-blind dispatcher builds a weight format exactly where its Linear operation exists, and refuses
- *        every designed plan, so a family without one never builds a body that runs unquantized and reports success.
+ * @brief The family-blind dispatcher builds a weight format exactly where its Linear operation exists and an FP8 KV cache
+ *        exactly where its attention exists, and refuses every designed plan, so a family without one never builds a body
+ *        that runs unquantized and reports success.
  */
 
 #include <gtest/gtest.h>
@@ -9,10 +10,13 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
+import Dnn.KvCacheCompression;
 import Dnn.WeightQuantization;
 import Dnn.TensorDataType;
 import Dnn.Quantization.Weight.Policies;
+import Dnn.Quantization.KvCache.PerTokenKvFp8;
 import Dnn.Models.QuantizationDispatch;
 import Compute.DeviceType;
 import Compute.OperationTraits;
@@ -81,18 +85,75 @@ namespace Mila::Tests::Dnn::Models
 
     TEST( QuantizationDispatch, TheRefusalNamesTheDeviceAndThePrecision )
     {
+        static_assert( !OperationSupported<OperationType::LinearOp, DeviceType::Metal, TensorDataType::FP16, PerGroupInt4<32>>,
+            "This test needs a format Metal does not carry; pick another once Q4_0 lands" );
+
         try
         {
-            (void)dispatched<DeviceType::Metal, TensorDataType::FP16>( WeightQuantization::FP8 );
-            FAIL() << "FP8 weights were dispatched at FP16 on Metal, which has no such operation";
+            (void)dispatched<DeviceType::Metal, TensorDataType::FP16>( WeightQuantization::Q4_0 );
+            FAIL() << "Q4_0 weights were dispatched at FP16 on Metal, which has no such operation";
+        }
+        catch ( const std::runtime_error& error )
+        {
+            const std::string message = error.what();
+
+            EXPECT_NE( message.find( "Q4_0" ), std::string::npos ) << message;
+            EXPECT_NE( message.find( "Metal" ), std::string::npos ) << message;
+            EXPECT_NE( message.find( "FP16" ), std::string::npos ) << message;
+        }
+    }
+
+    namespace
+    {
+        template<DeviceType TDeviceType, TensorDataType TPrecision>
+        int dispatchedCache( KvCacheCompression compression )
+        {
+            return dispatchKvCacheCompression<TDeviceType, TPrecision, int>( compression, "test",
+                []<typename TPolicy>() -> int { return std::is_same_v<TPolicy, Quant::KvCache::PerTokenKvFp8<>> ? 8 : 16; } );
+        }
+
+        /// An FP8 cache is built where attention has one on the device at the precision, and refused where it does not.
+        template<DeviceType TDeviceType, TensorDataType TPrecision>
+        void expectFp8CacheBuiltExactlyWhereSupported()
+        {
+            EXPECT_EQ( ( dispatchedCache<TDeviceType, TPrecision>( KvCacheCompression::None ) ), 16 );
+
+            if constexpr ( OperationSupported<OperationType::GroupedQueryAttentionOp, TDeviceType, TPrecision, Quant::KvCache::PerTokenKvFp8<>> )
+            {
+                EXPECT_EQ( ( dispatchedCache<TDeviceType, TPrecision>( KvCacheCompression::FP8 ) ), 8 );
+            }
+            else
+            {
+                EXPECT_THROW( ( dispatchedCache<TDeviceType, TPrecision>( KvCacheCompression::FP8 ) ), std::runtime_error );
+            }
+        }
+    }
+
+    TEST( QuantizationDispatch, BuildsAnFp8CacheExactlyWhereItsAttentionExists )
+    {
+        expectFp8CacheBuiltExactlyWhereSupported<DeviceType::Cuda, TensorDataType::BF16>();
+        expectFp8CacheBuiltExactlyWhereSupported<DeviceType::Cuda, TensorDataType::FP32>();
+        expectFp8CacheBuiltExactlyWhereSupported<DeviceType::Metal, TensorDataType::FP16>();
+        expectFp8CacheBuiltExactlyWhereSupported<DeviceType::Metal, TensorDataType::BF16>();
+    }
+
+    TEST( QuantizationDispatch, TheCacheRefusalNamesTheDeviceAndThePrecision )
+    {
+        static_assert( !OperationSupported<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda, TensorDataType::FP32,
+            Quant::KvCache::PerTokenKvFp8<>> );
+
+        try
+        {
+            (void)dispatchedCache<DeviceType::Cuda, TensorDataType::FP32>( KvCacheCompression::FP8 );
+            FAIL() << "An FP8 cache was dispatched at FP32 on CUDA, which has no such attention";
         }
         catch ( const std::runtime_error& error )
         {
             const std::string message = error.what();
 
             EXPECT_NE( message.find( "FP8" ), std::string::npos ) << message;
-            EXPECT_NE( message.find( "Metal" ), std::string::npos ) << message;
-            EXPECT_NE( message.find( "FP16" ), std::string::npos ) << message;
+            EXPECT_NE( message.find( "CUDA" ), std::string::npos ) << message;
+            EXPECT_NE( message.find( "FP32" ), std::string::npos ) << message;
         }
     }
 }

@@ -13,3 +13,9 @@ add_executable( mila-metal-product-timing
     "ProductTiming.cpp" )
 
 target_link_libraries( mila-metal-product-timing PRIVATE Mila )
+
+# Linear's operation on FP8 or FP4 weights, as a network encodes it.
+add_executable( mila-metal-quantized-timing
+    "QuantizedTiming.cpp" )
+
+target_link_libraries( mila-metal-quantized-timing PRIVATE Mila )

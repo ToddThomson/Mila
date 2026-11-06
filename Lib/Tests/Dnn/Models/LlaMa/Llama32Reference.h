@@ -1,9 +1,10 @@
 /**
  * @file Llama32Reference.h
- * @brief Llama 3.2 3B Instruct on its BF16 weights against HuggingFace's FP32 run, for any device and precision.
+ * @brief Llama 3.2 3B Instruct against HuggingFace's FP32 run on its BF16 weights, for any device, precision, weight
+ *        format and cache format.
  *
- * The capture is Lib/Tools/Converters/Llama/hf_llama32_3b_reference.py. CUDA's BF16 run sets the bars Metal is held to
- * (Notebooks/MetalFirstModel.md). Include after `import Mila;`.
+ * The capture is Lib/Tools/Converters/Llama/hf_llama32_3b_reference.py. CUDA's run of each format sets the bars Metal is
+ * held to (Notebooks/MetalFirstModel.md, Notebooks/MetalQuantizedWeights.md). Include after `import Mila;`.
  */
 
 #pragma once
@@ -14,6 +15,8 @@ namespace Mila::Tests::Dnn::Models::Llama32
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
+    using namespace Mila::Dnn::Quant::Weight;
+    using namespace Mila::Dnn::Quant::KvCache;
 
     namespace fs = std::filesystem;
 
@@ -22,6 +25,41 @@ namespace Mila::Tests::Dnn::Models::Llama32
     inline fs::path weightsPath()
     {
         return fs::path( TEST_DATA_DIR ) / "models" / "llama" / "llama32_3b_instruct_bf16.bin";
+    }
+
+    /// The published FP4 package's weights, and FP8 weights `ExportArtifact --quantization fp8` wrote from the BF16 ones.
+    inline fs::path fp4WeightsPath()
+    {
+        return fs::path( TEST_DATA_DIR ) / "models" / "llama" / "llama32_3b_instruct_fp4.safetensors";
+    }
+
+    inline fs::path fp8WeightsPath()
+    {
+        return fs::path( TEST_DATA_DIR ) / "models" / "llama" / "llama32_3b_instruct_fp8.safetensors";
+    }
+
+    /// The runtime setting a load is given for a weight policy, and for a cache policy.
+    template<typename TWeightPolicy>
+    constexpr WeightQuantization weightQuantizationOf()
+    {
+        if constexpr ( std::is_same_v<TWeightPolicy, PerChannelFp8<>> )
+        {
+            return WeightQuantization::FP8;
+        }
+        else if constexpr ( std::is_same_v<TWeightPolicy, PerGroupFp4<128>> )
+        {
+            return WeightQuantization::FP4;
+        } else {
+            static_assert( std::is_same_v<TWeightPolicy, NoWeightQuant> );
+
+            return WeightQuantization::None;
+        }
+    }
+
+    template<typename TKvPolicy>
+    constexpr KvCacheCompression kvCacheCompressionOf()
+    {
+        return std::is_same_v<TKvPolicy, PerTokenKvFp8<>> ? KvCacheCompression::FP8 : KvCacheCompression::None;
     }
 
     inline fs::path referencePath()
@@ -51,22 +89,30 @@ namespace Mila::Tests::Dnn::Models::Llama32
         return precision == TensorDataType::FP16 ? "FP16" : precision == TensorDataType::BF16 ? "BF16" : "FP32";
     }
 
-    template<DeviceType TDeviceType, TensorDataType TPrecision>
-    using Network = LlamaTransformer<TDeviceType, TPrecision>;
+    template<DeviceType TDeviceType, TensorDataType TPrecision, typename TWeightPolicy = NoWeightQuant, typename TKvPolicy = NoKvCompression>
+    using Network = LlamaTransformer<TDeviceType, TPrecision, TWeightPolicy, TKvPolicy>;
 
     template<DeviceType TDeviceType, TensorDataType TPrecision>
-    LlamaConfig capturedConfig()
+    LlamaConfig capturedConfig( const fs::path& weights = weightsPath() )
     {
-        Serialization::WeightsReader weights( weightsPath() );
+        Serialization::WeightsReader reader( weights );
 
-        return LlamaModel<TDeviceType, TPrecision>::configFromMetadata( weights.getWeightsMetadata() );
+        return LlamaModel<TDeviceType, TPrecision>::configFromMetadata( reader.getWeightsMetadata() );
     }
 
-    template<DeviceType TDeviceType, TensorDataType TPrecision>
-    std::unique_ptr<Network<TDeviceType, TPrecision>> loadedNetwork( DeviceId device )
+    /// What a result line names: the precision, the weights' file, and the cache when it is FP8.
+    template<TensorDataType TPrecision, typename TKvPolicy>
+    std::string runName( const fs::path& weights )
     {
-        return Measurement::buildMeasuredNetwork<Network<TDeviceType, TPrecision>>(
-            weightsPath(), capturedConfig<TDeviceType, TPrecision>(), device, kContext );
+        return std::format( "{} {}{}", TPrecision == TensorDataType::FP16 ? "FP16" : TPrecision == TensorDataType::BF16 ? "BF16" : "FP32",
+            weights.filename().string(), std::is_same_v<TKvPolicy, PerTokenKvFp8<>> ? " fp8-cache" : "" );
+    }
+
+    template<DeviceType TDeviceType, TensorDataType TPrecision, typename TWeightPolicy = NoWeightQuant, typename TKvPolicy = NoKvCompression>
+    std::unique_ptr<Network<TDeviceType, TPrecision, TWeightPolicy, TKvPolicy>> loadedNetwork( DeviceId device, const fs::path& weights )
+    {
+        return Measurement::buildMeasuredNetwork<Network<TDeviceType, TPrecision, TWeightPolicy, TKvPolicy>>(
+            weights, capturedConfig<TDeviceType, TPrecision>( weights ), device, kContext );
     }
 
     /// Per step of the chat continuation, against HuggingFace's FP32 logits and its BF16 ones.
@@ -119,10 +165,11 @@ namespace Mila::Tests::Dnn::Models::Llama32
 
     /// Prefill the chat prompt, then decode HuggingFace's own greedy continuation, teacher-forced.
     /// `position_offset` decodes each token one position away from where it is, which the gate must catch.
-    template<DeviceType TDeviceType, TensorDataType TPrecision>
-    LogitsResult measureLogits( DeviceId device, dim_t position_offset = 0 )
+    template<DeviceType TDeviceType, TensorDataType TPrecision, typename TWeightPolicy = NoWeightQuant, typename TKvPolicy = NoKvCompression>
+    LogitsResult measureLogits( DeviceId device, dim_t position_offset = 0, const fs::path& weights = weightsPath() )
     {
-        auto network = loadedNetwork<TDeviceType, TPrecision>( device );
+        auto network = loadedNetwork<TDeviceType, TPrecision, TWeightPolicy, TKvPolicy>( device, weights );
+        const std::string run = runName<TPrecision, TKvPolicy>( weights );
 
         const std::vector<std::int32_t> prompt = referenceValues<std::int32_t>( "prompt" );
         const std::vector<std::int32_t> continuation = referenceValues<std::int32_t>( "greedy_tokens" );
@@ -177,11 +224,11 @@ namespace Mila::Tests::Dnn::Models::Llama32
             result.non_finite += to_fp32.non_finite;
 
             std::cout << std::format( "[ logits ] {} step {}: relative L2 {:.3e} to HF FP32, {:.3e} to HF BF16, largest error {:.3e}, argmax {} vs {}\n",
-                precisionName( TPrecision ), step, to_fp32.relative_l2, to_bf16.relative_l2, to_fp32.largest_error, got_argmax, want_argmax );
+                run, step, to_fp32.relative_l2, to_bf16.relative_l2, to_fp32.largest_error, got_argmax, want_argmax );
         }
 
         std::cout << std::format( "[ logits ] {} worst {:.3e}, mean {:.3e}, worst to HF BF16 {:.3e}, {} argmax disagreements, {} non-finite\n",
-            precisionName( TPrecision ), result.worst_relative_l2, result.mean_relative_l2, result.worst_relative_l2_to_bf16,
+            run, result.worst_relative_l2, result.mean_relative_l2, result.worst_relative_l2_to_bf16,
             result.argmax_disagreements.size(), result.non_finite );
 
         return result;
@@ -202,12 +249,13 @@ namespace Mila::Tests::Dnn::Models::Llama32
     };
 
     /// The mean negative log-likelihood over the 1024-token wikitext sequence, with every block's output range observed.
-    template<DeviceType TDeviceType, TensorDataType TPrecision>
-    SequenceResult measureSequence( DeviceId device )
+    template<DeviceType TDeviceType, TensorDataType TPrecision, typename TWeightPolicy = NoWeightQuant, typename TKvPolicy = NoKvCompression>
+    SequenceResult measureSequence( DeviceId device, const fs::path& weights = weightsPath() )
     {
-        auto network = loadedNetwork<TDeviceType, TPrecision>( device );
+        auto network = loadedNetwork<TDeviceType, TPrecision, TWeightPolicy, TKvPolicy>( device, weights );
+        const std::string run = runName<TPrecision, TKvPolicy>( weights );
 
-        using TensorType = typename Network<TDeviceType, TPrecision>::TensorType;
+        using TensorType = typename Network<TDeviceType, TPrecision, TWeightPolicy, TKvPolicy>::TensorType;
 
         const std::int64_t layers = capturedConfig<TDeviceType, TPrecision>().getNumLayers();
 
@@ -271,23 +319,26 @@ namespace Mila::Tests::Dnn::Models::Llama32
         result.reference_mean_negative_log_likelihood = -reference_total / static_cast<double>( reference.size() );
 
         std::cout << std::format( "[ sequence ] {} mean negative log-likelihood {:.6f} against HF FP32 {:.6f}, difference {:+.3e}, {} positions\n",
-            precisionName( TPrecision ), result.mean_negative_log_likelihood, result.reference_mean_negative_log_likelihood,
+            run, result.mean_negative_log_likelihood, result.reference_mean_negative_log_likelihood,
             result.mean_negative_log_likelihood - result.reference_mean_negative_log_likelihood, measured.scored_positions );
 
         for ( std::size_t layer = 0; layer < result.layers.size(); ++layer )
         {
             std::cout << std::format( "[ range ] {} layer {}: largest {:.4g}, {} non-finite\n",
-                precisionName( TPrecision ), layer, result.layers[ layer ].largest, result.layers[ layer ].non_finite );
+                run, layer, result.layers[ layer ].largest, result.layers[ layer ].non_finite );
         }
 
         return result;
     }
 
     /// Greedy generation through the model's own load and loop, which plans the deployment as an application's would.
-    template<DeviceType TDeviceType, TensorDataType TPrecision>
-    std::vector<std::int32_t> generateGreedy( DeviceId device, int max_new_tokens )
+    template<DeviceType TDeviceType, TensorDataType TPrecision, typename TWeightPolicy = NoWeightQuant, typename TKvPolicy = NoKvCompression>
+    std::vector<std::int32_t> generateGreedy( DeviceId device, int max_new_tokens, const fs::path& weights = weightsPath() )
     {
-        auto model = LlamaModel<TDeviceType, TPrecision>::load( weightsPath(), LlamaModelConfig( kContext ), device );
+        LlamaModelConfig config( kContext );
+        config.withWeightQuantization( weightQuantizationOf<TWeightPolicy>() ).withKvCacheCompression( kvCacheCompressionOf<TKvPolicy>() );
+
+        auto model = LlamaModel<TDeviceType, TPrecision>::load( weights, config, device );
 
         GenerateParams params;
         params.max_new_tokens = max_new_tokens;

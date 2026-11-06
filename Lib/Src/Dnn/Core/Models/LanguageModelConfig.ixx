@@ -141,10 +141,11 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Set the KV cache format. Nothing else sets it: the default is a BF16 cache.
+         * @brief Set the KV cache format. Nothing else sets it: the default is a cache in the compute precision.
          *
-         * FP8 needs a CUDA device and BF16 compute, and covers every Llama layer and Gemma's global
-         * layers -- Gemma's sliding-window layers keep a BF16 cache. Qwen refuses it.
+         * FP8 needs a device and compute precision whose attention has an FP8 cache: CUDA at BF16, and Metal at
+         * FP16 or BF16. It covers every Llama layer and Gemma's global layers -- Gemma's sliding-window layers
+         * keep an uncompressed cache. Qwen refuses it.
          *
          * @param kv  KV cache compression mode to apply.
          */

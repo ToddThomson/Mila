@@ -706,11 +706,12 @@ the cells do not show.
 `in progress` · `architecture` · `quantization` · `mila-src` · `measured`
 
 Phase 4 of the Metal backend passed on Llama 3.2 3B in FP16 and BF16 (`Specifications/Notebooks/MetalFirstModel.md`),
-and its decode attention was rebuilt to 0.83 of llama.cpp after 4096 tokens (`Notebooks/MetalDecodeAttention.md`). The
-published packages are mostly FP4 and Q4_0, which Metal has no Linear for yet, and Gemma and Qwen have no Metal
-operations at all. What remains is the design's Phase 5, every weight format and the KV cache's compression, with
-`dispatchKvCacheCompression`'s refusal of FP8 off CUDA proposed when it starts, and Phase 6, Gemma 4 and Qwen 3.8 on
-what a 16 GB Mac admits, each passing its family's HuggingFace gate. The planner chooses a context at 99% of a Mac's
+and its decode attention was rebuilt to 0.83 of llama.cpp after 4096 tokens (`Notebooks/MetalDecodeAttention.md`).
+Phase 5 has FP8 and FP4 Linear, quantize at load and the FP8 KV cache on Metal, and Llama 3.2 3B and 3.1 8B run them
+with every greedy token HuggingFace's or CUDA's (`Notebooks/MetalQuantizedWeights.md`); how the model gate judges them
+is not decided (`Issues/Untriaged.md`). Q4_0, Q6_K, the codebooks and mixture of experts have no Metal operation yet,
+and Gemma and Qwen none at all. What remains is the rest of Phase 5, and Phase 6, Gemma 4 and Qwen 3.8 on what a 16 GB
+Mac admits, each passing its family's HuggingFace gate. The planner chooses a context at 99% of a Mac's
 working set, where the model runs and macOS swaps the rest of the Mac out (`MetalFirstModel.md` section 5).
 `Specifications/Metal/MetalBackend.md` section 9.
 

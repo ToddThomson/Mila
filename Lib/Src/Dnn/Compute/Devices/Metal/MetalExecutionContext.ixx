@@ -105,6 +105,7 @@ namespace Mila::Dnn::Compute
                 device_->deallocate( scratch_ );
             }
 
+            releaseLoadStaging();
             queue_->release();
         }
 
@@ -190,6 +191,45 @@ namespace Mila::Dnn::Compute
             replaceScratch( required_bytes );
 
             return scratch_;
+        }
+
+        /// The most a load stages at once. A tensor larger than this is quantized in row blocks that fit, as on CUDA.
+        [[nodiscard]] static constexpr std::size_t getLoadStagingLimitBytes() noexcept
+        {
+            return kLoadStagingLimitBytes;
+        }
+
+        /**
+         * @brief The buffer a load quantizes full-precision weights through, grown on demand.
+         *
+         * Separate from the scratch buffer: it lives only while a load runs, which frees it through `releaseLoadStaging()`. The
+         * host writes it directly, so work that reads it must have finished first. A larger request replaces it.
+         *
+         * @throws MetalBadAlloc When the GPU cannot make the buffer.
+         */
+        [[nodiscard]] void* getLoadStagingBuffer( std::size_t required_bytes )
+        {
+            if ( required_bytes <= load_staging_bytes_ )
+            {
+                return load_staging_;
+            }
+
+            releaseLoadStaging();
+
+            load_staging_ = device_->allocate( required_bytes );
+            load_staging_bytes_ = required_bytes;
+
+            return load_staging_;
+        }
+
+        void releaseLoadStaging() noexcept override
+        {
+            if ( load_staging_ )
+            {
+                device_->deallocate( load_staging_ );
+                load_staging_ = nullptr;
+                load_staging_bytes_ = 0;
+            }
         }
 
         /**
@@ -399,13 +439,28 @@ namespace Mila::Dnn::Compute
             }
         }
 
+        /// FP16 and BF16 are a product's activations and weights, FP8 E4M3 a weight's bare codes, and FP32 the sums they make.
+        static MTL::TensorDataType tensorDataTypeOf( TensorDataType data_type )
+        {
+            switch ( data_type )
+            {
+                case TensorDataType::FP16:
+                    return MTL::TensorDataTypeFloat16;
+                case TensorDataType::BF16:
+                    return MTL::TensorDataTypeBFloat16;
+                case TensorDataType::FP8_E4M3:
+                    return MTL::TensorDataTypeMetalFloat8E4M3;
+                case TensorDataType::FP32:
+                    return MTL::TensorDataTypeFloat32;
+                default:
+                    throw std::logic_error( "A Metal matrix multiply takes FP16, BF16, FP8 E4M3 codes or FP32 sums." );
+            }
+        }
+
         /// A new tensor over a view. The caller owns the one reference it returns.
         static MTL::Tensor* makeTensor( const MetalMatrixView& view, const MetalBufferLocation& location )
         {
-            if ( view.data_type != TensorDataType::FP16 && view.data_type != TensorDataType::BF16 )
-            {
-                throw std::logic_error( "A Metal matrix multiply takes FP16 or BF16." );
-            }
+            const MTL::TensorDataType data_type = tensorDataTypeOf( view.data_type );
 
             // Metal lists a tensor's axes from the fastest varying, the opposite of a row and column.
             NS::Integer extents[2] = { view.columns, view.rows };
@@ -415,7 +470,7 @@ namespace Mila::Dnn::Compute
             MTL::TensorExtents* const steps = MTL::TensorExtents::alloc()->init( 2, strides );
             MTL::TensorDescriptor* const descriptor = MTL::TensorDescriptor::alloc()->init();
 
-            descriptor->setDataType( view.data_type == TensorDataType::FP16 ? MTL::TensorDataTypeFloat16 : MTL::TensorDataTypeBFloat16 );
+            descriptor->setDataType( data_type );
             descriptor->setUsage( MTL::TensorUsageCompute );
             descriptor->setDimensions( dimensions );
             descriptor->setStrides( steps );
@@ -507,5 +562,10 @@ namespace Mila::Dnn::Compute
         void* scratch_{ nullptr };
         std::size_t scratch_bytes_{ 0 };
         bool scratch_reserved_{ false };
+        void* load_staging_{ nullptr };
+        std::size_t load_staging_bytes_{ 0 };
+
+        // As CUDA's: it bounds the load's peak, and Qwen 3.8's head is 2.54 GiB of BF16.
+        static constexpr std::size_t kLoadStagingLimitBytes = std::size_t{ 256 } * 1024 * 1024;
     };
 }

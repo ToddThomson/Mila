@@ -10,6 +10,18 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Metal's quantized model gate compares two engines' noise, so FP8 misses CUDA's bar by chance
+
+`Lib/Tests/Dnn/Models/LlaMa/LlamaModel.HuggingFaceReference.Metal.cpp` (`Fp8`, `Fp8QuantizedAtLoad`, `Fp8Cache`, fail); `Specifications/Notebooks/MetalQuantizedWeights.md` 2.3 @ 0.21.0-dev+123
+
+The gate holds Metal to "no further from HuggingFace FP32 than CUDA's run of the same weights". Both carry the format's same rounding, so it compares two draws of each engine's small difference: FP8 and the FP8 cache miss on one number each by 1% to 15%, with every argmax and greedy token HuggingFace's, and FP4 passes. Holding Metal to CUDA's run directly fails on FP4, where CUDA's prefill rounds activations to FP8 (`kUseFp8ActivationPrefill`, inferred cause of Metal scoring the sequence 0.012 better). Proposed to Todd, not decided: HuggingFace FP32 on each format's weights decoded to full precision as the reference, with Phase 4's bars; it does not fit the 8B on this PC. Todd, 2026-11-05: note it for now; the decoded-weights reference "is likely the best choice".
+
+## CUDA's quantize at load writes codes for weights that are not finite, where Metal's refuses the tensor
+
+`Lib/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp8WeightQuantization.cu` (`quantize_fp8_per_channel_kernel`), and the FP4 kernel beside it @ 0.21.0-dev+122
+
+Found writing Metal's quantize to CUDA's bytes, from reading, not run. `fmaxf` passes over a NaN, so a row holding one gets the scale of its other weights and the NaN becomes E4M3's not-a-number code; an infinity makes the scale infinite and every code of its row a NaN. Nothing is refused and nothing is logged, so a damaged checkpoint quantizes into a model that runs and is wrong. Metal counts such weights and refuses the tensor by name (`MetalLinearOp::quantize`, `Notebooks/MetalQuantizedWeights.md` 2.1), as its BF16-to-FP16 load already refuses a value FP16 cannot hold.
+
 ## Every model load on Metal warns that decode replay is off, which is how Metal is designed to run
 
 `Lib/Src/Dnn/Models/LlaMa/LlamaModel.ixx:546` (`setDecodeReplay( true )`), the same in `GemmaModel.ixx:679` and `QwenModel.ixx:503`; `Lib/Src/Dnn/Core/Models/LanguageModelNetwork.ixx:522` @ 0.21.0-dev+121

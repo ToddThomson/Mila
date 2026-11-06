@@ -1010,10 +1010,13 @@ if(MILA_HAS_METAL)
     set(metal_kernel_directory "${CMAKE_CURRENT_BINARY_DIR}/MetalKernels")
 
     foreach(kernel_file
+        "Kernels/QuantizedCodes.metal"
         "Tensors/Operations/Kernels/TensorOps.Fill.metal"
         "Tensors/Operations/Kernels/TensorOps.Scale.metal"
         "Tensors/Operations/Kernels/TensorOps.Structural.metal"
         "Operations/Linear/Kernels/Linear.metal"
+        "Operations/Linear/Kernels/LinearQuantized.metal"
+        "Operations/Linear/Kernels/Quantization/WeightQuantization.metal"
         "Operations/Embeddings/Kernels/TokenEmbedding.metal"
         "Operations/Normalizations/RmsNorm/Kernels/RmsNorm.metal"
         "Operations/Encodings/Rope/Kernels/Rope.metal"

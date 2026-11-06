@@ -123,9 +123,10 @@ namespace Mila::Dnn
      * @brief Resolve a runtime KV-cache setting to the policy of a family's full-context layers.
      *
      * Only full-context caches are resolved here: a bounded sliding-window ring is the family's own
-     * architecture, not a deployment choice (Quantization.md, KV decision 4). FP8 is served only by the
-     * CUDA flash and fused-decode kernels at BF16 compute, so any other build refuses it rather than
-     * quietly building a BF16 cache under a plan that reports FP8.
+     * architecture, not a deployment choice (Quantization.md, KV decision 4). FP8 is built only where
+     * grouped-query attention has an FP8 cache on this device at this precision (`OperationSupported`),
+     * and refused otherwise, rather than quietly building an uncompressed cache under a plan that
+     * reports FP8.
      *
      * @tparam TDeviceType The device the caller's model runs on.
      * @tparam TPrecision  Compute precision.
@@ -145,14 +146,14 @@ namespace Mila::Dnn
     {
         if ( kv_cache_compression == KvCacheCompression::FP8 )
         {
-            if constexpr ( TDeviceType == DeviceType::Cuda && TPrecision == TensorDataType::BF16 )
+            if constexpr ( OperationSupported<OperationType::GroupedQueryAttentionOp, TDeviceType, TPrecision, PerTokenKvFp8<>> )
             {
                 return action.template operator()<PerTokenKvFp8<>>();
             }
             else
             {
-                throw std::runtime_error( std::format(
-                    "{}: an FP8 KV cache needs a CUDA device and BF16 compute precision", caller ) );
+                throw std::runtime_error( std::format( "{}: an FP8 KV cache has no {} attention at {} compute precision",
+                    caller, deviceTypeToString( TDeviceType ), tensorDataTypeToString( TPrecision ) ) );
             }
         }
 

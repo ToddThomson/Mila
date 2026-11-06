@@ -3,8 +3,8 @@
 How Mila runs on Apple M-series GPUs: which chips, how a capability is checked, which precision runs where, the kernels,
 memory, the build, and the phases that get there with their tests and measurements.
 
-**Status:** agreed 2026-11-04 (Todd, decisions in section 10). Phases 0 to 3 have passed, and Phase 4 on Llama 3.2 3B, its correctness gate and its measures (section 9). In v0.21.0, experimental, as `ROADMAP.md` *Mila on Apple Silicon* (Todd, 2026-11-05). Evidence:
-`Notebooks/MetalPrecisionTiming.md`, `Notebooks/MetalDeviceAndMemory.md`, `Notebooks/MetalMatrixPath.md`, `Notebooks/MetalLlamaOperations.md`, `Notebooks/MetalFirstModel.md`.
+**Status:** agreed 2026-11-04 (Todd, decisions in section 10). Phases 0 to 3 have passed, and Phase 4 on Llama 3.2 3B, its correctness gate and its measures; Phase 5 is under way (section 9). In v0.21.0, experimental, as `ROADMAP.md` *Mila on Apple Silicon* (Todd, 2026-11-05). Evidence:
+`Notebooks/MetalPrecisionTiming.md`, `Notebooks/MetalDeviceAndMemory.md`, `Notebooks/MetalMatrixPath.md`, `Notebooks/MetalLlamaOperations.md`, `Notebooks/MetalFirstModel.md`, `Notebooks/MetalQuantizedWeights.md`.
 
 ---
 
@@ -388,10 +388,13 @@ no-copy weights; llama.cpp on the same Mac.
 
 Llama 3.2 3B FP8 and FP4, Llama 3.1 8B FP4, then the rest of the list on the model that uses each, with the paths of section 4.2. Per-token KV compression, and its sliding window.
 
-`dispatchWeightQuantization` builds a format wherever its Linear operation exists on the device at the precision, so each Metal specialization this phase adds is reached as it lands (Phase 4 made it so). `dispatchKvCacheCompression` still refuses FP8 off CUDA, which is `Lib/Src`
-and is proposed when this phase starts.
+`dispatchWeightQuantization` builds a format wherever its Linear operation exists on the device at the precision, so each Metal specialization this phase adds is reached as it lands (Phase 4 made it so). `dispatchKvCacheCompression` now does the same for the FP8 cache, through `OperationSupported` on attention (Todd, 2026-11-05).
+
+**Agreed for this phase (Todd, 2026-11-05).** Model runs are Llama's: 3.2 3B in FP8 and FP4, 3.1 8B in FP4. A format only Gemma or Qwen uses gets its operation and its own test here, and its model run in Phase 6 with that model. Quantize-on-load is a Metal kernel per format, held to CUDA's bytes. Notebook: `Notebooks/MetalQuantizedWeights.md`, gate written first.
 
 **Gate:** as Phase 4, per format, and a Metal specialization for every entry in section 1, with its own test against a reference.
+
+**FP8 and FP4 Linear and the FP8 cache, as operations, 2026-11-05** (`Notebooks/MetalQuantizedWeights.md` 2.1). Linear on FP8 and FP4 at 64 and 128 holds its bar at every row count on the paths of section 4.2. TensorOps refuses BF16 activations times FP8 codes, so BF16 FP8 takes FP4's paths. Quantize at load writes the bytes CUDA's `ExportArtifact` writes, on Llama 3.2 3B's own weights, once each kernel is compiled in safe math: Metal's default fast math rounded 0.04% of codes differently. Attention's FP8 cache holds its bar in prefill and decode; decode reads the codes, and prefill expands one KV head's rows at a time, since folding V's scale into the probabilities would put them below FP16's normal range.
 
 ### Phase 6 -- The other families
 
@@ -443,3 +446,4 @@ development Mac and neither can reach a user's.
 | Pad 2 to 7 rows before Phase 4, with the scratch buffer here and not in Phase 5, and the rows that pad a tile zero. Attention pads only if its timing earns it (section 4.2) | Todd, 2026-11-05 |
 | Phase 4's library changes: `DeviceTypeTraits` says whether a device trains, every network's load synchronizes on every device, and the weight dispatch builds a format where `OperationSupported` says its Linear exists (`Notebooks/MetalFirstModel.md` section 3) | Todd, 2026-11-05 |
 | Attention's decode in two passes on MLX's path, 32 blocks fixed, the partials in the context's scratch (section 4.4, `Notebooks/MetalDecodeAttention.md`) | Todd, 2026-11-05 |
+| Phase 5's model runs are Llama's (3.2 3B FP8 and FP4, 3.1 8B FP4); Gemma's and Qwen's formats are operations here and model runs in Phase 6. The FP8 cache dispatch asks `OperationSupported` (section 9, Phase 5) | Todd, 2026-11-05 |

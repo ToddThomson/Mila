@@ -17,8 +17,11 @@ namespace Mila::Dnn::Compute
 {
     namespace
     {
-        // Each operation's kernels, from the Kernels/ folder beside it, embedded at configure time by Lib/CMakeLists.txt.
+        // Each operation's kernels, from the Kernels/ folder beside it, embedded at configure time by Lib/CMakeLists.txt. What
+        // codes mean is first, since the kernels after it read and write them.
         const char* const kKernelSources[] = {
+#include "QuantizedCodes.metal.inc"
+            ,
 #include "TensorOps.Fill.metal.inc"
             ,
 #include "TensorOps.Scale.metal.inc"
@@ -32,6 +35,10 @@ namespace Mila::Dnn::Compute
 #include "NextTokenLogProbability.metal.inc"
             ,
 #include "Linear.metal.inc"
+            ,
+#include "LinearQuantized.metal.inc"
+            ,
+#include "WeightQuantization.metal.inc"
             ,
 #include "TokenEmbedding.metal.inc"
             ,

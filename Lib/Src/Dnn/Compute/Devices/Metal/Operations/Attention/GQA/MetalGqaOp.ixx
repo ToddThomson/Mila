@@ -25,6 +25,8 @@ import Compute.OperationType;
 import Dnn.Component;
 import Dnn.Components.GqaConfig;
 import Dnn.ITensor;
+import Dnn.Quantization.KvCache.Policy;
+import Dnn.Quantization.KvCache.PerTokenKvFp8;
 import Dnn.Tensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
@@ -32,6 +34,8 @@ import Dnn.TensorTypes;
 
 namespace Mila::Dnn::Compute::Metal::Gqa
 {
+    using namespace Mila::Dnn::Quant::KvCache;
+
     /**
      * @brief Attention with its own [B, NKV, capacity, HS] cache and the shared workspace of the stack it belongs to.
      *
@@ -39,13 +43,30 @@ namespace Mila::Dnn::Compute::Metal::Gqa
      * of one token writes the cache, then splits the keys over a fixed number of blocks and merges them, reading the position from the
      * execution context (`MetalBackend.md` section 4.4, `Notebooks/MetalDecodeAttention.md`). Several tokens in one decode are Phase 6's,
      * with the model that uses them, and are refused here.
+     *
+     * An FP8 cache holds each row, one KV head at one token, as E4M3 codes with one FP32 scale, [B, NKV, capacity] for K and for V. A
+     * decode step reads the codes and scales directly. Prefill expands one KV head's rows at a time to the compute precision in the
+     * context's scratch, and multiplies them as an uncompressed cache's: folding V's scale into the probabilities would put them below
+     * FP16's normal range.
+     *
+     * @tparam TPrecision FP16 or BF16.
+     * @tparam TKvPolicy NoKvCompression, or PerTokenKvFp8<>.
      */
-    export template<TensorDataType TPrecision>
+    export template<TensorDataType TPrecision, KvCachePolicy TKvPolicy = NoKvCompression>
     class MetalGqaOp : public Operation<DeviceType::Metal, TPrecision>, public IKvInference
     {
     public:
 
         using TensorType = Tensor<TPrecision, MetalMemoryResource>;
+
+        static constexpr bool kFp8Cache = std::is_same_v<TKvPolicy, PerTokenKvFp8<>>;
+
+        static_assert( kFp8Cache || std::is_same_v<TKvPolicy, NoKvCompression>, "Metal's attention carries an uncompressed or an FP8 cache" );
+
+        static constexpr TensorDataType kCacheType = kFp8Cache ? TensorDataType::FP8_E4M3 : TPrecision;
+
+        using CacheTensorType = Tensor<kCacheType, MetalMemoryResource>;
+        using ScaleTensorType = Tensor<TensorDataType::FP32, MetalMemoryResource>;
 
         MetalGqaOp( IExecutionContext* context, const GqaConfig& config )
             : context_( validateExecutionContext_<DeviceType::Metal>( context, "MetalGqaOp" ) ),
@@ -104,8 +125,16 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             {
                 const shape_t cache_shape{ input_shape[0], config_.getNumKvHeads(), input_shape[1], config_.getHeadDim() };
 
-                key_cache_ = std::make_unique<TensorType>( context_->getDeviceId(), cache_shape, "gqa.key_cache" );
-                value_cache_ = std::make_unique<TensorType>( context_->getDeviceId(), cache_shape, "gqa.value_cache" );
+                key_cache_ = std::make_unique<CacheTensorType>( context_->getDeviceId(), cache_shape, "gqa.key_cache" );
+                value_cache_ = std::make_unique<CacheTensorType>( context_->getDeviceId(), cache_shape, "gqa.value_cache" );
+
+                if constexpr ( kFp8Cache )
+                {
+                    const shape_t scale_shape{ input_shape[0], config_.getNumKvHeads(), input_shape[1] };
+
+                    key_scales_ = std::make_unique<ScaleTensorType>( context_->getDeviceId(), scale_shape, "gqa.key_scales" );
+                    value_scales_ = std::make_unique<ScaleTensorType>( context_->getDeviceId(), scale_shape, "gqa.value_scales" );
+                }
             }
 
             Operation<DeviceType::Metal, TPrecision>::build( context );
@@ -165,8 +194,16 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             const int group_size = heads_ / kv_heads_;
             const int attended = offset + tokens;
 
-            encode( "gqa_write_prefill", std::array<const void*, 4>{ k.rawData(), v.rawData(), key_cache_->rawData(), value_cache_->rawData() },
-                geometry, count * kv_heads_ * head_size_ );
+            if constexpr ( kFp8Cache )
+            {
+                context_->dispatchThreadgroups( context_->device().kernels().pipeline( kernelName( "gqa_write_fp8_prefill" ) ),
+                    std::array<const void*, 6>{ k.rawData(), v.rawData(), key_cache_->rawData(), value_cache_->rawData(), key_scales_->rawData(),
+                        value_scales_->rawData() },
+                    std::as_bytes( std::span( &geometry, 1 ) ), count * kv_heads_, 1 );
+            } else {
+                encode( "gqa_write_prefill", std::array<const void*, 4>{ k.rawData(), v.rawData(), key_cache_->rawData(), value_cache_->rawData() },
+                    geometry, count * kv_heads_ * head_size_ );
+            }
 
             encode( "gqa_permute_query", std::array<const void*, 2>{ q.rawData(), q_permute_->rawData() },
                 geometry, count * heads_ * head_size_ );
@@ -178,10 +215,9 @@ namespace Mila::Dnn::Compute::Metal::Gqa
                 for ( int group = 0; group < kv_heads_; ++group )
                 {
                     const std::size_t first_head = static_cast<std::size_t>( b * heads_ + group * group_size );
-                    const std::size_t cache_row = static_cast<std::size_t>( b * kv_heads_ + group ) * capacity_ * head_size_;
 
                     const auto* const query = bytesOf( q_permute_ ) + element_bytes * first_head * tokens * head_size_;
-                    const auto* const keys = bytesOf( key_cache_.get() ) + element_bytes * cache_row;
+                    const auto* const keys = cachedRows( key_cache_.get(), key_scales_.get(), b * kv_heads_ + group, attended, geometry );
                     const auto* const scores = bytesOf( preatt_ ) + element_bytes * first_head * tokens * capacity_;
 
                     encodeMatrixProduct<TPrecision>( *context_, MatrixProduct{
@@ -196,11 +232,10 @@ namespace Mila::Dnn::Compute::Metal::Gqa
                 for ( int group = 0; group < kv_heads_; ++group )
                 {
                     const std::size_t first_head = static_cast<std::size_t>( b * heads_ + group * group_size );
-                    const std::size_t cache_row = static_cast<std::size_t>( b * kv_heads_ + group ) * capacity_ * head_size_;
 
                     encodeValues(
                         bytesOf( att_ ) + element_bytes * first_head * tokens * capacity_,
-                        bytesOf( value_cache_.get() ) + element_bytes * cache_row,
+                        cachedRows( value_cache_.get(), value_scales_.get(), b * kv_heads_ + group, attended, geometry ),
                         bytesOf( v_out_ ) + element_bytes * first_head * tokens * head_size_,
                         group_size * tokens, attended );
                 }
@@ -229,8 +264,16 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             const Geometry geometry = geometryFor( 1, 0 );
             const void* const decode_position = context_->decodePositionAddress();
 
-            encode( "gqa_write_decode", std::array<const void*, 5>{ k.rawData(), v.rawData(), key_cache_->rawData(), value_cache_->rawData(), decode_position },
-                geometry, static_cast<std::size_t>( batches_ * kv_heads_ * head_size_ ) );
+            if constexpr ( kFp8Cache )
+            {
+                context_->dispatchThreadgroups( context_->device().kernels().pipeline( kernelName( "gqa_write_fp8_decode" ) ),
+                    std::array<const void*, 7>{ k.rawData(), v.rawData(), key_cache_->rawData(), value_cache_->rawData(), key_scales_->rawData(),
+                        value_scales_->rawData(), decode_position },
+                    std::as_bytes( std::span( &geometry, 1 ) ), static_cast<std::size_t>( batches_ * kv_heads_ ), 1 );
+            } else {
+                encode( "gqa_write_decode", std::array<const void*, 5>{ k.rawData(), v.rawData(), key_cache_->rawData(), value_cache_->rawData(), decode_position },
+                    geometry, static_cast<std::size_t>( batches_ * kv_heads_ * head_size_ ) );
+            }
 
             // The partials: each block's output, then its largest score and its sum, for every head of every batch.
             const std::size_t slots = static_cast<std::size_t>( batches_ * heads_ ) * kDecodeBlocks;
@@ -239,22 +282,31 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             float* const partial_sum = partial_largest + slots;
 
             auto& pipelines = context_->device().kernels();
+            const std::size_t query_heads = static_cast<std::size_t>( heads_ / kv_heads_ );
 
-            context_->dispatchThreadgroups( pipelines.pipeline( decodeKernelName( "gqa_decode_partial" ) ),
-                std::array<const void*, 7>{ q.rawData(), key_cache_->rawData(), value_cache_->rawData(), partial_output, partial_largest, partial_sum,
-                    decode_position },
-                std::as_bytes( std::span( &geometry, 1 ) ), kDecodeBlocks, static_cast<std::size_t>( batches_ * kv_heads_ ),
-                static_cast<std::size_t>( heads_ / kv_heads_ ) );
+            if constexpr ( kFp8Cache )
+            {
+                context_->dispatchThreadgroups( pipelines.pipeline( decodeKernelName( "gqa_decode_partial_fp8" ) ),
+                    std::array<const void*, 9>{ q.rawData(), key_cache_->rawData(), value_cache_->rawData(), key_scales_->rawData(),
+                        value_scales_->rawData(), partial_output, partial_largest, partial_sum, decode_position },
+                    std::as_bytes( std::span( &geometry, 1 ) ), kDecodeBlocks, static_cast<std::size_t>( batches_ * kv_heads_ ), query_heads );
+            } else {
+                context_->dispatchThreadgroups( pipelines.pipeline( decodeKernelName( "gqa_decode_partial" ) ),
+                    std::array<const void*, 7>{ q.rawData(), key_cache_->rawData(), value_cache_->rawData(), partial_output, partial_largest, partial_sum,
+                        decode_position },
+                    std::as_bytes( std::span( &geometry, 1 ) ), kDecodeBlocks, static_cast<std::size_t>( batches_ * kv_heads_ ), query_heads );
+            }
 
             context_->dispatchThreadgroups( pipelines.pipeline( decodeKernelName( "gqa_decode_merge" ) ),
                 std::array<const void*, 4>{ partial_output, partial_largest, partial_sum, output.rawData() },
                 std::as_bytes( std::span( &geometry, 1 ) ), static_cast<std::size_t>( batches_ * heads_ ), 1 );
         }
 
-        /// A decode step's partials, from the context's scratch: none before the operation is built.
+        /// A decode step's partials, and with an FP8 cache one KV head's rows expanded for prefill, from the context's scratch: none
+        /// before the operation is built.
         [[nodiscard]] std::size_t getScratchBytes() const override
         {
-            return this->isBuilt() ? decodeScratchBytes() : 0;
+            return this->isBuilt() ? scratchBytesFor( batches_, heads_, head_size_, capacity_ ) : 0;
         }
 
         [[nodiscard]] std::size_t getRequiredScratchBytes( const BuildContext& context ) const override
@@ -263,7 +315,7 @@ namespace Mila::Dnn::Compute::Metal::Gqa
 
             validateInputShape( input_shape );
 
-            return decodeScratchBytesFor( input_shape[0], config_.getNumHeads(), config_.getHeadDim() );
+            return scratchBytesFor( input_shape[0], config_.getNumHeads(), config_.getHeadDim(), input_shape[1] );
         }
 
         /// @throws std::runtime_error Always: GQA is inference only, as on CUDA, and is driven by prefill() and decode().
@@ -284,19 +336,38 @@ namespace Mila::Dnn::Compute::Metal::Gqa
 
         [[nodiscard]] std::size_t getStateMemorySize() const override
         {
-            return key_cache_ ? occupiedTensorBytes( *key_cache_ ) + occupiedTensorBytes( *value_cache_ ) : 0;
+            if ( !key_cache_ )
+            {
+                return 0;
+            }
+
+            std::size_t bytes = occupiedTensorBytes( *key_cache_ ) + occupiedTensorBytes( *value_cache_ );
+
+            if constexpr ( kFp8Cache )
+            {
+                bytes += occupiedTensorBytes( *key_scales_ ) + occupiedTensorBytes( *value_scales_ );
+            }
+
+            return bytes;
         }
 
-        /// K and V, each [B, NKV, capacity, HS]. All transient scratch is the shared workspace's, and is counted there.
+        /// K and V, each [B, NKV, capacity, HS], and with an FP8 cache their scales, each [B, NKV, capacity]. All transient scratch is
+        /// the shared workspace's or the context's, and is counted there.
         [[nodiscard]] std::size_t getRequiredStateMemorySize( const BuildContext& context ) const override
         {
             const shape_t& input_shape = context.inputShape();
 
             validateInputShape( input_shape );
 
-            return 2 * occupiedDeviceBytes(
-                storageBytes<TPrecision>( input_shape[0] * config_.getNumKvHeads() * input_shape[1] * config_.getHeadDim() ),
-                context.getAllocationGranularity() );
+            const dim_t rows = input_shape[0] * config_.getNumKvHeads() * input_shape[1];
+            std::size_t bytes = 2 * occupiedDeviceBytes( storageBytes<kCacheType>( rows * config_.getHeadDim() ), context.getAllocationGranularity() );
+
+            if constexpr ( kFp8Cache )
+            {
+                bytes += 2 * occupiedDeviceBytes( storageBytes<TensorDataType::FP32>( rows ), context.getAllocationGranularity() );
+            }
+
+            return bytes;
         }
 
     private:
@@ -366,9 +437,45 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             return static_cast<std::size_t>( batches * heads ) * kDecodeBlocks * static_cast<std::size_t>( head_size + 2 ) * sizeof( float );
         }
 
+        [[nodiscard]] static std::size_t scratchBytesFor( dim_t batches, dim_t heads, dim_t head_size, dim_t capacity )
+        {
+            const std::size_t decode_bytes = decodeScratchBytesFor( batches, heads, head_size );
+
+            if constexpr ( kFp8Cache )
+            {
+                return std::max( decode_bytes, metalElementBytes<TPrecision>( capacity * head_size ) );
+            } else {
+                return decode_bytes;
+            }
+        }
+
         [[nodiscard]] std::size_t decodeScratchBytes() const
         {
             return decodeScratchBytesFor( batches_, heads_, head_size_ );
+        }
+
+        /**
+         * One KV head's first `rows` rows of K or V, as prefill's products read them: in place for a cache in the compute type, and for an
+         * FP8 cache expanded into the context's scratch, where the next call's rows replace them once the work between has run.
+         */
+        [[nodiscard]] const std::byte* cachedRows( const CacheTensorType* cache, const ScaleTensorType* scales, int kv_head_of_batch, int rows,
+            const Geometry& geometry ) const
+        {
+            const std::size_t first_row = static_cast<std::size_t>( kv_head_of_batch ) * capacity_;
+            const auto* const codes = bytesOf( cache ) + storageBytes<kCacheType>( static_cast<dim_t>( first_row * head_size_ ) );
+
+            if constexpr ( !kFp8Cache )
+            {
+                return codes;
+            } else {
+                void* const expanded = context_->getDeviceScratchBuffer( metalElementBytes<TPrecision>( static_cast<dim_t>( rows ) * head_size_ ) );
+                const auto* const row_scales = static_cast<const float*>( static_cast<const ITensor*>( scales )->rawData() ) + first_row;
+
+                encode( "gqa_expand_fp8_rows", std::array<const void*, 3>{ codes, row_scales, expanded }, geometry,
+                    static_cast<std::size_t>( rows ) * static_cast<std::size_t>( head_size_ ) );
+
+                return static_cast<const std::byte*>( expanded );
+            }
         }
 
         /// The head sizes the models use have their own kernels; any other runs the interleaved one.
@@ -468,8 +575,10 @@ namespace Mila::Dnn::Compute::Metal::Gqa
         MetalExecutionContext* context_;
         GqaConfig config_;
 
-        std::unique_ptr<TensorType> key_cache_;
-        std::unique_ptr<TensorType> value_cache_;
+        std::unique_ptr<CacheTensorType> key_cache_;
+        std::unique_ptr<CacheTensorType> value_cache_;
+        std::unique_ptr<ScaleTensorType> key_scales_;
+        std::unique_ptr<ScaleTensorType> value_scales_;
 
         const ITensor* q_permute_{ nullptr };
         const ITensor* preatt_{ nullptr };

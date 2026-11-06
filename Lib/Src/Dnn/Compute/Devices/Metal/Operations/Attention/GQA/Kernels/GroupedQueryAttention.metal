@@ -84,6 +84,113 @@ template [[host_name("gqa_write_decode_bfloat")]] kernel void gqa_write_decode<b
     device const bfloat*, device const bfloat*, device bfloat*, device bfloat*, device const int*, constant GqaGeometry&, uint );
 
 // ---------------------------------------------------------------------------------------------------------------------
+// The FP8 cache (PerTokenKvFp8): each row, one KV head at one token, as E4M3 codes with one FP32 scale, max |x| / 448, which
+// Mila's CUDA write uses too. A row of zeros stores scale 0 and zero codes. One SIMD-group per row of K and V; needs
+// QuantizedCodes.metal.
+// ---------------------------------------------------------------------------------------------------------------------
+
+template<typename TElement>
+inline void gqa_write_fp8_row(
+    device const TElement* source, device uchar* codes, device float* scale_slot, uint head_size, uint lane )
+{
+    float largest = 0.0f;
+
+    for ( uint c = lane; c < head_size; c += 32 )
+    {
+        largest = fmax( largest, fabs( float( source[c] ) ) );
+    }
+
+    largest = simd_max( largest );
+
+    const float scale = precise::divide( largest, kFp8E4M3Largest );
+    const float inverse = largest > 0.0f ? precise::divide( 1.0f, scale ) : 0.0f;
+
+    if ( lane == 0 )
+    {
+        *scale_slot = scale;
+    }
+
+    for ( uint c = lane; c < head_size; c += 32 )
+    {
+        codes[c] = fp8E4M3Code( float( source[c] ) * inverse );
+    }
+}
+
+// Row `row` of K and V's [B, tokens, NKV] rows goes to the cache at its absolute position.
+template<typename TElement>
+inline void gqa_write_fp8_rows(
+    device const TElement* key, device const TElement* value, device uchar* key_codes, device uchar* value_codes,
+    device float* key_scales, device float* value_scales, constant GqaGeometry& geometry, uint first_position, uint row, uint lane )
+{
+    const uint kv_head = row % geometry.kv_heads;
+    const uint token_of_batch = row / geometry.kv_heads;
+    const uint token = token_of_batch % geometry.tokens;
+    const uint batch = token_of_batch / geometry.tokens;
+
+    const uint cached = ( batch * geometry.kv_heads + kv_head ) * geometry.capacity + first_position + token;
+
+    gqa_write_fp8_row( key + row * geometry.head_size, key_codes + cached * geometry.head_size, key_scales + cached, geometry.head_size, lane );
+    gqa_write_fp8_row( value + row * geometry.head_size, value_codes + cached * geometry.head_size, value_scales + cached, geometry.head_size, lane );
+}
+
+template<typename TElement>
+kernel void gqa_write_fp8_prefill(
+    device const TElement* key [[buffer(0)]],
+    device const TElement* value [[buffer(1)]],
+    device uchar* key_codes [[buffer(2)]],
+    device uchar* value_codes [[buffer(3)]],
+    device float* key_scales [[buffer(4)]],
+    device float* value_scales [[buffer(5)]],
+    constant GqaGeometry& geometry [[buffer(6)]],
+    uint3 group [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_simdgroup]] )
+{
+    gqa_write_fp8_rows<TElement>( key, value, key_codes, value_codes, key_scales, value_scales, geometry, geometry.position_offset, group.x, lane );
+}
+
+template<typename TElement>
+kernel void gqa_write_fp8_decode(
+    device const TElement* key [[buffer(0)]],
+    device const TElement* value [[buffer(1)]],
+    device uchar* key_codes [[buffer(2)]],
+    device uchar* value_codes [[buffer(3)]],
+    device float* key_scales [[buffer(4)]],
+    device float* value_scales [[buffer(5)]],
+    device const int* decode_position [[buffer(6)]],
+    constant GqaGeometry& geometry [[buffer(7)]],
+    uint3 group [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_simdgroup]] )
+{
+    gqa_write_fp8_rows<TElement>( key, value, key_codes, value_codes, key_scales, value_scales, geometry, uint( *decode_position ), group.x, lane );
+}
+
+template [[host_name("gqa_write_fp8_prefill_half")]] kernel void gqa_write_fp8_prefill<half>(
+    device const half*, device const half*, device uchar*, device uchar*, device float*, device float*, constant GqaGeometry&, uint3, uint );
+template [[host_name("gqa_write_fp8_prefill_bfloat")]] kernel void gqa_write_fp8_prefill<bfloat>(
+    device const bfloat*, device const bfloat*, device uchar*, device uchar*, device float*, device float*, constant GqaGeometry&, uint3, uint );
+template [[host_name("gqa_write_fp8_decode_half")]] kernel void gqa_write_fp8_decode<half>(
+    device const half*, device const half*, device uchar*, device uchar*, device float*, device float*, device const int*, constant GqaGeometry&, uint3, uint );
+template [[host_name("gqa_write_fp8_decode_bfloat")]] kernel void gqa_write_fp8_decode<bfloat>(
+    device const bfloat*, device const bfloat*, device uchar*, device uchar*, device float*, device float*, device const int*, constant GqaGeometry&, uint3, uint );
+
+// One KV head's first `rows` cached rows of K or V, as the compute type, for prefill's products. The grid is every element.
+template<typename TElement>
+kernel void gqa_expand_fp8_rows(
+    device const uchar* codes [[buffer(0)]],
+    device const float* scales [[buffer(1)]],
+    device TElement* expanded [[buffer(2)]],
+    constant GqaGeometry& geometry [[buffer(3)]],
+    uint index [[thread_position_in_grid]] )
+{
+    expanded[index] = TElement( kFp8E4M3Values[codes[index]] * scales[index / geometry.head_size] );
+}
+
+template [[host_name("gqa_expand_fp8_rows_half")]] kernel void gqa_expand_fp8_rows<half>(
+    device const uchar*, device const float*, device half*, constant GqaGeometry&, uint );
+template [[host_name("gqa_expand_fp8_rows_bfloat")]] kernel void gqa_expand_fp8_rows<bfloat>(
+    device const uchar*, device const float*, device bfloat*, constant GqaGeometry&, uint );
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Prefill. Q [B, tokens, NH, HS] goes to [B, NH, tokens, HS], scaled here because TensorOps has no scale of its own. Scaling first
 // also keeps the scores in FP16's range, where an unscaled product could pass 65504.
 // ---------------------------------------------------------------------------------------------------------------------
@@ -311,10 +418,49 @@ struct GqaInterleavedChannels
     }
 };
 
+// A cache in the compute type: each row as stored.
+template<typename TElement>
+struct GqaCacheRows
+{
+    device const TElement* keys;
+    device const TElement* values;
+
+    GqaCacheRows atKvHead( uint kv_head_of_batch, uint rows_per_head, uint head_size ) const
+    {
+        return GqaCacheRows{ keys + kv_head_of_batch * rows_per_head * head_size, values + kv_head_of_batch * rows_per_head * head_size };
+    }
+
+    float key( uint row, uint head_size, uint channel ) const { return float( keys[row * head_size + channel] ); }
+    float value( uint row, uint head_size, uint channel ) const { return float( values[row * head_size + channel] ); }
+    float keyScale( uint ) const { return 1.0f; }
+    float valueScale( uint ) const { return 1.0f; }
+};
+
+// An FP8 cache: each row's codes, and its scale, which comes out of the row's score and multiplies its weight.
+struct GqaFp8CacheRows
+{
+    device const uchar* keys;
+    device const uchar* values;
+    device const float* key_scales;
+    device const float* value_scales;
+
+    GqaFp8CacheRows atKvHead( uint kv_head_of_batch, uint rows_per_head, uint head_size ) const
+    {
+        const uint first_row = kv_head_of_batch * rows_per_head;
+
+        return GqaFp8CacheRows{ keys + first_row * head_size, values + first_row * head_size, key_scales + first_row, value_scales + first_row };
+    }
+
+    float key( uint row, uint head_size, uint channel ) const { return kFp8E4M3Values[keys[row * head_size + channel]]; }
+    float value( uint row, uint head_size, uint channel ) const { return kFp8E4M3Values[values[row * head_size + channel]]; }
+    float keyScale( uint row ) const { return key_scales[row]; }
+    float valueScale( uint row ) const { return value_scales[row]; }
+};
+
 // One block's keys for one query head, the softmax online: the largest score so far, the sum, the output rescaled as it grows.
-template<typename TElement, uint kPerLane, typename TChannels>
+template<uint kPerLane, typename TCache, typename TElement, typename TChannels>
 inline void gqa_decode_block(
-    device const TElement* query, device const TElement* key_cache, device const TElement* value_cache,
+    device const TElement* query, TCache cache,
     device float* partial_output, device float* partial_largest, device float* partial_sum, device const int* decode_position,
     constant GqaGeometry& geometry, uint2 group, uint simd, uint lane, TChannels channels )
 {
@@ -325,8 +471,7 @@ inline void gqa_decode_block(
     const uint head_of_batch = batch * geometry.heads + kv_head * ( geometry.heads / geometry.kv_heads ) + simd;
     const uint head_size = geometry.head_size;
 
-    device const TElement* key_rows = key_cache + kv_head_of_batch * geometry.capacity * head_size;
-    device const TElement* value_rows = value_cache + kv_head_of_batch * geometry.capacity * head_size;
+    const TCache rows = cache.atKvHead( kv_head_of_batch, geometry.capacity, head_size );
 
     const uint position = uint( *decode_position );
     const uint first_key = geometry.window > 0 && position + 1 > geometry.window ? position + 1 - geometry.window : 0;
@@ -345,15 +490,14 @@ inline void gqa_decode_block(
 
     for ( uint j = first_key + block; j <= position; j += geometry.decode_blocks )
     {
-        device const TElement* key = key_rows + j * head_size;
         float score = 0.0f;
 
         for ( uint e = 0; e < kPerLane; ++e )
         {
-            score += channels.present( e ) ? q[e] * float( key[channels.channel( e )] ) : 0.0f;
+            score += channels.present( e ) ? q[e] * rows.key( j, head_size, channels.channel( e ) ) : 0.0f;
         }
 
-        score = simd_sum( score );
+        score = simd_sum( score ) * rows.keyScale( j );
 
         const float next = max( largest, score );
         const float rescale = exp( largest - next );
@@ -361,11 +505,11 @@ inline void gqa_decode_block(
 
         sum = sum * rescale + weight;
 
-        device const TElement* value = value_rows + j * head_size;
+        const float value_weight = weight * rows.valueScale( j );
 
         for ( uint e = 0; e < kPerLane; ++e )
         {
-            out[e] = out[e] * rescale + ( channels.present( e ) ? weight * float( value[channels.channel( e )] ) : 0.0f );
+            out[e] = out[e] * rescale + ( channels.present( e ) ? value_weight * rows.value( j, head_size, channels.channel( e ) ) : 0.0f );
         }
 
         largest = next;
@@ -404,8 +548,8 @@ kernel void gqa_decode_partial(
     uint simd [[simdgroup_index_in_threadgroup]],
     uint lane [[thread_index_in_simdgroup]] )
 {
-    gqa_decode_block<TElement, HS / 32>( query, key_cache, value_cache, partial_output, partial_largest, partial_sum, decode_position,
-        geometry, group, simd, lane, GqaContiguousChannels<HS>{ lane } );
+    gqa_decode_block<HS / 32>( query, GqaCacheRows<TElement>{ key_cache, value_cache }, partial_output, partial_largest, partial_sum,
+        decode_position, geometry, group, simd, lane, GqaContiguousChannels<HS>{ lane } );
 }
 
 template<typename TElement>
@@ -422,9 +566,71 @@ kernel void gqa_decode_partial_any(
     uint simd [[simdgroup_index_in_threadgroup]],
     uint lane [[thread_index_in_simdgroup]] )
 {
-    gqa_decode_block<TElement, 16>( query, key_cache, value_cache, partial_output, partial_largest, partial_sum, decode_position,
-        geometry, group, simd, lane, GqaInterleavedChannels{ lane, geometry.head_size } );
+    gqa_decode_block<16>( query, GqaCacheRows<TElement>{ key_cache, value_cache }, partial_output, partial_largest, partial_sum,
+        decode_position, geometry, group, simd, lane, GqaInterleavedChannels{ lane, geometry.head_size } );
 }
+
+// The same pass over an FP8 cache: codes and each row's scale, for K and for V.
+template<typename TElement, uint HS>
+kernel void gqa_decode_partial_fp8(
+    device const TElement* query [[buffer(0)]],
+    device const uchar* key_codes [[buffer(1)]],
+    device const uchar* value_codes [[buffer(2)]],
+    device const float* key_scales [[buffer(3)]],
+    device const float* value_scales [[buffer(4)]],
+    device float* partial_output [[buffer(5)]],
+    device float* partial_largest [[buffer(6)]],
+    device float* partial_sum [[buffer(7)]],
+    device const int* decode_position [[buffer(8)]],
+    constant GqaGeometry& geometry [[buffer(9)]],
+    uint2 group [[threadgroup_position_in_grid]],
+    uint simd [[simdgroup_index_in_threadgroup]],
+    uint lane [[thread_index_in_simdgroup]] )
+{
+    gqa_decode_block<HS / 32>( query, GqaFp8CacheRows{ key_codes, value_codes, key_scales, value_scales }, partial_output, partial_largest,
+        partial_sum, decode_position, geometry, group, simd, lane, GqaContiguousChannels<HS>{ lane } );
+}
+
+template<typename TElement>
+kernel void gqa_decode_partial_fp8_any(
+    device const TElement* query [[buffer(0)]],
+    device const uchar* key_codes [[buffer(1)]],
+    device const uchar* value_codes [[buffer(2)]],
+    device const float* key_scales [[buffer(3)]],
+    device const float* value_scales [[buffer(4)]],
+    device float* partial_output [[buffer(5)]],
+    device float* partial_largest [[buffer(6)]],
+    device float* partial_sum [[buffer(7)]],
+    device const int* decode_position [[buffer(8)]],
+    constant GqaGeometry& geometry [[buffer(9)]],
+    uint2 group [[threadgroup_position_in_grid]],
+    uint simd [[simdgroup_index_in_threadgroup]],
+    uint lane [[thread_index_in_simdgroup]] )
+{
+    gqa_decode_block<16>( query, GqaFp8CacheRows{ key_codes, value_codes, key_scales, value_scales }, partial_output, partial_largest,
+        partial_sum, decode_position, geometry, group, simd, lane, GqaInterleavedChannels{ lane, geometry.head_size } );
+}
+
+#define MILA_GQA_DECODE_PARTIAL_FP8( element, size ) \
+    template [[host_name( "gqa_decode_partial_fp8_" #element "_" #size )]] kernel void gqa_decode_partial_fp8<element, size>( \
+        device const element*, device const uchar*, device const uchar*, device const float*, device const float*, device float*, \
+        device float*, device float*, device const int*, constant GqaGeometry&, uint2, uint, uint );
+
+MILA_GQA_DECODE_PARTIAL_FP8( half, 64 )
+MILA_GQA_DECODE_PARTIAL_FP8( half, 128 )
+MILA_GQA_DECODE_PARTIAL_FP8( half, 256 )
+MILA_GQA_DECODE_PARTIAL_FP8( half, 512 )
+MILA_GQA_DECODE_PARTIAL_FP8( bfloat, 64 )
+MILA_GQA_DECODE_PARTIAL_FP8( bfloat, 128 )
+MILA_GQA_DECODE_PARTIAL_FP8( bfloat, 256 )
+MILA_GQA_DECODE_PARTIAL_FP8( bfloat, 512 )
+
+template [[host_name( "gqa_decode_partial_fp8_half_any" )]] kernel void gqa_decode_partial_fp8_any<half>(
+    device const half*, device const uchar*, device const uchar*, device const float*, device const float*, device float*, device float*,
+    device float*, device const int*, constant GqaGeometry&, uint2, uint, uint );
+template [[host_name( "gqa_decode_partial_fp8_bfloat_any" )]] kernel void gqa_decode_partial_fp8_any<bfloat>(
+    device const bfloat*, device const uchar*, device const uchar*, device const float*, device const float*, device float*, device float*,
+    device float*, device const int*, constant GqaGeometry&, uint2, uint, uint );
 
 // One SIMD-group per query head of each batch: the largest score of the blocks, then each block's output and sum rescaled to it.
 template<typename TElement, uint kPerLane, typename TChannels>

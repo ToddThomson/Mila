@@ -14,11 +14,13 @@ import Dnn.Components.Gqa;
 import Serialization.Tensor;
 
 #include "../../MetalReference.h"
+#include "../../QuantizedReference.h"
 
 namespace Mila::Tests::Dnn::Components
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
+    using namespace Mila::Dnn::Quant::KvCache;
     using namespace Mila::Tests::Dnn::MetalReference;
 
     namespace
@@ -44,14 +46,35 @@ namespace Mila::Tests::Dnn::Components
             dim_t window{ 0 };
         };
 
-        /// A stack of one layer, with what the reference needs: everything the cache was given.
-        template<TensorDataType TPrecision>
+        /// A row of the cache as an FP8 cache stores it: E4M3 codes of x * (1 / scale), saturating, with scale max |x| / 448.
+        void asFp8Row( std::span<double> row )
+        {
+            float largest = 0.0f;
+
+            for ( const double x : row )
+            {
+                largest = std::fmax( largest, std::fabs( static_cast<float>( x ) ) );
+            }
+
+            const float scale = largest / 448.0f;
+            const float inverse = largest > 0.0f ? 1.0f / scale : 0.0f;
+
+            for ( double& x : row )
+            {
+                x = QuantizedReference::fp8E4M3Value( QuantizedReference::fp8E4M3Code( static_cast<float>( x ) * inverse ) ) * scale;
+            }
+        }
+
+        /// A stack of one layer, with what the reference needs: everything the cache was given, as the cache holds it.
+        template<TensorDataType TPrecision, typename TKvPolicy = NoKvCompression>
         struct Stack
         {
             using TensorType = Tensor<TPrecision, MetalMemoryResource>;
 
+            static constexpr bool kFp8Cache = std::is_same_v<TKvPolicy, PerTokenKvFp8<>>;
+
             Geometry shape;
-            GroupedQueryAttention<DeviceType::Metal, TPrecision> attention;
+            GroupedQueryAttention<DeviceType::Metal, TPrecision, TKvPolicy> attention;
             GqaWorkspace<DeviceType::Metal, TPrecision> workspace;
             std::vector<double> keys;
             std::vector<double> values;
@@ -99,20 +122,28 @@ namespace Mila::Tests::Dnn::Components
                                 keys[to] = chunk_keys[from];
                                 values[to] = chunk_values[from];
                             }
+
+                            if constexpr ( kFp8Cache )
+                            {
+                                const auto row = static_cast<std::size_t>( ( ( b * shape.kv_heads + h ) * shape.context + first_position + t ) * shape.head_size );
+
+                                asFp8Row( std::span( keys ).subspan( row, static_cast<std::size_t>( shape.head_size ) ) );
+                                asFp8Row( std::span( values ).subspan( row, static_cast<std::size_t>( shape.head_size ) ) );
+                            }
                         }
                     }
                 }
             }
 
-            /// Run a chunk or one decoded token, and return its error against the reference.
-            double errorOfStep( dim_t tokens, dim_t first_position, bool decode )
+            /// Run a chunk or one decoded token, and return its error against the reference. `zero_rows` gives K and V nothing but zeros.
+            double errorOfStep( dim_t tokens, dim_t first_position, bool decode, bool zero_rows = false )
             {
                 const auto q_count = static_cast<std::size_t>( shape.batches * tokens * shape.heads * shape.head_size );
                 const auto kv_count = static_cast<std::size_t>( shape.batches * tokens * shape.kv_heads * shape.head_size );
 
                 const std::vector<float> q_values = randomValues( q_count, seed++, 0.5f );
-                const std::vector<float> k_values = randomValues( kv_count, seed++, 0.5f );
-                const std::vector<float> v_values = randomValues( kv_count, seed++, 0.5f );
+                const std::vector<float> k_values = zero_rows ? std::vector<float>( kv_count, 0.0f ) : randomValues( kv_count, seed++, 0.5f );
+                const std::vector<float> v_values = zero_rows ? std::vector<float>( kv_count, 0.0f ) : randomValues( kv_count, seed++, 0.5f );
 
                 TensorType q = metalTensor<TPrecision>( q_values, shape_t{ shape.batches, tokens, shape.heads * shape.head_size } );
                 TensorType k = metalTensor<TPrecision>( k_values, shape_t{ shape.batches, tokens, shape.kv_heads * shape.head_size } );
@@ -201,10 +232,10 @@ namespace Mila::Tests::Dnn::Components
             }
         };
 
-        template<TensorDataType TPrecision>
+        template<TensorDataType TPrecision, typename TKvPolicy = NoKvCompression>
         void expectChunksThenDecodes( const Geometry& geometry, dim_t chunks, dim_t decodes )
         {
-            Stack<TPrecision> stack( geometry );
+            Stack<TPrecision, TKvPolicy> stack( geometry );
 
             dim_t position = 0;
 
@@ -414,8 +445,137 @@ namespace Mila::Tests::Dnn::Components
 
     TEST( GqaMetalRows, OnlyFp16AndBf16Exist )
     {
-        using namespace Mila::Dnn::Quant::KvCache;
-
         EXPECT_FALSE( ( OperationSupported<OperationType::GroupedQueryAttentionOp, DeviceType::Metal, TensorDataType::FP32, NoKvCompression> ) );
+        EXPECT_TRUE( ( OperationSupported<OperationType::GroupedQueryAttentionOp, DeviceType::Metal, TensorDataType::FP16, PerTokenKvFp8<>> ) );
+        EXPECT_TRUE( ( OperationSupported<OperationType::GroupedQueryAttentionOp, DeviceType::Metal, TensorDataType::BF16, PerTokenKvFp8<>> ) );
+        EXPECT_FALSE( ( OperationSupported<OperationType::GroupedQueryAttentionOp, DeviceType::Metal, TensorDataType::FP32, PerTokenKvFp8<>> ) );
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // An FP8 cache: the reference holds each row as the cache stores it, so the bars measure the attention, not the format.
+    // -----------------------------------------------------------------------------------------------------------------
+
+    template<typename TPrecisionConstant>
+    class GqaMetalFp8 : public ::testing::Test
+    {
+    };
+
+    TYPED_TEST_SUITE( GqaMetalFp8, Precisions, PrecisionNames );
+
+    TYPED_TEST( GqaMetalFp8, AChunkThenTokensMatchTheReference )
+    {
+        expectChunksThenDecodes<TypeParam::value, PerTokenKvFp8<>>( Geometry{}, 2, 4 );
+    }
+
+    TYPED_TEST( GqaMetalFp8, ADecodeWithNothingBeforeItAttendsOnlyToItself )
+    {
+        expectChunksThenDecodes<TypeParam::value, PerTokenKvFp8<>>( Geometry{}, 0, 3 );
+    }
+
+    TYPED_TEST( GqaMetalFp8, TilesTakeAWideChunkAndTheOwnKernelTheRest )
+    {
+        expectChunksThenDecodes<TypeParam::value, PerTokenKvFp8<>>( Geometry{ .context = 256, .chunk = 36 }, 2, 1 );
+        expectChunksThenDecodes<TypeParam::value, PerTokenKvFp8<>>( Geometry{ .context = 256, .chunk = 67 }, 2, 1 );
+    }
+
+    TYPED_TEST( GqaMetalFp8, AHeadSizeOffTheTileAndOffAVector )
+    {
+        expectChunksThenDecodes<TypeParam::value, PerTokenKvFp8<>>( Geometry{ .head_size = 24, .context = 64 }, 2, 2 );
+        expectChunksThenDecodes<TypeParam::value, PerTokenKvFp8<>>( Geometry{ .head_size = 13, .context = 64 }, 2, 2 );
+    }
+
+    TYPED_TEST( GqaMetalFp8, TheHeadSizesTheModelsUseRunTheirOwnKernels )
+    {
+        for ( const dim_t head_size : { dim_t{ 64 }, dim_t{ 128 }, dim_t{ 256 }, dim_t{ 512 } } )
+        {
+            SCOPED_TRACE( std::format( "head of {}", head_size ) );
+            expectChunksThenDecodes<TypeParam::value, PerTokenKvFp8<>>( Geometry{ .head_size = head_size, .context = 256, .chunk = 64 }, 2, 3 );
+        }
+    }
+
+    TYPED_TEST( GqaMetalFp8, EveryGroupingAndMoreThanOneBatch )
+    {
+        expectChunksThenDecodes<TypeParam::value, PerTokenKvFp8<>>( Geometry{ .heads = 8, .kv_heads = 2, .head_size = 128, .context = 128, .chunk = 32 }, 2, 2 );
+        expectChunksThenDecodes<TypeParam::value, PerTokenKvFp8<>>( Geometry{ .heads = 4, .kv_heads = 4, .head_size = 128, .context = 128, .chunk = 32 }, 2, 2 );
+        expectChunksThenDecodes<TypeParam::value, PerTokenKvFp8<>>( Geometry{ .heads = 8, .kv_heads = 1, .head_size = 128, .context = 128, .chunk = 32 }, 2, 2 );
+        expectChunksThenDecodes<TypeParam::value, PerTokenKvFp8<>>( Geometry{ .batches = 3 }, 2, 2 );
+    }
+
+    TYPED_TEST( GqaMetalFp8, EveryDepthAroundTheBlockCountAndTheLastPosition )
+    {
+        expectChunksThenDecodes<TypeParam::value, PerTokenKvFp8<>>( Geometry{ .head_size = 128, .context = 128 }, 0, 34 );
+        expectChunksThenDecodes<TypeParam::value, PerTokenKvFp8<>>( Geometry{ .head_size = 128, .context = 64, .chunk = 16 }, 3, 16 );
+    }
+
+    TYPED_TEST( GqaMetalFp8, AWindowThatCutsABlock )
+    {
+        expectChunksThenDecodes<TypeParam::value, PerTokenKvFp8<>>( Geometry{ .head_size = 128, .context = 160, .chunk = 32, .window = 37 }, 3, 6 );
+    }
+
+    TYPED_TEST( GqaMetalFp8, RowsOfZerosStoreZerosAndAttendAsZeros )
+    {
+        constexpr TensorDataType kPrecision = TypeParam::value;
+
+        Stack<kPrecision, PerTokenKvFp8<>> stack( Geometry{ .head_size = 128, .context = 64 } );
+
+        EXPECT_LE( stack.errorOfStep( 16, 0, false, true ), kAttentionBar<kPrecision> );
+        EXPECT_LE( stack.errorOfStep( 16, 16, false ), kAttentionBar<kPrecision> );
+        EXPECT_LE( stack.errorOfStep( 1, 32, true, true ), kAttentionBar<kPrecision> );
+        EXPECT_LE( stack.errorOfStep( 1, 33, true ), kAttentionBar<kPrecision> );
+    }
+
+    TYPED_TEST( GqaMetalFp8, ALaterChunkOverwritesAnEarlierOneFromTheSameOffset )
+    {
+        constexpr TensorDataType kPrecision = TypeParam::value;
+
+        Stack<kPrecision, PerTokenKvFp8<>> stack( Geometry{} );
+
+        EXPECT_LE( stack.errorOfStep( 16, 0, false ), kAttentionBar<kPrecision> );
+        EXPECT_LE( stack.errorOfStep( 16, 0, false ), kAttentionBar<kPrecision> );
+        EXPECT_LE( stack.errorOfStep( 1, 16, true ), kAttentionBar<kPrecision> );
+    }
+
+    TYPED_TEST( GqaMetalFp8, AsksForTheScratchItUses )
+    {
+        constexpr TensorDataType kPrecision = TypeParam::value;
+
+        // A context long enough that one KV head's expanded rows are more than a decode's partials.
+        const Geometry geometry{ .batches = 2, .head_size = 128, .context = 1024, .chunk = 64 };
+        Stack<kPrecision, PerTokenKvFp8<>> stack( geometry );
+
+        const BuildContext context = BuildContext( shape_t{ geometry.batches, geometry.context, ( geometry.heads + 2 * geometry.kv_heads ) * geometry.head_size },
+            RuntimeMode::Inference, false )
+            .withPrefillSize( geometry.chunk )
+            .withAllocationGranularity( allocationGranularity( Device::Metal( 0 ) ) );
+
+        const std::size_t expanded = static_cast<std::size_t>( geometry.context * geometry.head_size ) * 2;
+
+        EXPECT_EQ( stack.attention.getMemoryStats().device_scratch_bytes, occupiedDeviceBytes( expanded, allocationGranularity( Device::Metal( 0 ) ) ) );
+        EXPECT_EQ( stack.attention.getMemoryStats().device_scratch_bytes, stack.attention.getRequiredMemory( context ).device_scratch_bytes );
+
+        // A request past the reservation throws, so these hold the footprint to what is asked: the whole cache attended, and a decode.
+        stack.attention.getExecutionContext()->reserveScratch( expanded );
+
+        for ( dim_t chunk = 0; chunk < 16; ++chunk )
+        {
+            EXPECT_LE( stack.errorOfStep( 64, chunk * 64, false ), kAttentionBar<kPrecision> ) << "chunk " << chunk;
+        }
+
+        EXPECT_LE( stack.errorOfStep( 1, 1023, true ), kAttentionBar<kPrecision> );
+    }
+
+    TEST( GqaMetalFp8Memory, ItsPredictionIsWhatABuildAllocatesAndIsLessThanTheUncompressedCache )
+    {
+        Stack<TensorDataType::FP16, PerTokenKvFp8<>> fp8( Geometry{ .head_size = 128 } );
+        Stack<TensorDataType::FP16> uncompressed( Geometry{ .head_size = 128 } );
+
+        const BuildContext context = BuildContext( shape_t{ 1, 64, 8 * 128 }, RuntimeMode::Inference, false )
+            .withPrefillSize( 16 )
+            .withAllocationGranularity( allocationGranularity( Device::Metal( 0 ) ) );
+
+        const std::size_t state = fp8.attention.getMemoryStats().device_state_bytes;
+
+        EXPECT_EQ( state, fp8.attention.getRequiredMemory( context ).device_state_bytes );
+        EXPECT_LT( state, uncompressed.attention.getMemoryStats().device_state_bytes );
     }
 }
