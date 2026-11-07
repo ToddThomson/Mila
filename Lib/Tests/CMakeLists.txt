@@ -231,12 +231,16 @@ if(MILA_HAS_METAL)
         "Dnn/Compute/Devices/Metal/MetalCapabilities.Metal.cpp"
         "Dnn/Compute/Devices/Metal/MetalDevice.Metal.cpp"
         "Dnn/Compute/Devices/Metal/MetalExecutionContext.Metal.cpp"
+        "Dnn/Components/Activations/Activation/Activation.Metal.cpp"
         "Dnn/Components/Attention/GQA/GroupedQueryAttention.Metal.cpp"
         "Dnn/Components/Connections/Residual.Metal.cpp"
+        "Dnn/Components/Convolutions/CausalConv1d.Metal.cpp"
+        "Dnn/Components/DeltaNet/GatedDeltaRule.Metal.cpp"
         "Dnn/Components/Embeddings/TokenEmbedding.Metal.cpp"
         "Dnn/Components/Encodings/Rope/Rope.Metal.cpp"
         "Dnn/Components/FFN/Swiglu/Swiglu.Metal.cpp"
         "Dnn/Components/FFN/Swiglu/Geglu.Metal.cpp"
+        "Dnn/Components/Linear/Linear.Codebook.Metal.cpp"
         "Dnn/Components/Linear/Linear.Integer.Metal.cpp"
         "Dnn/Components/Linear/Linear.Metal.cpp"
         "Dnn/Components/Linear/Linear.Quantized.Metal.cpp"
@@ -248,6 +252,8 @@ if(MILA_HAS_METAL)
         "Dnn/Models/LlaMa/LlamaModel.HuggingFaceReference.Metal.cpp"
         "Dnn/Models/LlaMa/LlamaModel.CudaReference.Metal.cpp"
         "Dnn/Models/Gemma/GemmaModel.HuggingFaceReference.Metal.cpp"
+        "Dnn/Models/Qwen/QwenModel.HuggingFaceReference.Metal.cpp"
+        "Dnn/Models/Qwen/QwenModel.Load.Metal.cpp"
         "Dnn/Samplers/Sampling.Metal.cpp"
         "Dnn/Tensors/TensorOps/Metal.TensorOps.Metal.cpp"
     )
@@ -382,6 +388,7 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Models/Qwen/QwenModel.Parity.Cuda.cpp"
         # The packed codebook path against the same 4-layer fixture decoded to BF16; skips without both files.
         "Dnn/Models/Qwen/QwenModel.Codebook.Cuda.cpp"
+        "Dnn/Models/Qwen/QwenModel.HuggingFaceReference.Cuda.cpp"
         "Dnn/Models/Qwen/Qwen.InstructionRetention.Cuda.cpp"
         # Observability's whole-model cost criterion. NOT under Models/: publication is a
         # Component facility, so the two chassis it runs on are two samples of one

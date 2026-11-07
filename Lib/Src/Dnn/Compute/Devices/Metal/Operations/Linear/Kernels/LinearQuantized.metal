@@ -207,6 +207,171 @@ MILA_QUANTIZED_EXPAND( Int4Codes, half, "int4", bfloat )
 MILA_QUANTIZED_EXPAND( Int6Codes, half, "int6", half )
 MILA_QUANTIZED_EXPAND( Int6Codes, half, "int6", bfloat )
 
+// Two- and three-bit codebook codes (CodebookPacking.ixx): code j of a row in byte j / 4 from bit (j % 4) * 2, so eight codes'
+// are one ushort; for three bits each code's high bit in a plane of its own, code j in byte j / 8 at bit j % 8, so eight codes'
+// are one byte. A code indexes the tensor's FP32 table, held in registers. Each output's row of the plane is inputs / 8 bytes.
+template<uint TEntries>
+struct CodebookCodes
+{
+    float table[TEntries];
+    device const uchar* high_plane;
+
+    void chunk( device const uchar* row, uint o, uint c, uint inputs, thread float4& first, thread float4& second ) const
+    {
+        const uint low = reinterpret_cast<device const ushort*>( row )[c];
+        uint4 a = uint4( low, low >> 2, low >> 4, low >> 6 ) & 3u;
+        uint4 b = uint4( low >> 8, low >> 10, low >> 12, low >> 14 ) & 3u;
+
+        if ( TEntries == 8 )
+        {
+            const uint high = high_plane[o * ( inputs / 8 ) + c];
+            a |= ( uint4( high, high >> 1, high >> 2, high >> 3 ) & 1u ) << 2;
+            b |= ( uint4( high >> 4, high >> 5, high >> 6, high >> 7 ) & 1u ) << 2;
+        }
+
+        first = float4( table[a.x], table[a.y], table[a.z], table[a.w] );
+        second = float4( table[b.x], table[b.y], table[b.z], table[b.w] );
+    }
+};
+
+template<uint TEntries>
+static inline CodebookCodes<TEntries> codebookOf( device const float* codebook, device const uchar* high_plane )
+{
+    CodebookCodes<TEntries> codes;
+
+    for ( uint e = 0; e < TEntries; ++e )
+    {
+        codes.table[e] = codebook[e];
+    }
+
+    codes.high_plane = high_plane;
+
+    return codes;
+}
+
+// linear_quantized_lanes over codebook codes, with the table and the high plane bound after the output.
+template<uint TEntries, typename TElement, typename TVector, uint TAcross, uint TRows>
+kernel void linear_codebook_lanes(
+    device const TVector* input [[buffer(0)]],
+    device const uchar* codes [[buffer(1)]],
+    device const half* scales [[buffer(2)]],
+    device TElement* output [[buffer(3)]],
+    device const float* codebook [[buffer(4)]],
+    device const uchar* high_plane [[buffer(5)]],
+    constant QuantizedLinearShape& shape [[buffer(6)]],
+    uint3 group [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_simdgroup]],
+    uint3 threads [[threads_per_threadgroup]] )
+{
+    const CodebookCodes<TEntries> reader = codebookOf<TEntries>( codebook, high_plane );
+
+    const uint vectors = shape.inputs / 4;
+    const uint first_output = shape.first_output + group.x * TAcross;
+    const uint first_row = shape.first_row + group.y * TRows;
+    const uint last_row = shape.first_row + shape.rows;
+
+    float sums[TRows][TAcross];
+
+    for ( uint m = 0; m < TRows; ++m )
+    {
+        for ( uint a = 0; a < TAcross; ++a )
+        {
+            sums[m][a] = 0.0f;
+        }
+    }
+
+    for ( uint c = lane; c < shape.inputs / 8; c += threads.x )
+    {
+        for ( uint a = 0; a < TAcross; ++a )
+        {
+            // An output past the last reads the last one's codes, and is never written.
+            const uint o = min( first_output + a, shape.last_output - 1 );
+
+            float4 first;
+            float4 second;
+            reader.chunk( codes + o * shape.row_bytes, o, c, shape.inputs, first, second );
+
+            const float scale = float( scales[o * shape.groups + c * 8 / shape.group] );
+
+            for ( uint m = 0; m < TRows; ++m )
+            {
+                const uint row = min( first_row + m, last_row - 1 );
+                device const TVector* x = input + row * vectors + c * 2;
+
+                sums[m][a] += scale * ( dot( float4( x[0] ), first ) + dot( float4( x[1] ), second ) );
+            }
+        }
+    }
+
+    for ( uint m = 0; m < TRows; ++m )
+    {
+        for ( uint a = 0; a < TAcross; ++a )
+        {
+            const float total = simd_sum( sums[m][a] );
+
+            if ( lane == 0 && first_row + m < last_row && first_output + a < shape.last_output )
+            {
+                output[( first_row + m ) * shape.output_stride + first_output + a] = TElement( total );
+            }
+        }
+    }
+}
+
+#define MILA_CODEBOOK_LANES( entries, name, element, across, rows ) \
+    template [[host_name( "linear_codebook_lanes_" name "_" #element "_" #across "_" #rows )]] \
+    kernel void linear_codebook_lanes<entries, element, element##4, across, rows>( \
+        device const element##4*, device const uchar*, device const half*, device element*, device const float*, \
+        device const uchar*, constant QuantizedLinearShape&, uint3, uint, uint3 );
+
+#define MILA_CODEBOOK_LANES_ALL( entries, name ) \
+    MILA_CODEBOOK_LANES( entries, name, half, 4, 1 ) \
+    MILA_CODEBOOK_LANES( entries, name, half, 1, 8 ) \
+    MILA_CODEBOOK_LANES( entries, name, bfloat, 4, 1 ) \
+    MILA_CODEBOOK_LANES( entries, name, bfloat, 1, 8 )
+
+MILA_CODEBOOK_LANES_ALL( 4, "codebook2" )
+MILA_CODEBOOK_LANES_ALL( 8, "codebook3" )
+
+// linear_quantized_expand over codebook codes.
+template<uint TEntries, typename TVector>
+kernel void linear_codebook_expand(
+    device const uchar* codes [[buffer(0)]],
+    device const half* scales [[buffer(1)]],
+    device TVector* expanded [[buffer(2)]],
+    device const float* codebook [[buffer(3)]],
+    device const uchar* high_plane [[buffer(4)]],
+    constant QuantizedLinearShape& shape [[buffer(5)]],
+    uint index [[thread_position_in_grid]] )
+{
+    const CodebookCodes<TEntries> reader = codebookOf<TEntries>( codebook, high_plane );
+
+    const uint chunks = shape.inputs / 8;
+    const uint block_output = index / chunks;
+    const uint c = index % chunks;
+    const uint o = shape.first_output + block_output;
+
+    float4 first;
+    float4 second;
+    reader.chunk( codes + o * shape.row_bytes, o, c, shape.inputs, first, second );
+
+    const float scale = float( scales[o * shape.groups + c * 8 / shape.group] );
+    device TVector* out = expanded + block_output * ( shape.inputs / 4 ) + c * 2;
+
+    out[0] = TVector( first * scale );
+    out[1] = TVector( second * scale );
+}
+
+#define MILA_CODEBOOK_EXPAND( entries, name, element ) \
+    template [[host_name( "linear_codebook_expand_" name "_" #element )]] \
+    kernel void linear_codebook_expand<entries, element##4>( \
+        device const uchar*, device const half*, device element##4*, device const float*, device const uchar*, \
+        constant QuantizedLinearShape&, uint );
+
+MILA_CODEBOOK_EXPAND( 4, "codebook2", half )
+MILA_CODEBOOK_EXPAND( 4, "codebook2", bfloat )
+MILA_CODEBOOK_EXPAND( 8, "codebook3", half )
+MILA_CODEBOOK_EXPAND( 8, "codebook3", bfloat )
+
 // One tile of activations times FP8's bare codes, into 32-bit sums. Its scale belongs to one output, so it comes out of the
 // sum and is applied after (linear_apply_output_scales). FP16 activations only: TensorOps refuses BF16 by FP8 codes.
 template<typename TElement>

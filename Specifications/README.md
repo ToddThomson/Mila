@@ -116,6 +116,7 @@ means a status line or target is out of date and the rest has not been re-read.
 | [Notebooks/MetalDecodeAttention.md](Notebooks/MetalDecodeAttention.md) | Notebook | Attention's decode on Metal rebuilt in two passes, keys split across threadgroups, measured outside the library against today's kernels | Agreed 2026-11-05 (section 6) |
 | [Notebooks/MetalQuantizedWeights.md](Notebooks/MetalQuantizedWeights.md) | Notebook | Phase 5 of the Metal backend: its gate, every weight format and the FP8 KV cache as operations, and Llama 3.2 3B and 3.1 8B in FP8 and FP4 |
 | [Notebooks/MetalGemma.md](Notebooks/MetalGemma.md) | Notebook | Phase 6 of the Metal backend, Gemma 4 12B in Q4_0: its gate against HuggingFace FP32 on the package's decoded weights, and the operations Gemma adds |
+| [Notebooks/MetalQwen.md](Notebooks/MetalQwen.md) | Notebook | Phase 6 of the Metal backend, Qwen 3.8 27B: the operations Qwen adds, and its four-layer packed build's gate against HuggingFace FP32 on its weights as Mila runs them |
 | [Notebooks/MetalPrecisionTiming.md](Notebooks/MetalPrecisionTiming.md) | Notebook | FP16, BF16 and FP32 math timed on the M1 Pro, with TensorOps and own kernels, 2026-11-04 | Evidence for `Metal/MetalBackend.md` sections 2 and 3. Not a model run. Its program stays outside the tree; `Lib/Tools/MetalMatrixTiming` replaced it |
 
 ### Quantization

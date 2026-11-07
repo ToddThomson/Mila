@@ -408,6 +408,15 @@ table, Qwen's FP4 and its plans, and mixture of experts. Family parity holds: bu
 **Gemma 4 12B first, in Q4_0 (Todd, 2026-11-06),** with the operations only it needs: Q4_0 and six-bit Linear, the six-bit
 table, GeGLU, the sliding-window ring cache. Notebook: `Notebooks/MetalGemma.md`, gate written first.
 
+**Qwen 3.8's operations next, ahead of Phase 8 (Todd, 2026-11-06):** opening a model by name builds every family's type,
+so an agent on Metal needs Qwen's operations to compile. The elementwise activation, the causal convolution, the gated
+delta rule in its recurrent form with the state FP32, two- and three-bit codebook Linear, and the tensor math; Qwen's
+weight dispatch builds a plan wherever `OperationSupported` says its Linears exist. Notebook: `Notebooks/MetalQwen.md`.
+
+**Passed, 2026-11-07, on the four-layer build:** every operation holds its bar in FP16 and BF16, 30 of 31 forced failures
+are caught, and the build passes the gate against HuggingFace FP32 on its weights as Mila runs them, FP16 about ten times
+closer than either BF16 run. No Qwen 3.8 agentic build fits this Mac's working set, and the whole model has not run here.
+
 ### Phase 7 -- Other chips
 
 **Question:** which chips have native BF16, and which matrix path wins on each?
@@ -447,6 +456,7 @@ development Mac and neither can reach a user's.
 | Every format Mila's components use on CUDA runs on Metal (section 1) | Todd, 2026-11-05 |
 | A quantized model is held to HuggingFace FP32 on its format's weights decoded to full precision, with Phase 4's bars, not to CUDA's run of the same weights | Todd, 2026-11-06; `Notebooks/MetalGemma.md` 1.1 |
 | No published model stores FP16, so an FP16 parameter reads BF16 weights, from Phase 3 on (section 5) | Todd, 2026-11-05 |
+| Qwen 3.8's operations before Phase 8, and Qwen's weight dispatch builds a plan where `OperationSupported` says its Linears exist (section 9, Phase 6) | Todd, 2026-11-06; `Notebooks/MetalQwen.md` |
 | Pad 2 to 7 rows before Phase 4, with the scratch buffer here and not in Phase 5, and the rows that pad a tile zero. Attention pads only if its timing earns it (section 4.2) | Todd, 2026-11-05 |
 | Phase 4's library changes: `DeviceTypeTraits` says whether a device trains, every network's load synchronizes on every device, and the weight dispatch builds a format where `OperationSupported` says its Linear exists (`Notebooks/MetalFirstModel.md` section 3) | Todd, 2026-11-05 |
 | Attention's decode in two passes on MLX's path, 32 blocks fixed, the partials in the context's scratch (section 4.4, `Notebooks/MetalDecodeAttention.md`) | Todd, 2026-11-05 |

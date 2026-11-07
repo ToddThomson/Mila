@@ -6,6 +6,7 @@
 export module Compute.MetalTensorOps;
 
 export import :Fill;
+export import :Math;
 export import :Random;
 export import :Scale;
 export import :Structural;
@@ -16,5 +17,5 @@ namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute::Metal;
 
-    export struct MetalTensorOps : FillOps, RandomOps, ScaleOps, StructuralOps, TransferOps, ZeroOps {};
+    export struct MetalTensorOps : FillOps, MathOps, RandomOps, ScaleOps, StructuralOps, TransferOps, ZeroOps {};
 }

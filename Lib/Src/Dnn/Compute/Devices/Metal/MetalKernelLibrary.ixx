@@ -24,6 +24,8 @@ namespace Mila::Dnn::Compute
             ,
 #include "TensorOps.Fill.metal.inc"
             ,
+#include "TensorOps.Math.metal.inc"
+            ,
 #include "TensorOps.Scale.metal.inc"
             ,
 #include "TensorOps.Structural.metal.inc"
@@ -49,6 +51,12 @@ namespace Mila::Dnn::Compute
 #include "Swiglu.metal.inc"
             ,
 #include "Geglu.metal.inc"
+            ,
+#include "ElementwiseActivation.metal.inc"
+            ,
+#include "CausalConv1d.metal.inc"
+            ,
+#include "GatedDeltaRule.metal.inc"
             ,
 #include "Residual.metal.inc"
             ,

@@ -1,6 +1,6 @@
 /**
  * @file MetalLinearOp.ixx
- * @brief A Linear's matrix multiply on Metal, on unquantized weights or on FP8, FP4, Q4_0 and six-bit codes with their scales.
+ * @brief A Linear's matrix multiply on Metal, on unquantized weights or on FP8, FP4, Q4_0, six-bit and codebook codes with their scales.
  */
 
 export module Compute.MetalLinearOp;
@@ -58,13 +58,15 @@ namespace Mila::Dnn::Compute::Metal::Linear
     /**
      * @brief output = input * weight^T + bias.
      *
-     * Quantized weights are FP8 codes with a scale per output, or FP4, Q4_0 or six-bit codes with a scale per group of inputs.
+     * Quantized weights are FP8 codes with a scale per output, or FP4, Q4_0, six-bit or codebook codes with a scale per group of
+     * inputs; a codebook's two- or three-bit codes index the tensor's own FP32 table.
      * The path each takes for a number of rows is the one `MetalBackend.md` section 4.2 measured: own lanes for a few rows; for
      * FP8, TensorOps on the bare codes and each output's scale after; for more rows, the weights expanded to the compute
      * precision a block of outputs at a time for TensorOps.
      *
      * @tparam TComputePrecision FP16 or BF16.
-     * @tparam TWeightQuantization NoWeightQuant, PerChannelFp8<>, PerGroupFp4 of 64 or 128, PerGroupInt4<32> or PerGroupInt6<32>.
+     * @tparam TWeightQuantization NoWeightQuant, PerChannelFp8<>, PerGroupFp4 of 64 or 128, PerGroupInt4<32>, PerGroupInt6<32>,
+     *         PerGroupCodebook2 of 32 or 64, or PerGroupCodebook3 of 64 or 128.
      */
     export template<TensorDataType TComputePrecision, WeightQuantPolicy TWeightQuantization = NoWeightQuant>
     class MetalLinearOp : public Operation<DeviceType::Metal, TComputePrecision>
@@ -78,11 +80,14 @@ namespace Mila::Dnn::Compute::Metal::Linear
         static constexpr bool kIsFp4Weight = HasFp4E2M1Codes<TWeightQuantization>;
         static constexpr bool kIsInt4Weight = HasInt4Codes<TWeightQuantization>;
         static constexpr bool kIsInt6Weight = HasInt6Codes<TWeightQuantization>;
+        static constexpr bool kIsCodebookWeight = HasCodebookTable<TWeightQuantization>;
+        static constexpr bool kHasHighBitPlane = HasHighBitPlane<TWeightQuantization>;
 
         /// A scale for each group of inputs, rather than one for each output.
-        static constexpr bool kIsGrouped = kIsFp4Weight || kIsInt4Weight || kIsInt6Weight;
+        static constexpr bool kIsGrouped = kIsFp4Weight || kIsInt4Weight || kIsInt6Weight || kIsCodebookWeight;
 
-        static_assert( !kIsQuantized || kIsFp8Weight || kIsGrouped, "Metal's Linear carries FP8, FP4, Q4_0 and six-bit weights" );
+        static_assert( !kIsQuantized || kIsFp8Weight || kIsGrouped,
+            "Metal's Linear carries FP8, FP4, Q4_0, six-bit and two- and three-bit codebook weights" );
         static_assert( !kIsFp8Weight || TWeightQuantization::kStorageDtype == TensorDataType::FP8_E4M3,
             "Metal's FP8 weights are E4M3" );
 
@@ -99,7 +104,7 @@ namespace Mila::Dnn::Compute::Metal::Linear
         }
 
         /// Bind the scales: produced by `quantize()`, or loaded with weights stored quantized. One per output for FP8 and one per group
-        /// otherwise; FP16 for Q4_0 and six bits, FP32 for the rest, as each policy stores them.
+        /// otherwise; FP16 for Q4_0, six bits and the codebooks, FP32 for the rest, as each policy stores them.
         void setWeightScales( ITensor* scales ) requires kIsQuantized
         {
             if ( scales == nullptr || scales->getDeviceType() != DeviceType::Metal )
@@ -108,6 +113,24 @@ namespace Mila::Dnn::Compute::Metal::Linear
             }
 
             weight_scales_ = scales;
+        }
+
+        /// Bind a codebook format's FP32 table and, for three bits, its plane of high bits. Borrowed, as the weights are.
+        void setCodebookTensors( ITensor* codebook, ITensor* high_plane ) requires kIsCodebookWeight
+        {
+            if ( codebook == nullptr || codebook->getDeviceType() != DeviceType::Metal )
+            {
+                throw std::invalid_argument( "MetalLinearOp::setCodebookTensors - the codebook must be a Metal tensor" );
+            }
+
+            if ( kHasHighBitPlane != ( high_plane != nullptr ) )
+            {
+                throw std::invalid_argument( std::format( "MetalLinearOp::setCodebookTensors - {}-bit codes {} a plane of high bits",
+                    TWeightQuantization::kCodeBits, kHasHighBitPlane ? "need" : "take no" ) );
+            }
+
+            codebook_ = codebook;
+            high_plane_ = high_plane;
         }
 
         /// Nothing is derived from the scales here, so weights stored quantized need nothing more once they and their scales have landed.
@@ -126,7 +149,7 @@ namespace Mila::Dnn::Compute::Metal::Linear
         void quantize( const Serialization::ITensorBlob& blob, ITensor& weight_out, ITensor& scales_out, const shape_t& expected_shape )
             requires kIsQuantized
         {
-            if constexpr ( kIsInt4Weight || kIsInt6Weight )
+            if constexpr ( kIsInt4Weight || kIsInt6Weight || kIsCodebookWeight )
             {
                 throw std::invalid_argument( std::format( "MetalLinearOp: '{}' holds full-precision weights, and Metal loads {} weights "
                     "only as stored in that format", weight_out.getName(), kFormatName ) );
@@ -240,6 +263,14 @@ namespace Mila::Dnn::Compute::Metal::Linear
                     throw std::runtime_error( "MetalLinearOp::build - setWeightScales() must be called before build()" );
                 }
 
+                if constexpr ( kIsCodebookWeight )
+                {
+                    if ( codebook_ == nullptr )
+                    {
+                        throw std::runtime_error( "MetalLinearOp::build - setCodebookTensors() must be called before build()" );
+                    }
+                }
+
                 // Eight weights are read at a time, from codes that start on four bytes. A group of 32 also keeps a six-bit row, three
                 // quarters of a byte an input, on whole words.
                 const int multiple = std::max( kChunk, kIsGrouped ? kGroupOf( inputs_ ) : kChunk );
@@ -339,6 +370,11 @@ namespace Mila::Dnn::Compute::Metal::Linear
             if constexpr ( kIsInt6Weight )
             {
                 return inputs / 2 + inputs / 4;
+            }
+            else if constexpr ( kIsCodebookWeight )
+            {
+                // The two-bit plane; three bits' high plane is its own tensor.
+                return inputs / 4;
             } else {
                 return kIsFp4Weight || kIsInt4Weight ? inputs / 2 : inputs;
             }
@@ -354,7 +390,8 @@ namespace Mila::Dnn::Compute::Metal::Linear
             }
         }
 
-        static constexpr std::string_view kFormatName = kIsInt6Weight ? "int6" : kIsInt4Weight ? "int4" : kIsFp4Weight ? "fp4" : "fp8";
+        static constexpr std::string_view kFormatName = kIsCodebookWeight ? ( kHasHighBitPlane ? "codebook3" : "codebook2" )
+            : kIsInt6Weight ? "int6" : kIsInt4Weight ? "int4" : kIsFp4Weight ? "fp4" : "fp8";
 
         static constexpr int kFewestRowsToExpand = kMultipliesBareCodes ? kBareCodesFewestRowsToExpand : kLanesFewestRowsToExpand;
 
@@ -430,15 +467,24 @@ namespace Mila::Dnn::Compute::Metal::Linear
             const int across = rows == 1 ? 4 : 1;
             const int rows_together = rows == 1 ? 1 : 8;
             const QuantizedLinearShape shape = shapeOf( first_row, rows, first_output, last_output );
-            const std::array<const void*, 4> buffers{
-                input, static_cast<const ITensor*>( weight_ )->rawData(), static_cast<const ITensor*>( weight_scales_ )->rawData(), output };
+            const void* const weight = static_cast<const ITensor*>( weight_ )->rawData();
+            const void* const scales = static_cast<const ITensor*>( weight_scales_ )->rawData();
 
-            context_->dispatchThreadgroups(
-                context_->device().kernels().pipeline( std::format( "linear_quantized_lanes_{}_{}_{}_{}",
-                    kFormatName, MetalTensorDataTypeMap<TComputePrecision>::kernel_type, across, rows_together ) ),
-                buffers, std::as_bytes( std::span( &shape, 1 ) ),
-                static_cast<std::size_t>( ( last_output - first_output + across - 1 ) / across ),
-                static_cast<std::size_t>( ( rows + rows_together - 1 ) / rows_together ) );
+            const std::string kernel = std::format( "linear_{}_lanes_{}_{}_{}_{}", kIsCodebookWeight ? "codebook" : "quantized",
+                kFormatName, MetalTensorDataTypeMap<TComputePrecision>::kernel_type, across, rows_together );
+            const std::size_t width = static_cast<std::size_t>( ( last_output - first_output + across - 1 ) / across );
+            const std::size_t height = static_cast<std::size_t>( ( rows + rows_together - 1 ) / rows_together );
+
+            if constexpr ( kIsCodebookWeight )
+            {
+                const std::array<const void*, 6> buffers{ input, weight, scales, output, codebookAddress(), highPlaneAddress() };
+
+                context_->dispatchThreadgroups( context_->device().kernels().pipeline( kernel ), buffers, std::as_bytes( std::span( &shape, 1 ) ), width, height );
+            } else {
+                const std::array<const void*, 4> buffers{ input, weight, scales, output };
+
+                context_->dispatchThreadgroups( context_->device().kernels().pipeline( kernel ), buffers, std::as_bytes( std::span( &shape, 1 ) ), width, height );
+            }
         }
 
         /// FP8: TensorOps on the bare codes into 32-bit sums over whole tiles, each output's scale after, and own lanes for the rest.
@@ -505,23 +551,44 @@ namespace Mila::Dnn::Compute::Metal::Linear
             void* const expanded = context_->getDeviceScratchBuffer(
                 metalElementBytes<TComputePrecision>( static_cast<dim_t>( block ) * inputs_ ) );
 
-            const std::string kernel = std::format( "linear_quantized_expand_{}_{}", kFormatName, MetalTensorDataTypeMap<TComputePrecision>::kernel_type );
+            const std::string kernel = std::format( "linear_{}_expand_{}_{}", kIsCodebookWeight ? "codebook" : "quantized",
+                kFormatName, MetalTensorDataTypeMap<TComputePrecision>::kernel_type );
+            const void* const weight = static_cast<const ITensor*>( weight_ )->rawData();
+            const void* const scales = static_cast<const ITensor*>( weight_scales_ )->rawData();
 
             for ( int first = 0; first < outputs_; first += block )
             {
                 const int count = std::min( block, outputs_ - first );
                 const QuantizedLinearShape shape = shapeOf( 0, rows, first, first + count );
-                const std::array<const void*, 3> buffers{
-                    static_cast<const ITensor*>( weight_ )->rawData(), static_cast<const ITensor*>( weight_scales_ )->rawData(), expanded };
+                const std::size_t threads = static_cast<std::size_t>( count ) * static_cast<std::size_t>( inputs_ / kChunk );
 
-                context_->dispatch( context_->device().kernels().pipeline( kernel ), buffers, std::as_bytes( std::span( &shape, 1 ) ),
-                    static_cast<std::size_t>( count ) * static_cast<std::size_t>( inputs_ / kChunk ) );
+                if constexpr ( kIsCodebookWeight )
+                {
+                    const std::array<const void*, 5> buffers{ weight, scales, expanded, codebookAddress(), highPlaneAddress() };
+
+                    context_->dispatch( context_->device().kernels().pipeline( kernel ), buffers, std::as_bytes( std::span( &shape, 1 ) ), threads );
+                } else {
+                    const std::array<const void*, 3> buffers{ weight, scales, expanded };
+
+                    context_->dispatch( context_->device().kernels().pipeline( kernel ), buffers, std::as_bytes( std::span( &shape, 1 ) ), threads );
+                }
 
                 const auto* const block_output = static_cast<const std::byte*>( output ) + metalElementBytes<TComputePrecision>( first );
 
                 encodeMatrixProduct<TComputePrecision>( *context_, MatrixProduct{
                     input, expanded, block_output, rows, inputs_, count, outputs_, kNeverPad } );
             }
+        }
+
+        [[nodiscard]] const void* codebookAddress() const
+        {
+            return static_cast<const ITensor*>( codebook_ )->rawData();
+        }
+
+        /// Two bits have no high plane, and the kernel never reads one: the codes stand in for its binding.
+        [[nodiscard]] const void* highPlaneAddress() const
+        {
+            return high_plane_ ? static_cast<const ITensor*>( high_plane_ )->rawData() : static_cast<const ITensor*>( weight_ )->rawData();
         }
 
         void encodeBias( const void* output, int rows ) const
@@ -540,6 +607,8 @@ namespace Mila::Dnn::Compute::Metal::Linear
         ITensor* weight_{ nullptr };
         ITensor* bias_{ nullptr };
         ITensor* weight_scales_{ nullptr };
+        ITensor* codebook_{ nullptr };
+        ITensor* high_plane_{ nullptr };
         int inputs_{ 0 };
         int outputs_{ 0 };
         std::size_t scratch_bytes_{ 0 };

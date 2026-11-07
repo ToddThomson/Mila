@@ -7,6 +7,9 @@
 export module Compute.OperationTraits:Metal;
 
 import Compute.OperationTraits.Template;
+import Compute.MetalCausalConv1dOp;
+import Compute.MetalElementwiseActivationOp;
+import Compute.MetalGatedDeltaRuleOp;
 import Compute.MetalGegluOp;
 import Compute.MetalGqaOp;
 import Compute.MetalLinearOp;
@@ -101,6 +104,58 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::LinearOp, DeviceType::Metal, TPrecision, PerGroupInt6<32>>
     {
         using type = Metal::Linear::MetalLinearOp<TPrecision, PerGroupInt6<32>>;
+    };
+
+    // Qwen's two- and three-bit codebooks, at the group sizes CUDA carries.
+    template<TensorDataType TPrecision>
+        requires ( TPrecision == TensorDataType::FP16 || TPrecision == TensorDataType::BF16 )
+    struct OperationTraits<OperationType::LinearOp, DeviceType::Metal, TPrecision, PerGroupCodebook2<32>>
+    {
+        using type = Metal::Linear::MetalLinearOp<TPrecision, PerGroupCodebook2<32>>;
+    };
+
+    template<TensorDataType TPrecision>
+        requires ( TPrecision == TensorDataType::FP16 || TPrecision == TensorDataType::BF16 )
+    struct OperationTraits<OperationType::LinearOp, DeviceType::Metal, TPrecision, PerGroupCodebook2<64>>
+    {
+        using type = Metal::Linear::MetalLinearOp<TPrecision, PerGroupCodebook2<64>>;
+    };
+
+    template<TensorDataType TPrecision>
+        requires ( TPrecision == TensorDataType::FP16 || TPrecision == TensorDataType::BF16 )
+    struct OperationTraits<OperationType::LinearOp, DeviceType::Metal, TPrecision, PerGroupCodebook3<64>>
+    {
+        using type = Metal::Linear::MetalLinearOp<TPrecision, PerGroupCodebook3<64>>;
+    };
+
+    template<TensorDataType TPrecision>
+        requires ( TPrecision == TensorDataType::FP16 || TPrecision == TensorDataType::BF16 )
+    struct OperationTraits<OperationType::LinearOp, DeviceType::Metal, TPrecision, PerGroupCodebook3<128>>
+    {
+        using type = Metal::Linear::MetalLinearOp<TPrecision, PerGroupCodebook3<128>>;
+    };
+
+    // The op template on the activation's functor, as CUDA's.
+    template<TensorDataType TPrecision>
+        requires ( TPrecision == TensorDataType::FP16 || TPrecision == TensorDataType::BF16 )
+    struct OperationTraits<OperationType::ElementwiseActivationOp, DeviceType::Metal, TPrecision, void>
+    {
+        template<typename TFunctor>
+        using op_for = Metal::Activation::MetalElementwiseActivationOp<TPrecision, TFunctor>;
+    };
+
+    template<TensorDataType TPrecision>
+        requires ( TPrecision == TensorDataType::FP16 || TPrecision == TensorDataType::BF16 )
+    struct OperationTraits<OperationType::CausalConv1dOp, DeviceType::Metal, TPrecision, void>
+    {
+        using type = Metal::Convolution::MetalCausalConv1dOp<TPrecision>;
+    };
+
+    template<TensorDataType TPrecision>
+        requires ( TPrecision == TensorDataType::FP16 || TPrecision == TensorDataType::BF16 )
+    struct OperationTraits<OperationType::GatedDeltaRuleOp, DeviceType::Metal, TPrecision, void>
+    {
+        using type = Metal::DeltaNet::MetalGatedDeltaRuleOp<TPrecision>;
     };
 
     template<>

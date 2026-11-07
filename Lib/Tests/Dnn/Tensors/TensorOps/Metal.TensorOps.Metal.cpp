@@ -499,4 +499,95 @@ namespace Mila::Tests::Dnn::Tensors
 
         EXPECT_EQ( readFloats( tensor )[15], 0.0f );
     }
+
+    // ====================================================================
+    // Elementwise math and the sum
+    // ====================================================================
+
+    TEST( MetalMath, EachOperationOnAFewElements )
+    {
+        const std::array<float, 4> a_values{ 1.5f, -2.0f, 0.25f, 8.0f };
+        const std::array<float, 4> b_values{ 0.5f, 4.0f, -1.0f, 2.0f };
+
+        MetalTensor<TensorDataType::FP16> a( Device::Metal( 0 ), shape_t{ 2, 2 } );
+        MetalTensor<TensorDataType::FP16> b( Device::Metal( 0 ), shape_t{ 2, 2 } );
+        MetalTensor<TensorDataType::FP16> result( Device::Metal( 0 ), shape_t{ 2, 2 } );
+        fill( a, std::span<const float>( a_values ) );
+        fill( b, std::span<const float>( b_values ) );
+
+        add( a, b, result );
+        EXPECT_EQ( readFloats( result ), ( std::vector<float>{ 2.0f, 2.0f, -0.75f, 10.0f } ) );
+
+        subtract( a, b, result );
+        EXPECT_EQ( readFloats( result ), ( std::vector<float>{ 1.0f, -6.0f, 1.25f, 6.0f } ) );
+
+        multiply( a, b, result );
+        EXPECT_EQ( readFloats( result ), ( std::vector<float>{ 0.75f, -8.0f, -0.25f, 16.0f } ) );
+
+        divide( a, b, result );
+        EXPECT_EQ( readFloats( result ), ( std::vector<float>{ 3.0f, -0.5f, -0.25f, 4.0f } ) );
+    }
+
+    TEST( MetalMath, MultipliesInPlaceInEitherPrecisionAndAtWidth )
+    {
+        // The output gate's call: the product written over its first input, at Qwen's attention output width.
+        constexpr dim_t kCount = 3 * 6144;
+
+        std::vector<float> a_values( kCount );
+        std::vector<float> b_values( kCount );
+
+        for ( dim_t i = 0; i < kCount; ++i )
+        {
+            a_values[i] = static_cast<float>( i % 17 ) * 0.25f - 2.0f;
+            b_values[i] = static_cast<float>( i % 5 ) - 2.0f;
+        }
+
+        MetalTensor<TensorDataType::BF16> a( Device::Metal( 0 ), shape_t{ 3, 6144 } );
+        MetalTensor<TensorDataType::BF16> b( Device::Metal( 0 ), shape_t{ 3, 6144 } );
+        fill( a, std::span<const float>( a_values ) );
+        fill( b, std::span<const float>( b_values ) );
+
+        MetalExecutionContext context( Device::Metal( 0 ) );
+        multiply( a, b, a, &context );
+        context.synchronize();
+
+        const std::vector<float> product = readFloats( a );
+
+        for ( dim_t i = 0; i < kCount; ++i )
+        {
+            ASSERT_EQ( product[i], a_values[i] * b_values[i] ) << "element " << i;
+        }
+    }
+
+    TEST( MetalMath, RefusesDifferentShapes )
+    {
+        MetalTensor<TensorDataType::FP16> a( Device::Metal( 0 ), shape_t{ 3 } );
+        MetalTensor<TensorDataType::FP16> b( Device::Metal( 0 ), shape_t{ 4 } );
+
+        EXPECT_THROW( add( a, b, a ), std::invalid_argument );
+        EXPECT_THROW( multiply( a, a, b ), std::invalid_argument );
+    }
+
+    TEST( MetalMath, SumsInThirtyTwoBits )
+    {
+        std::vector<float> values( kLarge );
+        double expected = 0.0;
+
+        for ( dim_t i = 0; i < kLarge; ++i )
+        {
+            values[i] = static_cast<float>( i % 3 ) * 0.5f;
+            expected += values[i];
+        }
+
+        MetalTensor<TensorDataType::FP16> tensor( Device::Metal( 0 ), shape_t{ kLarge } );
+        fill( tensor, std::span<const float>( values ) );
+
+        // A sum in FP16 would have lost its units past 2048.
+        EXPECT_EQ( sum( tensor ), static_cast<float>( expected ) );
+
+        MetalTensor<TensorDataType::BF16> single( Device::Metal( 0 ), shape_t{ 1 } );
+        fill( single, 3.0f );
+
+        EXPECT_EQ( sum( single ), 3.0f );
+    }
 }

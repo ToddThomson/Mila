@@ -62,6 +62,8 @@ import Compute.DeviceTypeTraits.Cuda;
 import Compute.CudaPinnedMemoryResource;
 #endif
 import Compute.ExecutionContextFactory;
+import Compute.OperationTraits;
+import Compute.OperationType;
 import Serialization.WeightsReader;
 import Serialization.SafeTensors;
 import Serialization.Mode;
@@ -551,6 +553,9 @@ namespace Mila::Dnn
          * quantizes on the way in, so no artifact needs to carry it.
          *
          * Uniform FP8 stays refused. Nothing measures against it and it fits no card here.
+         *
+         * A plan builds wherever every Linear it names exists on this device at this precision (`OperationSupported`),
+         * as the shared dispatch builds a format, and is refused by name otherwise.
          */
         template<typename TResult, typename TAction>
         static TResult dispatchQwenWeightPlan(
@@ -564,40 +569,13 @@ namespace Mila::Dnn
                     return action.template operator()<QwenReferencePrecisionPlan>();
 
                 case WeightQuantization::FP4:
-                    if constexpr ( TPrecision == TensorDataType::BF16 )
-                    {
-                        return action.template operator()<QwenOraclePrecisionPlan>();
-                    }
-                    else
-                    {
-                        throw std::runtime_error( std::format(
-                            "{}: the FP4 oracle quantizes BF16 weights on load and requires "
-                            "BF16 compute precision", caller ) );
-                    }
+                    return planIfSupported<QwenOraclePrecisionPlan, TResult>( "the FP4 oracle", caller, action );
 
                 case WeightQuantization::Plan:
-                    if constexpr ( TPrecision == TensorDataType::BF16 )
-                    {
-                        return action.template operator()<QwenPrecisionPlan>();
-                    }
-                    else
-                    {
-                        throw std::runtime_error( std::format(
-                            "{}: the Section 5 allocation stages its codebook weights through "
-                            "BF16 and requires BF16 compute precision", caller ) );
-                    }
+                    return planIfSupported<QwenPrecisionPlan, TResult>( "the Section 5 allocation", caller, action );
 
                 case WeightQuantization::Fp4Codebook3:
-                    if constexpr ( TPrecision == TensorDataType::BF16 )
-                    {
-                        return action.template operator()<QwenFp4Codebook3PrecisionPlan>();
-                    }
-                    else
-                    {
-                        throw std::runtime_error( std::format(
-                            "{}: the fp4-cb3 allocation stages its codebook weights through "
-                            "BF16 and requires BF16 compute precision", caller ) );
-                    }
+                    return planIfSupported<QwenFp4Codebook3PrecisionPlan, TResult>( "the fp4-cb3 allocation", caller, action );
 
                 case WeightQuantization::Q4_0:
                     throw std::runtime_error( std::format(
@@ -609,6 +587,33 @@ namespace Mila::Dnn
                         "per-role plan, or at uniform FP4 as the Section 5 oracle. A uniform "
                         "FP8 body is a different allocation than Section 5's, nothing measures "
                         "against it, and no artifact carries it", caller ) );
+            }
+        }
+
+        /// Whether every Linear a plan names has its operation on this device at this precision.
+        template<typename TPlan>
+        static constexpr bool kPlanSupported =
+            OperationSupported<OperationType::LinearOp, TDeviceType, TPrecision, typename TPlan::QkvProjection>
+            && OperationSupported<OperationType::LinearOp, TDeviceType, TPrecision, typename TPlan::OutputProjection>
+            && OperationSupported<OperationType::LinearOp, TDeviceType, TPrecision, typename TPlan::FeedForwardGateUp>
+            && OperationSupported<OperationType::LinearOp, TDeviceType, TPrecision, typename TPlan::FeedForwardDown>
+            && OperationSupported<OperationType::LinearOp, TDeviceType, TPrecision, typename TPlan::DeltaNetQueryKey>
+            && OperationSupported<OperationType::LinearOp, TDeviceType, TPrecision, typename TPlan::DeltaNetValueGateOutput>
+            && OperationSupported<OperationType::LinearOp, TDeviceType, TPrecision, typename TPlan::DeltaNetGating>
+            && OperationSupported<OperationType::LinearOp, TDeviceType, TPrecision, typename TPlan::LanguageModelHead>;
+
+        template<typename TPlan, typename TResult, typename TAction>
+        static TResult planIfSupported( std::string_view plan_name, std::string_view caller, TAction& action )
+        {
+            if constexpr ( kPlanSupported<TPlan> )
+            {
+                return action.template operator()<TPlan>();
+            }
+            else
+            {
+                throw std::runtime_error( std::format(
+                    "{}: {} needs a Linear operation that {} does not have at {} compute precision",
+                    caller, plan_name, deviceTypeToString( TDeviceType ), tensorDataTypeToString( TPrecision ) ) );
             }
         }
 
