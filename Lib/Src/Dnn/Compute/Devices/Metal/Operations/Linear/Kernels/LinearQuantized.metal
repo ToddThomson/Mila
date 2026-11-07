@@ -23,10 +23,11 @@ struct QuantizedLinearShape
     uint group;
 };
 
-// Eight weights from one load of their codes. Every format's group is at least 32, so eight never cross a scale.
+// Eight weights from one load of their codes, the `c`th eight of a row of `inputs`. Every format's group is at least 32, so
+// eight never cross a scale.
 struct Fp8Codes
 {
-    static void chunk( device const uchar* row, uint c, thread float4& first, thread float4& second )
+    static void chunk( device const uchar* row, uint c, uint, thread float4& first, thread float4& second )
     {
         device const uint* words = reinterpret_cast<device const uint*>( row ) + c * 2;
         const uint4 a = uint4( words[0], words[0] >> 8, words[0] >> 16, words[0] >> 24 ) & 255u;
@@ -40,7 +41,7 @@ struct Fp8Codes
 // Two codes to a byte, the low nibble the even input.
 struct Fp4Codes
 {
-    static void chunk( device const uchar* row, uint c, thread float4& first, thread float4& second )
+    static void chunk( device const uchar* row, uint c, uint, thread float4& first, thread float4& second )
     {
         const uint bits = reinterpret_cast<device const uint*>( row )[c];
         const uint4 a = uint4( bits, bits >> 4, bits >> 8, bits >> 12 ) & 15u;
@@ -51,14 +52,45 @@ struct Fp4Codes
     }
 };
 
+// Q4_0 (Int4Packing.ixx): Fp4Codes' nibble order, each code a signed step plus 8.
+struct Int4Codes
+{
+    static void chunk( device const uchar* row, uint c, uint, thread float4& first, thread float4& second )
+    {
+        const uint bits = reinterpret_cast<device const uint*>( row )[c];
+        const int4 a = int4( uint4( bits, bits >> 4, bits >> 8, bits >> 12 ) & 15u ) - 8;
+        const int4 b = int4( uint4( bits >> 16, bits >> 20, bits >> 24, bits >> 28 ) & 15u ) - 8;
+
+        first = float4( a );
+        second = float4( b );
+    }
+};
+
+// Six bits (Int6Packing.ixx): the low nibbles as Int4Codes', then from byte inputs / 2 each code's high two bits, four codes
+// to a byte from bit 0, so eight codes' are one ushort. Each code is a signed step plus 32.
+struct Int6Codes
+{
+    static void chunk( device const uchar* row, uint c, uint inputs, thread float4& first, thread float4& second )
+    {
+        const uint bits = reinterpret_cast<device const uint*>( row )[c];
+        const uint high = reinterpret_cast<device const ushort*>( row + inputs / 2 )[c];
+        const uint4 a = ( uint4( bits, bits >> 4, bits >> 8, bits >> 12 ) & 15u ) | ( ( uint4( high, high >> 2, high >> 4, high >> 6 ) & 3u ) << 4 );
+        const uint4 b = ( uint4( bits >> 16, bits >> 20, bits >> 24, bits >> 28 ) & 15u )
+            | ( ( uint4( high >> 8, high >> 10, high >> 12, high >> 14 ) & 3u ) << 4 );
+
+        first = float4( int4( a ) - 32 );
+        second = float4( int4( b ) - 32 );
+    }
+};
+
 // One SIMD-group per TAcross outputs of up to TRows rows: its lanes walk the codes once, eight weights at a time, for every
 // row. The grid is (groups of outputs, groups of rows). One row reads its activations once for TAcross outputs, which won
 // at decode; several rows read each output's weights once for all of them, which won at 8 rows.
-template<typename TCodes, typename TElement, typename TVector, uint TAcross, uint TRows>
+template<typename TCodes, typename TScale, typename TElement, typename TVector, uint TAcross, uint TRows>
 kernel void linear_quantized_lanes(
     device const TVector* input [[buffer(0)]],
     device const uchar* codes [[buffer(1)]],
-    device const float* scales [[buffer(2)]],
+    device const TScale* scales [[buffer(2)]],
     device TElement* output [[buffer(3)]],
     constant QuantizedLinearShape& shape [[buffer(4)]],
     uint3 group [[threadgroup_position_in_grid]],
@@ -89,9 +121,9 @@ kernel void linear_quantized_lanes(
 
             float4 first;
             float4 second;
-            TCodes::chunk( codes + o * shape.row_bytes, c, first, second );
+            TCodes::chunk( codes + o * shape.row_bytes, c, shape.inputs, first, second );
 
-            const float scale = scales[o * shape.groups + c * 8 / shape.group];
+            const float scale = float( scales[o * shape.groups + c * 8 / shape.group] );
 
             for ( uint m = 0; m < TRows; ++m )
             {
@@ -117,27 +149,30 @@ kernel void linear_quantized_lanes(
     }
 }
 
-#define MILA_QUANTIZED_LANES( codes, name, element, across, rows ) \
+#define MILA_QUANTIZED_LANES( codes, scale, name, element, across, rows ) \
     template [[host_name( "linear_quantized_lanes_" name "_" #element "_" #across "_" #rows )]] \
-    kernel void linear_quantized_lanes<codes, element, element##4, across, rows>( \
-        device const element##4*, device const uchar*, device const float*, device element*, constant QuantizedLinearShape&, \
+    kernel void linear_quantized_lanes<codes, scale, element, element##4, across, rows>( \
+        device const element##4*, device const uchar*, device const scale*, device element*, constant QuantizedLinearShape&, \
         uint3, uint, uint3 );
 
-MILA_QUANTIZED_LANES( Fp8Codes, "fp8", half, 4, 1 )
-MILA_QUANTIZED_LANES( Fp8Codes, "fp8", half, 1, 8 )
-MILA_QUANTIZED_LANES( Fp8Codes, "fp8", bfloat, 4, 1 )
-MILA_QUANTIZED_LANES( Fp8Codes, "fp8", bfloat, 1, 8 )
-MILA_QUANTIZED_LANES( Fp4Codes, "fp4", half, 4, 1 )
-MILA_QUANTIZED_LANES( Fp4Codes, "fp4", half, 1, 8 )
-MILA_QUANTIZED_LANES( Fp4Codes, "fp4", bfloat, 4, 1 )
-MILA_QUANTIZED_LANES( Fp4Codes, "fp4", bfloat, 1, 8 )
+// FP8's and FP4's scales are FP32, Q4_0's and six bits' FP16, each as its policy stores it.
+#define MILA_QUANTIZED_LANES_ALL( codes, scale, name ) \
+    MILA_QUANTIZED_LANES( codes, scale, name, half, 4, 1 ) \
+    MILA_QUANTIZED_LANES( codes, scale, name, half, 1, 8 ) \
+    MILA_QUANTIZED_LANES( codes, scale, name, bfloat, 4, 1 ) \
+    MILA_QUANTIZED_LANES( codes, scale, name, bfloat, 1, 8 )
+
+MILA_QUANTIZED_LANES_ALL( Fp8Codes, float, "fp8" )
+MILA_QUANTIZED_LANES_ALL( Fp4Codes, float, "fp4" )
+MILA_QUANTIZED_LANES_ALL( Int4Codes, half, "int4" )
+MILA_QUANTIZED_LANES_ALL( Int6Codes, half, "int6" )
 
 // Expand outputs [first_output, last_output) to the compute type, a row of inputs each, for TensorOps to multiply. Eight
 // weights to a thread; the grid is every eight inputs of every output in the block.
-template<typename TCodes, typename TVector>
+template<typename TCodes, typename TScale, typename TVector>
 kernel void linear_quantized_expand(
     device const uchar* codes [[buffer(0)]],
-    device const float* scales [[buffer(1)]],
+    device const TScale* scales [[buffer(1)]],
     device TVector* expanded [[buffer(2)]],
     constant QuantizedLinearShape& shape [[buffer(3)]],
     uint index [[thread_position_in_grid]] )
@@ -149,23 +184,28 @@ kernel void linear_quantized_expand(
 
     float4 first;
     float4 second;
-    TCodes::chunk( codes + o * shape.row_bytes, c, first, second );
+    TCodes::chunk( codes + o * shape.row_bytes, c, shape.inputs, first, second );
 
-    const float scale = scales[o * shape.groups + c * 8 / shape.group];
+    const float scale = float( scales[o * shape.groups + c * 8 / shape.group] );
     device TVector* out = expanded + block_output * ( shape.inputs / 4 ) + c * 2;
 
     out[0] = TVector( first * scale );
     out[1] = TVector( second * scale );
 }
 
-template [[host_name( "linear_quantized_expand_fp8_half" )]] kernel void linear_quantized_expand<Fp8Codes, half4>(
-    device const uchar*, device const float*, device half4*, constant QuantizedLinearShape&, uint );
-template [[host_name( "linear_quantized_expand_fp8_bfloat" )]] kernel void linear_quantized_expand<Fp8Codes, bfloat4>(
-    device const uchar*, device const float*, device bfloat4*, constant QuantizedLinearShape&, uint );
-template [[host_name( "linear_quantized_expand_fp4_half" )]] kernel void linear_quantized_expand<Fp4Codes, half4>(
-    device const uchar*, device const float*, device half4*, constant QuantizedLinearShape&, uint );
-template [[host_name( "linear_quantized_expand_fp4_bfloat" )]] kernel void linear_quantized_expand<Fp4Codes, bfloat4>(
-    device const uchar*, device const float*, device bfloat4*, constant QuantizedLinearShape&, uint );
+#define MILA_QUANTIZED_EXPAND( codes, scale, name, element ) \
+    template [[host_name( "linear_quantized_expand_" name "_" #element )]] \
+    kernel void linear_quantized_expand<codes, scale, element##4>( \
+        device const uchar*, device const scale*, device element##4*, constant QuantizedLinearShape&, uint );
+
+MILA_QUANTIZED_EXPAND( Fp8Codes, float, "fp8", half )
+MILA_QUANTIZED_EXPAND( Fp8Codes, float, "fp8", bfloat )
+MILA_QUANTIZED_EXPAND( Fp4Codes, float, "fp4", half )
+MILA_QUANTIZED_EXPAND( Fp4Codes, float, "fp4", bfloat )
+MILA_QUANTIZED_EXPAND( Int4Codes, half, "int4", half )
+MILA_QUANTIZED_EXPAND( Int4Codes, half, "int4", bfloat )
+MILA_QUANTIZED_EXPAND( Int6Codes, half, "int6", half )
+MILA_QUANTIZED_EXPAND( Int6Codes, half, "int6", bfloat )
 
 // One tile of activations times FP8's bare codes, into 32-bit sums. Its scale belongs to one output, so it comes out of the
 // sum and is applied after (linear_apply_output_scales). FP16 activations only: TensorOps refuses BF16 by FP8 codes.

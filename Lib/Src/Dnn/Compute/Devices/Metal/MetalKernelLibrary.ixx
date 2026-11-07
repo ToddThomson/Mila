@@ -48,7 +48,13 @@ namespace Mila::Dnn::Compute
             ,
 #include "Swiglu.metal.inc"
             ,
+#include "Geglu.metal.inc"
+            ,
 #include "Residual.metal.inc"
+            ,
+#include "Router.metal.inc"
+            ,
+#include "Moe.metal.inc"
         };
 
         std::string describe( const NS::Error* error )

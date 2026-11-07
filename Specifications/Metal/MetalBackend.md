@@ -403,7 +403,10 @@ Llama 3.2 3B FP8 and FP4, Llama 3.1 8B FP4, then the rest of the list on the mod
 Gemma 4 12B and Qwen 3.8 27B, on what 16 GB of unified memory allows, with the agentic quality bar unchanged, in their own formats: Gemma's Q4_0 with its Q6_K
 table, Qwen's FP4 and its plans, and mixture of experts. Family parity holds: build order justifies no gap. Apple states Qwen 3.8 is native BF16.
 
-**Gate:** as Phase 4, per model.
+**Gate:** as Phase 4, per model, against HuggingFace FP32 on the model's weights decoded from its format.
+
+**Gemma 4 12B first, in Q4_0 (Todd, 2026-11-06),** with the operations only it needs: Q4_0 and six-bit Linear, the six-bit
+table, GeGLU, the sliding-window ring cache. Notebook: `Notebooks/MetalGemma.md`, gate written first.
 
 ### Phase 7 -- Other chips
 
@@ -442,6 +445,7 @@ development Mac and neither can reach a user's.
 | Whether a kernel calls TensorOps is what Phase 2 measures, with own kernels kept where the result is close | Todd, 2026-11-04 |
 | Metal stays GPU only for now. MLX may later lead to optimizations, or to CPU use that makes sense (`Issues/Untriaged.md`) | Todd, 2026-11-04 |
 | Every format Mila's components use on CUDA runs on Metal (section 1) | Todd, 2026-11-05 |
+| A quantized model is held to HuggingFace FP32 on its format's weights decoded to full precision, with Phase 4's bars, not to CUDA's run of the same weights | Todd, 2026-11-06; `Notebooks/MetalGemma.md` 1.1 |
 | No published model stores FP16, so an FP16 parameter reads BF16 weights, from Phase 3 on (section 5) | Todd, 2026-11-05 |
 | Pad 2 to 7 rows before Phase 4, with the scratch buffer here and not in Phase 5, and the rows that pad a tile zero. Attention pads only if its timing earns it (section 4.2) | Todd, 2026-11-05 |
 | Phase 4's library changes: `DeviceTypeTraits` says whether a device trains, every network's load synchronizes on every device, and the weight dispatch builds a format where `OperationSupported` says its Linear exists (`Notebooks/MetalFirstModel.md` section 3) | Todd, 2026-11-05 |

@@ -154,7 +154,6 @@ namespace Mila::Dnn
          * @throws std::invalid_argument for more than 8 tokens.
          */
         TensorType& decodeTokens( const TensorType& input, const TensorType& weights, const IndexTensorType& indices )
-            requires ( TDeviceType == DeviceType::Cuda )
         {
             if ( !this->isBuilt() )
             {

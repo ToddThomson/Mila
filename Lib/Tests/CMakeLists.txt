@@ -236,13 +236,18 @@ if(MILA_HAS_METAL)
         "Dnn/Components/Embeddings/TokenEmbedding.Metal.cpp"
         "Dnn/Components/Encodings/Rope/Rope.Metal.cpp"
         "Dnn/Components/FFN/Swiglu/Swiglu.Metal.cpp"
+        "Dnn/Components/FFN/Swiglu/Geglu.Metal.cpp"
+        "Dnn/Components/Linear/Linear.Integer.Metal.cpp"
         "Dnn/Components/Linear/Linear.Metal.cpp"
         "Dnn/Components/Linear/Linear.Quantized.Metal.cpp"
+        "Dnn/Components/MixtureOfExperts/MixtureOfExperts.Metal.cpp"
+        "Dnn/Components/MixtureOfExperts/Router.Metal.cpp"
         "Dnn/Components/Normalization/RmsNorm/RmsNorm.Metal.cpp"
         "Dnn/Components/Transformers/Llama/Llama.Block.Metal.cpp"
         "Dnn/Components/Transformers/Llama/Llama.HuggingFaceReference.Metal.cpp"
         "Dnn/Models/LlaMa/LlamaModel.HuggingFaceReference.Metal.cpp"
         "Dnn/Models/LlaMa/LlamaModel.CudaReference.Metal.cpp"
+        "Dnn/Models/Gemma/GemmaModel.HuggingFaceReference.Metal.cpp"
         "Dnn/Samplers/Sampling.Metal.cpp"
         "Dnn/Tensors/TensorOps/Metal.TensorOps.Metal.cpp"
     )
@@ -347,6 +352,8 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Models/Gemma/Gemma.InstructionRetention.Cuda.cpp"
         # A turn needing two calls makes both and stops at Gemma's own <|tool_response>. Needs exported weights.
         "Dnn/Models/Gemma/Gemma.ToolCallStop.Cuda.cpp"
+        # Q4_0 at BF16 against HuggingFace FP32 on the package's decoded weights: Metal's bar (Notebooks/MetalGemma.md 1.3).
+        "Dnn/Models/Gemma/GemmaModel.HuggingFaceReference.Cuda.cpp"
         "Dnn/Models/LlaMa/LlamaModel.Footprint.Cuda.cpp"
         "Dnn/Models/LlaMa/LlamaModel.Generation.Cuda.cpp"
         "Dnn/Models/LlaMa/LlamaModel.HuggingFaceReference.Cuda.cpp"

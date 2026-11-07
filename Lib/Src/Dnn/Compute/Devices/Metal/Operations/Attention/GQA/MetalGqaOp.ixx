@@ -49,8 +49,11 @@ namespace Mila::Dnn::Compute::Metal::Gqa
      * context's scratch, and multiplies them as an uncompressed cache's: folding V's scale into the probabilities would put them below
      * FP16's normal range.
      *
+     * A sliding window's ring (SlidingWindowKvCache, `SlidingWindowKvCache.md`) holds the window and a prefill chunk less one rows, as
+     * CUDA's does, position p in row p % rows; prefill's scores keep the context's stride, and only the ring's columns are filled.
+     *
      * @tparam TPrecision FP16 or BF16.
-     * @tparam TKvPolicy NoKvCompression, or PerTokenKvFp8<>.
+     * @tparam TKvPolicy NoKvCompression, PerTokenKvFp8<>, or SlidingWindowKvCache.
      */
     export template<TensorDataType TPrecision, KvCachePolicy TKvPolicy = NoKvCompression>
     class MetalGqaOp : public Operation<DeviceType::Metal, TPrecision>, public IKvInference
@@ -60,8 +63,10 @@ namespace Mila::Dnn::Compute::Metal::Gqa
         using TensorType = Tensor<TPrecision, MetalMemoryResource>;
 
         static constexpr bool kFp8Cache = std::is_same_v<TKvPolicy, PerTokenKvFp8<>>;
+        static constexpr bool kBounded = std::is_same_v<TKvPolicy, SlidingWindowKvCache>;
 
-        static_assert( kFp8Cache || std::is_same_v<TKvPolicy, NoKvCompression>, "Metal's attention carries an uncompressed or an FP8 cache" );
+        static_assert( kFp8Cache || kBounded || std::is_same_v<TKvPolicy, NoKvCompression>,
+            "Metal's attention carries an uncompressed cache, an FP8 one, or a sliding window's ring" );
 
         static constexpr TensorDataType kCacheType = kFp8Cache ? TensorDataType::FP8_E4M3 : TPrecision;
 
@@ -100,6 +105,8 @@ namespace Mila::Dnn::Compute::Metal::Gqa
 
             batches_ = narrowToKernelIndex( input_shape[0] );
             capacity_ = narrowToKernelIndex( input_shape[1] );
+            cache_rows_ = cacheRowsFor( context );
+            prefill_chunk_ = prefillChunkOf( context );
             heads_ = narrowToKernelIndex( config_.getNumHeads() );
             kv_heads_ = narrowToKernelIndex( config_.getNumKvHeads() );
             head_size_ = narrowToKernelIndex( config_.getHeadDim() );
@@ -123,14 +130,14 @@ namespace Mila::Dnn::Compute::Metal::Gqa
 
             if ( context.isInferenceMode() )
             {
-                const shape_t cache_shape{ input_shape[0], config_.getNumKvHeads(), input_shape[1], config_.getHeadDim() };
+                const shape_t cache_shape{ input_shape[0], config_.getNumKvHeads(), cache_rows_, config_.getHeadDim() };
 
                 key_cache_ = std::make_unique<CacheTensorType>( context_->getDeviceId(), cache_shape, "gqa.key_cache" );
                 value_cache_ = std::make_unique<CacheTensorType>( context_->getDeviceId(), cache_shape, "gqa.value_cache" );
 
                 if constexpr ( kFp8Cache )
                 {
-                    const shape_t scale_shape{ input_shape[0], config_.getNumKvHeads(), input_shape[1] };
+                    const shape_t scale_shape{ input_shape[0], config_.getNumKvHeads(), cache_rows_ };
 
                     key_scales_ = std::make_unique<ScaleTensorType>( context_->getDeviceId(), scale_shape, "gqa.key_scales" );
                     value_scales_ = std::make_unique<ScaleTensorType>( context_->getDeviceId(), scale_shape, "gqa.value_scales" );
@@ -189,10 +196,20 @@ namespace Mila::Dnn::Compute::Metal::Gqa
                     "MetalGqaOp::prefill: position_offset {} + {} tokens exceeds the {} positions of the cache", offset, tokens, active_length_ ) );
             }
 
+            // A ring holds a chunk's window only for a chunk no longer than it was built for.
+            if ( kBounded && tokens > prefill_chunk_ )
+            {
+                throw std::invalid_argument( std::format(
+                    "MetalGqaOp::prefill: {} tokens are past the {}-token prefill chunk the sliding window's ring was built for", tokens, prefill_chunk_ ) );
+            }
+
             const Geometry geometry = geometryFor( tokens, offset );
             const std::size_t count = static_cast<std::size_t>( tokens ) * batches_;
             const int group_size = heads_ / kv_heads_;
+
+            // The positions the chunk's queries see, and the cache rows that hold them: all of them, or the whole ring once it has wrapped.
             const int attended = offset + tokens;
+            const int columns = std::min( attended, cache_rows_ );
 
             if constexpr ( kFp8Cache )
             {
@@ -217,11 +234,11 @@ namespace Mila::Dnn::Compute::Metal::Gqa
                     const std::size_t first_head = static_cast<std::size_t>( b * heads_ + group * group_size );
 
                     const auto* const query = bytesOf( q_permute_ ) + element_bytes * first_head * tokens * head_size_;
-                    const auto* const keys = cachedRows( key_cache_.get(), key_scales_.get(), b * kv_heads_ + group, attended, geometry );
+                    const auto* const keys = cachedRows( key_cache_.get(), key_scales_.get(), b * kv_heads_ + group, columns, geometry );
                     const auto* const scores = bytesOf( preatt_ ) + element_bytes * first_head * tokens * capacity_;
 
                     encodeMatrixProduct<TPrecision>( *context_, MatrixProduct{
-                        query, keys, scores, group_size * tokens, head_size_, attended, capacity_ } );
+                        query, keys, scores, group_size * tokens, head_size_, columns, capacity_ } );
                 }
             }
 
@@ -235,9 +252,9 @@ namespace Mila::Dnn::Compute::Metal::Gqa
 
                     encodeValues(
                         bytesOf( att_ ) + element_bytes * first_head * tokens * capacity_,
-                        cachedRows( value_cache_.get(), value_scales_.get(), b * kv_heads_ + group, attended, geometry ),
+                        cachedRows( value_cache_.get(), value_scales_.get(), b * kv_heads_ + group, columns, geometry ),
                         bytesOf( v_out_ ) + element_bytes * first_head * tokens * head_size_,
-                        group_size * tokens, attended );
+                        group_size * tokens, columns );
                 }
             }
 
@@ -359,7 +376,7 @@ namespace Mila::Dnn::Compute::Metal::Gqa
 
             validateInputShape( input_shape );
 
-            const dim_t rows = input_shape[0] * config_.getNumKvHeads() * input_shape[1];
+            const dim_t rows = input_shape[0] * config_.getNumKvHeads() * cacheRowsFor( context );
             std::size_t bytes = 2 * occupiedDeviceBytes( storageBytes<kCacheType>( rows * config_.getHeadDim() ), context.getAllocationGranularity() );
 
             if constexpr ( kFp8Cache )
@@ -396,7 +413,36 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             std::uint32_t position_offset;
             float attention_scale;
             std::uint32_t decode_blocks;
+            std::uint32_t score_stride;
         };
+
+        /// The rows a KV head's cache holds: every position of the context, or for a ring the window and a prefill chunk less one.
+        [[nodiscard]] int cacheRowsFor( const BuildContext& context ) const
+        {
+            const int sequence_length = narrowToKernelIndex( context.inputShape()[1] );
+
+            if constexpr ( kBounded )
+            {
+                const int window = narrowToKernelIndex( config_.getWindow() );
+
+                if ( window <= 0 )
+                {
+                    throw std::invalid_argument( "MetalGqaOp: a sliding window's ring needs a positive window; a layer that attends every "
+                        "position keeps the uncompressed cache" );
+                }
+
+                return std::min( sequence_length, window + prefillChunkOf( context ) - 1 );
+            } else {
+                return sequence_length;
+            }
+        }
+
+        [[nodiscard]] static int prefillChunkOf( const BuildContext& context )
+        {
+            const dim_t prefill = context.getPrefillSize();
+
+            return narrowToKernelIndex( prefill > 0 ? prefill : context.inputShape()[1] );
+        }
 
         void validateInputShape( const shape_t& shape ) const
         {
@@ -425,11 +471,12 @@ namespace Mila::Dnn::Compute::Metal::Gqa
                 static_cast<std::uint32_t>( heads_ ),
                 static_cast<std::uint32_t>( kv_heads_ ),
                 static_cast<std::uint32_t>( head_size_ ),
-                static_cast<std::uint32_t>( capacity_ ),
+                static_cast<std::uint32_t>( cache_rows_ ),
                 static_cast<std::uint32_t>( config_.getWindow() ),
                 static_cast<std::uint32_t>( position_offset ),
                 config_.getAttentionScale(),
-                static_cast<std::uint32_t>( kDecodeBlocks ) };
+                static_cast<std::uint32_t>( kDecodeBlocks ),
+                static_cast<std::uint32_t>( capacity_ ) };
         }
 
         [[nodiscard]] static std::size_t decodeScratchBytesFor( dim_t batches, dim_t heads, dim_t head_size )
@@ -461,7 +508,7 @@ namespace Mila::Dnn::Compute::Metal::Gqa
         [[nodiscard]] const std::byte* cachedRows( const CacheTensorType* cache, const ScaleTensorType* scales, int kv_head_of_batch, int rows,
             const Geometry& geometry ) const
         {
-            const std::size_t first_row = static_cast<std::size_t>( kv_head_of_batch ) * capacity_;
+            const std::size_t first_row = static_cast<std::size_t>( kv_head_of_batch ) * cache_rows_;
             const auto* const codes = bytesOf( cache ) + storageBytes<kCacheType>( static_cast<dim_t>( first_row * head_size_ ) );
 
             if constexpr ( !kFp8Cache )
@@ -586,7 +633,11 @@ namespace Mila::Dnn::Compute::Metal::Gqa
         const ITensor* v_out_{ nullptr };
 
         int batches_{ 0 };
+
+        // The context's positions, which prefill's scores are strided by, and the rows each KV head's cache holds.
         int capacity_{ 0 };
+        int cache_rows_{ 0 };
+        int prefill_chunk_{ 0 };
         int heads_{ 0 };
         int kv_heads_{ 0 };
         int head_size_{ 0 };

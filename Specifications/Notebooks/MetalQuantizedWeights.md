@@ -89,8 +89,8 @@ and off a block of 1024, with a bias, and after any earlier call. The paths:
 | 8 to 1023 | TensorOps on the bare codes in whole tiles, each output's scale after; own lanes for the rest | Own lanes up to 63, then expanded | Own lanes up to 63, then expanded |
 | 1024 up | Expanded a block of 1024 outputs at a time, then TensorOps | Expanded | Expanded |
 
-The two crossings, 64 and 1024, are where Phase 2's measurements put them within its gaps, and are not measured on these
-shapes yet (section 4).
+The two crossings, 64 and 1024, are where Phase 2's measurements put them within its gaps. Measured on these shapes they
+are 16 and 384 (section 4).
 
 **TensorOps refuses BF16 activations times FP8 codes** at compile time (a `static_assert` in `MPPTensorOpsMatMul2dImpl.h`);
 FP16 times FP8 into FP32 compiles and is right. So BF16 FP8 takes FP4's paths. BF16 is not what the M1 selects.
@@ -188,3 +188,23 @@ and hold every engine to Phase 4's bars against it. Todd: the second "is likely 
 there to round as CUDA's write does, no gate holds the cache's bytes to CUDA's, and a code's difference in one channel is
 far below attention's bar. It was taken out. An inverse of 1 for a row of zeros is equivalent, since every value in the
 row is zero; the guard stays, because 1 / 0 would make 0 times infinity.
+
+## 4. The crossings
+
+2026-11-05 and 2026-11-06, on AC, FP16, `D:\Claude\metal\phase5\crossings.py`: each path forced for every row count by
+building `mila-metal-quantized-timing` against changed constants in `MetalLinearOp`, on Llama 3.2 3B's four shapes and 3.1
+8B's two, at 8 to 16, 32 to 128 and 256 to 2048 rows. Logs `phase5-crossings.log` and `phase5-crossings2.log` beside it.
+
+**Own lanes against expanded weights (FP4, and FP8 in BF16): expanded wins from 16 rows, not 64.** At 8 to 15 rows own lanes
+are 8 to 68% faster; at 16 expanded is 1.4 to 1.8 times faster on every shape, and at 32 and 48 rows 2.1 to 2.5 times.
+
+| Rows | 3B gate_up lanes / expanded, ms | 8B down lanes / expanded, ms |
+|---|---|---|
+| 15 | 2.37 / 3.46 | 2.91 / 4.88 |
+| 16 | 2.39 / 1.56 | 2.92 / 2.15 |
+| 32 | 4.65 / 2.17 | 5.88 / 3.14 |
+| 48 | 6.99 / 2.94 | 8.87 / 4.25 |
+
+**FP8's bare codes against expanded weights: expanded wins from 384 rows, not 1024,** by 4 to 13% from 384 to 2048 on
+five of the six shapes, and bare codes win by 2 to 5% at 320. On the 8B's down projection bare codes win at every row
+count measured, by 7% at 384 and 0.4% at 768.

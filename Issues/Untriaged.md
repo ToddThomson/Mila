@@ -10,11 +10,29 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Speculative decoding runs on CUDA only: Metal has no multi-token decode outside the expert bank and the sampler
+
+`Lib/Src/Dnn/Components/Linear/Linear.ixx` (`decode`), `Attention/GQA/GroupedQueryAttention.ixx`, `MixtureOfExperts/Router.ixx` (`decodeTokens`), `Transformers/Gemma/Gemma.ixx` (`kDraftModelRuns`) @ 0.21.0-dev+123
+
+Each is `requires ( TDeviceType == DeviceType::Cuda )` or gated by it, and Metal has no `SharedKvAttentionOp`. Metal's expert bank, router and sampler now take several tokens or rows (`Notebooks/MetalGemma.md` 2.1), so a drafter on Metal needs Linear's and attention's multi-token decode and the shared-cache attention. The Q4_0 Metal bank also has one kernel for prefill and decode, where CUDA has a grouped prefill; its speed is unmeasured.
+
+## Gemma 4 12B on CUDA decodes two positions past the sliding window ten times further from HuggingFace than the rest
+
+`Lib/Tests/Dnn/Models/Gemma/GemmaModel.HuggingFaceReference.Cuda.cpp` (`Q4_0_AcrossTheWindowEdge`); `Specifications/Notebooks/MetalGemma.md` 1.3 @ 0.21.0-dev+123
+
+Q4_0 at BF16 on the 5060 Ti, prefill of 993 tokens of a PG-19 book, then 63 decodes teacher-forced across the local layers' window of 1024. Rows 19 and 57 (positions 1011 and 1049) are 2.9e-1 and 3.3e-1 relative L2 from HuggingFace FP32 on the package's decoded weights, and as far from HuggingFace's BF16 run; every other row is at most 3.4e-2, and HuggingFace BF16's worst is 2.5e-2. No argmax changes. Metal's run of the same check, the same ring design, shows no such rows: its worst is 2.7e-3 in FP16 and 2.0e-2 in BF16 (`MetalGemma.md` 2.2), so it is CUDA's own, the fused decode or its ring indexing. Not yet known which.
+
+## Metal loads Q4_0 and six-bit weights only as stored, where CUDA also quantizes them at load
+
+`Lib/Src/Dnn/Compute/Devices/Metal/Operations/Linear/MetalLinearOp.ixx` (`quantize`), `MetalTokenEmbeddingOp.ixx` (`quantize`) @ 0.21.0-dev+123
+
+CUDA's `CudaLinearOp` and `CudaTokenEmbeddingOp` quantize BF16 weights to Q4_0 and to six bits at load (`Int4Packing.ixx`, `Int6Packing.ixx` are the rule). Metal refuses them with the tensor's name. Gemma's published package is stored Q4_0, so the gate does not need it (`Notebooks/MetalGemma.md` section 4).
+
 ## Metal's quantized model gate compares two engines' noise, so FP8 misses CUDA's bar by chance
 
 `Lib/Tests/Dnn/Models/LlaMa/LlamaModel.HuggingFaceReference.Metal.cpp` (`Fp8`, `Fp8QuantizedAtLoad`, `Fp8Cache`, fail); `Specifications/Notebooks/MetalQuantizedWeights.md` 2.3 @ 0.21.0-dev+123
 
-The gate holds Metal to "no further from HuggingFace FP32 than CUDA's run of the same weights". Both carry the format's same rounding, so it compares two draws of each engine's small difference: FP8 and the FP8 cache miss on one number each by 1% to 15%, with every argmax and greedy token HuggingFace's, and FP4 passes. Holding Metal to CUDA's run directly fails on FP4, where CUDA's prefill rounds activations to FP8 (`kUseFp8ActivationPrefill`, inferred cause of Metal scoring the sequence 0.012 better). Proposed to Todd, not decided: HuggingFace FP32 on each format's weights decoded to full precision as the reference, with Phase 4's bars; it does not fit the 8B on this PC. Todd, 2026-11-05: note it for now; the decoded-weights reference "is likely the best choice".
+The gate holds Metal to "no further from HuggingFace FP32 than CUDA's run of the same weights". Both carry the format's same rounding, so it compares two draws of each engine's small difference: FP8 and the FP8 cache miss on one number each by 1% to 15%, with every argmax and greedy token HuggingFace's, and FP4 passes. Holding Metal to CUDA's run directly fails on FP4, where CUDA's prefill rounds activations to FP8 (`kUseFp8ActivationPrefill`, inferred cause of Metal scoring the sequence 0.012 better). Decided (Todd, 2026-11-06): HuggingFace FP32 on each format's weights decoded to full precision is the reference, with Phase 4's bars (`Metal/MetalBackend.md` section 10). Gemma 4 12B is gated that way first (`Notebooks/MetalGemma.md` 1.1); Llama's FP8 and FP4 tests are not yet moved to it, so they still fail as above. The 8B's FP32 run needs the layer-streamed driver Gemma's capture uses.
 
 ## CUDA's quantize at load writes codes for weights that are not finite, where Metal's refuses the tensor
 

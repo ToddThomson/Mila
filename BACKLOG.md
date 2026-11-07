@@ -701,7 +701,7 @@ the cells do not show.
 
 ### Mila on Apple Silicon
 
-#### A Mac runs only Llama 3.2 3B, and only from its BF16 weights
+#### A Mac runs Llama and Gemma 4 12B, and not yet Qwen 3.8, the Gemma 26B or a drafter
 
 `in progress` · `architecture` · `quantization` · `mila-src` · `measured`
 
@@ -709,8 +709,11 @@ Phase 4 of the Metal backend passed on Llama 3.2 3B in FP16 and BF16 (`Specifica
 and its decode attention was rebuilt to 0.83 of llama.cpp after 4096 tokens (`Notebooks/MetalDecodeAttention.md`).
 Phase 5 has FP8 and FP4 Linear, quantize at load and the FP8 KV cache on Metal, and Llama 3.2 3B and 3.1 8B run them
 with every greedy token HuggingFace's or CUDA's (`Notebooks/MetalQuantizedWeights.md`); how the model gate judges them
-is not decided (`Issues/Untriaged.md`). Q4_0, Q6_K, the codebooks and mixture of experts have no Metal operation yet,
-and Gemma and Qwen none at all. What remains is the rest of Phase 5, and Phase 6, Gemma 4 and Qwen 3.8 on what a 16 GB
+is decided: HuggingFace FP32 on the format's decoded weights. Q4_0, six bits, GeGLU, the sliding-window ring and the
+mixture of experts' router and bank have Metal operations, each checked against a double-precision reference
+(`Notebooks/MetalGemma.md`), and Gemma 4 12B in Q4_0 passes its HuggingFace gate in FP16 and BF16 with every greedy token
+HuggingFace's (2.2 there). Q6_K and the codebooks have no Metal operation, Qwen none at all, and speculative decoding
+runs on CUDA only (`Issues/Untriaged.md`). What remains is the rest of Phase 5, and Phase 6, Gemma 4 and Qwen 3.8 on what a 16 GB
 Mac admits, each passing its family's HuggingFace gate. The planner chooses a context at 99% of a Mac's
 working set, where the model runs and macOS swaps the rest of the Mac out (`MetalFirstModel.md` section 5).
 `Specifications/Metal/MetalBackend.md` section 9.
@@ -743,6 +746,32 @@ Measured once, on Llama 3.2 3B in FP16 and BF16 against llama.cpp b12138 on the 
 (`Notebooks/MetalFirstModel.md` section 5, `Notebooks/MetalDecodeAttention.md` section 7), by
 `Lib/Tools/MetalModelTiming` and `llama-bench` at the same shapes. Not yet: every model the Mac admits, a script that
 reruns both, and a page that shows them. Absent: no published surface shows a Mac number.
+
+#### Every Metal kernel launch finds its kernel by name and its buffers by address, where a CUDA launch is resolved when it is compiled
+
+`open` · `architecture` · `perf` · `mila-src`
+
+The operation is chosen at compile time on both backends (`OperationTraits.Metal.ixx`); the launch below it is not. Each
+Metal `forward` formats its kernel's name (`std::format( "moe_gated_{}_{}_{}", ... )`), and
+`MetalKernelLibrary::pipeline` looks it up in an `unordered_map` under a mutex. `MetalExecutionContext::dispatch` then
+turns every bound address back into a buffer and offset (`MetalDevice::locate`, a `std::map::upper_bound` under a shared
+mutex), inside an autorelease pool of its own. A CUDA launch calls a template the compiler instantiated, with the pointer
+as it is. Decode replay is off on Metal, so all of it runs again every token. By arithmetic, not measured: Gemma 4 12B
+decodes about 700 dispatches a token, at 1 to 3 microseconds each 1 to 2 ms. The design is to be changed (Todd,
+2026-11-06); what it becomes is the next session's. Considered so far: names fixed at compile time from each op's template
+arguments, the pipeline resolved once at `build()` and held by the op, a Metal tensor carrying its buffer and offset, and
+one pool a pass. First, a decode step's host encoding and GPU time measured apart. `Specifications/Metal/MetalBackend.md`
+section 4.
+
+#### Metal's kernels are compiled when a model first loads, so a kernel that does not compile is found only when it runs
+
+`open` · `architecture` · `build` · `mila-src`
+
+`MetalKernelLibrary` compiles every kernel's source, embedded in the library, on the first pipeline asked for:
+`MetalBackend.md` 4.3 chose it because an offline `metallib` needed full Xcode, which the development Mac lacked. Full Xcode
+and its Metal toolchain have been there since 2026-11-05, and `xcrun metal` compiles a kernel file in about 3 s. A first
+load cost 578 ms with 79 kernels (`Notebooks/MetalDecodeAttention.md` 7), and there are more now. A kernel error stops a
+test, not the build. To be decided with the launch's design above (Todd, 2026-11-06).
 
 ### Model fixes and parity
 

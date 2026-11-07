@@ -25,6 +25,14 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
 {
     namespace Detail
     {
+        // TJT: 0.21 release "Operation Cleanup" task
+        
+        // TJT: Can float can be removed across all of Mila for operation precision?
+        // Notes:
+        //  - Standard for inference and training is bf16
+        //  - float was tied to CPU reference that only applied to GPT2
+        //
+
         template <typename TNative>
             requires std::is_same_v<TNative, float> || std::is_same_v<TNative, __nv_bfloat16>
         struct cuda_swiglu_impl;

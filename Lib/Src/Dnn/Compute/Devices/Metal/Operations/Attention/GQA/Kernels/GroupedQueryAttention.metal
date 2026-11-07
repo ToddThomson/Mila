@@ -1,5 +1,9 @@
 // Grouped-query attention over a KV cache held [B, NKV, capacity, HS].
 //
+// A position p lives in row p % capacity. For the cache of every position, capacity is the context and the row is the position; for a
+// sliding window's ring (SlidingWindowKvCache.md) it is the window and a prefill chunk less one, and a row holds the latest position
+// that maps to it, which readers recover from the last position attended.
+//
 // Prefill runs Q * K^T through the Linear product, then a causal softmax, then attention * V through TensorOps below. A decode step
 // runs own kernels only: it reads its position from memory, which TensorOps' fixed shapes could not do, and its grid never changes, so
 // that the step stays a pure function of device memory (CLAUDE.md, DecodeGraph.md). All arithmetic is in 32 bits. A lane with no keys starts its
@@ -25,7 +29,16 @@ struct GqaGeometry
 
     // How many blocks a decode step splits the keys into (Notebooks/MetalDecodeAttention.md).
     uint decode_blocks;
+
+    // The distance between rows of prefill's scores, the context's length, whatever the cache holds.
+    uint score_stride;
 };
+
+// The position a cache row holds, when the last position attended is `last`: the latest at or before it that maps to the row.
+inline uint gqa_position_of_row( uint row, uint last, uint capacity )
+{
+    return last - ( last - row ) % capacity;
+}
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The cache write. Element `index` of K and V's [B, tokens, NKV, HS] goes to the cache at its absolute position.
@@ -43,7 +56,8 @@ inline void gqa_write_element(
     const uint token = token_of_batch % geometry.tokens;
     const uint batch = token_of_batch / geometry.tokens;
 
-    const uint cached = ( ( batch * geometry.kv_heads + kv_head ) * geometry.capacity + first_position + token ) * geometry.head_size + channel;
+    const uint cached = ( ( batch * geometry.kv_heads + kv_head ) * geometry.capacity + ( first_position + token ) % geometry.capacity )
+        * geometry.head_size + channel;
 
     key_cache[cached] = key[index];
     value_cache[cached] = value[index];
@@ -127,7 +141,7 @@ inline void gqa_write_fp8_rows(
     const uint token = token_of_batch % geometry.tokens;
     const uint batch = token_of_batch / geometry.tokens;
 
-    const uint cached = ( batch * geometry.kv_heads + kv_head ) * geometry.capacity + first_position + token;
+    const uint cached = ( batch * geometry.kv_heads + kv_head ) * geometry.capacity + ( first_position + token ) % geometry.capacity;
 
     gqa_write_fp8_row( key + row * geometry.head_size, key_codes + cached * geometry.head_size, key_scales + cached, geometry.head_size, lane );
     gqa_write_fp8_row( value + row * geometry.head_size, value_codes + cached * geometry.head_size, value_scales + cached, geometry.head_size, lane );
@@ -219,7 +233,8 @@ template [[host_name("gqa_permute_query_half")]] kernel void gqa_permute_query<h
 template [[host_name("gqa_permute_query_bfloat")]] kernel void gqa_permute_query<bfloat>(
     device const bfloat*, device bfloat*, constant GqaGeometry&, uint );
 
-// A row of [B, NH, tokens, capacity] per SIMD-group. Everything outside the row's band is zero, for the product with V that follows.
+// A row of [B, NH, tokens, score_stride] per SIMD-group, its columns the cache's rows up to the positions attended. Everything outside
+// the row's band is zero, for the product with V that follows.
 template<typename TElement>
 kernel void gqa_prefill_softmax(
     device const TElement* scores [[buffer(0)]],
@@ -233,13 +248,17 @@ kernel void gqa_prefill_softmax(
     const uint row = group.x;
     const uint position = geometry.position_offset + row % geometry.tokens;
     const uint first_key = geometry.window > 0 && position + 1 > geometry.window ? position + 1 - geometry.window : 0;
-    const uint start = row * geometry.capacity;
+    const uint start = row * geometry.score_stride;
+    const uint columns = min( attended, geometry.capacity );
+    const uint last = attended - 1;
 
     float largest = -FLT_MAX;
 
-    for ( uint j = lane; j < attended; j += threads.x )
+    for ( uint j = lane; j < columns; j += threads.x )
     {
-        if ( j >= first_key && j <= position )
+        const uint key = gqa_position_of_row( j, last, geometry.capacity );
+
+        if ( key >= first_key && key <= position )
         {
             largest = max( largest, float( scores[start + j] ) );
         }
@@ -249,9 +268,11 @@ kernel void gqa_prefill_softmax(
 
     float sum = 0.0f;
 
-    for ( uint j = lane; j < attended; j += threads.x )
+    for ( uint j = lane; j < columns; j += threads.x )
     {
-        if ( j >= first_key && j <= position )
+        const uint key = gqa_position_of_row( j, last, geometry.capacity );
+
+        if ( key >= first_key && key <= position )
         {
             sum += exp( float( scores[start + j] ) - largest );
         }
@@ -259,9 +280,11 @@ kernel void gqa_prefill_softmax(
 
     sum = simd_sum( sum );
 
-    for ( uint j = lane; j < attended; j += threads.x )
+    for ( uint j = lane; j < columns; j += threads.x )
     {
-        attention[start + j] = j >= first_key && j <= position
+        const uint key = gqa_position_of_row( j, last, geometry.capacity );
+
+        attention[start + j] = key >= first_key && key <= position
             ? TElement( exp( float( scores[start + j] ) - largest ) / sum )
             : TElement( 0.0f );
     }
@@ -488,8 +511,11 @@ inline void gqa_decode_block(
     float largest = -FLT_MAX;
     float sum = 0.0f;
 
-    for ( uint j = first_key + block; j <= position; j += geometry.decode_blocks )
+    // A ring holds at least the window, so every position from first_key on is still in its row.
+    for ( uint p = first_key + block; p <= position; p += geometry.decode_blocks )
     {
+        const uint j = p % geometry.capacity;
+
         float score = 0.0f;
 
         for ( uint e = 0; e < kPerLane; ++e )

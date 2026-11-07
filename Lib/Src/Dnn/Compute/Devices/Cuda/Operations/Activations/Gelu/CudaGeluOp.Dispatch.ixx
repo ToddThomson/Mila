@@ -96,7 +96,8 @@ namespace Mila::Dnn::Compute::Cuda::Gelu
         struct cuda_gelu_impl<half>
         {
             cuda_gelu_impl( const GeluConfig& /*config*/ )
-            { /* Nothing to select for half yet */
+            {
+                /* Nothing to select for half yet */
             }
 
             inline void forward( half* Y, const half* X, int N, cudaStream_t stream ) const

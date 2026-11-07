@@ -2,18 +2,20 @@
  * @file OperationTraits.Metal.ixx
  * @brief OperationTraits specializations for the Metal backend.
  *
- * FP16 and BF16 only: no FP32 model path exists on Metal (MetalBackend.md section 3.2), so an FP32 row is a compile error. Linear's
- * quantized weights and attention's FP8 cache are Phase 5's.
+ * FP16 and BF16 only: no FP32 model path exists on Metal (MetalBackend.md section 3.2), so an FP32 row is a compile error.
  */
 export module Compute.OperationTraits:Metal;
 
 import Compute.OperationTraits.Template;
+import Compute.MetalGegluOp;
 import Compute.MetalGqaOp;
 import Compute.MetalLinearOp;
+import Compute.MetalMoeOp;
 import Compute.MetalNextTokenLogProbabilityOp;
 import Compute.MetalResidualOp;
 import Compute.MetalRmsNormOp;
 import Compute.MetalRopeOp;
+import Compute.MetalRouterOp;
 import Compute.MetalSamplingOp;
 import Compute.MetalSwigluOp;
 import Compute.MetalTokenEmbeddingOp;
@@ -43,6 +45,14 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Metal, TPrecision, PerTokenKvFp8<>>
     {
         using type = Metal::Gqa::MetalGqaOp<TPrecision, PerTokenKvFp8<>>;
+    };
+
+    // The sliding window's ring Gemma's local layers hold.
+    template<TensorDataType TPrecision>
+        requires ( TPrecision == TensorDataType::FP16 || TPrecision == TensorDataType::BF16 )
+    struct OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Metal, TPrecision, SlidingWindowKvCache>
+    {
+        using type = Metal::Gqa::MetalGqaOp<TPrecision, SlidingWindowKvCache>;
     };
 
     template<>
@@ -78,6 +88,21 @@ namespace Mila::Dnn::Compute
         using type = Metal::Linear::MetalLinearOp<TPrecision, PerGroupFp4<64>>;
     };
 
+    // Q4_0, Gemma's body, and six bits per 32, its quantized table's tied head.
+    template<TensorDataType TPrecision>
+        requires ( TPrecision == TensorDataType::FP16 || TPrecision == TensorDataType::BF16 )
+    struct OperationTraits<OperationType::LinearOp, DeviceType::Metal, TPrecision, PerGroupInt4<32>>
+    {
+        using type = Metal::Linear::MetalLinearOp<TPrecision, PerGroupInt4<32>>;
+    };
+
+    template<TensorDataType TPrecision>
+        requires ( TPrecision == TensorDataType::FP16 || TPrecision == TensorDataType::BF16 )
+    struct OperationTraits<OperationType::LinearOp, DeviceType::Metal, TPrecision, PerGroupInt6<32>>
+    {
+        using type = Metal::Linear::MetalLinearOp<TPrecision, PerGroupInt6<32>>;
+    };
+
     template<>
     struct OperationTraits<OperationType::TokenEmbeddingOp, DeviceType::Metal, TensorDataType::FP16, NoWeightQuant>
     {
@@ -88,6 +113,13 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::TokenEmbeddingOp, DeviceType::Metal, TensorDataType::BF16, NoWeightQuant>
     {
         using type = Metal::TokenEmbedding::MetalTokenEmbeddingOp<TensorDataType::BF16>;
+    };
+
+    template<TensorDataType TPrecision>
+        requires ( TPrecision == TensorDataType::FP16 || TPrecision == TensorDataType::BF16 )
+    struct OperationTraits<OperationType::TokenEmbeddingOp, DeviceType::Metal, TPrecision, PerGroupInt6<32>>
+    {
+        using type = Metal::TokenEmbedding::MetalTokenEmbeddingOp<TPrecision, PerGroupInt6<32>>;
     };
 
     template<>
@@ -127,6 +159,18 @@ namespace Mila::Dnn::Compute
     };
 
     template<>
+    struct OperationTraits<OperationType::GegluOp, DeviceType::Metal, TensorDataType::FP16, void>
+    {
+        using type = Metal::Geglu::MetalGegluOp<TensorDataType::FP16>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::GegluOp, DeviceType::Metal, TensorDataType::BF16, void>
+    {
+        using type = Metal::Geglu::MetalGegluOp<TensorDataType::BF16>;
+    };
+
+    template<>
     struct OperationTraits<OperationType::ResidualOp, DeviceType::Metal, TensorDataType::FP16, void>
     {
         using type = Metal::Residual::MetalResidualOp<TensorDataType::FP16>;
@@ -160,5 +204,32 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::NextTokenLogProbabilityOp, DeviceType::Metal, TensorDataType::BF16, void>
     {
         using type = Metal::LogLikelihood::MetalNextTokenLogProbabilityOp<TensorDataType::BF16>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::RouterOp, DeviceType::Metal, TensorDataType::FP16, void>
+    {
+        using type = Metal::Routing::MetalRouterOp<TensorDataType::FP16>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::RouterOp, DeviceType::Metal, TensorDataType::BF16, void>
+    {
+        using type = Metal::Routing::MetalRouterOp<TensorDataType::BF16>;
+    };
+
+    // The op template on the gate functor, as CUDA's.
+    template<>
+    struct OperationTraits<OperationType::MoeOp, DeviceType::Metal, TensorDataType::FP16, void>
+    {
+        template<typename TFunctor, typename TWeightQuantization = NoWeightQuant>
+        using op_for = Metal::Moe::MetalMoeOp<TensorDataType::FP16, TFunctor, TWeightQuantization>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::MoeOp, DeviceType::Metal, TensorDataType::BF16, void>
+    {
+        template<typename TFunctor, typename TWeightQuantization = NoWeightQuant>
+        using op_for = Metal::Moe::MetalMoeOp<TensorDataType::BF16, TFunctor, TWeightQuantization>;
     };
 }

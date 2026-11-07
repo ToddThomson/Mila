@@ -13,6 +13,7 @@ import std;
 import Compute.ExecutionContext;
 import Compute.MetalExecutionContext;
 import Dnn.Samplers.SamplingConfig;
+import Dnn.Samplers.SpeculativeSampler;
 import Serialization.Tensor;
 
 #include "../Components/MetalReference.h"
@@ -570,5 +571,379 @@ namespace Mila::Tests::Dnn::Samplers
     {
         EXPECT_FALSE( ( OperationSupported<OperationType::SamplingOp, DeviceType::Metal, TensorDataType::FP32> ) );
         EXPECT_FALSE( ( OperationSupported<OperationType::NextTokenLogProbabilityOp, DeviceType::Metal, TensorDataType::FP32> ) );
+    }
+
+    // ====================================================================
+    // Several rows at once, and a speculative round's acceptance (Gemma4Mtp.md 4.8)
+    // ====================================================================
+
+    namespace
+    {
+        constexpr dim_t kRows = 5;
+        constexpr dim_t kRowsVocab = 4099;
+
+        template<TensorDataType TPrecision>
+        struct RowsFixture
+        {
+            std::unique_ptr<IExecutionContext> context{ createExecutionContext( Device::Metal( 0 ) ) };
+
+            [[nodiscard]] Op<TPrecision> op( dim_t rows, float softcap = 0.0f, dim_t vocab = kRowsVocab, std::vector<std::int32_t> suppressed = {} ) const
+            {
+                return Op<TPrecision>( context.get(), SamplingConfig{}
+                    .withVocabularySize( vocab )
+                    .withFinalLogitSoftcap( softcap )
+                    .withMaximumRows( rows )
+                    .withSuppressedTokens( suppressed ) );
+            }
+
+            /// `rows` rows of random logits, each its own seed, laid out as a verify's [1, rows, vocab].
+            [[nodiscard]] static Tensor<TPrecision, MetalMemoryResource> logitRows( dim_t rows, dim_t vocab, std::uint32_t seed )
+            {
+                std::vector<float> values;
+
+                for ( dim_t row = 0; row < rows; ++row )
+                {
+                    const std::vector<float> row_values = randomLogits( static_cast<std::size_t>( vocab ), seed + static_cast<std::uint32_t>( row ) );
+                    values.insert( values.end(), row_values.begin(), row_values.end() );
+                }
+
+                return metalTensor<TPrecision>( values, shape_t{ 1, rows, vocab } );
+            }
+
+            [[nodiscard]] std::vector<std::int32_t> read( const TokenTensor& tokens, dim_t count ) const
+            {
+                context->synchronize();
+
+                Tensor<TensorDataType::INT32, CpuMemoryResource> host( Device::Cpu(), tokens.shape() );
+                copy( tokens, host );
+
+                return std::vector<std::int32_t>( host.data(), host.data() + count );
+            }
+
+            [[nodiscard]] static TokenTensor tokens( const std::vector<std::int32_t>& values )
+            {
+                TokenTensor tensor( Device::Metal( 0 ), shape_t{ static_cast<dim_t>( values.size() ) } );
+                fill( tensor, std::span<const std::int32_t>( values ) );
+
+                return tensor;
+            }
+
+            [[nodiscard]] static Flags flags( dim_t vocab, const std::vector<std::int32_t>& flagged )
+            {
+                Flags tensor( Device::Metal( 0 ), shape_t{ vocab } );
+                std::vector<std::int32_t> host( static_cast<std::size_t>( vocab ), 0 );
+
+                for ( const std::int32_t token_id : flagged )
+                {
+                    host[static_cast<std::size_t>( token_id )] = 1;
+                }
+
+                fill( tensor, std::span<const std::int32_t>( host ) );
+
+                return tensor;
+            }
+
+            [[nodiscard]] std::vector<std::int32_t> flagged( const Flags& tensor ) const
+            {
+                context->synchronize();
+
+                Tensor<TensorDataType::INT32, CpuMemoryResource> host( Device::Cpu(), tensor.shape() );
+                copy( tensor, host );
+
+                std::vector<std::int32_t> result;
+
+                for ( dim_t i = 0; i < host.size(); ++i )
+                {
+                    if ( host.data()[i] != 0 )
+                    {
+                        result.push_back( static_cast<std::int32_t>( i ) );
+                    }
+                }
+
+                return result;
+            }
+
+            /// Each row drawn alone through the one-row entry, on that row's view.
+            [[nodiscard]] std::vector<std::int32_t> eachRowAlone( const Op<TPrecision>& sampler, Tensor<TPrecision, MetalMemoryResource>& logits,
+                dim_t rows, dim_t vocab, const SamplingParams& params, const std::vector<float>& uniforms,
+                const std::vector<std::vector<std::int32_t>>& produced_per_row = {} ) const
+            {
+                std::vector<std::int32_t> drawn;
+
+                for ( dim_t row = 0; row < rows; ++row )
+                {
+                    auto view = logits.view( shape_t{ 1, 1, vocab }, row * vocab );
+                    TokenTensor token( Device::Metal( 0 ), shape_t{ 1, 1 } );
+                    std::optional<Flags> produced;
+
+                    if ( !produced_per_row.empty() )
+                    {
+                        produced.emplace( flags( vocab, produced_per_row[static_cast<std::size_t>( row )] ) );
+                    }
+
+                    sampler.enqueueForwardOnDevice( view, token, params, uniforms[static_cast<std::size_t>( row )], produced ? &*produced : nullptr );
+                    drawn.push_back( read( token, 1 )[0] );
+                }
+
+                return drawn;
+            }
+        };
+
+        std::vector<float> uniformsFrom( std::uint32_t seed, dim_t count )
+        {
+            std::mt19937 engine( seed );
+            std::uniform_real_distribution<float> distribution( 0.0f, 1.0f );
+            std::vector<float> uniforms( static_cast<std::size_t>( count ) );
+
+            std::ranges::generate( uniforms, [&] { return distribution( engine ); } );
+
+            return uniforms;
+        }
+
+        SamplingParams paramsOf( float temperature, int top_k, float top_p, float penalty = 0.0f )
+        {
+            SamplingParams params;
+            params.temperature = temperature;
+            params.top_k = top_k;
+            params.top_p = top_p;
+            params.presence_penalty = penalty;
+
+            return params;
+        }
+
+        template<typename TPrecisionConstant>
+        class SamplingRowsMetal : public ::testing::Test
+        {
+        };
+
+        TYPED_TEST_SUITE( SamplingRowsMetal, Precisions, PrecisionNames );
+    }
+
+    // Each row of a rows call draws the token the one-row entry draws from it with the same uniform, at Google's sampling and the
+    // truncations, with Gemma's softcap.
+    TYPED_TEST( SamplingRowsMetal, EachRowIsTheOneRowDraw )
+    {
+        RowsFixture<TypeParam::value> fixture;
+        const auto rows_op = fixture.op( kRows, 30.0f );
+        const auto one_row_op = fixture.op( 1, 30.0f );
+        auto logits = RowsFixture<TypeParam::value>::logitRows( kRows, kRowsVocab, 100 );
+
+        for ( std::uint32_t trial = 0; trial < 4; ++trial )
+        {
+            const std::vector<float> uniforms = uniformsFrom( 7 + trial, kRows );
+
+            for ( const SamplingParams& params : { paramsOf( 1.0f, 64, 0.95f ), paramsOf( 0.8f, 40, 1.0f ), paramsOf( 0.8f, 0, 0.9f ),
+                                                   paramsOf( 1.0f, 0, 1.0f ), paramsOf( 0.0f, 0, 1.0f ) } )
+            {
+                TokenTensor tokens( Device::Metal( 0 ), shape_t{ kRows } );
+                rows_op.enqueueRowsOnDevice( logits, tokens, kRows, params, uniforms );
+
+                EXPECT_EQ( fixture.read( tokens, kRows ), fixture.eachRowAlone( one_row_op, logits, kRows, kRowsVocab, params, uniforms ) )
+                    << "temperature " << params.temperature << ", top_k " << params.top_k << ", top_p " << params.top_p << ", trial " << trial;
+            }
+        }
+    }
+
+    TYPED_TEST( SamplingRowsMetal, GreedyRowsAreEachRowsLargest )
+    {
+        RowsFixture<TypeParam::value> fixture;
+        const auto op = fixture.op( 3, 0.0f, 8 );
+
+        const std::array<float, 24> values{ 1, 9, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 1, 2, 3, 4, 5, 6, 7, 9 };
+        const auto logits = metalTensor<TypeParam::value>( values, shape_t{ 1, 3, 8 } );
+
+        TokenTensor tokens( Device::Metal( 0 ), shape_t{ 3 } );
+        op.enqueueRowsOnDevice( logits, tokens, 3, paramsOf( 0.0f, 0, 1.0f ), std::vector<float>( 3, 0.5f ) );
+
+        EXPECT_EQ( fixture.read( tokens, 3 ), ( std::vector<std::int32_t>{ 1, 0, 7 } ) );
+    }
+
+    TYPED_TEST( SamplingRowsMetal, RefusesMoreRowsThanBuiltOrTooFewUniforms )
+    {
+        RowsFixture<TypeParam::value> fixture;
+        const auto op = fixture.op( 2, 0.0f, 8 );
+        auto logits = RowsFixture<TypeParam::value>::logitRows( 3, 8, 1 );
+
+        TokenTensor tokens( Device::Metal( 0 ), shape_t{ 3 } );
+
+        EXPECT_THROW( op.enqueueRowsOnDevice( logits, tokens, 3, paramsOf( 1.0f, 0, 1.0f ), std::vector<float>( 3, 0.5f ) ), std::invalid_argument );
+        EXPECT_THROW( op.enqueueRowsOnDevice( logits, tokens, 2, paramsOf( 1.0f, 0, 1.0f ), std::vector<float>( 1, 0.5f ) ), std::invalid_argument );
+        EXPECT_THROW( static_cast<void>( fixture.op( 9 ) ), std::invalid_argument ) << "nine rows is past what one call draws";
+    }
+
+    // With a presence penalty, row r also penalizes the round's drafts 1..r: each row's draw is the one-row draw with those drafts
+    // added to the produced tokens, and the rows mark nothing.
+    TYPED_TEST( SamplingRowsMetal, APenaltyCountsTheDraftsBeforeEachRow )
+    {
+        constexpr float kPenalty = 2.0f;
+
+        RowsFixture<TypeParam::value> fixture;
+        const auto rows_op = fixture.op( kRows, 30.0f );
+        const auto one_row_op = fixture.op( 1, 30.0f );
+        auto logits = RowsFixture<TypeParam::value>::logitRows( kRows, kRowsVocab, 700 );
+
+        // Draft r is row r's own unpenalized greedy choice, so counting it moves that row's greedy draw.
+        const std::vector<std::int32_t> greedy_draws =
+            fixture.eachRowAlone( one_row_op, logits, kRows, kRowsVocab, paramsOf( 0.0f, 0, 1.0f ), std::vector<float>( kRows, 0.5f ) );
+
+        std::vector<std::int32_t> round = greedy_draws;
+        round[0] = 1234;
+
+        const TokenTensor round_tokens = RowsFixture<TypeParam::value>::tokens( round );
+        const std::vector<std::int32_t> base = { 5, 77, 1234 };
+        Flags produced = RowsFixture<TypeParam::value>::flags( kRowsVocab, base );
+
+        for ( const SamplingParams& params : { paramsOf( 0.0f, 0, 1.0f, kPenalty ), paramsOf( 1.0f, 64, 0.95f, kPenalty ) } )
+        {
+            const std::vector<float> uniforms = uniformsFrom( 21, kRows );
+
+            TokenTensor drawn( Device::Metal( 0 ), shape_t{ kRows } );
+            rows_op.enqueueRowsOnDevice( logits, drawn, kRows, params, uniforms, &produced, &round_tokens );
+
+            std::vector<std::vector<std::int32_t>> produced_per_row;
+
+            for ( dim_t row = 0; row < kRows; ++row )
+            {
+                std::vector<std::int32_t> flagged = base;
+                flagged.insert( flagged.end(), round.begin() + 1, round.begin() + 1 + row );
+                produced_per_row.push_back( std::move( flagged ) );
+            }
+
+            const std::vector<std::int32_t> rows = fixture.read( drawn, kRows );
+
+            EXPECT_EQ( rows, fixture.eachRowAlone( one_row_op, logits, kRows, kRowsVocab, params, uniforms, produced_per_row ) )
+                << "temperature " << params.temperature;
+            EXPECT_EQ( fixture.flagged( produced ), base ) << "rows mark nothing";
+
+            if ( params.temperature == 0.0f )
+            {
+                for ( dim_t row = 1; row < kRows; ++row )
+                {
+                    EXPECT_NE( rows[static_cast<std::size_t>( row )], round[static_cast<std::size_t>( row )] ) << "row " << row << " drew the draft it counts";
+                }
+            }
+        }
+
+        // Without the penalty the round's drafts change nothing.
+        const std::vector<float> uniforms = uniformsFrom( 21, kRows );
+        TokenTensor with_round( Device::Metal( 0 ), shape_t{ kRows } );
+        TokenTensor without_round( Device::Metal( 0 ), shape_t{ kRows } );
+        rows_op.enqueueRowsOnDevice( logits, with_round, kRows, paramsOf( 1.0f, 64, 0.95f ), uniforms, &produced, &round_tokens );
+        rows_op.enqueueRowsOnDevice( logits, without_round, kRows, paramsOf( 1.0f, 64, 0.95f ), uniforms );
+
+        EXPECT_EQ( fixture.read( with_round, kRows ), fixture.read( without_round, kRows ) );
+    }
+
+    TYPED_TEST( SamplingRowsMetal, RowsNeverDrawASuppressedToken )
+    {
+        RowsFixture<TypeParam::value> fixture;
+        auto logits = RowsFixture<TypeParam::value>::logitRows( kRows, kRowsVocab, 900 );
+        const auto plain = fixture.op( kRows );
+
+        TokenTensor greedy_tokens( Device::Metal( 0 ), shape_t{ kRows } );
+        plain.enqueueRowsOnDevice( logits, greedy_tokens, kRows, paramsOf( 0.0f, 0, 1.0f ), std::vector<float>( kRows, 0.5f ) );
+        const std::vector<std::int32_t> suppressed = fixture.read( greedy_tokens, kRows );
+
+        const auto suppressing = fixture.op( kRows, 0.0f, kRowsVocab, suppressed );
+
+        for ( const SamplingParams& params : { paramsOf( 0.0f, 0, 1.0f ), paramsOf( 1.0f, 2, 1.0f ) } )
+        {
+            TokenTensor drawn( Device::Metal( 0 ), shape_t{ kRows } );
+            suppressing.enqueueRowsOnDevice( logits, drawn, kRows, params, uniformsFrom( 3, kRows ) );
+
+            for ( const std::int32_t token : fixture.read( drawn, kRows ) )
+            {
+                EXPECT_EQ( std::ranges::find( suppressed, token ), suppressed.end() ) << "drew suppressed " << token;
+            }
+        }
+    }
+
+    // The walk keeps a draft while the row before it chose it: none, some and all kept, laid out as [m, d_1 .. d_m, next], with the
+    // next token in slot 0.
+    TYPED_TEST( SamplingRowsMetal, AcceptKeepsDraftsWhileTheRowBeforeChoseThem )
+    {
+        RowsFixture<TypeParam::value> fixture;
+        const auto op = fixture.op( kRows, 0.0f, 8 );
+
+        struct AcceptCase
+        {
+            std::vector<std::int32_t> tokens;
+            std::vector<std::int32_t> chosen;
+            std::vector<std::int32_t> expected;
+        };
+
+        const AcceptCase cases[] = {
+            { { 50, 11, 12, 13, 14 }, { 99, 12, 13, 14, 15 }, { 0, 99 } },
+            { { 50, 11, 12, 13, 14 }, { 11, 12, 77, 14, 15 }, { 2, 11, 12, 77 } },
+            { { 50, 11, 12, 13, 14 }, { 11, 12, 13, 14, 15 }, { 4, 11, 12, 13, 14, 15 } },
+            { { 50, 11, 12, 13, 14 }, { 11, 99, 13, 14, 15 }, { 1, 11, 99 } } };
+
+        for ( const AcceptCase& accept : cases )
+        {
+            TokenTensor tokens = RowsFixture<TypeParam::value>::tokens( accept.tokens );
+            const TokenTensor chosen = RowsFixture<TypeParam::value>::tokens( accept.chosen );
+            TokenTensor result( Device::Metal( 0 ), shape_t{ kRows + 1 } );
+
+            op.enqueueAcceptOnDevice( tokens, chosen, kRows, result );
+
+            EXPECT_EQ( fixture.read( result, static_cast<dim_t>( accept.expected.size() ) ), accept.expected );
+            EXPECT_EQ( fixture.read( tokens, 1 )[0], accept.expected.back() ) << "slot 0 holds the next token";
+        }
+    }
+
+    TYPED_TEST( SamplingRowsMetal, AcceptMarksTheKeptTokensProduced )
+    {
+        RowsFixture<TypeParam::value> fixture;
+        const auto op = fixture.op( kRows, 0.0f, 128 );
+
+        TokenTensor tokens = RowsFixture<TypeParam::value>::tokens( { 50, 11, 12, 13, 14 } );
+        const TokenTensor chosen = RowsFixture<TypeParam::value>::tokens( { 11, 12, 77, 14, 15 } );
+        TokenTensor result( Device::Metal( 0 ), shape_t{ kRows + 1 } );
+        Flags produced = RowsFixture<TypeParam::value>::flags( 128, { 50 } );
+
+        op.enqueueAcceptOnDevice( tokens, chosen, kRows, result, &produced );
+
+        EXPECT_EQ( fixture.read( result, 4 ), ( std::vector<std::int32_t>{ 2, 11, 12, 77 } ) );
+        EXPECT_EQ( fixture.flagged( produced ), ( std::vector<std::int32_t>{ 11, 12, 50, 77 } ) );
+    }
+
+    // The speculative sampler whole, against the host's walk over one-row draws: with the first j drafts the tokens the rows draw and
+    // draft j + 1 another, it keeps exactly j and returns row j's draw.
+    TYPED_TEST( SamplingRowsMetal, TheSpeculativeSamplerIsTheHostWalkOverOneRowDraws )
+    {
+        RowsFixture<TypeParam::value> fixture;
+
+        SpeculativeSampler<DeviceType::Metal, TypeParam::value> sampler( fixture.context.get(), SamplingConfig{}
+            .withVocabularySize( kRowsVocab )
+            .withFinalLogitSoftcap( 30.0f )
+            .withMaximumRows( kRows ) );
+
+        const auto one_row_op = fixture.op( 1, 30.0f );
+        auto logits = RowsFixture<TypeParam::value>::logitRows( kRows, kRowsVocab, 300 );
+        const SamplingParams params = paramsOf( 1.0f, 64, 0.95f );
+        const std::vector<float> uniforms = uniformsFrom( 11, kRows );
+        const std::vector<std::int32_t> draws = fixture.eachRowAlone( one_row_op, logits, kRows, kRowsVocab, params, uniforms );
+
+        for ( dim_t kept_drafts = 0; kept_drafts < kRows; ++kept_drafts )
+        {
+            std::vector<std::int32_t> round( static_cast<std::size_t>( kRows ) );
+            round[0] = 1234;
+
+            for ( dim_t i = 1; i < kRows; ++i )
+            {
+                const std::int32_t draw = draws[static_cast<std::size_t>( i - 1 )];
+                round[static_cast<std::size_t>( i )] = i <= kept_drafts ? draw : ( draw + 1 ) % static_cast<std::int32_t>( kRowsVocab );
+            }
+
+            TokenTensor tokens = RowsFixture<TypeParam::value>::tokens( round );
+
+            sampler.enqueueRound( logits, tokens, kRows, params, uniforms );
+            const auto kept = sampler.awaitRound();
+
+            const std::vector<std::int32_t> expected( draws.begin(), draws.begin() + kept_drafts + 1 );
+
+            EXPECT_EQ( std::vector<std::int32_t>( kept.begin(), kept.end() ), expected ) << "kept drafts " << kept_drafts;
+            EXPECT_EQ( fixture.read( tokens, 1 )[0], expected.back() );
+        }
     }
 }

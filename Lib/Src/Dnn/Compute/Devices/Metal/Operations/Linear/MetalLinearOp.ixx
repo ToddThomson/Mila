@@ -1,6 +1,6 @@
 /**
  * @file MetalLinearOp.ixx
- * @brief A Linear's matrix multiply on Metal, on unquantized weights or on FP8 and FP4 codes with their scales.
+ * @brief A Linear's matrix multiply on Metal, on unquantized weights or on FP8, FP4, Q4_0 and six-bit codes with their scales.
  */
 
 export module Compute.MetalLinearOp;
@@ -58,13 +58,13 @@ namespace Mila::Dnn::Compute::Metal::Linear
     /**
      * @brief output = input * weight^T + bias.
      *
-     * Quantized weights are FP8 codes with a scale per output, or FP4 codes with a scale per group of inputs. The path each
-     * takes for a number of rows is the one `MetalBackend.md` section 4.2 measured: own lanes for a few rows; for FP8,
-     * TensorOps on the bare codes and each output's scale after; for more rows, the weights expanded to the compute
+     * Quantized weights are FP8 codes with a scale per output, or FP4, Q4_0 or six-bit codes with a scale per group of inputs.
+     * The path each takes for a number of rows is the one `MetalBackend.md` section 4.2 measured: own lanes for a few rows; for
+     * FP8, TensorOps on the bare codes and each output's scale after; for more rows, the weights expanded to the compute
      * precision a block of outputs at a time for TensorOps.
      *
      * @tparam TComputePrecision FP16 or BF16.
-     * @tparam TWeightQuantization NoWeightQuant, PerChannelFp8<>, or PerGroupFp4 of 64 or 128.
+     * @tparam TWeightQuantization NoWeightQuant, PerChannelFp8<>, PerGroupFp4 of 64 or 128, PerGroupInt4<32> or PerGroupInt6<32>.
      */
     export template<TensorDataType TComputePrecision, WeightQuantPolicy TWeightQuantization = NoWeightQuant>
     class MetalLinearOp : public Operation<DeviceType::Metal, TComputePrecision>
@@ -76,8 +76,13 @@ namespace Mila::Dnn::Compute::Metal::Linear
         static constexpr bool kIsQuantized = TWeightQuantization::kIsQuantized;
         static constexpr bool kIsFp8Weight = kIsQuantized && TWeightQuantization::kPerChannel;
         static constexpr bool kIsFp4Weight = HasFp4E2M1Codes<TWeightQuantization>;
+        static constexpr bool kIsInt4Weight = HasInt4Codes<TWeightQuantization>;
+        static constexpr bool kIsInt6Weight = HasInt6Codes<TWeightQuantization>;
 
-        static_assert( !kIsQuantized || kIsFp8Weight || kIsFp4Weight, "Metal's Linear carries FP8 and FP4 weights" );
+        /// A scale for each group of inputs, rather than one for each output.
+        static constexpr bool kIsGrouped = kIsFp4Weight || kIsInt4Weight || kIsInt6Weight;
+
+        static_assert( !kIsQuantized || kIsFp8Weight || kIsGrouped, "Metal's Linear carries FP8, FP4, Q4_0 and six-bit weights" );
         static_assert( !kIsFp8Weight || TWeightQuantization::kStorageDtype == TensorDataType::FP8_E4M3,
             "Metal's FP8 weights are E4M3" );
 
@@ -93,7 +98,8 @@ namespace Mila::Dnn::Compute::Metal::Linear
             bias_ = bias;
         }
 
-        /// Bind the scales: produced by `quantize()`, or loaded with weights stored quantized. FP32, one per output for FP8 and one per group for FP4.
+        /// Bind the scales: produced by `quantize()`, or loaded with weights stored quantized. One per output for FP8 and one per group
+        /// otherwise; FP16 for Q4_0 and six bits, FP32 for the rest, as each policy stores them.
         void setWeightScales( ITensor* scales ) requires kIsQuantized
         {
             if ( scales == nullptr || scales->getDeviceType() != DeviceType::Metal )
@@ -120,6 +126,12 @@ namespace Mila::Dnn::Compute::Metal::Linear
         void quantize( const Serialization::ITensorBlob& blob, ITensor& weight_out, ITensor& scales_out, const shape_t& expected_shape )
             requires kIsQuantized
         {
+            if constexpr ( kIsInt4Weight || kIsInt6Weight )
+            {
+                throw std::invalid_argument( std::format( "MetalLinearOp: '{}' holds full-precision weights, and Metal loads {} weights "
+                    "only as stored in that format", weight_out.getName(), kFormatName ) );
+            }
+
             if ( blob.getMetadata().dtype != TensorDataType::BF16 )
             {
                 throw std::invalid_argument( std::format( "MetalLinearOp: '{}' is quantized from BF16 weights, and these are {}",
@@ -132,8 +144,23 @@ namespace Mila::Dnn::Compute::Metal::Linear
                     weight_out.getName(), shapeToString( expected_shape ), shapeToString( blob.getMetadata().shape ) ) );
             }
 
-            const std::size_t outputs = static_cast<std::size_t>( expected_shape[0] );
-            const std::size_t inputs = static_cast<std::size_t>( expected_shape[1] );
+            if constexpr ( kIsFp8Weight || kIsFp4Weight )
+            {
+                quantizeRows( static_cast<const std::byte*>( blob.data() ), static_cast<std::size_t>( expected_shape[0] ),
+                    static_cast<std::size_t>( expected_shape[1] ), weight_out, scales_out );
+            }
+        }
+
+        /**
+         * @brief `quantize()` past its checks: `outputs` rows of `inputs` BF16 weights on the host, each a row of this format.
+         *
+         * A stack of rows of one format, as a mixture-of-experts bank holds, quantizes as one Linear's weights.
+         *
+         * @throws std::invalid_argument When any weight is not finite, naming `weight_out`.
+         */
+        void quantizeRows( const std::byte* weights, std::size_t outputs, std::size_t inputs, ITensor& weight_out, ITensor& scales_out )
+            requires ( kIsFp8Weight || kIsFp4Weight )
+        {
             const std::size_t source_row_bytes = inputs * sizeof( std::uint16_t );
             const std::size_t rows_per_block = std::max<std::size_t>( 1, MetalExecutionContext::getLoadStagingLimitBytes() / source_row_bytes );
 
@@ -149,7 +176,6 @@ namespace Mila::Dnn::Compute::Metal::Linear
 
             *not_finite = 0;
 
-            const auto* const weights = static_cast<const std::byte*>( blob.data() );
             auto* const codes = static_cast<std::byte*>( weight_out.rawData() );
             auto* const scales = static_cast<float*>( scales_out.rawData() );
             const WeightQuantizationShape shape{ static_cast<std::uint32_t>( inputs ) };
@@ -214,12 +240,14 @@ namespace Mila::Dnn::Compute::Metal::Linear
                     throw std::runtime_error( "MetalLinearOp::build - setWeightScales() must be called before build()" );
                 }
 
-                // Eight weights are read at a time, from codes that start on four bytes.
-                if ( inputs_ % kChunk != 0 || inputs_ % kGroupOf( inputs_ ) != 0 )
+                // Eight weights are read at a time, from codes that start on four bytes. A group of 32 also keeps a six-bit row, three
+                // quarters of a byte an input, on whole words.
+                const int multiple = std::max( kChunk, kIsGrouped ? kGroupOf( inputs_ ) : kChunk );
+
+                if ( inputs_ % multiple != 0 )
                 {
                     throw std::invalid_argument( std::format(
-                        "MetalLinearOp::build - quantized weights need input features a multiple of {}, and these are {}",
-                        std::max( kChunk, kIsFp4Weight ? kGroupOf( inputs_ ) : kChunk ), inputs_ ) );
+                        "MetalLinearOp::build - quantized weights need input features a multiple of {}, and these are {}", multiple, inputs_ ) );
                 }
             }
 
@@ -289,11 +317,11 @@ namespace Mila::Dnn::Compute::Metal::Linear
         // From these rows up, FP8 multiplies its bare codes by TensorOps, and a format multiplies weights expanded a block at a time,
         // from the first after bare codes and from the second after own lanes. Notebooks/MetalQuantizedWeights.md has the timing.
         static constexpr int kFewestRowsForBareCodes = 8;
-        static constexpr int kBareCodesFewestRowsToExpand = 1024;
-        static constexpr int kLanesFewestRowsToExpand = 64;
+        static constexpr int kBareCodesFewestRowsToExpand = 384;
+        static constexpr int kLanesFewestRowsToExpand = 16;
 
         static constexpr int kGroup = [] {
-            if constexpr ( HasFp4E2M1Codes<TWeightQuantization> )
+            if constexpr ( kIsGrouped )
             {
                 return TWeightQuantization::kQuantizationGroupSize;
             } else {
@@ -303,17 +331,22 @@ namespace Mila::Dnn::Compute::Metal::Linear
 
         static constexpr int kGroupOf( int inputs ) noexcept
         {
-            return kIsFp4Weight ? kGroup : inputs;
+            return kIsGrouped ? kGroup : inputs;
         }
 
         static constexpr std::size_t codeBytesPerOutput( std::size_t inputs ) noexcept
         {
-            return kIsFp4Weight ? inputs / 2 : inputs;
+            if constexpr ( kIsInt6Weight )
+            {
+                return inputs / 2 + inputs / 4;
+            } else {
+                return kIsFp4Weight || kIsInt4Weight ? inputs / 2 : inputs;
+            }
         }
 
         static constexpr std::size_t scalesPerOutput( std::size_t inputs ) noexcept
         {
-            if constexpr ( kIsFp4Weight )
+            if constexpr ( kIsGrouped )
             {
                 return inputs / static_cast<std::size_t>( kGroup );
             } else {
@@ -321,7 +354,7 @@ namespace Mila::Dnn::Compute::Metal::Linear
             }
         }
 
-        static constexpr std::string_view kFormatName = kIsFp4Weight ? "fp4" : "fp8";
+        static constexpr std::string_view kFormatName = kIsInt6Weight ? "int6" : kIsInt4Weight ? "int4" : kIsFp4Weight ? "fp4" : "fp8";
 
         static constexpr int kFewestRowsToExpand = kMultipliesBareCodes ? kBareCodesFewestRowsToExpand : kLanesFewestRowsToExpand;
 

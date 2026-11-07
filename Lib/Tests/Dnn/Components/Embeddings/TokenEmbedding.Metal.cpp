@@ -1,12 +1,13 @@
 /**
  * @file TokenEmbedding.Metal.cpp
- * @brief TokenEmbedding on Metal: each output row is exactly its token's row of the table as stored.
+ * @brief TokenEmbedding on Metal: each output row is exactly its token's row of the table as stored, unquantized or six bits.
  */
 
 #include <gtest/gtest.h>
 
 import Mila;
 import std;
+import Dnn.Quantization.Weight.Int6Packing;
 import Serialization.Tensor;
 
 #include "../MetalReference.h"
@@ -100,6 +101,97 @@ namespace Mila::Tests::Dnn::Components
         embedding.synchronize();
 
         EXPECT_EQ( readFloats<kPrecision>( output ), ( std::vector<float>{ 2.0f, -8.0f, 4.0f, 1.0f } ) );
+    }
+
+    namespace
+    {
+        TensorBlobView codesBlob( std::span<const std::uint8_t> bytes, const shape_t& shape )
+        {
+            TensorMetadata metadata;
+            metadata.dtype = TensorDataType::UINT8;
+            metadata.shape = shape;
+            metadata.total_bytes = bytes.size_bytes();
+
+            return TensorBlobView( std::move( metadata ), bytes.data(), bytes.size_bytes() );
+        }
+
+        /// A six-bit table of `vocabulary` rows gathered at `ids`: each output against the library's own decode of that row,
+        /// times `scale`, a power of two so that it rounds nothing.
+        template<TensorDataType TPrecision>
+        void expectSixBitRows( dim_t vocabulary, dim_t embedding_dim, const std::vector<std::int32_t>& ids, float scale )
+        {
+            using namespace Mila::Dnn::Quant::Weight;
+            using Embedding = TokenEmbedding<DeviceType::Metal, TensorDataType::INT32, TPrecision, PerGroupInt6<32>>;
+
+            const std::vector<float> table = randomValues( static_cast<std::size_t>( vocabulary * embedding_dim ), 23, 0.05f );
+            std::vector<std::uint8_t> codes( static_cast<std::size_t>( vocabulary * packedRowBytesForSixBitCodes( embedding_dim ) ) );
+            std::vector<std::uint16_t> scales( static_cast<std::size_t>( vocabulary * embedding_dim / 32 ) );
+            std::vector<float> decoded( table.size() );
+
+            quantizeInt6( table.data(), vocabulary, embedding_dim, 32, codes.data(), scales.data() );
+            dequantizeInt6( codes.data(), scales.data(), vocabulary, embedding_dim, 32, decoded.data() );
+
+            const shape_t shape{ 1, static_cast<dim_t>( ids.size() ) };
+
+            Embedding embedding( "embedding", TokenEmbeddingConfig().withVocabSize( vocabulary ).withEmbeddingDim( embedding_dim )
+                .withEmbeddingScale( scale ), Device::Metal( 0 ) );
+            embedding.build( BuildContext( shape, RuntimeMode::Inference, false ) );
+            embedding.loadParameter( "wte", codesBlob( codes, shape_t{ vocabulary, packedRowBytesForSixBitCodes( embedding_dim ) } ) );
+            embedding.loadParameter( "wte_scale", blobOver( scales, shape_t{ vocabulary, embedding_dim / 32 }, TensorDataType::FP16 ) );
+
+            Tensor<TensorDataType::INT32, MetalMemoryResource> input( Device::Metal( 0 ), shape );
+            fill( input, std::span<const std::int32_t>( ids ) );
+
+            const auto& output = embedding.forward( input );
+            embedding.synchronize();
+
+            const std::vector<float> actual = readFloats<TPrecision>( output );
+
+            for ( std::size_t t = 0; t < ids.size(); ++t )
+            {
+                for ( dim_t c = 0; c < embedding_dim; ++c )
+                {
+                    const float value = decoded[static_cast<std::size_t>( ids[t] * embedding_dim + c )];
+
+                    ASSERT_EQ( static_cast<double>( actual[static_cast<std::size_t>( t * embedding_dim + c )] ),
+                        asStored<TPrecision>( value ) * scale ) << "token " << t << " (id " << ids[t] << "), channel " << c;
+                }
+            }
+        }
+    }
+
+    TYPED_TEST( TokenEmbeddingMetal, ASixBitTableGathersEachRowAsTheLibraryDecodesIt )
+    {
+        // Ids from either end of the table, and one repeated.
+        expectSixBitRows<TypeParam::value>( 4099, 128, { 0, 4098, 17, 17, 2048, 1 }, 1.0f );
+        expectSixBitRows<TypeParam::value>( 64, 3840, { 63, 0, 5 }, 1.0f );
+    }
+
+    TYPED_TEST( TokenEmbeddingMetal, ASixBitTableAppliesTheEmbeddingScale )
+    {
+        expectSixBitRows<TypeParam::value>( 64, 96, { 3, 60 }, 4.0f );
+    }
+
+    TYPED_TEST( TokenEmbeddingMetal, ASixBitTableRefusesAFullPrecisionTableAndNamesIt )
+    {
+        using namespace Mila::Dnn::Quant::Weight;
+        using Embedding = TokenEmbedding<DeviceType::Metal, TensorDataType::INT32, TypeParam::value, PerGroupInt6<32>>;
+
+        Embedding embedding( "embedding", TokenEmbeddingConfig().withVocabSize( 8 ).withEmbeddingDim( 32 ), Device::Metal( 0 ) );
+        embedding.build( BuildContext( shape_t{ 1, 1 }, RuntimeMode::Inference, false ) );
+
+        const std::vector<std::uint16_t> bits = randomBf16( 8 * 32, 5, 0.5f );
+        const TensorDataType precision = TypeParam::value;
+
+        try
+        {
+            embedding.loadParameter( "wte", blobOver( bits, shape_t{ 8, 32 }, precision ) );
+            FAIL() << "A full-precision table was taken";
+        }
+        catch ( const std::invalid_argument& error )
+        {
+            EXPECT_NE( std::string( error.what() ).find( "embedding" ), std::string::npos ) << error.what();
+        }
     }
 
     TEST( TokenEmbeddingMetalRows, OnlyFp16AndBf16Exist )

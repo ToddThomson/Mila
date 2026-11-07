@@ -85,21 +85,22 @@ namespace Mila::Tests::Dnn::Models
 
     TEST( QuantizationDispatch, TheRefusalNamesTheDeviceAndThePrecision )
     {
-        static_assert( !OperationSupported<OperationType::LinearOp, DeviceType::Metal, TensorDataType::FP16, PerGroupInt4<32>>,
-            "This test needs a format Metal does not carry; pick another once Q4_0 lands" );
+        // Q4_0 is BF16 only on CUDA, and absent from a build without CUDA.
+        static_assert( !OperationSupported<OperationType::LinearOp, DeviceType::Cuda, TensorDataType::FP32, PerGroupInt4<32>>,
+            "This test needs a format a device does not carry at a precision; pick another" );
 
         try
         {
-            (void)dispatched<DeviceType::Metal, TensorDataType::FP16>( WeightQuantization::Q4_0 );
-            FAIL() << "Q4_0 weights were dispatched at FP16 on Metal, which has no such operation";
+            (void)dispatched<DeviceType::Cuda, TensorDataType::FP32>( WeightQuantization::Q4_0 );
+            FAIL() << "Q4_0 weights were dispatched at FP32 on CUDA, which has no such operation";
         }
         catch ( const std::runtime_error& error )
         {
             const std::string message = error.what();
 
             EXPECT_NE( message.find( "Q4_0" ), std::string::npos ) << message;
-            EXPECT_NE( message.find( "Metal" ), std::string::npos ) << message;
-            EXPECT_NE( message.find( "FP16" ), std::string::npos ) << message;
+            EXPECT_NE( message.find( "CUDA" ), std::string::npos ) << message;
+            EXPECT_NE( message.find( "FP32" ), std::string::npos ) << message;
         }
     }
 

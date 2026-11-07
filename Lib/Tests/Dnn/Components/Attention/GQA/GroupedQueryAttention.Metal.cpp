@@ -578,4 +578,88 @@ namespace Mila::Tests::Dnn::Components
         EXPECT_EQ( state, fp8.attention.getRequiredMemory( context ).device_state_bytes );
         EXPECT_LT( state, uncompressed.attention.getMemoryStats().device_state_bytes );
     }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // A sliding window's ring (SlidingWindowKvCache): the reference holds every position, so a row read from the wrong turn of the ring,
+    // or a key past the window, misses the bar.
+    // -----------------------------------------------------------------------------------------------------------------
+
+    template<typename TPrecisionConstant>
+    class GqaMetalRing : public ::testing::Test
+    {
+    };
+
+    TYPED_TEST_SUITE( GqaMetalRing, Precisions, PrecisionNames );
+
+    TYPED_TEST( GqaMetalRing, ChunksShorterThanTheWindowEqualToItAndPastIt )
+    {
+        // Rings of 52, 31 and 47 rows in a context of 256: each wraps several times over the chunks and decodes.
+        expectChunksThenDecodes<TypeParam::value, SlidingWindowKvCache>( Geometry{ .context = 256, .chunk = 16, .window = 37 }, 6, 40 );
+        expectChunksThenDecodes<TypeParam::value, SlidingWindowKvCache>( Geometry{ .context = 256, .chunk = 16, .window = 16 }, 6, 40 );
+        expectChunksThenDecodes<TypeParam::value, SlidingWindowKvCache>( Geometry{ .context = 256, .chunk = 32, .window = 16 }, 4, 40 );
+    }
+
+    TYPED_TEST( GqaMetalRing, ADecodeBeforeAcrossAndAfterTheWrap )
+    {
+        // A ring of 20 rows, decoded from the first position on: each step to 60 is before, at or after a wrap.
+        expectChunksThenDecodes<TypeParam::value, SlidingWindowKvCache>( Geometry{ .head_size = 128, .context = 128, .chunk = 8, .window = 13 }, 0, 60 );
+    }
+
+    TYPED_TEST( GqaMetalRing, TheHeadSizesGemmaUses )
+    {
+        for ( const dim_t head_size : { dim_t{ 256 }, dim_t{ 512 } } )
+        {
+            SCOPED_TRACE( std::format( "head of {}", head_size ) );
+            expectChunksThenDecodes<TypeParam::value, SlidingWindowKvCache>(
+                Geometry{ .heads = 4, .kv_heads = 2, .head_size = head_size, .context = 192, .chunk = 32, .window = 40 }, 4, 12 );
+        }
+    }
+
+    TYPED_TEST( GqaMetalRing, AContextNoLongerThanTheRingIsTheUncompressedCache )
+    {
+        // window + chunk - 1 = 79 is past a context of 64, so the ring is the whole context.
+        expectChunksThenDecodes<TypeParam::value, SlidingWindowKvCache>( Geometry{ .context = 64, .chunk = 16, .window = 64 }, 3, 16 );
+    }
+
+    TYPED_TEST( GqaMetalRing, RefusesAChunkPastTheOneItWasBuiltForAndNoWindow )
+    {
+        constexpr TensorDataType kPrecision = TypeParam::value;
+        using TensorType = Tensor<kPrecision, MetalMemoryResource>;
+
+        Stack<kPrecision, SlidingWindowKvCache> stack( Geometry{ .context = 256, .chunk = 16, .window = 16 } );
+
+        TensorType q( Device::Metal( 0 ), shape_t{ 1, 17, 64 } );
+        TensorType k( Device::Metal( 0 ), shape_t{ 1, 17, 32 } );
+        TensorType v( Device::Metal( 0 ), shape_t{ 1, 17, 32 } );
+
+        EXPECT_THROW( stack.attention.prefill( q, k, v, 0 ), std::invalid_argument );
+
+        GroupedQueryAttention<DeviceType::Metal, kPrecision, SlidingWindowKvCache> unwindowed( "attention", GqaConfig( 64, 4, 2 ), Device::Metal( 0 ) );
+
+        EXPECT_THROW( unwindowed.build( BuildContext( shape_t{ 1, 64, 128 }, RuntimeMode::Inference, false ).withPrefillSize( 16 ) ), std::invalid_argument );
+    }
+
+    TEST( GqaMetalRingMemory, ItsPredictionIsWhatABuildAllocatesAndIsTheRingsRows )
+    {
+        Stack<TensorDataType::FP16, SlidingWindowKvCache> ring( Geometry{ .head_size = 128, .context = 1024, .chunk = 64, .window = 128 } );
+        Stack<TensorDataType::FP16> uncompressed( Geometry{ .head_size = 128, .context = 1024, .chunk = 64, .window = 128 } );
+
+        const BuildContext context = BuildContext( shape_t{ 1, 1024, 8 * 128 }, RuntimeMode::Inference, false )
+            .withPrefillSize( 64 )
+            .withAllocationGranularity( allocationGranularity( Device::Metal( 0 ) ) );
+
+        const std::size_t state = ring.attention.getMemoryStats().device_state_bytes;
+
+        // The ring is window + chunk - 1 = 191 rows where the whole cache is 1024: K and V, two KV heads, 128 FP16 channels a row. The
+        // component's own outputs are the same either way. Both caches are under the size that rounds to the granularity.
+        EXPECT_EQ( state, ring.attention.getRequiredMemory( context ).device_state_bytes );
+        EXPECT_EQ( uncompressed.attention.getMemoryStats().device_state_bytes - state, std::size_t{ 2 * 2 * ( 1024 - 191 ) * 128 * 2 } );
+    }
+
+    TEST( GqaMetalRingRows, TheRingExistsAtFp16AndBf16Only )
+    {
+        EXPECT_TRUE( ( OperationSupported<OperationType::GroupedQueryAttentionOp, DeviceType::Metal, TensorDataType::FP16, SlidingWindowKvCache> ) );
+        EXPECT_TRUE( ( OperationSupported<OperationType::GroupedQueryAttentionOp, DeviceType::Metal, TensorDataType::BF16, SlidingWindowKvCache> ) );
+        EXPECT_FALSE( ( OperationSupported<OperationType::GroupedQueryAttentionOp, DeviceType::Metal, TensorDataType::FP32, SlidingWindowKvCache> ) );
+    }
 }

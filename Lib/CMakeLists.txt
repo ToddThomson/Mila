@@ -973,6 +973,7 @@ if(MILA_HAS_METAL)
                 "Src/Dnn/Compute/Devices/Metal/MetalKernelLimits.ixx"
                 "Src/Dnn/Compute/Devices/Metal/MetalMatrixView.ixx"
                 "Src/Dnn/Compute/Devices/Metal/MetalMemoryResource.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Operations/Activations/Geglu/MetalGegluOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/Activations/Swiglu/MetalSwigluOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/Attention/GQA/MetalGqaOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/Embeddings/MetalTokenEmbeddingOp.ixx"
@@ -980,6 +981,8 @@ if(MILA_HAS_METAL)
                 "Src/Dnn/Compute/Devices/Metal/Operations/Linear/MetalLinearOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/Linear/MetalMatrixProduct.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/LogLikelihood/MetalNextTokenLogProbabilityOp.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Operations/Moe/MetalMoeOp.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Operations/Routing/MetalRouterOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/Sampling/MetalSamplingOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/Normalizations/RmsNorm/MetalRmsNormOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/OperationTraits.Metal.ixx"
@@ -1021,10 +1024,13 @@ if(MILA_HAS_METAL)
         "Operations/Normalizations/RmsNorm/Kernels/RmsNorm.metal"
         "Operations/Encodings/Rope/Kernels/Rope.metal"
         "Operations/Activations/Swiglu/Kernels/Swiglu.metal"
+        "Operations/Activations/Geglu/Kernels/Geglu.metal"
         "Operations/Residual/Kernels/Residual.metal"
         "Operations/Attention/GQA/Kernels/GroupedQueryAttention.metal"
         "Operations/Sampling/Kernels/Sampling.metal"
-        "Operations/LogLikelihood/Kernels/NextTokenLogProbability.metal")
+        "Operations/LogLikelihood/Kernels/NextTokenLogProbability.metal"
+        "Operations/Routing/Kernels/Router.metal"
+        "Operations/Moe/Kernels/Moe.metal")
         set(kernel_path "${CMAKE_CURRENT_SOURCE_DIR}/Src/Dnn/Compute/Devices/Metal/${kernel_file}")
         get_filename_component(kernel_name "${kernel_file}" NAME)
         file(READ "${kernel_path}" kernel_source)
