@@ -15,7 +15,9 @@
     "prebuild:windows": "node -e \"['session/mila-session.exe', 'session/vcruntime140.dll'].every(require('node:fs').existsSync) || (console.error('No session to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1))\"",
     "build:windows": "electron-builder --win --x64 --publish never",
     "prebuild:linux": "node -e \"require('node:fs').existsSync('session/mila-session') || (console.error('No session to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1))\"",
-    "build:linux": "electron-builder --linux dir --publish never"
+    "build:linux": "electron-builder --linux dir --publish never",
+    "prebuild:mac": "node -e \"require('node:fs').existsSync('session/mila-session') || (console.error('No session to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1))\"",
+    "build:mac": "electron-builder --mac dir --arm64 --publish never"
   },
   "devDependencies": {
     "electron": "44.9.3",
@@ -65,6 +67,13 @@
       "target": [
         "dir"
       ]
+    },
+    "mac": {
+      "target": [
+        "dir"
+      ],
+      "identity": "-",
+      "hardenedRuntime": false
     }
   }
 }

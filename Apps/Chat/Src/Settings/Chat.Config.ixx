@@ -13,6 +13,7 @@ export import Chat.KvCacheKeyword;
 export import Chat.DetailLevel;
 export import Distribution.SamplingRecommendation;
 export import Dnn.SamplingParams;
+export import Deployment.AllowedDevices;
 
 namespace Mila::ChatApp
 {
@@ -78,20 +79,17 @@ namespace Mila::ChatApp
         std::string           no_model_reason;
 
         /**
-         * @brief Which CUDA device the session runs on, as the N in the runtime's `CUDA:N`.
+         * @brief The devices the model may run on (Deployment.md 12.8); the library's planner chooses among them.
          *
          * A deployment decision like context length, not an identity: the same model on the
          * other card is the same model. It reaches every place that asks the hardware a
          * question -- the load, the footprint pre-flight, and the fit column -- because a
          * verdict measured against one card and a load onto another would silently disagree.
-         *
-         * Note this is the CUDA ordinal, which is NOT nvidia-smi's index: the two orders differ
-         * on a mixed-generation rig, and a mismatched pick fails as an out-of-memory abort
-         * rather than as a wrong-card message.
+         * Unset in the settings, the first GPU the build sees (LayerSplit.md 12.3).
          */
-        int                   device_index{ 0 };
+        Deployment::AllowedDevices devices;
 
-        /// How the context is held: a deployment decision like device_index, kept across a model switch.
+        /// How the context is held: a deployment decision like devices, kept across a model switch.
         Dnn::KvCacheCompression kv_cache{ Dnn::KvCacheCompression::None };
 
         std::filesystem::path model_path;

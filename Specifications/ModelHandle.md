@@ -347,19 +347,19 @@ the template, the template wins and the difference is recorded as a finding.
 
 ### 3.5 The handle, in the Mila library
 
-As built at `+96`, before 10.7; under 10.7 the template line goes and `model()` returns the untemplated base:
+As built at `+127` under 10.7; the bodies are in `Lib/Src/Deployment/Implementation/ModelHandle.cpp`:
 
 ```cpp
 // Lib/Src/Deployment/ModelHandle.ixx, module Deployment.ModelHandle, namespace Mila::Deployment
-template<DeviceType TDeviceType, TensorDataType TPrecision>
 class ModelHandle
 {
 public:
     static ModelHandle open( std::string_view name, const DeploymentRequest& request,
                              const ModelStore& store = ModelStore{} );                       // section 3.6
     static std::expected<DeploymentPlans, DeploymentRefusal> planFor( name, request, store );
+    static std::expected<DeviceType, DeploymentRefusal> deviceTypeFor( const DeploymentRequest& );  // 10.7
 
-    LanguageModel<TDeviceType, TPrecision>& model() noexcept;         // descent: generate, observe, save
+    ILanguageModel& model() noexcept;                                 // descent: generate, observe, save
     template<typename TModel> TModel* as() noexcept;                  // the typed model, or null
 
     BpeTokenizer& tokenizer() const noexcept;
@@ -372,7 +372,7 @@ public:
 };
 ```
 
-- **Descent is one call** (`Direction.md` 4.2 rule 3): `model()` reaches everything `LanguageModel` exposes,
+- **Descent is one call** (`Direction.md` 4.2 rule 3): `model()` reaches everything `ILanguageModel` exposes,
   including observation, and `as<GemmaModel<Cuda, BF16>>()` reaches the typed model and its components. A
   wrong type is null, never undefined behaviour.
 - **A base model has no protocol.** `instruct` false means there is no template to render, so `protocol()` is
@@ -600,5 +600,14 @@ there.
    the precision from the device, and builds the compiled type, as it does the family; `model()` returns the
    base, and `as<GemmaModel<Metal, FP16>>()` is still the one call to the typed model. `ModelHandle` and
    `Mila::Agents::Agent` become plain classes and `BasicAgent` goes. A device type the build lacks is refused before
-   any type is chosen, naming the devices it has. Evidence: `Notebooks/DeviceAssumptions.md`. Not yet designed:
-   the base's name, and where a device's precision is kept (a device-type trait now, the chip's table on Metal).
+   any type is chosen, naming the devices it has. Evidence: `Notebooks/DeviceAssumptions.md`.
+
+   **Built at `0.21.0-dev+127` (Todd agreed the design, 2026-11-07).** The base is `ILanguageModel`
+   (`Dnn/Core/Models/ILanguageModel.ixx`). A device type's precision is `DeviceTypeTraits::language_model_precision`:
+   BF16 on CUDA, FP16 on Metal; the chip's table on Metal is still open. `ModelHandle::deviceTypeFor` takes the type of
+   the present devices the request allows -- with none named, the one GPU type the build sees, never the host -- and
+   allowed devices of two types are malformed until one model can span vendors (`Direction.md` 6.6). One switch with
+   a case per built backend turns that type into the compiled one, as `createExecutionContext` does. A name that matches
+   no present device is refused by the planner, naming the devices present. `ModelHandle` and `Agent` keep their
+   bodies in `Implementation/` units, so one body edit rebuilds 19 build steps in 20 s where it rebuilt 263 in 268 s
+   (measured on the `x64-claude-verify` build, an edit to `Agent::baseModelRefusal`).

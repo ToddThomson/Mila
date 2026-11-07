@@ -721,19 +721,15 @@ Phase 5, and Phase 6's whole-model runs on what a 16 GB Mac admits. The planner 
 working set, where the model runs and macOS swaps the rest of the Mac out (`MetalFirstModel.md` section 5).
 `Specifications/Metal/MetalBackend.md` section 9.
 
-#### Mila Desktop and Chat do not build on a Mac
+#### Mila Desktop for the Mac is neither signed nor notarized, so a person who downloads it cannot open it
 
-`in progress` · `apps` · `agents` · `build` · `distribution`
+`in progress` · `apps` · `distribution`
 
-The root `CMakeLists.txt` adds both apps only with CUDA on. The session asks for a CUDA device when it loads
-(`Apps/Desktop/Session/Src/Desktop.SessionProcess.ixx`, `requestFor`), and `Mila::Agents::Agent` is fixed as
-`BasicAgent<Cuda, BF16>` (`Lib/Src/Agents/Agent.ixx`), where an M1 needs Metal at FP16: the precision a package and a
-device decide, as `Issues/Untriaged.md` already records for programs that name one. The window packages for Windows and
-Linux and has no macOS target (`Apps/Desktop/Window/package.json`). A Mac app is signed and notarized under Todd's
-Apple developer account. Without tools on a Mac until the grant's checks are tested there (*The Desktop Agent*), and
-labelled experimental where it is offered. Not looked at: whether GitHub's macOS runners reach Metal for CI. The
-library's side is the device-blind handle and agent of `Specifications/ModelHandle.md` 10.7, with the allowed devices
-of `Specifications/Deployment.md` 12.8; the order of changes is in `Specifications/Notebooks/DeviceAssumptions.md`.
+Chat and Mila Desktop build and run on a Mac, and the window packages for one (`Apps/Desktop/Window/package.json`,
+`build:mac`, an arm64 app signed ad hoc, which Gatekeeper refuses once it has been downloaded). A Mac app a person downloads is
+signed and notarized under Todd's Apple developer account. Without tools on a Mac until the grant's checks are tested
+there (*The Desktop Agent*), and labelled experimental where it is offered. Not looked at: whether GitHub's macOS
+runners reach Metal for CI.
 
 #### Mila for Python does not build on a Mac
 

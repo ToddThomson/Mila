@@ -110,10 +110,11 @@ namespace Mila::Dnn
         ~GemmaModel() = default;
 
         /**
-         * @brief Decide how this package would run on the request's device, allocating nothing.
+         * @brief Decide how this package would run on the devices the request allows, allocating nothing.
          *
-         * Reads the weights header, constructs the graph, takes one reading of the device and plans against
-         * it (Specifications/Deployment.md). Nothing fitting is an answer, not an error: the refusal names why.
+         * Reads the weights header and, for each allowed device, constructs the graph there, takes one reading and
+         * plans against it (Specifications/Deployment.md). Nothing fitting is an answer, not an error: the refusal
+         * names why for each device, and the devices not allowed.
          *
          * @throws std::invalid_argument on a device type mismatch, or a context length past the trained maximum.
          * @throws std::runtime_error    on an unreadable package or an unsupported quantization.
@@ -122,18 +123,17 @@ namespace Mila::Dnn
             const std::filesystem::path& path,
             const DeploymentRequest& requested )
         {
-            const DeviceId device = requireDevice( "GemmaModel::planDeployment",
-                requested.getDevice().value_or( DeviceId{ TDeviceType, 0 } ) );
-
-            // After the check the request answers alone, so a malformed one is refused before the package is read.
             const DeploymentRequest request =
                 requested.resolveWeightQuantization( WeightsReader( path ).getWeightQuantization() );
 
-            return dispatchChassis<std::expected<DeploymentPlans, DeploymentRefusal>>(
-                path, request.getWeightQuantization(), request.getKvCacheCompression(), "GemmaModel::planDeployment",
-                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TGlobalKvCachePolicy, GemmaFeedForward kFeedForward>()
+            return planOnAllowedDevices( request, TDeviceType, [&]( DeviceId device )
                 {
-                    return planImpl<TWeightQuantization, TGlobalKvCachePolicy, kFeedForward>( path, request, device );
+                    return dispatchChassis<std::expected<DeploymentPlan, DeviceShortfall>>(
+                        path, request.getWeightQuantization(), request.getKvCacheCompression(), "GemmaModel::planDeployment",
+                        [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TGlobalKvCachePolicy, GemmaFeedForward kFeedForward>()
+                        {
+                            return planImpl<TWeightQuantization, TGlobalKvCachePolicy, kFeedForward>( path, request, device );
+                        } );
                 } );
         }
 
@@ -204,7 +204,7 @@ namespace Mila::Dnn
                     "GemmaModel::load: context_length must be greater than zero" );
             }
 
-            return load( path, DeploymentRequest::fromModelConfig( model_config ).withDevice( device_id ) );
+            return load( path, DeploymentRequest::fromModelConfig( model_config ).withAllowedDevices( device_id ) );
         }
 
         /// The plan this model was loaded with: what it runs, not a second derivation of it.
@@ -836,7 +836,7 @@ namespace Mila::Dnn
         }
 
         template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TGlobalKvCachePolicy, GemmaFeedForward kFeedForward>
-        static std::expected<DeploymentPlans, DeploymentRefusal> planImpl(
+        static std::expected<DeploymentPlan, DeviceShortfall> planImpl(
             const std::filesystem::path& path,
             const DeploymentRequest& request,
             DeviceId device_id )

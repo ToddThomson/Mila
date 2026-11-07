@@ -1,9 +1,10 @@
 /**
  * @file DeploymentPlanner.ixx
- * @brief The deployment decision on one device, from one reading, for any family's network.
+ * @brief The deployment decision for any family's network: on one device from one reading, and across the
+ *        devices a request allows.
  *
- * Each family's planDeployment constructs its graph, takes the reading and calls this; nothing here reads a
- * device. See Specifications/Deployment.md sections 5 and 6.
+ * Each family's planDeployment constructs its graph on each allowed device, takes that device's reading and plans
+ * against it. See Specifications/Deployment.md sections 5, 6 and 12.8.
  */
 
 export module Deployment.DeploymentPlanner;
@@ -12,6 +13,9 @@ import std;
 import Dnn.Component;
 import Dnn.RuntimeMode;
 import Dnn.TensorTypes;
+import Compute.DeviceId;
+import Compute.DeviceType;
+import Deployment.AllowedDevices;
 import Deployment.DeviceReading;
 import Deployment.DeploymentRequest;
 import Deployment.DeploymentPlan;
@@ -23,6 +27,7 @@ import Serialization.WeightsReader;
 namespace Mila::Deployment
 {
     using namespace Mila::Dnn;
+    using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
 
     /**
@@ -46,7 +51,7 @@ namespace Mila::Deployment
      *         maximum: a request no memory could satisfy is malformed rather than refused.
      */
     export template<typename TNetwork>
-    std::expected<DeploymentPlans, DeploymentRefusal> planOnDevice(
+    std::expected<DeploymentPlan, DeviceShortfall> planOnDevice(
         const TNetwork& network,
         const DeploymentRequest& request,
         const DeviceReading& reading,
@@ -87,15 +92,15 @@ namespace Mila::Deployment
 
         auto planOf = [&]( const Priced& priced, DeploymentPlan::ContextLimit limit )
         {
-            return DeploymentPlans( std::vector<DeploymentPlan>{ DeploymentPlan(
+            return DeploymentPlan(
                 reading, priced.context_length, limit, priced.prefill, priced.footprint,
                 request.getWeightQuantization(), request.getKvCacheCompression(),
-                metadata, std::string( stored_quantization ), request.getSpeculativeDecode() ) } );
+                metadata, std::string( stored_quantization ), request.getSpeculativeDecode() );
         };
 
-        auto refusalOf = [&]( DeploymentRefusal::Reason reason, const Priced& priced )
+        auto refusalOf = [&]( DeviceShortfall::Reason reason, const Priced& priced )
         {
-            return std::unexpected( DeploymentRefusal( reason, reading, headroom, priced.context_length, priced.footprint ) );
+            return std::unexpected( DeviceShortfall( reason, reading, headroom, priced.context_length, priced.footprint ) );
         };
 
         if ( !request.isContextLengthAutomatic() )
@@ -113,10 +118,10 @@ namespace Mila::Deployment
             if ( reports_memory )
             {
                 if ( priced.footprint.device_parameter_bytes > budget )
-                    return refusalOf( DeploymentRefusal::Reason::WeightsExceedDevice, priced );
+                    return refusalOf( DeviceShortfall::Reason::WeightsExceedDevice, priced );
 
                 if ( !fits( priced ) )
-                    return refusalOf( DeploymentRefusal::Reason::FixedContextDoesNotFit, priced );
+                    return refusalOf( DeviceShortfall::Reason::FixedContextDoesNotFit, priced );
             }
 
             return planOf( priced, DeploymentPlan::ContextLimit::FixedByCaller );
@@ -132,8 +137,8 @@ namespace Mila::Deployment
 
         if ( !reports_memory )
         {
-            return std::unexpected( DeploymentRefusal(
-                DeploymentRefusal::Reason::DeviceDoesNotReportMemory, reading, headroom, floor, MemoryStats{} ) );
+            return std::unexpected( DeviceShortfall(
+                DeviceShortfall::Reason::DeviceDoesNotReportMemory, reading, headroom, floor, MemoryStats{} ) );
         }
 
         const dim_t ceiling = request.getContextCeiling() == 0
@@ -154,7 +159,7 @@ namespace Mila::Deployment
             smallest_priced = priced;
 
             if ( priced.footprint.device_parameter_bytes > budget )
-                return refusalOf( DeploymentRefusal::Reason::WeightsExceedDevice, priced );
+                return refusalOf( DeviceShortfall::Reason::WeightsExceedDevice, priced );
 
             if ( !fits( priced ) )
                 continue;
@@ -181,6 +186,117 @@ namespace Mila::Deployment
                 : DeploymentPlan::ContextLimit::DeviceMemory );
         }
 
-        return refusalOf( DeploymentRefusal::Reason::NothingAboveTheFloorFits, smallest_priced );
+        return refusalOf( DeviceShortfall::Reason::NothingAboveTheFloorFits, smallest_priced );
+    }
+
+    /**
+     * @brief Plan a request on each device it allows, rank the plans, or refuse with every device's shortfall.
+     *
+     * Each allowed device of the model's type is planned alone, in device order; no plan splits a model
+     * (LayerSplit.md). Plans are ranked by section 5's rules 3 and 4 across devices -- a full prefill chunk first,
+     * then the longer context -- and plans equal on both keep device order, since nothing ranks devices by speed
+     * yet (Deployment.md 12.9). A present device the request does not allow is named in a refusal and never read.
+     *
+     * @param request        What the caller asked for; its allowed devices decide which devices are planned.
+     * @param device_type    The device type this model's build runs on.
+     * @param present        Every device the build sees, described (DeviceReading::describePresent).
+     * @param plan_on_device Plans one device -- constructs the graph there, reads the device after it, and calls
+     *                       planOnDevice -- returning std::expected<DeploymentPlan, DeviceShortfall>.
+     * @throws std::invalid_argument when the request names a present device of another type than device_type.
+     */
+    export template<typename TPlanOnDevice>
+    std::expected<DeploymentPlans, DeploymentRefusal> planOnAllowedDevices(
+        const DeploymentRequest& request,
+        DeviceType device_type,
+        std::span<const DeviceReading> present,
+        TPlanOnDevice&& plan_on_device )
+    {
+        const AllowedDevices& allowed = request.getAllowedDevices();
+
+        std::vector<DeviceId> candidates;
+        std::vector<DeviceReading> not_allowed;
+
+        for ( const DeviceReading& device : present )
+        {
+            const bool is_allowed = allowed.allows( device );
+
+            if ( device.device.type != device_type )
+            {
+                if ( is_allowed && !allowed.isEveryDevice() )
+                {
+                    throw std::invalid_argument( std::format(
+                        "planDeployment: device type mismatch: this model runs on {}, and the request allows {}",
+                        deviceTypeToString( device_type ), device.device.toString() ) );
+                }
+
+                continue;
+            }
+
+            if ( is_allowed )
+                candidates.push_back( device.device );
+            else
+                not_allowed.push_back( device );
+        }
+
+        std::vector<std::string> absent = allowed.absentFrom( present );
+
+        if ( !absent.empty() )
+        {
+            return std::unexpected( DeploymentRefusal(
+                DeploymentRefusal::Reason::AllowedDeviceAbsent, {}, std::move( not_allowed ), std::move( absent ) ) );
+        }
+
+        if ( candidates.empty() )
+        {
+            return std::unexpected( DeploymentRefusal(
+                DeploymentRefusal::Reason::NoDeviceToPlanOn, {}, std::move( not_allowed ) ) );
+        }
+
+        std::vector<DeploymentPlan> plans;
+        std::vector<DeviceShortfall> shortfalls;
+
+        for ( const DeviceId device : candidates )
+        {
+            std::expected<DeploymentPlan, DeviceShortfall> planned = plan_on_device( device );
+
+            if ( planned )
+                plans.push_back( std::move( *planned ) );
+            else
+                shortfalls.push_back( std::move( planned.error() ) );
+        }
+
+        if ( plans.empty() )
+        {
+            return std::unexpected( DeploymentRefusal(
+                DeploymentRefusal::Reason::NoAllowedDeviceFits, std::move( shortfalls ), std::move( not_allowed ) ) );
+        }
+
+        std::ranges::stable_sort( plans, []( const DeploymentPlan& left, const DeploymentPlan& right )
+            {
+                const bool left_full = !left.prefillChunking().isMemoryConstrained();
+                const bool right_full = !right.prefillChunking().isMemoryConstrained();
+
+                if ( left_full != right_full )
+                    return left_full;
+
+                return left.contextLength() > right.contextLength();
+            } );
+
+        return DeploymentPlans( std::move( plans ) );
+    }
+
+    /**
+     * @brief planOnAllowedDevices against every device the build sees now.
+     */
+    export template<typename TPlanOnDevice>
+    std::expected<DeploymentPlans, DeploymentRefusal> planOnAllowedDevices(
+        const DeploymentRequest& request,
+        DeviceType device_type,
+        TPlanOnDevice&& plan_on_device )
+    {
+        const std::vector<DeviceReading> present = DeviceReading::describePresent();
+
+        return planOnAllowedDevices( request, device_type, std::span<const DeviceReading>( present ),
+            std::forward<TPlanOnDevice>( plan_on_device ) );
     }
 }

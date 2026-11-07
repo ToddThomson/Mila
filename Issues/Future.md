@@ -592,7 +592,7 @@ parallel calls land.
 
 `apps`
 
-`--device N` and the `device` key choose the card at startup and every device question follows it,
+`--device cuda:N` and the `device` key choose the devices at startup and every device question follows them,
 but there is no `/device` command — `/set` is sampling knobs only, by its own contract. `/context`
 shows the shape a reload-on-change command takes (`Chat.Session.ixx`).
 

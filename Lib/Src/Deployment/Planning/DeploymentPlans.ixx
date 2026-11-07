@@ -16,8 +16,8 @@ namespace Mila::Deployment
     /**
      * @brief Loadable plans ranked by the objective (Deployment.md section 5), never empty.
      *
-     * Each entry is the best plan for one set of devices the planner considered. With one device (Phase 3)
-     * there is exactly one.
+     * Each entry is the best plan for one set of devices the planner considered: today each allowed device alone,
+     * so a request allowing one device has exactly one.
      */
     export class DeploymentPlans
     {

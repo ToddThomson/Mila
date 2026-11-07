@@ -1,5 +1,6 @@
 #include <charconv>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <optional>
@@ -17,6 +18,10 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#endif
+
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
 #endif
 
 import Mila;
@@ -144,6 +149,20 @@ static std::filesystem::path executable_directory()
 
     if ( !unresolved )
         return image.parent_path();
+#elif defined( __APPLE__ )
+    // The path the program was started by, which can be a link on the PATH; canonical resolves it to the real folder.
+    std::uint32_t size = 0;
+    _NSGetExecutablePath( nullptr, &size );
+    std::string image( size, '\0' );
+
+    if ( _NSGetExecutablePath( image.data(), &size ) == 0 )
+    {
+        std::error_code unresolved;
+        const std::filesystem::path resolved = std::filesystem::canonical( image.c_str(), unresolved );
+
+        if ( !unresolved )
+            return resolved.parent_path();
+    }
 #endif
     return std::filesystem::current_path();
 }
@@ -212,21 +231,6 @@ static std::size_t requireCount( std::string_view value, std::string_view flag )
     return parsed;
 }
 
-/// Like requireCount, but zero is a value rather than an error: device 0 is the first card, and
-/// on a single-card machine it is the only one.
-static int requireIndex( std::string_view value, std::string_view flag )
-{
-    int parsed = 0;
-    const char* const end = value.data() + value.size();
-    const auto [stopped, error] = std::from_chars( value.data(), end, parsed );
-
-    if ( error != std::errc{} || stopped != end || parsed < 0 )
-        throw UsageError( std::format(
-            "{} expects a device index of 0 or more, not '{}'.", flag, value ) );
-
-    return parsed;
-}
-
 /**
  * @brief The whole of a file, as one prompt.
  *
@@ -291,11 +295,8 @@ static CommandLine parseCommandLine( int argc, char* argv[] )
         }
         else if ( arg == "--device" )
         {
-            // The CUDA ordinal, which is NOT nvidia-smi's index -- the two orders differ on a
-            // mixed-generation rig, and picking the wrong one is an out-of-memory abort rather
-            // than a message naming the card.
-            line.overrides[ "device" ] = requireIndex(
-                requireValue( argc, argv, i, arg ), arg );
+            // Read as the settings key it overrides, so a bare number is refused in one place.
+            line.overrides[ "device" ] = std::string( requireValue( argc, argv, i, arg ) );
         }
         else if ( arg == "--system-prompt" )
         {
@@ -364,8 +365,10 @@ static void printUsage( const char* prog_name )
         << "  --model <name>         Load this model, as 'mila-store models' lists it.\n"
         << "  --context-length <n>   Maximum sequence length to build for, or auto to take the\n"
         << "                         largest that fits this device with room to spare.\n"
-        << "  --device <n>           Which CUDA device to run on. This is the CUDA ordinal,\n"
-        << "                         which need not match the order nvidia-smi lists.\n"
+        << "  --device <devices>     The devices the model may run on: cuda, cuda:1, metal or a\n"
+        << "                         card's identity, several separated by commas. Unset, the\n"
+        << "                         first GPU. cuda:1 counts as CUDA does, which need not\n"
+        << "                         match the order nvidia-smi lists.\n"
         << "  --system-prompt <name> A prompt name, or a path to a JSON file holding a\n"
         << "                         system_prompt and optional tools. A path resolves\n"
         << "                         against the working directory.\n"

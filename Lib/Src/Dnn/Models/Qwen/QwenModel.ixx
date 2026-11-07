@@ -37,6 +37,7 @@ import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
 import Dnn.Models.QuantizationDispatch;
 import Dnn.Tensor;
+import Dnn.TensorOps;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
@@ -103,10 +104,11 @@ namespace Mila::Dnn
         ~QwenModel() = default;
 
         /**
-         * @brief Decide how this package would run on the request's device, allocating nothing.
+         * @brief Decide how this package would run on the devices the request allows, allocating nothing.
          *
-         * Reads the weights header, constructs the graph, takes one reading of the device and plans against
-         * it (Specifications/Deployment.md). Nothing fitting is an answer, not an error: the refusal names why.
+         * Reads the weights header and, for each allowed device, constructs the graph there, takes one reading and
+         * plans against it (Specifications/Deployment.md). Nothing fitting is an answer, not an error: the refusal
+         * names why for each device, and the devices not allowed.
          *
          * @throws std::invalid_argument on a device type mismatch, or a context length past the trained maximum.
          * @throws std::runtime_error    on an unreadable package or a quantization mode this chassis does not
@@ -116,10 +118,6 @@ namespace Mila::Dnn
             const std::filesystem::path& path,
             const DeploymentRequest& requested )
         {
-            const DeviceId device = requested.getDevice().value_or( DeviceId{ TDeviceType, 0 } );
-
-            validateDeployment( "QwenModel::planDeployment", device );
-
             if ( requested.getSpeculativeDecode() )
                 throw std::invalid_argument( "QwenModel::planDeployment: Qwen has no draft model to decode with" );
 
@@ -127,11 +125,14 @@ namespace Mila::Dnn
             const DeploymentRequest request =
                 requested.resolveWeightQuantization( WeightsReader( path ).getWeightQuantization() );
 
-            return dispatchChassis<std::expected<DeploymentPlans, DeploymentRefusal>>(
-                request.getWeightQuantization(), request.getKvCacheCompression(), "QwenModel::planDeployment",
-                [&]<typename TWeightPlan, KvCachePolicy TKvCachePolicy>()
+            return planOnAllowedDevices( request, TDeviceType, [&]( DeviceId device )
                 {
-                    return planImpl<TWeightPlan, TKvCachePolicy>( path, request, device );
+                    return dispatchChassis<std::expected<DeploymentPlan, DeviceShortfall>>(
+                        request.getWeightQuantization(), request.getKvCacheCompression(), "QwenModel::planDeployment",
+                        [&]<typename TWeightPlan, KvCachePolicy TKvCachePolicy>()
+                        {
+                            return planImpl<TWeightPlan, TKvCachePolicy>( path, request, device );
+                        } );
                 } );
         }
 
@@ -193,7 +194,7 @@ namespace Mila::Dnn
         {
             validateRequest( "QwenModel::load", model_config, device_id );
 
-            return load( path, DeploymentRequest::fromModelConfig( model_config ).withDevice( device_id ) );
+            return load( path, DeploymentRequest::fromModelConfig( model_config ).withAllowedDevices( device_id ) );
         }
 
         /// The plan this model was loaded with: what it runs, not a second derivation of it.
@@ -645,7 +646,7 @@ namespace Mila::Dnn
          * @brief The planning path, once the weight plan and the KV policy are types.
          */
         template<typename TWeightPlan, KvCachePolicy TKvCachePolicy>
-        static std::expected<DeploymentPlans, DeploymentRefusal> planImpl(
+        static std::expected<DeploymentPlan, DeviceShortfall> planImpl(
             const std::filesystem::path& path,
             const DeploymentRequest& request,
             DeviceId device_id )

@@ -7,6 +7,8 @@ find_program( MILA_NPM NAMES npm.cmd npm )
 
 if( WIN32 )
     set( package_script "build:windows" )
+elseif( APPLE )
+    set( package_script "build:mac" )
 else()
     set( package_script "build:linux" )
 endif()

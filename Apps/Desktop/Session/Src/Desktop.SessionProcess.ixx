@@ -111,10 +111,11 @@ namespace Mila::Desktop
          * @param prompt_directory The activities' prompts: `ask.json`, `files.json`, `research.json` and `tasks.json`,
          *                         the last two each with a `-search` version for when a search key is set.
          */
-        SessionProcess( Settings settings, SettingsFile settings_file, std::vector<std::string> problems, int device,
+        SessionProcess( Settings settings, SettingsFile settings_file, std::vector<std::string> problems,
+            Mila::Deployment::AllowedDevices devices,
             std::filesystem::path conversation_directory, std::filesystem::path prompt_directory, std::ostream& protocol_out )
             : settings_( std::move( settings ) ), settings_file_( std::move( settings_file ) ),
-              settings_problems_( std::move( problems ) ), device_( device ),
+              settings_problems_( std::move( problems ) ), devices_( std::move( devices ) ),
               store_( std::move( conversation_directory ) ), prompts_( std::move( prompt_directory ) ), out_( protocol_out ),
               search_key_file_( store_.directory().parent_path() / "search.json" )
         {
@@ -699,11 +700,13 @@ namespace Mila::Desktop
 
             for ( const std::filesystem::path& folder : question.grant.programFolders() )
             {
-                std::wstring plain = folder.native();
+                // Windows' long-path prefix, which the person never wrote; a POSIX path never carries it.
+                std::filesystem::path::string_type plain = folder.native();
+                const std::filesystem::path::string_type long_path_prefix = std::filesystem::path( R"(\\?\)" ).native();
 
-                if ( plain.starts_with( LR"(\\?\)" ) )
+                if ( plain.starts_with( long_path_prefix ) )
                 {
-                    plain.erase( 0, 4 );
+                    plain.erase( 0, long_path_prefix.size() );
                 }
 
                 program_folders.push_back( shown( std::filesystem::path( plain ) ) );
@@ -1154,12 +1157,12 @@ namespace Mila::Desktop
 
         // ---- Models -----------------------------------------------------------------------
 
-        /// The request a load sends: this device, the context fixed or the longest that fits, and a quantization to
+        /// The request a load sends: these devices, the context fixed or the longest that fits, and a quantization to
         /// apply as the weights load when one is asked for.
         DeploymentRequest requestFor( std::optional<WeightQuantization> quantization ) const
         {
             DeploymentRequest request;
-            request.withDevice( Mila::Dnn::Compute::DeviceId{ Mila::Dnn::Compute::DeviceType::Cuda, device_ } )
+            request.withAllowedDevices( devices_ )
                 .withKvCacheCompression( Mila::Dnn::KvCacheCompression::None );
 
             if ( quantization && *quantization != WeightQuantization::None )
@@ -2225,7 +2228,7 @@ namespace Mila::Desktop
         Settings settings_;
         SettingsFile settings_file_;
         std::vector<std::string> settings_problems_;
-        int device_;
+        Mila::Deployment::AllowedDevices devices_;
 
         ResidentAgent model_;
 

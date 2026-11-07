@@ -1545,7 +1545,7 @@ namespace Mila::ChatApp
             Dnn::WeightQuantization quantization, bool quantization_applied_at_load, bool automatic, std::size_t context_length ) const
         {
             DeploymentRequest request =
-                deploymentRequestFor( quantization, quantization_applied_at_load, config_.device_index, config_.kv_cache );
+                deploymentRequestFor( quantization, quantization_applied_at_load, config_.devices, config_.kv_cache );
 
             if ( automatic )
             {
@@ -1597,30 +1597,39 @@ namespace Mila::ChatApp
         std::string describeRefusal(
             const DeploymentRefusal& refusal, Dnn::WeightQuantization quantization, bool whole_card ) const
         {
-            const std::string available = whole_card
-                ? std::format( "holds {}", formatBytes( refusal.reading().total_bytes ) )
-                : std::format( "has {} free", formatBytes( refusal.reading().free_bytes ) );
+            if ( refusal.reason() == DeploymentRefusal::Reason::AllowedDeviceAbsent && !refusal.absent().empty() )
+                return std::format( "this computer has no GPU {}.", refusal.absent().front() );
 
-            switch ( refusal.reason() )
+            // Chat allows one GPU, so a refusal that planned anything planned exactly that one.
+            if ( refusal.shortfalls().empty() )
+                return "this computer has no GPU Mila can use.";
+
+            const DeviceShortfall& shortfall = refusal.shortfalls().front();
+
+            const std::string available = whole_card
+                ? std::format( "holds {}", formatBytes( shortfall.reading().total_bytes ) )
+                : std::format( "has {} free", formatBytes( shortfall.reading().free_bytes ) );
+
+            switch ( shortfall.reason() )
             {
-                case DeploymentRefusal::Reason::WeightsExceedDevice:
+                case DeviceShortfall::Reason::WeightsExceedDevice:
                     return std::format(
                         "its weights need {} and this GPU {}, so no context length fits.{}",
-                        formatBytes( refusal.footprint().device_parameter_bytes ), available,
+                        formatBytes( shortfall.footprint().device_parameter_bytes ), available,
                         quantization == Dnn::WeightQuantization::None
                             ? std::string( " Quantized to fp4 as it loads, it needs less." ) : std::string{} );
 
-                case DeploymentRefusal::Reason::FixedContextDoesNotFit:
+                case DeviceShortfall::Reason::FixedContextDoesNotFit:
                     return std::format(
                         "context {} needs {} and this GPU {}. An automatic context picks the longest that fits.",
-                        refusal.contextLength(), formatBytes( refusal.footprint().totalDeviceBytes() ), available );
+                        shortfall.contextLength(), formatBytes( shortfall.footprint().totalDeviceBytes() ), available );
 
-                case DeploymentRefusal::Reason::NothingAboveTheFloorFits:
+                case DeviceShortfall::Reason::NothingAboveTheFloorFits:
                     return std::format(
                         "even context {} needs {} and this GPU {}.",
-                        refusal.contextLength(), formatBytes( refusal.footprint().totalDeviceBytes() ), available );
+                        shortfall.contextLength(), formatBytes( shortfall.footprint().totalDeviceBytes() ), available );
 
-                case DeploymentRefusal::Reason::DeviceDoesNotReportMemory:
+                case DeviceShortfall::Reason::DeviceDoesNotReportMemory:
                     return "this GPU does not report its memory, so no context length can be measured for it. "
                            "Choose one yourself.";
             }

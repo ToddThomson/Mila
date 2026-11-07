@@ -351,7 +351,7 @@ namespace Mila::Bindings
             const std::string& subject )
         {
             DeploymentRequest request;
-            request.withDevice( DeviceId{ DeviceType::Cuda, device_index } );
+            request.withAllowedDevices( DeviceId{ DeviceType::Cuda, device_index } );
 
             if ( kv_cache == "fp8" )
             {
@@ -390,31 +390,38 @@ namespace Mila::Bindings
         std::string describeRefusal(
             const std::string& subject, int device_index, const DeploymentRefusal& refusal )
         {
-            const std::string free = formatGigabytes( refusal.reading().free_bytes );
-
-            switch ( refusal.reason() )
+            // A session allows one device, so a refusal that planned anything planned exactly that one.
+            if ( refusal.shortfalls().empty() )
             {
-                case DeploymentRefusal::Reason::WeightsExceedDevice:
+                return std::format( "'{}' cannot load: this computer has no CUDA device {}.", subject, device_index );
+            }
+
+            const DeviceShortfall& shortfall = refusal.shortfalls().front();
+            const std::string free = formatGigabytes( shortfall.reading().free_bytes );
+
+            switch ( shortfall.reason() )
+            {
+                case DeviceShortfall::Reason::WeightsExceedDevice:
                     return std::format(
                         "'{}' does not fit on CUDA device {}: its weights need {} and the device has {} free, "
                         "so no context length fits.",
-                        subject, device_index, formatGigabytes( refusal.footprint().device_parameter_bytes ), free );
+                        subject, device_index, formatGigabytes( shortfall.footprint().device_parameter_bytes ), free );
 
-                case DeploymentRefusal::Reason::FixedContextDoesNotFit:
+                case DeviceShortfall::Reason::FixedContextDoesNotFit:
                     return std::format(
                         "'{}' does not fit on CUDA device {} at context_length {}: it needs {} and the device "
                         "has {} free. context_length='auto' chooses the longest that fits.",
-                        subject, device_index, refusal.contextLength(),
-                        formatGigabytes( refusal.footprint().totalDeviceBytes() ), free );
+                        subject, device_index, shortfall.contextLength(),
+                        formatGigabytes( shortfall.footprint().totalDeviceBytes() ), free );
 
-                case DeploymentRefusal::Reason::NothingAboveTheFloorFits:
+                case DeviceShortfall::Reason::NothingAboveTheFloorFits:
                     return std::format(
                         "'{}' does not fit on CUDA device {} at any context length: even {} needs {} and the "
                         "device has {} free.",
-                        subject, device_index, refusal.contextLength(),
-                        formatGigabytes( refusal.footprint().totalDeviceBytes() ), free );
+                        subject, device_index, shortfall.contextLength(),
+                        formatGigabytes( shortfall.footprint().totalDeviceBytes() ), free );
 
-                case DeploymentRefusal::Reason::DeviceDoesNotReportMemory:
+                case DeviceShortfall::Reason::DeviceDoesNotReportMemory:
                     return std::format(
                         "CUDA device {} does not report its free memory, so no context length can be chosen "
                         "for '{}'. Pass context_length as a number.",

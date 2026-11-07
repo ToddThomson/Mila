@@ -886,7 +886,8 @@ namespace Mila::ChatApp
                 // desktop holds gets charged to every candidate. Both push the same way, and a 3B
                 // was marked as not fitting on a card with room for three. The live picture
                 // belongs on /model, which measures it directly.
-                const DeviceMemoryInfo memory = queryDeviceMemory( config().device_index );
+                const std::optional<DeviceId> listed_device = describedDevice( config().devices );
+                const DeviceMemoryInfo memory = queryDeviceMemory( listed_device );
 
                 std::optional<FootprintBudget> budget;
 
@@ -907,8 +908,8 @@ namespace Mila::ChatApp
                         : static_cast<dim_t>( config().context_length );
 
                     costed.available_bytes = memory.total_bytes;
-                    costed.device_name = queryDeviceName( config().device_index );
-                    costed.device_index = config().device_index;
+                    costed.device_name = queryDeviceName( listed_device );
+                    costed.device = listed_device;
                     costed.resident_model =
                         session_.modelIsResident() ? modelName() : std::string{};
 
@@ -940,7 +941,7 @@ namespace Mila::ChatApp
                 // run, not what is free while a model is resident.
                 for ( const auto& line : describeHubModels(
                     hub_owner(), memory.total_bytes,
-                    queryDeviceName( config().device_index ) ) )
+                    queryDeviceName( listed_device ) ) )
                 {
                     std::cout << line << "\n";
                 }
@@ -1339,7 +1340,10 @@ namespace Mila::ChatApp
             // Measured off the device rather than taken from the model's own report: what is
             // actually resident includes the allocator rounding and lazily grown scratch that
             // a footprint cannot model, and that residual is the whole reason to look here.
-            const DeviceMemoryInfo memory = queryDeviceMemory( config().device_index );
+            // The loaded model's device, or before a load the first the settings allow.
+            const DeviceMemoryInfo memory = queryDeviceMemory( session_.deploymentPlan()
+                ? std::optional<DeviceId>( session_.deploymentPlan()->device() )
+                : describedDevice( config().devices ) );
 
             if ( memory.total_bytes > 0 )
             {
@@ -1458,7 +1462,7 @@ namespace Mila::ChatApp
                 const DeploymentPlan& plan = *session_.deploymentPlan();
 
                 payload[ "context_measurement" ] = {
-                    { "device", config().device_index },
+                    { "device", plan.device().toString() },
                     { "device_total_bytes", plan.reading().total_bytes },
                     { "device_free_bytes", plan.reading().free_bytes },
                     { "prefill_chunk_rows", plan.prefillChunkRows() },

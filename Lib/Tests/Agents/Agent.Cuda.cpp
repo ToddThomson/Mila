@@ -70,7 +70,7 @@ namespace Mila::Tests::AI
         DeploymentRequest requestOn( int device_index )
         {
             DeploymentRequest request;
-            request.withDevice( DeviceId{ DeviceType::Cuda, device_index } );
+            request.withAllowedDevices( DeviceId{ DeviceType::Cuda, device_index } );
             request.withContextLength( kContextLength );
 
             return request;

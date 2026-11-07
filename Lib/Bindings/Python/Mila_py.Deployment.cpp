@@ -65,7 +65,7 @@ namespace Mila::Bindings
         const InstalledModel model = requireInstalled( name );
 
         DeploymentRequest request;
-        request.withDevice( DeviceId{ DeviceType::Cuda, device_index } );
+        request.withAllowedDevices( DeviceId{ DeviceType::Cuda, device_index } );
         request.withWholeDeviceMemory();
 
         const auto fitting = Mila::Deployment::fittingWeightQuantizations<DeviceType::Cuda>( model, request );

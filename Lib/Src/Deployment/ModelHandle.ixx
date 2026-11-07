@@ -1,6 +1,7 @@
 /**
  * @file ModelHandle.ixx
- * @brief An opened model, whatever its family: the model, its tokenizer, its chat template and what it can do.
+ * @brief An opened model, whatever its family, device and precision: the model, its tokenizer, its chat template and
+ *        what it can do.
  *
  * The one place a store name becomes a running model. See Specifications/ModelHandle.md.
  */
@@ -10,150 +11,50 @@ export module Deployment.ModelHandle;
 import std;
 import Compute.DeviceType;
 import Dnn.TensorTypes;
-import Dnn.TensorDataType;
-import Dnn.TensorDataTypeTraits;
-import Dnn.LanguageModel;
+import Dnn.WeightQuantization;
+import Dnn.ILanguageModel;
 import Dnn.PromptPrefixReuse;
 import Dnn.Models.Conversation.Protocol;
-import Dnn.Models.Architectures;
-import Dnn.Models.ChatProtocolForArchitecture;
 import Data.BpeTokenizer;
 import Deployment.DeploymentRequest;
 import Deployment.DeploymentPlan;
 import Deployment.DeploymentPlans;
 import Deployment.DeploymentRefusal;
 import Deployment.InstalledModel;
-import Deployment.InstalledModelPlanner;
 import Distribution.ModelCapabilities;
 import Distribution.ModelStore;
-import Dnn.WeightQuantization;
 import Deployment.OpenRefusal;
-import Deployment.OpenRefusedError;
-import Serialization.WeightsReader;
 
 namespace Mila::Deployment
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
-    using namespace Mila::Dnn::Serialization;
     using namespace Mila::Distribution;
 
     /**
-     * @brief A model opened by its store name, with the family erased and device and precision kept.
+     * @brief A model opened by its store name, with its family, device and precision chosen at the open and erased.
      *
      * Holds what a model is -- the network, its tokenizer, its chat template, its capabilities, the plan it was
-     * loaded on and what the store recorded -- and no conversation. Generation is the `LanguageModel` base's one
+     * loaded on and what the store recorded -- and no conversation. The device type comes from the devices the
+     * request allows, the precision from that device type (ModelHandle.md 10.7). Generation is ILanguageModel's one
      * virtual call, so nothing here sits between a token and the network.
      */
-    export template<DeviceType TDeviceType, TensorDataType TPrecision>
-        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class ModelHandle
+    export class ModelHandle
     {
     public:
-
-        using LanguageModelType = LanguageModel<TDeviceType, TPrecision>;
 
         /**
          * @brief Whether a name would open, loading nothing: the reason it would not, or nothing when it would.
          *
          * Reads the model's record and, for a request that fixes a context, the header of its weights, where the
          * trained maximum is. Weights whose header cannot be read pass here, and the load says why. A base model
-         * opens: it has no protocol. Whether it fits the device is the planner's answer, not this one.
+         * opens: it has no protocol. Whether it fits a device is the planner's answer, not this one.
          */
         [[nodiscard]] static std::optional<OpenRefusal> check(
-            std::string_view name, const DeploymentRequest& request = {}, const ModelStore& store = ModelStore{} )
-        {
-            const std::optional<InstalledModel> installed = InstalledModel::find( name, store );
-
-            if ( !installed )
-            {
-                return OpenRefusal{ OpenRefusal::Reason::NotInstalled, std::string( name ),
-                    std::format( "no model named '{}' is installed", name ) };
-            }
-
-            return check( *installed, request );
-        }
+            std::string_view name, const DeploymentRequest& request = {}, const ModelStore& store = ModelStore{} );
 
         /// @copydoc check
-        [[nodiscard]] static std::optional<OpenRefusal> check( const InstalledModel& installed, const DeploymentRequest& request )
-        {
-            const std::string& name = installed.name();
-            const auto& record = installed.stored().record;
-
-            if ( !installed.isComplete() )
-            {
-                return OpenRefusal{ OpenRefusal::Reason::FilesMissing, name,
-                    std::format( "'{}' is installed but its files are missing, so it cannot be loaded", name ) };
-            }
-
-            if ( !Architectures::contains( installed.architecture() ) )
-            {
-                return OpenRefusal{ OpenRefusal::Reason::ArchitectureNotDeployed, name,
-                    std::format( "'{}' has architecture '{}', which this build of Mila cannot deploy; it deploys {}",
-                        name, installed.architecture(), Architectures::names() ) };
-            }
-
-            if ( installed.capabilities().instruct )
-            {
-                try
-                {
-                    (void)chatProtocolFor( installed.architecture(), record.architecture_version );
-                }
-                catch ( const std::invalid_argument& error )
-                {
-                    // Family-blind: an architecture with one template takes an empty version as that one, so an
-                    // empty version refused is one whose record does not say which of several it is.
-                    if ( record.architecture_version.empty() )
-                    {
-                        return OpenRefusal{ OpenRefusal::Reason::ChatTemplateNotRecorded, name, std::format(
-                            "'{}' does not record which version of '{}' it is, which decides the chat template it was "
-                            "trained with: {}", name, installed.architecture(), error.what() ) };
-                    }
-
-                    return OpenRefusal{ OpenRefusal::Reason::NoChatTemplate, name,
-                        std::format( "'{}' was trained with a chat template this build does not have: {}", name, error.what() ) };
-                }
-            }
-
-            const std::optional<WeightQuantization> stored = installed.storedWeightQuantization();
-
-            if ( !stored )
-            {
-                return OpenRefusal{ OpenRefusal::Reason::WeightFormatUnknown, name, std::format(
-                    "'{}' stores its weights as '{}', which this build of Mila does not read", name, record.weight_quantization ) };
-            }
-
-            if ( request.isWeightQuantizationNamed() && request.getWeightQuantization() != *stored )
-            {
-                // The load's own rule, asked here so it refuses before anything is released.
-                const std::string_view scheme = record.weight_quantization == "none"
-                    ? std::string_view{} : std::string_view( record.weight_quantization );
-
-                try
-                {
-                    requireStoredQuantizationMatches(
-                        "ModelHandle::check", installed.weightsPath().string(), scheme, request.getWeightQuantization() );
-                }
-                catch ( const std::runtime_error& error )
-                {
-                    return OpenRefusal{ OpenRefusal::Reason::WeightFormatNotDerivable, name, error.what() };
-                }
-            }
-
-            if ( !request.isContextLengthAutomatic() )
-            {
-                const dim_t maximum = trainedMaximum( installed );
-
-                if ( maximum > 0 && request.getContextLength() > maximum )
-                {
-                    return OpenRefusal{ OpenRefusal::Reason::ContextPastTrainedMaximum, name, std::format(
-                        "'{}' was trained for a context of at most {} tokens, and {} was asked for",
-                        name, maximum, request.getContextLength() ) };
-                }
-            }
-
-            return std::nullopt;
-        }
+        [[nodiscard]] static std::optional<OpenRefusal> check( const InstalledModel& installed, const DeploymentRequest& request );
 
         /**
          * @brief Open an installed model on the best plan for the request.
@@ -162,40 +63,11 @@ namespace Mila::Deployment
          * be conversed with is refused before its load.
          *
          * @throws OpenRefusedError       for every refusal check gives, before anything is loaded.
-         * @throws DeploymentRefusedError when nothing fits the device, carrying the refusal.
+         * @throws DeploymentRefusedError when nothing fits the allowed devices, carrying the refusal.
+         * @throws std::invalid_argument  when the allowed devices are of more than one device type.
          */
         static ModelHandle open(
-            std::string_view name, const DeploymentRequest& request, const ModelStore& store = ModelStore{} )
-        {
-            const InstalledModel installed = checkedNamed( name, request, store );
-
-            // A base model has no template to render, so it has no protocol (ModelHandle.md 3.5).
-            std::unique_ptr<Conversation::Protocol> protocol = installed.capabilities().instruct
-                ? chatProtocolFor( installed.architecture(), installed.stored().record.architecture_version )
-                : nullptr;
-
-            std::shared_ptr<Data::BpeTokenizer> tokenizer = installed.loadTokenizer();
-
-            std::unique_ptr<LanguageModelType> model;
-            std::optional<DeploymentPlan> plan;
-            PromptPrefixReuse prefix_reuse{};
-
-            // The one place the concrete type is known, so what only it can answer is read here.
-            Architectures::visit( installed.architecture(), [&]( auto named )
-                {
-                    using Architecture = typename decltype( named )::type;
-
-                    auto typed = Architecture::template Model<TDeviceType, TPrecision>::load(
-                        installed.weightsPath(), request );
-
-                    plan.emplace( typed->getDeploymentPlan() );
-                    prefix_reuse = typed->promptPrefixReuse();
-                    model = std::move( typed );
-                } );
-
-            return ModelHandle( installed, std::move( model ), std::move( tokenizer ), std::move( protocol ),
-                std::move( *plan ), prefix_reuse );
-        }
+            std::string_view name, const DeploymentRequest& request, const ModelStore& store = ModelStore{} );
 
         /**
          * @brief What open would load, without loading: the plans for the request, or why none fits.
@@ -203,19 +75,36 @@ namespace Mila::Deployment
          * @throws OpenRefusedError as open, before any load.
          */
         static std::expected<DeploymentPlans, DeploymentRefusal> planFor(
-            std::string_view name, const DeploymentRequest& request, const ModelStore& store = ModelStore{} )
-        {
-            return planDeployment<TDeviceType, TPrecision>( checkedNamed( name, request, store ), request );
-        }
+            std::string_view name, const DeploymentRequest& request, const ModelStore& store = ModelStore{} );
 
-        ModelHandle( ModelHandle&& ) noexcept = default;
-        ModelHandle& operator=( ModelHandle&& ) noexcept = default;
+        /**
+         * @brief The device type a request's model runs on: that of the devices it allows, or, when it names none
+         *        present, the one GPU type this build sees.
+         *
+         * A model runs on one device type, so allowed devices of two types are malformed. The host is never chosen:
+         * it has no compute operations.
+         *
+         * @throws std::invalid_argument when the allowed devices span more than one device type.
+         */
+        [[nodiscard]] static std::expected<DeviceType, DeploymentRefusal> deviceTypeFor( const DeploymentRequest& request );
+
+        /**
+         * @brief The weight formats an installed model has a deployment in on the devices the request allows,
+         *        its stored format first (InstalledModelPlanner's fittingWeightQuantizations), with the device type
+         *        and precision chosen as open chooses them.
+         *
+         * @return Nothing when the planner could not answer for some format; empty when it answered and nothing fits,
+         *         including when no device the request allows is present.
+         */
+        [[nodiscard]] static std::optional<std::vector<WeightQuantization>> fittingWeightQuantizations(
+            const InstalledModel& model, const DeploymentRequest& request );
+
+        ModelHandle( ModelHandle&& ) noexcept;
+        ModelHandle& operator=( ModelHandle&& ) noexcept;
+        ~ModelHandle();
 
         /// The network behind its base: generate, observe, save.
-        [[nodiscard]] LanguageModelType& model() noexcept
-        {
-            return *model_;
-        }
+        [[nodiscard]] ILanguageModel& model() noexcept;
 
         /// The typed model and its components, or null when the model is not a TModel.
         template<typename TModel>
@@ -224,99 +113,45 @@ namespace Mila::Deployment
             return dynamic_cast<TModel*>( model_.get() );
         }
 
-        [[nodiscard]] Data::BpeTokenizer& tokenizer() const noexcept
-        {
-            return *tokenizer_;
-        }
+        [[nodiscard]] Data::BpeTokenizer& tokenizer() const noexcept;
 
         /// The chat template the model was trained on; null for a base model.
-        [[nodiscard]] const Conversation::Protocol* protocol() const noexcept
-        {
-            return protocol_.get();
-        }
+        [[nodiscard]] const Conversation::Protocol* protocol() const noexcept;
 
         /// What the package says the model can do, with only the modalities this build runs.
-        [[nodiscard]] const ModelCapabilities& capabilities() const noexcept
-        {
-            return capabilities_;
-        }
+        [[nodiscard]] const ModelCapabilities& capabilities() const noexcept;
 
         /// Where a later prompt may resume on the cache: Mila's implementation of the architecture decides it.
-        [[nodiscard]] PromptPrefixReuse promptPrefixReuse() const noexcept
-        {
-            return prefix_reuse_;
-        }
+        [[nodiscard]] PromptPrefixReuse promptPrefixReuse() const noexcept;
 
         /// The plan the model was loaded on: what it runs, not a second derivation of it.
-        [[nodiscard]] const DeploymentPlan& plan() const noexcept
-        {
-            return plan_;
-        }
+        [[nodiscard]] const DeploymentPlan& plan() const noexcept;
 
         /// What the store recorded: name, lineage, licence, files.
-        [[nodiscard]] const InstalledModel& installed() const noexcept
-        {
-            return installed_;
-        }
+        [[nodiscard]] const InstalledModel& installed() const noexcept;
 
         /// The name as the store spells it.
-        [[nodiscard]] const std::string& name() const noexcept
-        {
-            return installed_.name();
-        }
+        [[nodiscard]] const std::string& name() const noexcept;
 
     private:
 
         ModelHandle(
             InstalledModel installed,
-            std::unique_ptr<LanguageModelType> model,
+            std::unique_ptr<ILanguageModel> model,
             std::shared_ptr<Data::BpeTokenizer> tokenizer,
             std::unique_ptr<Conversation::Protocol> protocol,
             DeploymentPlan plan,
-            PromptPrefixReuse prefix_reuse )
-            : installed_( std::move( installed ) ),
-              capabilities_( installed_.capabilities() ),
-              model_( std::move( model ) ),
-              tokenizer_( std::move( tokenizer ) ),
-              protocol_( std::move( protocol ) ),
-              plan_( std::move( plan ) ),
-              prefix_reuse_( prefix_reuse )
-        {}
+            PromptPrefixReuse prefix_reuse );
 
         /// The longest context the weights declare, or zero when their header cannot be read.
-        static dim_t trainedMaximum( const InstalledModel& installed )
-        {
-            try
-            {
-                return static_cast<dim_t>( WeightsReader( installed.weightsPath() ).getWeightsMetadata().max_seq_length );
-            }
-            catch ( const std::exception& )
-            {
-                return 0;
-            }
-        }
+        static dim_t trainedMaximum( const InstalledModel& installed );
 
         /// The installed model of that name, once check finds nothing to refuse.
-        static InstalledModel checkedNamed( std::string_view name, const DeploymentRequest& request, const ModelStore& store )
-        {
-            std::optional<InstalledModel> installed = InstalledModel::find( name, store );
-
-            if ( !installed )
-            {
-                throw OpenRefusedError( *check( name, request, store ) );
-            }
-
-            if ( auto refusal = check( *installed, request ) )
-            {
-                throw OpenRefusedError( std::move( *refusal ) );
-            }
-
-            return std::move( *installed );
-        }
+        static InstalledModel checkedNamed( std::string_view name, const DeploymentRequest& request, const ModelStore& store );
 
         InstalledModel installed_;
         ModelCapabilities capabilities_;
-        std::unique_ptr<LanguageModelType> model_;
+        std::unique_ptr<ILanguageModel> model_;
         std::shared_ptr<Data::BpeTokenizer> tokenizer_;
         std::unique_ptr<Conversation::Protocol> protocol_;
         DeploymentPlan plan_;

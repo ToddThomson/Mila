@@ -424,7 +424,7 @@ namespace Mila::ChatApp
     RowVerdict verdictFor(
         const InstalledModel& model,
         Mila::Dnn::dim_t fixed_context_length,
-        int device_index )
+        std::optional<Dnn::Compute::DeviceId> device )
     {
         RowVerdict row;
 
@@ -446,7 +446,11 @@ namespace Mila::ChatApp
         }
 
         DeploymentRequest request;
-        request.withDevice( DeviceId{ DeviceType::Cuda, device_index } ).withWholeDeviceMemory();
+        request.withWholeDeviceMemory();
+
+        // The row is answered on the one card the listing names beneath the table.
+        if ( device )
+            request.withAllowedDevices( *device );
 
         if ( fixed_context_length > 0 )
         {
@@ -456,7 +460,7 @@ namespace Mila::ChatApp
         }
 
         const std::optional<std::vector<Dnn::WeightQuantization>> fitting =
-            fittingWeightQuantizations<DeviceType::Cuda>( model, request );
+            ModelHandle::fittingWeightQuantizations( model, request );
 
         // Nothing fit, and the two reasons for that are not the same answer: planned-and-too-big is
         // a fact about the card, where a plan that could not be made is one about this build.
@@ -547,7 +551,7 @@ namespace Mila::ChatApp
             if ( budget.has_value() )
             {
                 const RowVerdict row = verdictFor(
-                    model, budget->fixed_context_length, budget->device_index );
+                    model, budget->fixed_context_length, budget->device );
 
                 // Tinted after formatting and last in the row, so no width calculation has to
                 // account for the escape bytes -- which is what the memory columns had to. Colour

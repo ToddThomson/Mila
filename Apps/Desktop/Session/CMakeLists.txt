@@ -22,11 +22,22 @@ PUBLIC
         "Src/Desktop.RoundTimer.ixx"
         "Src/Desktop.ConversationStore.ixx"
         "Src/Tools/Desktop.CommandTool.ixx"
-        "Src/Tools/Desktop.ProgramSetup.ixx"
         "Src/Tools/Desktop.TaskPlan.ixx"
         "Src/Settings/Desktop.SearchKeyFile.ixx"
         "Src/Tools/Desktop.WebSearch.ixx"
 )
+
+# Desktop.ProgramSetup has two candidate files and exactly one is compiled, as Agents.MxcProgramContainer does:
+# commands run in a Windows container, so elsewhere there are no build tools to find.
+if( WIN32 )
+    target_sources( mila-session PUBLIC FILE_SET module_files TYPE CXX_MODULES FILES
+        "Src/Tools/Desktop.ProgramSetup.Windows.ixx"
+    )
+else()
+    target_sources( mila-session PUBLIC FILE_SET module_files TYPE CXX_MODULES FILES
+        "Src/Tools/Desktop.ProgramSetup.Posix.ixx"
+    )
+endif()
 
 # The session builds the model templates of every family it can open, past MSVC's section limit (C1128) without it.
 if( MSVC )
@@ -78,10 +89,17 @@ install( DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../Prompts"
 )
 
 # The filters come before the RUNTIME group: CMake 4.0 refuses them after it, whatever its documentation's order.
+# macOS's own libraries are under /System and /usr/lib, which the package never carries.
+set( mila_session_library_folders "" )
+
+if( MILA_HAS_CUDA )
+    set( mila_session_library_folders "${CUDAToolkit_BIN_DIR}/x64" "${CUDAToolkit_BIN_DIR}" "${CUDAToolkit_LIBRARY_DIR}" )
+endif()
+
 install( RUNTIME_DEPENDENCY_SET mila-session-libraries
     PRE_EXCLUDE_REGEXES "^api-ms-" "^ext-ms-"
-    POST_EXCLUDE_REGEXES "[/\\\\][Ss]ystem32[/\\\\]" "^/lib" "^/usr/lib"
-    DIRECTORIES "${CUDAToolkit_BIN_DIR}/x64" "${CUDAToolkit_BIN_DIR}" "${CUDAToolkit_LIBRARY_DIR}"
+    POST_EXCLUDE_REGEXES "[/\\\\][Ss]ystem32[/\\\\]" "^/lib" "^/usr/lib" "^/System/"
+    DIRECTORIES ${mila_session_library_folders}
     RUNTIME DESTINATION . COMPONENT mila-session EXCLUDE_FROM_ALL
 )
 

@@ -83,5 +83,50 @@ namespace Mila::Deployment
 
             return reading;
         }
+
+        /**
+         * @brief Name the device without reading its memory: its id, hardware name, stable identity and speed facts.
+         *
+         * Reading free memory claims the device -- on CUDA it creates a context there, which holds memory for the
+         * rest of the process -- so a device the request does not allow is described, never read. The description
+         * reports no memory.
+         */
+        static DeviceReading describe( DeviceId device ) noexcept
+        {
+            DeviceReading description{ .device = device };
+
+            try
+            {
+                const std::shared_ptr<Device> instance = DeviceRegistry::instance().getDevice( device );
+
+                if ( instance )
+                {
+                    description.hardware_name = instance->getHardwareName();
+                    description.stable_identity = instance->getStableIdentity();
+                    description.performance = instance->getPerformance();
+                }
+            } catch ( const std::exception& )
+            {
+            }
+
+            return description;
+        }
+
+        /// Every device the build sees, described in id order and none of them read (describe).
+        static std::vector<DeviceReading> describePresent()
+        {
+            std::vector<DeviceId> ids = DeviceRegistry::instance().listDeviceIds();
+            std::ranges::sort( ids );
+
+            std::vector<DeviceReading> present;
+            present.reserve( ids.size() );
+
+            for ( const DeviceId id : ids )
+            {
+                present.push_back( describe( id ) );
+            }
+
+            return present;
+        }
     };
 }

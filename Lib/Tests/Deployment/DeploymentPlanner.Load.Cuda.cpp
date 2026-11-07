@@ -61,7 +61,7 @@ namespace Mila::Tests::Deployment
         void expectFp8KvCacheBuiltAsPriced( const fs::path& weights, DeviceId device, std::string_view label )
         {
             const DeploymentRequest bf16_request =
-                DeploymentRequest{}.withFP4Quantization().withContextLength( 8192 ).withDevice( device );
+                DeploymentRequest{}.withFP4Quantization().withContextLength( 8192 ).withAllowedDevices( device );
             const DeploymentRequest fp8_request =
                 DeploymentRequest( bf16_request ).withKvCacheCompression( KvCacheCompression::FP8 );
 
@@ -125,7 +125,7 @@ namespace Mila::Tests::Deployment
         const Common::ScopedCurrentCudaDevice current( ordinal_ );
 
         const auto planned = GemmaCudaModel::planDeployment( gemmaWeights(),
-            DeploymentRequest{}.withFP4Quantization().withContextLength( 8192 ).withDevice( device_ ) );
+            DeploymentRequest{}.withFP4Quantization().withContextLength( 8192 ).withAllowedDevices( device_ ) );
 
         if ( !planned )
             GTEST_SKIP() << "does not fit CUDA device " << ordinal_ << ": " << planned.error().toString();
@@ -158,7 +158,7 @@ namespace Mila::Tests::Deployment
         const Common::ScopedCurrentCudaDevice current( ordinal_ );
 
         const auto planned = GemmaCudaModel::planDeployment( gemmaWeights(),
-            DeploymentRequest{}.withContextLength( 4096 ).withDevice( device_ ) );
+            DeploymentRequest{}.withContextLength( 4096 ).withAllowedDevices( device_ ) );
 
         if ( !planned )
             GTEST_SKIP() << "does not fit CUDA device " << ordinal_ << ": " << planned.error().toString();
@@ -166,7 +166,7 @@ namespace Mila::Tests::Deployment
         EXPECT_EQ( planned->best().weightQuantization(), WeightQuantization::FP4 );
 
         EXPECT_THROW( (void)GemmaCudaModel::planDeployment( gemmaWeights(),
-            DeploymentRequest{}.withFullPrecision().withContextLength( 4096 ).withDevice( device_ ) ),
+            DeploymentRequest{}.withFullPrecision().withContextLength( 4096 ).withAllowedDevices( device_ ) ),
             std::exception );
     }
 
@@ -208,7 +208,7 @@ namespace Mila::Tests::Deployment
             GTEST_SKIP() << "Needs both the Gemma and the Llama weights";
 
         const auto planned = LlamaCudaModel::planDeployment( llamaWeights(),
-            DeploymentRequest{}.withFP4Quantization().withContextLength( 1024 ).withDevice( device_ ) );
+            DeploymentRequest{}.withFP4Quantization().withContextLength( 1024 ).withAllowedDevices( device_ ) );
 
         if ( !planned )
             GTEST_SKIP() << planned.error().toString();
@@ -244,9 +244,92 @@ namespace Mila::Tests::Deployment
             GTEST_SKIP() << "a 131072 context fits CUDA device " << ordinal_ << "; nothing to refuse";
         } catch ( const DeploymentRefusedError& error )
         {
-            EXPECT_EQ( error.refusal().reason(), DeploymentRefusal::Reason::FixedContextDoesNotFit ) << error.what();
-            EXPECT_EQ( error.refusal().contextLength(), 131072 );
+            EXPECT_EQ( error.refusal().reason(), DeploymentRefusal::Reason::NoAllowedDeviceFits ) << error.what();
+            ASSERT_EQ( error.refusal().shortfalls().size(), 1u );
+            EXPECT_EQ( error.refusal().shortfalls().front().reason(), DeviceShortfall::Reason::FixedContextDoesNotFit );
+            EXPECT_EQ( error.refusal().shortfalls().front().contextLength(), 131072 );
             EXPECT_NE( std::string( error.what() ).find( "FixedContextDoesNotFit" ), std::string::npos );
         }
+    }
+
+    // Deployment.md 12.8 on the cards in this machine: a request that names no device plans each card alone and
+    // ranks them; one that names a card plans only it, and a refusal from it names the cards it did not allow.
+    TEST_F( DeploymentLoadCudaTests, AnUnsetRequestPlansEveryCardAndANamedOnePlansOnlyIt )
+    {
+        if ( !fs::exists( llamaWeights() ) )
+            GTEST_SKIP() << "Not present: " << llamaWeights().string();
+
+        const int card_count = static_cast<int>( getDeviceCount( DeviceType::Cuda ) );
+        const DeploymentRequest automatic = DeploymentRequest{}.withFP4Quantization().withAutomaticContextLength();
+
+        const auto every = LlamaCudaModel::planDeployment( llamaWeights(), automatic );
+
+        ASSERT_TRUE( every.has_value() ) << every.error().toString();
+        EXPECT_EQ( static_cast<int>( every->rankedPlans().size() ), card_count ) << "an 8B FP4 model fits every card";
+
+        for ( std::size_t rank = 1; rank < every->rankedPlans().size(); ++rank )
+        {
+            const DeploymentPlan& better = every->rankedPlans()[ rank - 1 ];
+            const DeploymentPlan& worse = every->rankedPlans()[ rank ];
+            const bool better_full = !better.prefillChunking().isMemoryConstrained();
+            const bool worse_full = !worse.prefillChunking().isMemoryConstrained();
+
+            EXPECT_TRUE( better_full > worse_full
+                || ( better_full == worse_full && better.contextLength() >= worse.contextLength() ) )
+                << better.device().toString() << " ranked above " << worse.device().toString();
+        }
+
+        const DeviceId last{ DeviceType::Cuda, card_count - 1 };
+        const auto named = LlamaCudaModel::planDeployment( llamaWeights(),
+            DeploymentRequest( automatic ).withAllowedDevices( last ) );
+
+        ASSERT_TRUE( named.has_value() ) << named.error().toString();
+        ASSERT_EQ( named->rankedPlans().size(), 1u );
+        EXPECT_EQ( named->best().device(), last );
+
+        const auto refused = LlamaCudaModel::planDeployment( llamaWeights(),
+            DeploymentRequest{}.withFP4Quantization().withContextLength( 131072 ).withAllowedDevices( last ) );
+
+        if ( refused )
+            GTEST_SKIP() << "a 131072 context fits " << last.toString() << "; nothing to refuse";
+
+        ASSERT_EQ( refused.error().reason(), DeploymentRefusal::Reason::NoAllowedDeviceFits );
+        ASSERT_EQ( refused.error().shortfalls().size(), 1u );
+        EXPECT_EQ( refused.error().shortfalls().front().reading().device, last );
+        EXPECT_EQ( static_cast<int>( refused.error().notAllowed().size() ), card_count - 1 );
+
+        for ( const DeviceReading& other : refused.error().notAllowed() )
+        {
+            EXPECT_NE( other.device, last );
+            EXPECT_FALSE( other.reportsMemory() ) << "a card not allowed is described, never read";
+            EXPECT_FALSE( other.stable_identity.empty() );
+        }
+    }
+
+    // A card named by its stable identity is the card a CUDA index names in this run; one that is not present is
+    // refused by that name, never replaced by another card.
+    TEST_F( DeploymentLoadCudaTests, ACardNamedByItsStableIdentityIsThatCardAndAnAbsentOneIsRefused )
+    {
+        if ( !fs::exists( llamaWeights() ) )
+            GTEST_SKIP() << "Not present: " << llamaWeights().string();
+
+        const DeviceReading description = DeviceReading::describe( device_ );
+        const DeploymentRequest request = DeploymentRequest{}.withFP4Quantization().withContextLength( 1024 );
+
+        const auto named = LlamaCudaModel::planDeployment( llamaWeights(),
+            DeploymentRequest( request ).withAllowedDevices( AllowedDevices::parse( description.stable_identity ) ) );
+
+        ASSERT_TRUE( named.has_value() ) << named.error().toString();
+        EXPECT_EQ( named->best().device(), device_ );
+
+        const std::string absent = "GPU-00000000-0000-0000-0000-000000000000";
+        const auto refused = LlamaCudaModel::planDeployment( llamaWeights(),
+            DeploymentRequest( request ).withAllowedDevices( AllowedDevices::parse( absent ) ) );
+
+        ASSERT_FALSE( refused.has_value() );
+        EXPECT_EQ( refused.error().reason(), DeploymentRefusal::Reason::AllowedDeviceAbsent );
+        ASSERT_EQ( refused.error().absent().size(), 1u );
+        EXPECT_EQ( refused.error().absent().front(), absent );
+        EXPECT_TRUE( refused.error().shortfalls().empty() ) << "nothing is planned when a named card is absent";
     }
 }

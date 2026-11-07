@@ -11,6 +11,7 @@ export module Compute.DeviceTypeTraits.Cuda;
 import std;
 import Compute.DeviceTypeTraits;
 import Compute.DeviceType;
+import Dnn.TensorDataType;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaPinnedMemoryResource;
 
@@ -40,5 +41,8 @@ namespace Mila::Dnn::Compute
 
         // A card has memory of its own, so a large table can be kept in host memory instead and read across the bus.
         static constexpr bool memory_separate_from_host = true;
+
+        // The precision a model opened by name runs at here (ModelHandle.md 10.7). Every card Mila builds for has BF16.
+        static constexpr TensorDataType language_model_precision = TensorDataType::BF16;
     };
 }

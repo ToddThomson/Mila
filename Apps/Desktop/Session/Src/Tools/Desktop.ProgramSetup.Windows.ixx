@@ -1,7 +1,9 @@
 /**
- * @file Desktop.ProgramSetup.ixx
+ * @file Desktop.ProgramSetup.Windows.ixx
  * @brief What Mila Desktop gives the commands it runs: the folders of the build tools found on this machine and the
  *        variables they need inside the container (ContainedPrograms.md 4.6, 4.7; MxcConformance.md 7.1).
+ *
+ * One of two candidate files for Desktop.ProgramSetup; this one is compiled on Windows, where commands run.
  */
 
 module;

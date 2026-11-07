@@ -11,6 +11,7 @@ export module Chat.SettingsResolution;
 import std;
 import Chat.Config;
 import Chat.ConfigError;
+import Chat.Footprint;
 import Chat.ModelCatalog;
 import Chat.ModelNotFound;
 import Chat.Settings;
@@ -20,6 +21,8 @@ import nlohmann.json;
 
 namespace Mila::ChatApp
 {
+    using Mila::Deployment::AllowedDevices;
+
     /**
      * @brief Where this user's own configuration lives, mirroring resolveStoreRoot().
      *
@@ -216,6 +219,60 @@ namespace Mila::ChatApp
             throw badValue( settings, key, "a whole number of zero or more", *value );
 
         return value->get<int>();
+    }
+
+    /**
+     * @brief The devices the model may run on: one string, its names separated by commas, or a list of names.
+     *
+     * A name is cuda, cuda:1, metal or a card's stable identity (Deployment.md 12.8). A bare number, the form until
+     * 0.21, meant a CUDA device only by assumption, so it is refused with the new form named (Todd, 2026-11-07).
+     */
+    std::optional<AllowedDevices> readDevices( const MergedSettings& settings )
+    {
+        const nlohmann::json* value = findSetting( settings, "device" );
+
+        if ( !value )
+            return std::nullopt;
+
+        auto isBareNumber = []( const std::string& text )
+        {
+            return !text.empty() && std::ranges::all_of( text, []( unsigned char c ) { return std::isdigit( c ) != 0; } );
+        };
+
+        std::string text;
+
+        if ( value->is_number() || ( value->is_string() && isBareNumber( value->get<std::string>() ) ) )
+        {
+            const std::string number = value->is_string() ? value->get<std::string>() : value->dump();
+
+            throw ConfigError( std::format(
+                "device ({}): a number alone no longer names a device. Write the device as cuda:{}, or several "
+                "separated by commas.", settings.describeOrigin( "device" ), number ) );
+        }
+
+        if ( value->is_string() )
+        {
+            text = value->get<std::string>();
+        } else if ( value->is_array() && !value->empty()
+            && std::ranges::all_of( *value, []( const nlohmann::json& name ) { return name.is_string(); } ) )
+        {
+            for ( const nlohmann::json& name : *value )
+            {
+                text += ( text.empty() ? "" : "," ) + name.get<std::string>();
+            }
+        } else {
+            throw badValue( settings, "device", "a device such as \"cuda:1\", or a list of them", *value );
+        }
+
+        try
+        {
+            return AllowedDevices::parse( text );
+        } catch ( const std::invalid_argument& )
+        {
+            throw ConfigError( std::format(
+                "device ({}): '{}' is not a list of devices. Write cuda, cuda:1 or a card's identity, several "
+                "separated by commas.", settings.describeOrigin( "device" ), text ) );
+        }
     }
 
     /// temperature and top_p, where zero is greedy decoding rather than an omission.
@@ -527,10 +584,9 @@ namespace Mila::ChatApp
             config.tokenizer_path    = resolved->tokenizer;
         }
 
-        // Read before the context below, which is measured on this device: read after it, "auto"
-        // measured CUDA device 0 whatever --device named.
-        if ( const auto device = readInteger( settings, "device" ) )
-            config.device_index = *device;
+        // Read before the context below, which is measured on these devices: read after it, "auto"
+        // measured the first device whatever --device named.
+        config.devices = readDevices( settings ).value_or( defaultDevices() );
 
         // Read before the context below for the same reason: "auto" measures what fits with this cache.
         if ( const std::string kv_cache = readString( settings, "kv_cache" ); !kv_cache.empty() )

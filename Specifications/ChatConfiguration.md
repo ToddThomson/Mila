@@ -683,7 +683,7 @@ user types rather than for its build target.
 | `--prompt-file` | path to a text file | the same one shot, for a prompt past the ~32 KB a Windows command line holds. Refuses to pair with `-p` |
 | `--settings` | path to a JSON file | replaces `--config`; layer 6 of §3, not layer 4 |
 | `--context-length` | integer or `auto` | spelled as the key it overrides |
-| `--device` | a device or several, `cuda:1` or `cuda:0,cuda:1` | the devices the model may run on, in no order (`Deployment.md` 12.8); the default is `LayerSplit.md` 12.3's; spelled as the key it overrides. A bare number, the form until 0.21, is refused, naming the new form (Todd, 2026-11-07). Built today as one integer, the CUDA ordinal |
+| `--device` | a device or several, `cuda:1` or `cuda:0,cuda:1` | the devices the model may run on, in no order (`Deployment.md` 12.8); the default is `LayerSplit.md` 12.3's; spelled as the key it overrides. A bare number, the form until 0.21, is refused, naming the new form (Todd, 2026-11-07). The key takes one string, names separated by commas, or a list of strings; unset, the first GPU the build sees (12.3). Built at `0.21.0-dev+127` |
 | `--system-prompt` | name or path | resolved against the working directory, per §8 |
 | `--folder` | path | the folder the file tools work in; the key `folder`, a relative path resolving as §8's does |
 | `--web` | — | lets the web tool read public pages; the key `web`, true or false |

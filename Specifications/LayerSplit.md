@@ -668,8 +668,9 @@ through a `Stage` composite (section 4).
    order fixes the placement (6.1). A list that meant both would decide a layer order for a user who only
    meant to allow two cards. Still open: the planner's rule, by free memory, by index, or by which order
    leaves the largest minimum headroom.
-3. **Chat's default devices.** The first device only, as today, or every device the build sees.
-   Recommended: the first only until a split has run through Phase 5's exit, then decide.
+3. **Chat's default devices. DECIDED 2026-11-07 (Todd): the first GPU only, for now.** The first device of the
+   one GPU type the build sees, in Chat and in Mila Desktop's session alike; every device the build sees is
+   decided again once a split has run through Phase 5's exit.
 4. **Concurrent prefill** (3.6): whether stages overlap during chunked prefill. Decided by
    measurement after Phase 3, against the sequential split on the same model. It must be
    bit-identical to the sequential split, since each card runs the same kernels in the same order.

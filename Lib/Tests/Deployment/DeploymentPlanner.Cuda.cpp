@@ -78,7 +78,7 @@ namespace Mila::Tests::Deployment
         }
 
         template<typename TNetwork>
-        std::expected<DeploymentPlans, DeploymentRefusal> plan(
+        std::expected<DeploymentPlan, DeviceShortfall> plan(
             const TNetwork& network, const DeploymentRequest& request, std::size_t free_bytes )
         {
             return planOnDevice( network, request, readingOf( free_bytes ), kTrainedMaximum,
@@ -136,7 +136,7 @@ namespace Mila::Tests::Deployment
             if ( weights_exceed )
             {
                 ASSERT_FALSE( planned.has_value() ) << at;
-                EXPECT_EQ( planned.error().reason(), DeploymentRefusal::Reason::WeightsExceedDevice ) << at;
+                EXPECT_EQ( planned.error().reason(), DeviceShortfall::Reason::WeightsExceedDevice ) << at;
 
                 return;
             }
@@ -144,14 +144,14 @@ namespace Mila::Tests::Deployment
             if ( fitting.empty() )
             {
                 ASSERT_FALSE( planned.has_value() ) << at;
-                EXPECT_EQ( planned.error().reason(), DeploymentRefusal::Reason::NothingAboveTheFloorFits ) << at;
+                EXPECT_EQ( planned.error().reason(), DeviceShortfall::Reason::NothingAboveTheFloorFits ) << at;
 
                 return;
             }
 
             ASSERT_TRUE( planned.has_value() ) << at << ": " << planned.error().toString();
 
-            const DeploymentPlan& best = planned->best();
+            const DeploymentPlan& best = *planned;
             const Candidate& largest = fitting.front();
 
             const Candidate* chosen = &largest;
@@ -176,7 +176,6 @@ namespace Mila::Tests::Deployment
             EXPECT_EQ( best.prefillChunkRows(), chosen->prefill.chunk_rows ) << at;
             EXPECT_EQ( best.contextLimitedBy(), limit ) << at << ": " << DeploymentPlan::nameOf( best.contextLimitedBy() );
             EXPECT_EQ( best.footprint().totalDeviceBytes(), chosen->footprint.totalDeviceBytes() ) << at;
-            EXPECT_EQ( planned->rankedPlans().size(), 1u ) << at << ": one device, one plan";
         }
 
         // Every budget where the answer can change: each candidate's weights, its total at every rung, and one
@@ -235,13 +234,12 @@ namespace Mila::Tests::Deployment
 
         ASSERT_TRUE( planned.has_value() );
 
-        const DeploymentPlan& best = planned->best();
+        const DeploymentPlan& best = *planned;
 
         EXPECT_EQ( best.contextLength(), kTrainedMaximum );
         EXPECT_EQ( best.contextLimitedBy(), DeploymentPlan::ContextLimit::TrainedMaximum );
         EXPECT_EQ( best.prefillChunkRows(), 1024 );
         EXPECT_EQ( best.prefillChunkLimitedBy(), DeploymentPlan::PrefillChunkLimit::LargestTheContextPermits );
-        EXPECT_EQ( &planned->best(), &planned->rankedPlans().front() );
     }
 
     TEST_F( DeploymentPlannerCudaTests, TheRequestCeilingCapsTheContext )
@@ -250,8 +248,8 @@ namespace Mila::Tests::Deployment
         const auto planned = plan( network, DeploymentRequest{}.withAutomaticContextLength( 1024, 5000 ), kPlenty );
 
         ASSERT_TRUE( planned.has_value() );
-        EXPECT_EQ( planned->best().contextLength(), 4096 ) << "the grid below the ceiling";
-        EXPECT_EQ( planned->best().contextLimitedBy(), DeploymentPlan::ContextLimit::TrainedMaximum );
+        EXPECT_EQ( planned->contextLength(), 4096 ) << "the grid below the ceiling";
+        EXPECT_EQ( planned->contextLimitedBy(), DeploymentPlan::ContextLimit::TrainedMaximum );
     }
 
     // The whole objective against an oracle that prices every candidate, at every budget where the answer can
@@ -288,7 +286,7 @@ namespace Mila::Tests::Deployment
         const auto planned = plan( network, DeploymentRequest{}, floor.footprint.device_parameter_bytes - 1 );
 
         ASSERT_FALSE( planned.has_value() );
-        EXPECT_EQ( planned.error().reason(), DeploymentRefusal::Reason::WeightsExceedDevice );
+        EXPECT_EQ( planned.error().reason(), DeviceShortfall::Reason::WeightsExceedDevice );
         EXPECT_EQ( planned.error().footprint().device_parameter_bytes, floor.footprint.device_parameter_bytes );
         EXPECT_EQ( planned.error().reading().free_bytes, floor.footprint.device_parameter_bytes - 1 );
     }
@@ -299,9 +297,9 @@ namespace Mila::Tests::Deployment
         const auto planned = plan( network, DeploymentRequest{}.withContextLength( 3000 ), kPlenty );
 
         ASSERT_TRUE( planned.has_value() );
-        EXPECT_EQ( planned->best().contextLength(), 3000 );
-        EXPECT_EQ( planned->best().contextLimitedBy(), DeploymentPlan::ContextLimit::FixedByCaller );
-        EXPECT_EQ( planned->best().prefillChunkRows(), 1024 );
+        EXPECT_EQ( planned->contextLength(), 3000 );
+        EXPECT_EQ( planned->contextLimitedBy(), DeploymentPlan::ContextLimit::FixedByCaller );
+        EXPECT_EQ( planned->prefillChunkRows(), 1024 );
     }
 
     // Deployment.md 12.2: refused, where it used to be attempted with a warning.
@@ -320,7 +318,7 @@ namespace Mila::Tests::Deployment
             at_floor_rung.footprint.totalDeviceBytes() - 1 );
 
         ASSERT_FALSE( planned.has_value() );
-        EXPECT_EQ( planned.error().reason(), DeploymentRefusal::Reason::FixedContextDoesNotFit );
+        EXPECT_EQ( planned.error().reason(), DeviceShortfall::Reason::FixedContextDoesNotFit );
         EXPECT_EQ( planned.error().contextLength(), 4096 );
     }
 
@@ -335,9 +333,9 @@ namespace Mila::Tests::Deployment
 
         ASSERT_TRUE( without.has_value() );
         ASSERT_TRUE( with.has_value() );
-        EXPECT_EQ( without->best().contextLength(), kTrainedMaximum );
-        EXPECT_EQ( without->best().prefillChunkRows(), 1024 );
-        EXPECT_TRUE( with->best().contextLength() < kTrainedMaximum || with->best().prefillChunkRows() < 1024 )
+        EXPECT_EQ( without->contextLength(), kTrainedMaximum );
+        EXPECT_EQ( without->prefillChunkRows(), 1024 );
+        EXPECT_TRUE( with->contextLength() < kTrainedMaximum || with->prefillChunkRows() < 1024 )
             << "one byte of headroom must cost the plan that fitted exactly";
     }
 
@@ -351,11 +349,11 @@ namespace Mila::Tests::Deployment
         const auto fixed = plan( network, DeploymentRequest{}.withContextLength( 2048 ), 0 );
 
         ASSERT_FALSE( automatic.has_value() );
-        EXPECT_EQ( automatic.error().reason(), DeploymentRefusal::Reason::DeviceDoesNotReportMemory );
+        EXPECT_EQ( automatic.error().reason(), DeviceShortfall::Reason::DeviceDoesNotReportMemory );
 
         ASSERT_TRUE( fixed.has_value() );
-        EXPECT_EQ( fixed->best().contextLength(), 2048 );
-        EXPECT_EQ( fixed->best().prefillChunkRows(), 1024 );
+        EXPECT_EQ( fixed->contextLength(), 2048 );
+        EXPECT_EQ( fixed->prefillChunkRows(), 1024 );
     }
 
     TEST_F( DeploymentPlannerCudaTests, AContextPastTheTrainedMaximumIsMalformedNotRefused )
@@ -387,20 +385,20 @@ namespace Mila::Tests::Deployment
 
                 ASSERT_FALSE( fixed.has_value() ) << "budget " << budget;
 
-                if ( automatic.error().reason() == DeploymentRefusal::Reason::WeightsExceedDevice )
-                    EXPECT_EQ( fixed.error().reason(), DeploymentRefusal::Reason::WeightsExceedDevice ) << "budget " << budget;
+                if ( automatic.error().reason() == DeviceShortfall::Reason::WeightsExceedDevice )
+                    EXPECT_EQ( fixed.error().reason(), DeviceShortfall::Reason::WeightsExceedDevice ) << "budget " << budget;
 
                 continue;
             }
 
-            const DeploymentPlan& chosen = automatic->best();
+            const DeploymentPlan& chosen = *automatic;
             const auto fixed = plan( network, DeploymentRequest{}.withContextLength( chosen.contextLength() ), budget );
 
             ASSERT_TRUE( fixed.has_value() ) << "budget " << budget;
-            EXPECT_EQ( fixed->best().contextLength(), chosen.contextLength() ) << "budget " << budget;
-            EXPECT_EQ( fixed->best().prefillChunkRows(), chosen.prefillChunkRows() ) << "budget " << budget;
-            EXPECT_EQ( fixed->best().footprint().totalDeviceBytes(), chosen.footprint().totalDeviceBytes() ) << "budget " << budget;
-            EXPECT_EQ( fixed->best().contextLimitedBy(), DeploymentPlan::ContextLimit::FixedByCaller ) << "budget " << budget;
+            EXPECT_EQ( fixed->contextLength(), chosen.contextLength() ) << "budget " << budget;
+            EXPECT_EQ( fixed->prefillChunkRows(), chosen.prefillChunkRows() ) << "budget " << budget;
+            EXPECT_EQ( fixed->footprint().totalDeviceBytes(), chosen.footprint().totalDeviceBytes() ) << "budget " << budget;
+            EXPECT_EQ( fixed->contextLimitedBy(), DeploymentPlan::ContextLimit::FixedByCaller ) << "budget " << budget;
         }
     }
 

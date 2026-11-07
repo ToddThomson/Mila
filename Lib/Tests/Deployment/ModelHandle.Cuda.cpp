@@ -27,8 +27,7 @@ namespace Mila::Tests::AI
     using namespace Mila::Deployment;
     using namespace Mila::Distribution;
 
-    using Handle = Mila::Deployment::ModelHandle<DeviceType::Cuda, TensorDataType::BF16>;
-    using CudaLanguageModel = LanguageModel<DeviceType::Cuda, TensorDataType::BF16>;
+    using Handle = Mila::Deployment::ModelHandle;
 
     namespace
     {
@@ -124,13 +123,13 @@ namespace Mila::Tests::AI
         DeploymentRequest requestOn( int device_index )
         {
             DeploymentRequest request;
-            request.withDevice( DeviceId{ DeviceType::Cuda, device_index } );
+            request.withAllowedDevices( DeviceId{ DeviceType::Cuda, device_index } );
             request.withContextLength( kContextLength );
 
             return request;
         }
 
-        std::vector<std::int32_t> greedy( CudaLanguageModel& model, const std::vector<std::int32_t>& prompt )
+        std::vector<std::int32_t> greedy( ILanguageModel& model, const std::vector<std::int32_t>& prompt )
         {
             GenerateParams params;
             params.max_new_tokens = 24;

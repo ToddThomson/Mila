@@ -40,7 +40,7 @@ namespace Mila::ChatApp
         /// Which card the rows are priced against. Carried alongside its capacity rather than
         /// derived here, because a row is measured by BUILDING the graph on that device -- the
         /// two must name the same card or a row would be sized on one and graded against another.
-        int device_index{ 0 };
+        std::optional<Dnn::Compute::DeviceId> device;
 
         /// The loaded model's name, marked in the listing. Empty when none is loaded.
         std::string resident_model;

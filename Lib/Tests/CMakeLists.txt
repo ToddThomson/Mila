@@ -174,6 +174,8 @@ target_sources( MilaTests PRIVATE
     "Distribution/HttpClient.Cpu.cpp"
     # An installed model by name and the manifest fields it answers from (Deployment.md 8.1). Offline.
     "Deployment/InstalledModel.Cpu.cpp"
+    # The devices a request allows and the planner's choice among them (Deployment.md 12.8), on described devices.
+    "Deployment/AllowedDevices.Cpu.cpp"
 )
 
 # Mila::Agents. The gate every tool call passes and the grant it gives (ToolCalling.md 3.1 to 3.4), and what a

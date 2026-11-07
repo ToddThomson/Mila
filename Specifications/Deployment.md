@@ -146,12 +146,15 @@ std::expected<DeploymentPlans, DeploymentRefusal> planDeployment( path, request 
   caller who prefers "both cards at 65536" to "one card at 8192" loads that entry without planning
   again. Same-device trades are not entries: a caller who wants the other side of rules 3 and 4 fixes
   the context (section 5). The ranking lives here rather than on a plan, because a loaded model keeps
-  the plan it runs (section 3.6) and must not carry plans it is not running. With one device (Phase 3)
-  the list has one entry.
-- **`DeploymentRefusal`** — the planner's answer when nothing fits: the **reason** as an enumerated
-  value (section 6), the readings, and the priced footprint that did not fit. There is no separate
-  exception path for "does not fit": a refusal is a returned value, and the caller must handle it to
-  reach a plan.
+  the plan it runs (section 3.6) and must not carry plans it is not running. Until a model splits, each
+  allowed device alone is one entry, so a request allowing one device has one.
+- **`DeploymentRefusal`** — the planner's answer when nothing fits what the request allows: the **reason**
+  as an enumerated value (section 6), one **`DeviceShortfall`** per allowed device planned (its reason, its
+  reading and the priced footprint that did not fit), the present devices the request did not allow, and any
+  name it gave that matches no present device. A device not allowed is described -- id, hardware name, stable
+  identity -- and never read, since reading a CUDA card's free memory creates a context there that holds memory
+  for the rest of the process. There is no separate exception path for "does not fit": a refusal is a returned
+  value, and the caller must handle it to reach a plan.
 
 `DeploymentFootprint` and `PrefillChunking` (`Component.MemoryStats.ixx:236`, `:263`) are the pricing of
 one candidate and stay as they are. A plan is a decision among candidates. **"Footprint" names a price;
@@ -310,9 +313,13 @@ never phrases it.
 | | `DeviceMemory` | a longer context fits at no chunk (rule 4) |
 | `PrefillChunkLimit` (`plan.prefillChunkLimitedBy()`) | `LargestTheContextPermits` | memory did not reduce it |
 | | `DeviceMemory` | a larger rung does not fit |
-| `DeploymentRefusal::Reason` | `WeightsExceedDevice` | the weights alone exceed every device the request allows |
+| `DeploymentRefusal::Reason` | `NoAllowedDeviceFits` | every allowed device was planned and none holds the request |
+| | `AllowedDeviceAbsent` | a device the request named is not present; nothing is planned |
+| | `NoDeviceToPlanOn` | the request named none and the build sees no device the model runs on |
+| `DeviceShortfall::Reason` | `WeightsExceedDevice` | the weights alone exceed the device |
 | | `FixedContextDoesNotFit` | the context the request fixed fits at no chunk |
 | | `NothingAboveTheFloorFits` | no automatic context at or above the request's floor fits |
+| | `DeviceDoesNotReportMemory` | an automatic context has no memory reading to be chosen against |
 
 A plan never carries "even the smallest chunk does not fit", which Phase 2's `fits_available_memory == false`
 expresses: under section 12.2 that deployment is a refusal. Phase 5 adds limits for devices and placement
@@ -552,7 +559,7 @@ FP4 were refused before allocating. A second load in one process chooses one ste
 after that the same, a one-time cost of the process's first load rather than a leak. MIS suite: 65 pass.
 
 **Phase 5 — devices.** The allowed devices and placement: `LayerSplit.md` Phases 4 and 5 land here as a
-new dimension of the planner, not beside it.
+new dimension of the planner, not beside it. *The allowed devices are built (12.8); placement is not.*
 
 ---
 
@@ -606,6 +613,14 @@ new dimension of the planner, not beside it.
    which present devices were not allowed, so "nothing fits on what you allowed" is never reported as
    "nothing fits on this machine". Open: whether a device can be excluded rather than listed (a display
    card).
+
+   **Built at `0.21.0-dev+127`** as `AllowedDevices` on the request (`withAllowedDevices`, `AllowedDevices::parse`
+   for the text forms) and `planOnAllowedDevices`, which every family's `planDeployment` calls. Each allowed device
+   is planned alone; plans rank by section 5's rules 3 and 4 across devices, and plans equal on both keep device
+   order, the order a request with no device chose before, since nothing ranks by speed yet (12.9). A request that
+   names a device of another type than the model's is malformed until the handle chooses the type (`ModelHandle.md`
+   10.7). The apps still pass the one device they passed before; their settings forms (`LayerSplit.md` 8) follow the
+   handle.
 
    **A device is named two ways, and a stored setting by the one that does not move. *Decided 2026-11-07
    (Todd).*** `DeviceId` stays a type and an index, a position in the running process. Each `Device` also

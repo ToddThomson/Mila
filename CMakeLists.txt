@@ -359,14 +359,14 @@ set(MILA_DATA_DIR "${PROJECT_SOURCE_DIR}/Data")
 add_subdirectory( Lib )
 
 # The apps Mila ships to the people who run it (see MilaProductFamily.md): Mila Chat, a human at a prompt, and Mila
-# Desktop, whose session process is built here. Both run models on Mila::Agents, and CUDA is the only compute backend. Gated on
-# MILA_ENABLE_APPS so a consumer embedding Mila builds neither. mila-app packages the session with the window and page,
-# which are Node.
-if( MILA_ENABLE_APPS AND MILA_ENABLE_CUDA )
+# Desktop, whose session process is built here. Both run models on Mila::Agents, on whichever GPU backend the build has:
+# the agent chooses the device and its precision (ModelHandle.md 10.7). Gated on MILA_ENABLE_APPS so a consumer
+# embedding Mila builds neither. mila-app packages the session with the window and page, which are Node.
+if( MILA_ENABLE_APPS AND ( MILA_HAS_CUDA OR MILA_HAS_METAL ) )
     add_subdirectory( Apps/Chat )
     add_subdirectory( Apps/Desktop )
 elseif( MILA_ENABLE_APPS )
-    message( STATUS "MILA_ENABLE_CUDA is OFF - skipping mila-chat and mila-session" )
+    message( STATUS "No GPU backend (CUDA or Metal) - skipping mila-chat and mila-session" )
 endif()
 
 # Mila Server is not a CMake target -- it consumes the Mila Python binding, which is built from Lib/Bindings.

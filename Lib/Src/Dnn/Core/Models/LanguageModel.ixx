@@ -11,6 +11,7 @@ export module Dnn.LanguageModel;
 
 import std;
 import Dnn.Model;
+import Dnn.ILanguageModel;
 import Dnn.LanguageModelNetwork;
 import Dnn.Tensor;
 import Dnn.TensorOps;
@@ -26,6 +27,8 @@ import Dnn.Samplers.SpeculativeSampler;
 import Dnn.Samplers.SamplingConfig;
 import Compute.Device;
 import Compute.DeviceType;
+import Compute.DeviceId;
+import Dnn.Component;
 import Compute.Observation;
 import Compute.CpuMemoryResource;
 import Compute.DeviceTypeTraits;
@@ -39,7 +42,7 @@ namespace Mila::Dnn
 
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class LanguageModel : public Model<TDeviceType, TPrecision>
+    class LanguageModel : public Model<TDeviceType, TPrecision>, public ILanguageModel
     {
     public:
 
@@ -77,7 +80,7 @@ namespace Mila::Dnn
             std::span<const std::int32_t> prompt_tokens,
             const std::function<void( std::int32_t )>& on_token,
             const GenerateParams& params = {},
-            std::stop_token stop = {} )
+            std::stop_token stop = {} ) override
         {
             // Each call is one reply: a presence penalty counts only the tokens this call produces. A model that
             // has never sampled under a penalty builds no sampler here; its first sample does.
@@ -125,19 +128,19 @@ namespace Mila::Dnn
          */
         std::size_t observe( std::string_view pattern,
             Compute::ComputePassMask passes,
-            Compute::ActivationObserver sink )
+            Compute::ActivationObserver sink ) override
         {
             return this->getNetwork().observe( pattern, passes, std::move( sink ) );
         }
 
         /// Detach every observer and clear the sink. A probe that outlives its question costs.
-        void stopObserving()
+        void stopObserving() override
         {
             this->getNetwork().stopObserving();
         }
 
         /// Every observable component path, for choosing a pattern or diagnosing a zero.
-        std::vector<std::string> componentPaths() const
+        std::vector<std::string> componentPaths() const override
         {
             return this->getNetwork().componentPaths();
         }
@@ -166,7 +169,7 @@ namespace Mila::Dnn
          * @throws std::runtime_error if the model carries no weights metadata (it was
          *         reconstructed from a checkpoint), or if the file cannot be written.
          */
-        void save( const std::filesystem::path& path ) const
+        void save( const std::filesystem::path& path ) const override
         {
             if ( source_metadata_.architecture.empty() )
             {
@@ -202,7 +205,7 @@ namespace Mila::Dnn
         /**
          * @brief The scheme name save records for these weights, e.g. "per_group_fp4_64".
          */
-        std::string weightQuantizationScheme() const
+        std::string weightQuantizationScheme() const override
         {
             return weightQuantizationName( weight_quantization_, fp4_group_size_ );
         }
@@ -215,7 +218,7 @@ namespace Mila::Dnn
          * a given prompt and model. Deliberately not a per-call GenerateParams field,
          * so a caller cannot accidentally reset the stream on every call.
          */
-        void seedSampler( std::uint64_t seed )
+        void seedSampler( std::uint64_t seed ) override
         {
             ensureSampler();
             token_sampler_->reseed( seed );
@@ -229,15 +232,35 @@ namespace Mila::Dnn
          * recording cannot be made or does not reproduce the call-by-call result, the model turns
          * replay off itself and logs a warning.
          */
-        void setDecodeReplay( bool enabled )
+        void setDecodeReplay( bool enabled ) override
         {
             this->getNetwork().setDecodeReplay( enabled );
         }
 
         /// Whether generation replays recorded forward passes (see setDecodeReplay).
-        [[nodiscard]] bool isDecodeReplayed() const noexcept
+        [[nodiscard]] bool isDecodeReplayed() const noexcept override
         {
             return this->getNetwork().isDecodeReplayed();
+        }
+
+        [[nodiscard]] DeviceId getDeviceId() const noexcept override
+        {
+            return Base::getDeviceId();
+        }
+
+        [[nodiscard]] TensorDataType getPrecision() const noexcept override
+        {
+            return TPrecision;
+        }
+
+        [[nodiscard]] RuntimeMode getRuntimeMode() const noexcept override
+        {
+            return Base::getRuntimeMode();
+        }
+
+        [[nodiscard]] MemoryStats getMemoryStats() const override
+        {
+            return Base::getMemoryStats();
         }
 
     protected:

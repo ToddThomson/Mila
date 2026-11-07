@@ -27,27 +27,57 @@ namespace Mila::ChatApp
      * Zeros are the "do not claim anything" answer rather than an error: every caller here is
      * advisory, and a missing device must not stop a model being tried.
      */
-    export inline DeviceMemoryInfo queryDeviceMemory( int device_index = 0 )
+    export inline DeviceMemoryInfo queryDeviceMemory( std::optional<DeviceId> device_id )
     {
-        const auto device = DeviceRegistry::instance().getDevice( Device::Cuda( device_index ) );
+        if ( !device_id )
+            return {};
 
-        return device ? device->getMemoryInfo() : DeviceMemoryInfo{};
+        try
+        {
+            const auto device = DeviceRegistry::instance().getDevice( *device_id );
+
+            return device ? device->getMemoryInfo() : DeviceMemoryInfo{};
+        } catch ( const std::exception& )
+        {
+            return {};
+        }
     }
 
     /**
-     * @brief The card's own name, or empty when there is no CUDA device to ask.
+     * @brief The device's own name, such as "NVIDIA GeForce RTX 4070", or empty when there is no device to ask.
      *
-     * `Device::getDeviceName()` answers "CUDA:0", which is a coordinate rather than a name -- it
-     * tells a reader nothing about the hardware their verdicts were measured against. The marketing
-     * string lives on the concrete device's properties, hence the cast; empty on failure, because a
-     * listing that cannot name the card is still a listing.
+     * `cuda:0` is a coordinate rather than a name -- it tells a reader nothing about the hardware their verdicts
+     * were measured against. Empty on failure, because a listing that cannot name the card is still a listing.
      */
-    export inline std::string queryDeviceName( int device_index = 0 )
+    export inline std::string queryDeviceName( std::optional<DeviceId> device_id )
     {
-        const auto cuda = std::dynamic_pointer_cast<CudaDevice>(
-            DeviceRegistry::instance().getDevice( Device::Cuda( device_index ) ) );
+        return device_id ? DeviceReading::describe( *device_id ).hardware_name : std::string{};
+    }
 
-        return cuda ? cuda->getProperties().getName() : std::string{};
+    /**
+     * @brief The device the session's figures describe before a model is loaded: the first present GPU the allowed
+     *        devices name, in device order. Nothing when none is present.
+     */
+    export inline std::optional<DeviceId> describedDevice( const AllowedDevices& devices )
+    {
+        for ( const DeviceReading& present : DeviceReading::describePresent() )
+        {
+            if ( present.device.type != DeviceType::Cpu && devices.allows( present ) )
+                return present.device;
+        }
+
+        return std::nullopt;
+    }
+
+    /**
+     * @brief Chat's devices when the settings name none: the first GPU this build sees (LayerSplit.md 12.3, Todd,
+     *        2026-11-07), or every device when there is none, so the load's refusal says what is missing.
+     */
+    export inline AllowedDevices defaultDevices()
+    {
+        const std::expected<DeviceType, DeploymentRefusal> type = ModelHandle::deviceTypeFor( DeploymentRequest{} );
+
+        return type ? AllowedDevices( DeviceId{ *type, 0 } ) : AllowedDevices{};
     }
 
     /**
@@ -58,10 +88,11 @@ namespace Mila::ChatApp
      * cache is always named: it is the session's choice, not the package's.
      */
     export inline DeploymentRequest deploymentRequestFor(
-        Dnn::WeightQuantization quantization, bool quantization_applied_at_load, int device_index, Dnn::KvCacheCompression kv_cache )
+        Dnn::WeightQuantization quantization, bool quantization_applied_at_load, const AllowedDevices& devices,
+        Dnn::KvCacheCompression kv_cache )
     {
         DeploymentRequest request;
-        request.withDevice( DeviceId{ DeviceType::Cuda, device_index } ).withKvCacheCompression( kv_cache );
+        request.withAllowedDevices( devices ).withKvCacheCompression( kv_cache );
 
         if ( quantization_applied_at_load )
         {

@@ -491,9 +491,11 @@ PUBLIC
         "Src/Deployment/Planning/PrefillChunkRule.ixx"
         "Src/Deployment/Planning/DeviceReading.ixx"
         "Src/Deployment/Planning/SpeculativeDecode.ixx"
+        "Src/Deployment/Planning/AllowedDevices.ixx"
         "Src/Deployment/Planning/DeploymentRequest.ixx"
         "Src/Deployment/Planning/DeploymentPlan.ixx"
         "Src/Deployment/Planning/DeploymentPlans.ixx"
+        "Src/Deployment/Refusals/DeviceShortfall.ixx"
         "Src/Deployment/Refusals/DeploymentRefusal.ixx"
         "Src/Deployment/Refusals/DeploymentRefusedError.ixx"
         "Src/Deployment/Planning/DeploymentPlanner.ixx"
@@ -555,6 +557,7 @@ PUBLIC
         "Src/Dnn/Core/Generation/SequenceLogLikelihood.ixx"
         "Src/Dnn/Core/Generation/PromptPrefixReuse.ixx"
         "Src/Dnn/Core/Models/LanguageModelNetwork.ixx"
+        "Src/Dnn/Core/Models/ILanguageModel.ixx"
         "Src/Dnn/Core/Models/LanguageModel.ixx"
         "Src/Dnn/Core/Components/Component.TrainingMode.ixx"
         "Src/Dnn/Compute/Operations/IPositionalPairedOp.ixx"
@@ -1193,6 +1196,14 @@ target_sources(Mila
 if(MSVC)
     target_compile_options( Mila PUBLIC $<$<COMPILE_LANGUAGE:CXX>:/bigobj> )
 endif()
+
+# The bodies of plain classes whose interfaces every importer reads: an edit to a body rebuilds this file alone,
+# not everything that imports Mila. The handle's file is where every family's model is instantiated.
+target_sources(Mila
+    PRIVATE
+        "Src/Deployment/Implementation/ModelHandle.cpp"
+        "Src/Agents/Implementation/Agent.cpp"
+)
 
 # ----------------------------------------------------------------------------
 # Mila::Agents -- the file calls a tool's grant makes

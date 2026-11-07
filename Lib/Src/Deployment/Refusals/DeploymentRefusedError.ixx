@@ -21,7 +21,7 @@ namespace Mila::Deployment
     public:
 
         DeploymentRefusedError( std::string_view caller, const DeploymentRefusal& refusal )
-            : std::runtime_error( std::string( caller ) + ": no deployment fits -- " + refusal.toString() ),
+            : std::runtime_error( std::string( caller ) + ": refused -- " + refusal.toString() ),
               refusal_( refusal )
         {
         }

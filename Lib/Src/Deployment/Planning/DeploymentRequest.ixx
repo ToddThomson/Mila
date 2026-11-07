@@ -10,6 +10,7 @@ export module Deployment.DeploymentRequest;
 import std;
 export import Dnn.LanguageModelConfig;
 export import Deployment.SpeculativeDecode;
+export import Deployment.AllowedDevices;
 import Dnn.TensorTypes;
 import Compute.DeviceId;
 
@@ -19,7 +20,7 @@ namespace Mila::Deployment
     using namespace Mila::Dnn::Compute;
 
     /**
-     * @brief A deployment request: the context length fixed or automatic, the device, and the headroom.
+     * @brief A deployment request: the context length fixed or automatic, the allowed devices, and the headroom.
      *
      * The weight format and KV-cache compression are inherited from LanguageModelConfig and are always the
      * caller's; the planner never chooses them (Deployment.md 12.1), as is a draft model. A request that names no
@@ -100,10 +101,15 @@ namespace Mila::Deployment
             return *this;
         }
 
-        /// The one device to plan on (Phase 3). Unset means the family's device type at ordinal 0.
-        DeploymentRequest& withDevice( DeviceId device )
+        /**
+         * @brief The devices the planner may choose among (Deployment.md 12.8); unset allows every device.
+         *
+         * One DeviceId is the set of one. The planner chooses the device; a name that matches no present device
+         * is refused, never replaced.
+         */
+        DeploymentRequest& withAllowedDevices( AllowedDevices devices )
         {
-            device_ = device;
+            allowed_devices_ = std::move( devices );
 
             return *this;
         }
@@ -188,9 +194,9 @@ namespace Mila::Deployment
             return resolved;
         }
 
-        [[nodiscard]] const std::optional<DeviceId>& getDevice() const noexcept
+        [[nodiscard]] const AllowedDevices& getAllowedDevices() const noexcept
         {
-            return device_;
+            return allowed_devices_;
         }
 
         std::string toString() const
@@ -201,6 +207,7 @@ namespace Mila::Deployment
                 ? std::format( "automatic, {} to {}", context_floor_,
                     context_ceiling_ == 0 ? std::string( "trained maximum" ) : std::to_string( context_ceiling_ ) )
                 : std::to_string( context_length_ ) );
+            result += std::format( "  allowed_devices:     {}\n", allowed_devices_.toString() );
             result += std::format( "  headroom_bytes:      {}\n", headroom_bytes_ );
 
             if ( speculative_decode_ )
@@ -218,7 +225,7 @@ namespace Mila::Deployment
         dim_t context_ceiling_{ 0 };
         std::size_t headroom_bytes_{ 0 };
         bool whole_device_memory_{ false };
-        std::optional<DeviceId> device_;
+        AllowedDevices allowed_devices_;
         std::optional<SpeculativeDecode> speculative_decode_;
     };
 }

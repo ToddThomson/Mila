@@ -200,7 +200,7 @@ agent = Mila::Agents::Agent::create( "gemma-4-12b-it-q4_0", {}, std::move( held 
 
 `Agent` names no device and no precision: the handle chooses both at load, the device among those the request allows
 and the precision the device's (`ModelHandle.md` 10.7, Todd, 2026-11-07). A program that wants a particular pair loads
-the typed model itself, beneath the agent. Until then `Agent` was `BasicAgent<Cuda, BF16>`.
+the typed model itself, beneath the agent. Until `0.21.0-dev+127` `Agent` was `BasicAgent<Cuda, BF16>`.
 
 ### 4.2 Rules
 

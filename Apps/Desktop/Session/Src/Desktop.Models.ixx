@@ -13,6 +13,7 @@ namespace Mila::Desktop
 {
     using Mila::Dnn::WeightQuantization;
     using Mila::Deployment::DeploymentRefusal;
+    using Mila::Deployment::DeviceShortfall;
     using Mila::Deployment::InstalledModel;
 
     /// A size as the models view shows it.
@@ -251,24 +252,32 @@ namespace Mila::Desktop
      */
     export inline std::string refusalText( const DeploymentRefusal& refusal, bool quantizable )
     {
-        const std::string free = formatBytes( refusal.reading().free_bytes );
+        if ( refusal.reason() == DeploymentRefusal::Reason::AllowedDeviceAbsent && !refusal.absent().empty() )
+            return std::format( "This computer has no GPU {}.", refusal.absent().front() );
 
-        switch ( refusal.reason() )
+        // The session allows one GPU, so a refusal that planned anything planned exactly that one.
+        if ( refusal.shortfalls().empty() )
+            return "This computer has no GPU Mila can use.";
+
+        const DeviceShortfall& shortfall = refusal.shortfalls().front();
+        const std::string free = formatBytes( shortfall.reading().free_bytes );
+
+        switch ( shortfall.reason() )
         {
-            case DeploymentRefusal::Reason::WeightsExceedDevice:
+            case DeviceShortfall::Reason::WeightsExceedDevice:
                 return std::format( "Its weights need {} and this GPU has {} free.{}",
-                    formatBytes( refusal.footprint().device_parameter_bytes ), free,
+                    formatBytes( shortfall.footprint().device_parameter_bytes ), free,
                     quantizable ? std::string( " Quantized to fp4 as it loads, it needs less." ) : std::string{} );
 
-            case DeploymentRefusal::Reason::FixedContextDoesNotFit:
+            case DeviceShortfall::Reason::FixedContextDoesNotFit:
                 return std::format( "A context of {} needs {} and this GPU has {} free. An automatic context picks the "
-                    "longest that fits.", refusal.contextLength(), formatBytes( refusal.footprint().totalDeviceBytes() ), free );
+                    "longest that fits.", shortfall.contextLength(), formatBytes( shortfall.footprint().totalDeviceBytes() ), free );
 
-            case DeploymentRefusal::Reason::NothingAboveTheFloorFits:
+            case DeviceShortfall::Reason::NothingAboveTheFloorFits:
                 return std::format( "Even a context of {} needs {} and this GPU has {} free.",
-                    refusal.contextLength(), formatBytes( refusal.footprint().totalDeviceBytes() ), free );
+                    shortfall.contextLength(), formatBytes( shortfall.footprint().totalDeviceBytes() ), free );
 
-            case DeploymentRefusal::Reason::DeviceDoesNotReportMemory:
+            case DeviceShortfall::Reason::DeviceDoesNotReportMemory:
                 return "This GPU does not report its memory, so no context can be measured for it. Choose one yourself.";
         }
 

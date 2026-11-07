@@ -91,15 +91,15 @@ namespace Mila::Tests::Deployment
 
                 if ( !recorded.context_length )
                 {
-                    ASSERT_FALSE( planned.has_value() ) << at << ": planned " << planned->best().contextLength();
-                    EXPECT_EQ( planned.error().reason(), DeploymentRefusal::Reason::WeightsExceedDevice ) << at;
+                    ASSERT_FALSE( planned.has_value() ) << at << ": planned " << planned->contextLength();
+                    EXPECT_EQ( planned.error().reason(), DeviceShortfall::Reason::WeightsExceedDevice ) << at;
 
                     continue;
                 }
 
                 ASSERT_TRUE( planned.has_value() ) << at << ": " << planned.error().toString();
 
-                const DeploymentPlan& best = planned->best();
+                const DeploymentPlan& best = *planned;
 
                 std::cout << std::format( "[G2] {:<22} {:<12} context {:>6} chunk {:>4} limit {}\n", label, card,
                     best.contextLength(), best.prefillChunkRows(), DeploymentPlan::nameOf( best.contextLimitedBy() ) );
@@ -116,9 +116,9 @@ namespace Mila::Tests::Deployment
                     reader.getWeightsMetadata(), reader.getWeightQuantization() );
 
                 ASSERT_TRUE( fixed.has_value() ) << at;
-                EXPECT_EQ( fixed->best().prefillChunkRows(), best.prefillChunkRows() ) << at;
-                EXPECT_EQ( fixed->best().footprint().totalDeviceBytes(), best.footprint().totalDeviceBytes() ) << at;
-                EXPECT_EQ( fixed->best().contextLimitedBy(), DeploymentPlan::ContextLimit::FixedByCaller ) << at;
+                EXPECT_EQ( fixed->prefillChunkRows(), best.prefillChunkRows() ) << at;
+                EXPECT_EQ( fixed->footprint().totalDeviceBytes(), best.footprint().totalDeviceBytes() ) << at;
+                EXPECT_EQ( fixed->contextLimitedBy(), DeploymentPlan::ContextLimit::FixedByCaller ) << at;
             }
         }
 

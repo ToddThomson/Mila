@@ -10,11 +10,17 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## A session that fails as it starts hangs silently instead of saying why
+
+`Apps/Desktop/Session/Src/Desktop.SessionProcess.ixx` (`run`, the `reader` jthread) @ 0.21.0-dev+126
+
+Found running the packaged session on the Mac, 2026-11-07: it found its prompts against the working directory (fixed the same day in `main.cpp`'s `executable_directory`), so `useActivity( "ask" )` threw before the request loop. The exception left `run` while the reader thread was blocked reading standard input, and the `jthread`'s destructor joined it, so the process answered nothing and printed nothing until its input closed; `main`'s "Fatal error" is reached only then. A stack sample shows the main thread in `~jthread` -> `join` and the reader in `getline`. Not Mac-specific: any throw before the loop does this.
+
 ## An edit to a low-level module rebuilds about 530 test targets, which makes a forced failure there cost minutes
 
 `Lib/Src/Dnn/Compute/Registry/DeviceRegistryHelpers.ixx`, `Devices/Device.ixx`; `Lib/Tests` (`import Mila;`) @ 0.21.0-dev+125
 
-Found running change 1's forced failures (`Specifications/Notebooks/DeviceAssumptions.md`): each mutant of a device module rebuilt about 530 `MilaTests` targets, so eleven mutants were estimated at 40 to 50 minutes, and the run was cut to the two that mattered most. Two causes, not yet split by measurement: a module's bodies live in its interface unit, so a body edit changes what every importer sees; and most test files `import Mila;`, so every test depends on every module. `ninja -t query` on the build would show how much is each. Todd, 2026-11-07: noted, moved on. **Direction agreed the same day (Todd):** a module that is not a template, not on a per-token path, and has real bodies or includes a backend header gets an implementation unit in an `Implementation/` folder beside it; value types, accessor classes and templates stay in one `.ixx`; existing code moves when a change touches it substantially. First case: `Agent` and `ModelHandle` in the device-blind handle change, with one body edit's rebuild timed before and after; the convention goes into CLAUDE.md with that number, or is dropped if the saving is not there. Separately, tests importing only what they use: white-box tests yes, contract tests and apps stay on `import Mila;`, to be measured after the file-name pass.
+Found running change 1's forced failures (`Specifications/Notebooks/DeviceAssumptions.md`): each mutant of a device module rebuilt about 530 `MilaTests` targets, so eleven mutants were estimated at 40 to 50 minutes, and the run was cut to the two that mattered most. Two causes, not yet split by measurement: a module's bodies live in its interface unit, so a body edit changes what every importer sees; and most test files `import Mila;`, so every test depends on every module. `ninja -t query` on the build would show how much is each. Todd, 2026-11-07: noted, moved on. **Direction agreed the same day (Todd):** a module that is not a template, not on a per-token path, and has real bodies or includes a backend header gets an implementation unit in an `Implementation/` folder beside it; value types, accessor classes and templates stay in one `.ixx`; existing code moves when a change touches it substantially. First case: `Agent` and `ModelHandle` in the device-blind handle change, with one body edit's rebuild timed before and after; the convention goes into CLAUDE.md with that number, or is dropped if the saving is not there. **Measured at +127:** an edit to `Agent::baseModelRefusal` rebuilt 263 steps in 268 s in the interface and 19 in 20 s in `Implementation/Agent.cpp`; the convention is in CLAUDE.md. What remains here is the other cause. Separately, tests importing only what they use: white-box tests yes, contract tests and apps stay on `import Mila;`, to be measured after the file-name pass.
 
 ## `TPrecision` is named for no one thing, and documented six ways where it is documented at all
 
@@ -254,17 +260,6 @@ Tavily's credits page says nothing on keeping or showing results. Brave grants t
 
 Found 2026-10-26 writing Mila Desktop's page reader, which fetches through it: the user agent is a written-in
 string from the 0.20 cycle, not `Version.txt`'s, so model installs and web pages alike are requested as Mila 0.20.
-
-## A program names a compute precision to open a model whose precision its package already decides
-
-`Lib/Src/Agents/Agent.ixx` (`Agent`, `BasicAgent`) and `Lib/Src/Deployment/ModelHandle.ixx` (`ModelHandle`) @ 793bddb5
-
-Todd, 2026-10-26: `BasicAgent<Cuda, BF16>` reads as a BF16 model, but the same agent runs the FP4, FP8 and codebook
-packages -- BF16 is the compute precision, and the weight format comes from the package named. Every installed
-model's format runs at BF16 compute only (Qwen refuses another, `QwenModel.ixx` near 567); FP32 is used below
-`Mila::Agents`, by the HuggingFace reference tests and GPT-2's training. Outlined to Todd: `BasicAgent<TDeviceType>`
-and `ModelHandle<TDeviceType>`, BF16 compute fixed inside; `Direction.md` 4.1 and `ModelHandle.md` 3 and 10.1 say
-the pair. A format that changes the compute itself (Vnext's NVFP4 W4A4) is the package's choice too.
 
 ## Two of the agent's answers to a stop or a cut have no test that fails without them
 

@@ -446,6 +446,9 @@ namespace Mila::Tools::ContextProfile
         request.withWeightQuantization( configuration.weight_quantization );
         request.withKvCacheCompression( configuration.kv_cache_compression );
 
+        // The profile measures one card, so the fit column is that card's answer.
+        request.withAllowedDevices( kDevice );
+
         return request;
     }
 
@@ -476,12 +479,21 @@ namespace Mila::Tools::ContextProfile
             }
             else
             {
-                cell.free_bytes = planned.error().reading().free_bytes;
-                cell.refused_for_memory =
-                    planned.error().reason() == DeploymentRefusal::Reason::FixedContextDoesNotFit;
                 cell.json[ "fits" ] = false;
-                cell.json[ "refused" ] = DeploymentRefusal::nameOf( planned.error().reason() );
-                cell.json[ "footprint" ] = footprintOf( planned.error().footprint() );
+
+                if ( planned.error().shortfalls().empty() )
+                {
+                    cell.json[ "refused" ] = DeploymentRefusal::nameOf( planned.error().reason() );
+                }
+                else
+                {
+                    const DeviceShortfall& shortfall = planned.error().shortfalls().front();
+
+                    cell.free_bytes = shortfall.reading().free_bytes;
+                    cell.refused_for_memory = shortfall.reason() == DeviceShortfall::Reason::FixedContextDoesNotFit;
+                    cell.json[ "refused" ] = DeviceShortfall::nameOf( shortfall.reason() );
+                    cell.json[ "footprint" ] = footprintOf( shortfall.footprint() );
+                }
             }
         } catch ( const std::invalid_argument& )
         {

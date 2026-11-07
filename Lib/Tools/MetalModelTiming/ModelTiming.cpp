@@ -257,7 +257,7 @@ namespace
     {
         using Model = LlamaModel<DeviceType::Metal, TPrecision>;
 
-        const DeploymentRequest request = DeploymentRequest().withAutomaticContextLength().withDevice( Device::Metal( 0 ) );
+        const DeploymentRequest request = DeploymentRequest().withAutomaticContextLength().withAllowedDevices( Device::Metal( 0 ) );
         const auto planned = Model::planDeployment( options.weights, request );
 
         if ( !planned )

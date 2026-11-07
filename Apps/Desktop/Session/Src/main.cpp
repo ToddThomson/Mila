@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
@@ -18,6 +20,10 @@
 #include <fcntl.h>
 #include <io.h>
 #include <windows.h>
+#endif
+
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
 #endif
 
 import Mila;
@@ -50,6 +56,20 @@ static std::filesystem::path executable_directory()
 
     if ( !unresolved )
         return image.parent_path();
+#elif defined( __APPLE__ )
+    // The path the program was started by, which can be a link; canonical resolves it to the real folder.
+    std::uint32_t size = 0;
+    _NSGetExecutablePath( nullptr, &size );
+    std::string image( size, '\0' );
+
+    if ( _NSGetExecutablePath( image.data(), &size ) == 0 )
+    {
+        std::error_code unresolved;
+        const std::filesystem::path resolved = std::filesystem::canonical( image.c_str(), unresolved );
+
+        if ( !unresolved )
+            return resolved.parent_path();
+    }
 #endif
     return std::filesystem::current_path();
 }
@@ -71,7 +91,8 @@ struct CommandLine
     /// Set with --context-length: a length, or empty for auto.
     std::optional<std::optional<Mila::Dnn::dim_t>> context_length;
 
-    int device = 0;
+    /// Set with --device: the devices the model may run on, as written.
+    std::optional<std::string> devices;
     std::optional<std::filesystem::path> conversations;
     bool show_help = false;
 };
@@ -116,13 +137,12 @@ static CommandLine parseCommandLine( int argc, char* argv[] )
         else if ( arg == "--device" )
         {
             const std::string_view value = requireValue( argc, argv, i, arg );
-            int device = 0;
-            const auto [stopped, error] = std::from_chars( value.data(), value.data() + value.size(), device );
 
-            if ( error != std::errc{} || stopped != value.data() + value.size() || device < 0 )
-                throw UsageError( std::format( "{} expects a device index of 0 or more, not '{}'.", arg, value ) );
+            // A number alone meant a CUDA device only by assumption (Deployment.md 12.8).
+            if ( !value.empty() && std::ranges::all_of( value, []( unsigned char c ) { return std::isdigit( c ) != 0; } ) )
+                throw UsageError( std::format( "{} no longer takes a number alone: write cuda:{}.", arg, value ) );
 
-            line.device = device;
+            line.devices = std::string( value );
         }
         else if ( arg == "--conversations" )
         {
@@ -148,7 +168,8 @@ static void printUsage( const char* program )
         << "\n"
         << "  --model <name>          Load this model, as 'mila-store models' lists it.\n"
         << "  --context-length <n>    Maximum sequence length, or auto.\n"
-        << "  --device <n>            Which CUDA device to run on (the CUDA ordinal).\n"
+        << "  --device <devices>      The devices the model may run on: cuda, cuda:1, metal or a card's\n"
+        << "                          identity, several separated by commas. Default: the first GPU.\n"
         << "  --conversations <dir>   Where conversations are stored. Default: "
         << ConversationStore::defaultDirectory().string() << "\n"
         << "  --help, -h              Show this message.\n";
@@ -219,8 +240,29 @@ int main( int argc, char* argv[] )
             settings.model = *line.model;
         }
 
-        SessionProcess process( std::move( settings ), std::move( settings_file ), std::move( problems ), line.device,
-            conversations, executable_directory() / "Prompts", protocol_out );
+        // Unset, the first GPU this build sees (LayerSplit.md 12.3), or every device when there is none, so the load's
+        // refusal says what is missing.
+        Mila::Deployment::AllowedDevices devices;
+
+        if ( line.devices )
+        {
+            try
+            {
+                devices = Mila::Deployment::AllowedDevices::parse( *line.devices );
+            } catch ( const std::invalid_argument& )
+            {
+                std::cerr << std::format( "--device: '{}' is not a list of devices. Write cuda, cuda:1, metal or a "
+                    "card's identity, several separated by commas.\n", *line.devices );
+
+                return 2;
+            }
+        } else if ( const auto type = Mila::Deployment::ModelHandle::deviceTypeFor( {} ) )
+        {
+            devices = Mila::Deployment::AllowedDevices( Mila::Dnn::Compute::DeviceId{ *type, 0 } );
+        }
+
+        SessionProcess process( std::move( settings ), std::move( settings_file ), std::move( problems ),
+            std::move( devices ), conversations, executable_directory() / "Prompts", protocol_out );
 
         return process.run( std::cin );
     }

@@ -8,6 +8,7 @@ export module Compute.DeviceTypeTraits.Metal;
 import std;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
+import Dnn.TensorDataType;
 import Compute.MetalMemoryResource;
 
 namespace Mila::Dnn::Compute
@@ -26,5 +27,9 @@ namespace Mila::Dnn::Compute
 
         // Unified memory: the GPU and the host share one pool, so keeping a table "in host memory" saves nothing.
         static constexpr bool memory_separate_from_host = false;
+
+        // The precision a model opened by name runs at here (ModelHandle.md 10.7). Every Apple GPU computes FP16
+        // natively; which chips also run BF16 natively is not yet a table Mila keeps (MetalBackend.md).
+        static constexpr TensorDataType language_model_precision = TensorDataType::FP16;
     };
 }
