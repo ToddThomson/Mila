@@ -51,6 +51,17 @@ namespace Dnn::Compute::Tests
 		EXPECT_EQ( id, Device::Cpu() );
 	}
 
+	TEST_F( CpuDeviceTest, IsNamedByItsTypeAndReportsNoSpeed )
+	{
+		auto device = DeviceRegistry::instance().getDevice( Device::Cpu() );
+
+		ASSERT_NE( device, nullptr );
+
+		EXPECT_EQ( device->getStableIdentity(), std::string( "cpu" ) );
+		EXPECT_TRUE( device->getPerformance().isEmpty() );
+		EXPECT_EQ( findDeviceByStableIdentity( "cpu" ), Device::Cpu() );
+	}
+
 	TEST_F( CpuDeviceTest, PolymorphicBehavior )
 	{
 		auto device = DeviceRegistry::instance().getDevice( Device::Cpu() );

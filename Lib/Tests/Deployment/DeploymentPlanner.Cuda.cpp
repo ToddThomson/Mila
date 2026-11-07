@@ -69,8 +69,7 @@ namespace Mila::Tests::Deployment
 
         DeviceReading readingOf( std::size_t free_bytes )
         {
-            DeviceReading reading;
-            reading.device = Device::Cuda( 0 );
+            DeviceReading reading{ .device = Device::Cuda( 0 ) };
             reading.free_bytes = free_bytes;
             reading.total_bytes = free_bytes == 0 ? 0 : kPlenty;
             reading.allocation_granularity = allocationGranularity( Device::Cuda( 0 ) );

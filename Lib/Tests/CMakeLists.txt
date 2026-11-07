@@ -416,6 +416,7 @@ if(MILA_ENABLE_CUDA)
         # Section 2 - Active, not yet revisited (pre-methodology)
         # ----------------------------------------------------------
         "Dnn/Compute/Devices/Cuda/CudaDeviceRegistrar.cpp"
+        "Dnn/Compute/Devices/Cuda/CudaDeviceFacts.Cuda.cpp"
         "Dnn/Compute/ExecutionContext/CudaExecutionContext.cpp"
 
         # ----------------------------------------------------------

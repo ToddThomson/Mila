@@ -30,6 +30,16 @@ namespace Mila::Tests::Dnn::Compute
         EXPECT_EQ( metalRefusalReason( device->capabilities() ), std::nullopt );
     }
 
+    TEST( MetalDevice, IsNamedForPeopleByItsChipAndForSettingsByItsType )
+    {
+        const std::shared_ptr<MetalDevice> device = MetalDevice::at( 0 );
+
+        EXPECT_EQ( device->getHardwareName(), device->capabilities().device_name );
+        EXPECT_FALSE( device->getHardwareName().empty() );
+        EXPECT_EQ( device->getStableIdentity(), "metal" );
+        EXPECT_EQ( findDeviceByStableIdentity( "metal" ), Device::Metal( 0 ) );
+    }
+
     TEST( MetalDevice, ANumberNoMacHasIsNotADevice )
     {
         EXPECT_THROW( (void)MetalDevice::at( 1 ), std::runtime_error );

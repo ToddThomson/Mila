@@ -103,6 +103,7 @@ means a status line or target is out of date and the rest has not been re-read.
 | [Deployment.md](Deployment.md) | Design | The deployment planner: context length, prefill chunk, devices | |
 | [LayerSplit.md](LayerSplit.md) | Design | One model's blocks across several devices | Draft; `Deployment.md` Phase 5, after v0.21.0 |
 | [WeightTying.md](WeightTying.md) | Design | One table for a tied embedding and output head | |
+| [Notebooks/DeviceAssumptions.md](Notebooks/DeviceAssumptions.md) | Notebook | Where the library, the applications and the bindings assume the device is CUDA, each site sorted correct, wrong or stale, 2026-11-07 | Evidence for `Deployment.md` 12.8 and for where device and precision are chosen; ahead of `Metal/MetalBackend.md` Phase 8 |
 
 ### Metal
 

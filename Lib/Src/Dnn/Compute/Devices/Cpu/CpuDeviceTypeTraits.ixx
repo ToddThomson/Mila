@@ -35,5 +35,8 @@ namespace Mila::Dnn::Compute
 
         // The host has no compute operations, forward or backward.
         static constexpr bool supports_training = false;
+
+        // The host's memory is the host's.
+        static constexpr bool memory_separate_from_host = false;
     };
 }

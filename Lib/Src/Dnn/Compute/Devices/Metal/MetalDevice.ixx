@@ -142,10 +142,22 @@ namespace Mila::Dnn::Compute
             return DeviceType::Metal;
         }
 
-        /// "Metal:0", as a device is named everywhere in Mila. The chip's own name is in capabilities().
+        /// "Metal:0", as a device is named everywhere in Mila. The chip's own name is getHardwareName.
         [[nodiscard]] std::string getDeviceName() const override
         {
             return getDeviceId().toString();
+        }
+
+        /// The chip's name as Metal reports it, such as "Apple M1 Pro".
+        [[nodiscard]] std::string getHardwareName() const override
+        {
+            return capabilities_.device_name;
+        }
+
+        /// A Mac has one Metal device, so its type names it, and a setting saved on one Mac means the GPU of another.
+        [[nodiscard]] std::string getStableIdentity() const override
+        {
+            return "metal";
         }
 
         /**

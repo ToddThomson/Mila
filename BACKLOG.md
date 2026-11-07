@@ -723,7 +723,7 @@ working set, where the model runs and macOS swaps the rest of the Mac out (`Meta
 
 #### Mila Desktop and Chat do not build on a Mac
 
-`open` · `apps` · `agents` · `build` · `distribution`
+`in progress` · `apps` · `agents` · `build` · `distribution`
 
 The root `CMakeLists.txt` adds both apps only with CUDA on. The session asks for a CUDA device when it loads
 (`Apps/Desktop/Session/Src/Desktop.SessionProcess.ixx`, `requestFor`), and `Mila::Agents::Agent` is fixed as
@@ -731,7 +731,9 @@ The root `CMakeLists.txt` adds both apps only with CUDA on. The session asks for
 device decide, as `Issues/Untriaged.md` already records for programs that name one. The window packages for Windows and
 Linux and has no macOS target (`Apps/Desktop/Window/package.json`). A Mac app is signed and notarized under Todd's
 Apple developer account. Without tools on a Mac until the grant's checks are tested there (*The Desktop Agent*), and
-labelled experimental where it is offered. Not looked at: whether GitHub's macOS runners reach Metal for CI.
+labelled experimental where it is offered. Not looked at: whether GitHub's macOS runners reach Metal for CI. The
+library's side is the device-blind handle and agent of `Specifications/ModelHandle.md` 10.7, with the allowed devices
+of `Specifications/Deployment.md` 12.8; the order of changes is in `Specifications/Notebooks/DeviceAssumptions.md`.
 
 #### Mila for Python does not build on a Mac
 

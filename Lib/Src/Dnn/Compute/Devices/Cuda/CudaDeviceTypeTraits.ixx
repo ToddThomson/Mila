@@ -37,5 +37,8 @@ namespace Mila::Dnn::Compute
 
         // Every operation declares a backward pass here.
         static constexpr bool supports_training = true;
+
+        // A card has memory of its own, so a large table can be kept in host memory instead and read across the bus.
+        static constexpr bool memory_separate_from_host = true;
     };
 }

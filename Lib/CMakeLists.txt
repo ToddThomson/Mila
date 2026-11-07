@@ -247,6 +247,7 @@ PUBLIC
         "Src/Dnn/Components/DeltaNet/GatedDeltaRule.ixx"
 
         # Components - Embeddings
+        "Src/Dnn/Components/Embeddings/EmbeddingTableResidency.ixx"
         "Src/Dnn/Components/Embeddings/TokenEmbedding.ixx"
         "Src/Dnn/Components/Embeddings/TokenEmbedding.Config.ixx"
         "Src/Dnn/Components/Embeddings/NgramEmbedding.ixx"
@@ -301,6 +302,8 @@ PUBLIC
         "Src/Dnn/Compute/Devices/DeviceArena.ixx"
         "Src/Dnn/Compute/Devices/DeviceType.ixx"
         "Src/Dnn/Compute/Devices/DeviceId.ixx"
+        "Src/Dnn/Compute/Devices/DeviceMemoryInfo.ixx"
+        "Src/Dnn/Compute/Devices/DevicePerformance.ixx"
 
         "Src/Dnn/Compute/ExecutionContext/ExecutionContext.Traits.ixx"
         "Src/Dnn/Compute/Observation.ixx"
@@ -620,6 +623,7 @@ if(MILA_HAS_CPU)
             FILE_SET cpu_modules
                TYPE CXX_MODULES FILES
                 "Src/Dnn/Compute/Devices/Cpu/CpuDevice.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/CpuDeviceRegistrar.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/CpuMemoryResource.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/CpuExecutionContext.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/CpuExecutionContext.Traits.ixx"
@@ -826,6 +830,7 @@ if(MILA_HAS_CUDA)
                 
                 "Src/Dnn/Compute/Devices/Cuda/CudaDeviceProps.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/CudaDevice.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/CudaDeviceRegistrar.ixx"
 
                 "Src/Dnn/Compute/Devices/Cuda/CudaExecutionContext.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/CudaDecodeGraph.ixx"

@@ -10,6 +10,24 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## An edit to a low-level module rebuilds about 530 test targets, which makes a forced failure there cost minutes
+
+`Lib/Src/Dnn/Compute/Registry/DeviceRegistryHelpers.ixx`, `Devices/Device.ixx`; `Lib/Tests` (`import Mila;`) @ 0.21.0-dev+125
+
+Found running change 1's forced failures (`Specifications/Notebooks/DeviceAssumptions.md`): each mutant of a device module rebuilt about 530 `MilaTests` targets, so eleven mutants were estimated at 40 to 50 minutes, and the run was cut to the two that mattered most. Two causes, not yet split by measurement: a module's bodies live in its interface unit, so a body edit changes what every importer sees; and most test files `import Mila;`, so every test depends on every module. `ninja -t query` on the build would show how much is each. Todd, 2026-11-07: noted, moved on. **Direction agreed the same day (Todd):** a module that is not a template, not on a per-token path, and has real bodies or includes a backend header gets an implementation unit in an `Implementation/` folder beside it; value types, accessor classes and templates stay in one `.ixx`; existing code moves when a change touches it substantially. First case: `Agent` and `ModelHandle` in the device-blind handle change, with one body edit's rebuild timed before and after; the convention goes into CLAUDE.md with that number, or is dropped if the saving is not there. Separately, tests importing only what they use: white-box tests yes, contract tests and apps stay on `import Mila;`, to be measured after the file-name pass.
+
+## `TPrecision` is named for no one thing, and documented six ways where it is documented at all
+
+`Lib/Src` (about 109 files declare `TensorDataType TPrecision`, about 38 carry a `@tparam` for it); `Specifications/OperationDispatch.md` line 40 @ 0.21.0-dev+125
+
+The decision is `OperationDispatch.md`'s: the activations' element type and the compute precision, the operation owning anything it widens internally, and through `TWeight`'s default the element type of unquantized weights. The `@tparam` lines say "compute and activation precision", "logits precision", "tensor data precision for this component", "abstract tensor precision", "tensor element type and cuBLASLt compute type" and, in `CudaMoeOp`, "activation and weight precision". `Linear` calls the same parameter `TComputePrecision`. No rule asks for `@tparam` lines; CLAUDE.md's Doxygen rule is the file comment's. Todd, 2026-11-07: document it to that meaning and rename it for its context, after the device decisions.
+
+## The ROCm device folder is a Vulkan placeholder, and a ROCm build cannot compile
+
+`Lib/Src/Dnn/Compute/Devices/Rocm/RocmDevice.ixx`, `Registry/DeviceRegistrar.ixx:70`, `Lib/CMakeLists.txt:1268` @ 0.21.0-dev+125
+
+`RocmDevice.ixx` declares `module Compute.VulkanDevice` and a `VulkanDevice` returning `DeviceType::Vulkan`, which `DeviceType` does not have; it is not in the ROCm file set. `DeviceRegistrar` calls `RocmDeviceRegistrar::registerDevices()`, which no file defines. `DeviceType.ixx` still marks Metal and ROCm `FUTURE`.
+
 ## Speculative decoding runs on CUDA only: Metal has no multi-token decode outside the expert bank and the sampler
 
 `Lib/Src/Dnn/Components/Linear/Linear.ixx` (`decode`), `Attention/GQA/GroupedQueryAttention.ixx`, `MixtureOfExperts/Router.ixx` (`decodeTokens`), `Transformers/Gemma/Gemma.ixx` (`kDraftModelRuns`) @ 0.21.0-dev+123

@@ -8,22 +8,11 @@ export module Compute.Device;
 import std;
 import Compute.DeviceType;
 import Compute.DeviceId;
+export import Compute.DeviceMemoryInfo;
+export import Compute.DevicePerformance;
 
 namespace Mila::Dnn::Compute
 {
-    /**
-     * @brief What a device currently has free, and what it has in total.
-     *
-     * Free memory is read, never modeled: it already accounts for the display compositor,
-     * other processes, and anything else resident, none of which a library can predict.
-     * See Specifications/MemoryFootprint.md section 2.
-     */
-    export struct DeviceMemoryInfo
-    {
-        std::size_t free_bytes{ 0 };
-        std::size_t total_bytes{ 0 };
-    };
-
     /**
      * @brief Abstract interface for compute device implementations.
      *
@@ -54,11 +43,39 @@ namespace Mila::Dnn::Compute
         virtual constexpr DeviceType getDeviceType() const = 0;
 
         /**
-         * @brief Gets the human-readable device name.
+         * @brief The device's place in this process, as text: "CPU:0", "CUDA:1", "Metal:0".
          *
-         * @return std::string Device name (e.g., "CPU:0", "CUDA:0", "Metal:1").
+         * A coordinate, not a name for people; that is getHardwareName.
          */
         virtual std::string getDeviceName() const = 0;
+
+        /**
+         * @brief The hardware's own name, such as "NVIDIA GeForce RTX 4070" or "Apple M1 Pro".
+         *
+         * Empty when the device does not report one.
+         */
+        virtual std::string getHardwareName() const
+        {
+            return {};
+        }
+
+        /**
+         * @brief A name for this device that stays the same between runs, which a stored setting names.
+         *
+         * A device's index can move from one run to the next -- CUDA's with CUDA_VISIBLE_DEVICES, and it cannot
+         * tell two cards of one model apart -- so a setting saved for a device names this instead
+         * (Specifications/Deployment.md 12.8). CUDA's is the UUID as nvidia-smi -L prints it,
+         * "GPU-8932f937-d72c-4106-c12f-20bd9faed9f6"; a device type with one device names it by its type.
+         */
+        virtual std::string getStableIdentity() const = 0;
+
+        /**
+         * @brief What the device reports about its speed, raw. Empty when it reports nothing.
+         */
+        virtual DevicePerformance getPerformance() const
+        {
+            return {};
+        }
 
         /**
          * @brief Current free and total device memory.

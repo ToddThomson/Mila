@@ -77,9 +77,6 @@ import Compute.DeviceTypeTraits;
 import Compute.GqaState;
 import Compute.GqaWorkspace;
 import Compute.CpuMemoryResource;
-#ifdef MILA_HAS_CUDA
-import Compute.CudaPinnedMemoryResource;
-#endif
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.OperationTraits;
@@ -131,10 +128,10 @@ namespace Mila::Dnn
         // 2.37 GiB, gathered at 10 KiB per token over PCIe. It is a family property rather
         // than a plan role, because the plan states a storage FORMAT and this is a decision
         // about where those bytes sit -- the same table at the same precision either way.
-        // On CPU the axis has no second position, so the condition is on the device, not on
-        // a preference.
+        // Where the device's memory is the host's -- the CPU, Metal's unified memory -- the axis has no second
+        // position, so the condition is a property of the device, not a preference.
         static constexpr EmbeddingTableResidency kEmbeddingTableResidency =
-            ( TDeviceType == DeviceType::Cuda )
+            DeviceTypeTraits<TDeviceType>::memory_separate_from_host
             ? EmbeddingTableResidency::Host : EmbeddingTableResidency::Device;
 
         using TokenEmbeddingType = TokenEmbedding<TDeviceType, dtype_t::INT32, TPrecision,
@@ -645,16 +642,9 @@ namespace Mila::Dnn
                 this->getExecutionContext()->synchronize();
             };
 
-#ifdef MILA_HAS_CUDA
-            if constexpr ( TDeviceType == DeviceType::Cuda )
-            {
-                reader.streamTensorBlobs<CudaPinnedMemoryResource>( consume, device_index );
-            }
-            else
-#endif
-            {
-                reader.streamTensorBlobs<CpuMemoryResource>( consume );
-            }
+            // Pinned on CUDA, the host's own memory on the CPU, shared memory on Metal.
+            reader.streamTensorBlobs<typename DeviceTypeTraits<TDeviceType>::host_staging_memory_resource>(
+                consume, device_index );
 
             this->getExecutionContext()->synchronize();
 

@@ -13,6 +13,7 @@ export module Dnn.Components.TokenEmbedding;
 
 import std;
 export import Dnn.Components.TokenEmbeddingConfig;
+export import Dnn.Components.EmbeddingTableResidency;
 
 import Dnn.Component;
 import Dnn.ComponentType;
@@ -51,25 +52,6 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Quant::Weight;
 
     /**
-     * @brief Where the embedding table's bytes live.
-     *
-     * Device is what every other parameter in the tree does and stays the default.
-     * Host places the table in pinned host memory, which is device-addressable under
-     * unified virtual addressing, so the gather kernel reads rows across PCIe and is
-     * unchanged -- the table simply costs no VRAM. It is worth doing only for a table
-     * large enough to matter and only because a lookup is a gather and never a
-     * multiply: the traffic is one row per token, not one pass per matrix.
-     *
-     * See Specifications/Qwen3.8.md section 5, which spends this on 1.271 B parameters
-     * (2.37 GiB) to bring a 27B model inside a 12 GiB card.
-     */
-    export enum class EmbeddingTableResidency
-    {
-        Device,
-        Host
-    };
-
-    /**
      * @brief Pure token embedding component (device-templated).
      *
      * Transforms input token indices into continuous vector representations
@@ -95,7 +77,7 @@ namespace Mila::Dnn
      * - Child/deferred: omit DeviceId; caller must call setExecutionContext()
      *   before build().
      *
-     * @tparam TDeviceType        Device type (DeviceType::Cuda).
+     * @tparam TDeviceType        The device type the component runs on.
      * @tparam TIndex             Data type for token indices (typically INT32).
      * @tparam TPrecision         Tensor precision for embeddings (FP32 or BF16).
      * @tparam TTableQuantization Table quantization policy. Must satisfy
@@ -122,9 +104,9 @@ namespace Mila::Dnn
         static_assert( !kIsQuantized || TTableQuantization::kPerChannel || kIsInt6Table,
             "TokenEmbedding: a quantized table is FP8 per vocabulary row or INT6 per 32 elements of a row" );
 
-        // A CPU tensor is already host memory, so the axis has no second position there.
-        static_assert( !kIsHostResident || TDeviceType == DeviceType::Cuda,
-            "TokenEmbedding: a host-resident table is a CUDA arrangement; on a CPU device the table is already host memory" );
+        // Where the device's memory is the host's -- the CPU, unified memory -- the axis has no second position.
+        static_assert( !kIsHostResident || DeviceTypeTraits<TDeviceType>::memory_separate_from_host,
+            "TokenEmbedding: a host-resident table needs a device whose memory is separate from the host's; on this one the table is already in host memory" );
 
         // Both are ways of not spending VRAM on the table, and combining them prices a
         // quantization error against a cost that host residency has already removed.

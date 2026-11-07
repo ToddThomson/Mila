@@ -198,8 +198,9 @@ auto held = std::move( agent ).release();    // the model is freed before the ne
 agent = Mila::Agents::Agent::create( "gemma-4-12b-it-q4_0", {}, std::move( held ) );
 ```
 
-`Agent` is `BasicAgent<Cuda, BF16>`, the pair every published model runs in; a program that wants another names the
-template.
+`Agent` names no device and no precision: the handle chooses both at load, the device among those the request allows
+and the precision the device's (`ModelHandle.md` 10.7, Todd, 2026-11-07). A program that wants a particular pair loads
+the typed model itself, beneath the agent. Until then `Agent` was `BasicAgent<Cuda, BF16>`.
 
 ### 4.2 Rules
 
@@ -211,9 +212,9 @@ template.
 3. **Descent is one call.** `plan()` and `model()` are part of the contract, not a debugging aid. From
    the handle a developer reaches the typed model, and from the typed model everything v0.20 already
    exposes, including Observability's named activations.
-4. **The forward pass stays explicit.** The handle erases one type at the moment a session opens: one
-   virtual call per `respond`, none per layer or per token. Everything beneath it is compile-time
-   dispatched exactly as today.
+4. **The forward pass stays explicit.** The handle erases one type at the moment a session opens -- the
+   family's, the device's and the precision's together: one virtual call per `respond`, none per layer or per
+   token. Everything beneath it is compile-time dispatched exactly as today.
 5. **Other languages project it; they define nothing.** Python gains `mila.Agent` with the same contract
    and the same plan. The per-family session classes are retired. A .NET projection, if it comes,
    follows the same rule.
@@ -437,6 +438,30 @@ zero prefill on restore.
 
 *Success:* two agents planned jointly on one device set, each passing G1 against the joint plan; a base
 model name resolves to the same package the objective ranks first.
+
+### 6.6 All the compute the machine has
+
+*Direction, Todd, 2026-11-07; not scheduled.* Mila has more than one compute backend, and a machine can
+hold cards of more than one kind: on Windows and Linux, NVIDIA and AMD cards together. Fully realized, the
+agents API uses the compute that is there in the way the planner judges best, within the devices the user
+allows (`Deployment.md` 12.8). An application holds no device: it passes what the user allowed and reads
+the plan for where the model went. `DeviceId` remains a coordinate inside a plan, and a developer
+composing a network from components names devices directly, as today.
+
+What it needs, none of it designed:
+
+- **A model across device types is several typed segments, not one type.** Each segment keeps
+  compile-time dispatch on its own device; the join is where activations cross. `LayerSplit.md`'s
+  non-goal that a stage shares its transformer's device type is reversed by this, in that spec.
+- **Precision can differ by device**, FP16 on Metal and BF16 on CUDA, so a placement is a configuration
+  of its own to validate, and a model's numbers depend on where it was placed.
+- **Cards of different vendors share no copy path:** a crossing goes through host memory. A layer split
+  crosses one token's activations per decode step; splitting inside a layer across vendors is not
+  expected to pay. Reasoning, not measured.
+- **"Best" needs an objective that knows speed.** The planner ranks by fit today; unequal devices need
+  a measured speed model before any design.
+
+*Success:* written when it is scheduled.
 
 ---
 

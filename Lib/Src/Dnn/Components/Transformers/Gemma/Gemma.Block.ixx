@@ -62,9 +62,6 @@ import Compute.ExecutionContextFactory;
 import Compute.GqaState;
 import Compute.CpuMemoryResource;
 import Compute.Observation;
-#ifdef MILA_HAS_CUDA
-import Compute.CudaPinnedMemoryResource;
-#endif
 import Dnn.Components.RmsNorm;
 import Dnn.Components.Rope;
 import Dnn.Components.Gqa;
@@ -613,7 +610,7 @@ namespace Mila::Dnn
 
             // Materialize the host float as the [1] FP32 tensor loadParameter expects back.
             Tensor<TensorDataType::FP32, HostStagingMR> scalar(
-                TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1 } );
+                stagingDeviceId(), shape_t{ 1 } );
 
             scalar.data()[ 0 ] = layer_scalar_;
 
@@ -626,7 +623,7 @@ namespace Mila::Dnn
 
             // Materialize the host float as the [1] FP32 tensor loadParameter expects back.
             Tensor<TensorDataType::FP32, HostStagingMR> scalar(
-                TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1 } );
+                stagingDeviceId(), shape_t{ 1 } );
 
             scalar.data()[ 0 ] = layer_scalar_;
 
@@ -672,7 +669,7 @@ namespace Mila::Dnn
 
                 // Read the single value to a host float for the per-forward output scale.
                 Tensor<TensorDataType::FP32, HostStagingMR> host(
-                    TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1 } );
+                    stagingDeviceId(), shape_t{ 1 } );
                 copy( buf, host );
                 this->getExecutionContext()->synchronize();
                 layer_scalar_ = host.data()[ 0 ];
@@ -860,13 +857,17 @@ namespace Mila::Dnn
         GemmaConfig config_;
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
-        // Host staging to read the [1] layer_scalar to a float at load time:
-        // pinned on CUDA, pageable on CPU.
-#ifdef MILA_HAS_CUDA
-        using HostStagingMR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaPinnedMemoryResource, CpuMemoryResource>;
-#else
-        using HostStagingMR = CpuMemoryResource;
-#endif
+        // Host staging to read the [1] layer_scalar to a float at load time: pinned on CUDA, the host's own memory
+        // where the device's staging memory is not host-readable (the CPU, Metal).
+        using HostStagingMR = HostReadableStagingMemoryResource<TDeviceType>;
+
+        // A tensor is built on its memory's own device type: the block's device when staging lives there, the host's
+        // otherwise.
+        DeviceId stagingDeviceId() const
+        {
+            return HostStagingMR::device_type == TDeviceType ? this->getDeviceId() : Device::Cpu();
+        }
+
 
         std::shared_ptr<RmsNormType> input_norm_{ nullptr };
         std::shared_ptr<LinearType> qkv_proj_{ nullptr };

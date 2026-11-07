@@ -3,6 +3,9 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <cctype>
+#include <optional>
+#include <stdexcept>
 
 import Mila;
 
@@ -62,30 +65,95 @@ namespace Dnn::Compute::Registry::Tests
         EXPECT_NE( std::find( cpu_devices.begin(), cpu_devices.end(), cpu_name ), cpu_devices.end() );
     }
 
-    TEST( DeviceRegistryHelpersTests, GetBestDeviceAndDeviceCount ) {
+    TEST( DeviceRegistryHelpersTests, DeviceCountMatchesTheRegistry ) {
         auto& registry = DeviceRegistry::instance();
 
         EXPECT_EQ( getDeviceCount( DeviceType::Cuda ), registry.getDeviceCount( DeviceType::Cuda ) );
         EXPECT_EQ( getDeviceCount( DeviceType::Cpu ), registry.getDeviceCount( DeviceType::Cpu ) );
+        EXPECT_EQ( getDeviceCount( DeviceType::Metal ), registry.getDeviceCount( DeviceType::Metal ) );
+    }
 
-        // getBestDevice for CPU should return a DeviceId with type == Cpu
-        DeviceId best_cpu = getBestDevice( DeviceType::Cpu );
-        EXPECT_EQ( best_cpu.type, DeviceType::Cpu );
+    TEST( DeviceRegistryHelpersTests, EveryRegisteredDeviceIsFoundByItsOwnIdentity ) {
+        auto& registry = DeviceRegistry::instance();
 
-        // getBestDevice for CUDA: if GPUs exist, ensure returned DeviceId is one of the CUDA devices;
-        // otherwise index == -1 indicates none.
-        int gpu_device_count = static_cast<int>( registry.getDeviceCount( DeviceType::Cuda ) );
+        for ( const DeviceId& id : registry.listDeviceIds() )
+        {
+            const std::string identity = registry.getDevice( id )->getStableIdentity();
 
-        DeviceId best_cuda = getBestDevice( DeviceType::Cuda );
-
-        if ( gpu_device_count > 0 ) {
-            EXPECT_EQ( best_cuda.type, DeviceType::Cuda );
-
-            std::vector<std::string> cuda_devices = listDevicesByType( DeviceType::Cuda );
-            EXPECT_NE( std::find( cuda_devices.begin(), cuda_devices.end(), best_cuda.toString() ), cuda_devices.end() );
+            ASSERT_FALSE( identity.empty() ) << id.toString();
+            EXPECT_EQ( findDeviceByStableIdentity( identity ), id ) << identity;
         }
-        else {
-            EXPECT_EQ( best_cuda.index, -1 );
+    }
+
+    TEST( DeviceRegistryHelpersTests, AnIdentityIsFoundWhateverItsCase ) {
+        auto& registry = DeviceRegistry::instance();
+
+        for ( const DeviceId& id : registry.listDeviceIds() )
+        {
+            std::string shouted = registry.getDevice( id )->getStableIdentity();
+            std::ranges::transform( shouted, shouted.begin(),
+                []( unsigned char c ) { return static_cast<char>( std::toupper( c ) ); } );
+
+            EXPECT_EQ( findDeviceByStableIdentity( shouted ), id ) << shouted;
+        }
+    }
+
+    TEST( DeviceRegistryHelpersTests, AnIdentityNoDeviceHasFindsNothing ) {
+        EXPECT_EQ( findDeviceByStableIdentity( "GPU-00000000-0000-0000-0000-000000000000" ), std::nullopt );
+        EXPECT_EQ( findDeviceByStableIdentity( "no-such-device" ), std::nullopt );
+    }
+
+    TEST( DeviceRegistryHelpersTests, AnEmptyIdentityIsRefused ) {
+        EXPECT_THROW( (void)findDeviceByStableIdentity( "" ), std::invalid_argument );
+    }
+
+    TEST( DeviceRegistryHelpersTests, APrefixOneCudaDeviceHasFindsIt ) {
+        auto& registry = DeviceRegistry::instance();
+
+        if ( registry.getDeviceCount( DeviceType::Cuda ) == 0 )
+        {
+            GTEST_SKIP() << "no CUDA device";
+        }
+
+        const std::string identity = registry.getDevice( Device::Cuda( 0 ) )->getStableIdentity();
+
+        // As CUDA_VISIBLE_DEVICES takes them: "GPU-" and the first group, unless another card shares it.
+        const std::string prefix = identity.substr( 0, 12 );
+        int sharing = 0;
+
+        for ( const DeviceId& id : registry.listDeviceIds() )
+        {
+            sharing += registry.getDevice( id )->getStableIdentity().starts_with( prefix ) ? 1 : 0;
+        }
+
+        if ( sharing == 1 )
+        {
+            EXPECT_EQ( findDeviceByStableIdentity( prefix ), Device::Cuda( 0 ) );
+        } else {
+            EXPECT_THROW( (void)findDeviceByStableIdentity( prefix ), std::invalid_argument );
+        }
+    }
+
+    TEST( DeviceRegistryHelpersTests, APrefixEveryCudaDeviceHasIsRefusedNamingThem ) {
+        auto& registry = DeviceRegistry::instance();
+
+        if ( registry.getDeviceCount( DeviceType::Cuda ) < 2 )
+        {
+            GTEST_SKIP() << "needs two CUDA devices";
+        }
+
+        try
+        {
+            (void)findDeviceByStableIdentity( "GPU-" );
+
+            FAIL() << "a prefix two devices share was not refused";
+        }
+        catch ( const std::invalid_argument& error )
+        {
+            const std::string message = error.what();
+
+            EXPECT_NE( message.find( Device::Cuda( 0 ).toString() ), std::string::npos ) << message;
+            EXPECT_NE( message.find( Device::Cuda( 1 ).toString() ), std::string::npos ) << message;
         }
     }
 }

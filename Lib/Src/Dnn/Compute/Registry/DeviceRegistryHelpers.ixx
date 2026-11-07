@@ -1,20 +1,17 @@
 /**
  * @file DeviceRegistryHelpers.ixx
- * @brief Utility functions for compute device discovery and management
+ * @brief Listing the registered devices, and finding one by its stable identity.
  *
- * Small helpers for listing and selecting devices via DeviceRegistry.
+ * Choosing among them is the deployment planner's (Specifications/Deployment.md 12.8, 12.9).
  */
 
 export module Compute.DeviceRegistryHelpers;
 
 import std;
+import Compute.Device;
 import Compute.DeviceRegistry;
 import Compute.DeviceId;
 import Compute.DeviceType;
-
-#if defined(MILA_HAS_CUDA)
-import Cuda.Helpers;
-#endif
 
 namespace Mila::Dnn::Compute
 {
@@ -67,67 +64,82 @@ namespace Mila::Dnn::Compute
     }
 
     /**
-     * @brief Gets the best DeviceId of a specific type based on performance characteristics.
+     * @brief The registered device whose stable identity is `identity`, or nothing when no device has it.
      *
-     * For CUDA the function consults Cuda::getBestDeviceId(preferMemory) and returns
-     * the matching DeviceId when available. If no device of the requested type is found
-     * the function returns a DeviceId with the requested type and index == -1 to indicate
-     * "none".
+     * Matches the whole identity or, as CUDA_VISIBLE_DEVICES does, a prefix only one device has
+     * ("GPU-8932f937"), ignoring case. Asking reads each registered device, so the first lookup creates every one.
      *
-     * @param type The device type to filter by (e.g., DeviceType::Cuda)
-     * @param preferMemory When true, prioritizes memory bandwidth over compute capability
-     * @return DeviceId Best available device id for the requested type, or index == -1 if none
+     * @throws std::invalid_argument when the identity is empty, or a prefix more than one device has, naming them.
      */
-    export DeviceId getBestDevice( DeviceType type, [[maybe_unused]] bool preferMemory = false )
+    export std::optional<DeviceId> findDeviceByStableIdentity( std::string_view identity )
     {
+        if ( identity.empty() )
+        {
+            throw std::invalid_argument( "findDeviceByStableIdentity: a device identity cannot be empty" );
+        }
+
+        const auto lowered = []( std::string_view text )
+            {
+                std::string result( text );
+                std::ranges::transform( result, result.begin(),
+                    []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
+
+                return result;
+            };
+
+        const std::string wanted = lowered( identity );
         auto& registry = DeviceRegistry::instance();
 
-        auto allDeviceIds = registry.listDeviceIds();
+        std::optional<DeviceId> exact;
+        std::vector<std::pair<DeviceId, std::string>> prefixed;
 
-#if defined(MILA_HAS_CUDA)
-        if ( type == DeviceType::Cuda )
+        for ( const DeviceId& id : registry.listDeviceIds() )
         {
-            std::vector<DeviceId> cudaIds;
-            cudaIds.reserve( allDeviceIds.size() );
+            std::string own;
 
-            for ( const auto& id : allDeviceIds )
+            try
             {
-                if ( id.type == DeviceType::Cuda )
-                {
-                    cudaIds.push_back( id );
-                }
+                own = lowered( registry.getDevice( id )->getStableIdentity() );
+            } catch ( const std::exception& )
+            {
+                // A device that refuses to be created, such as a Mac below Mila's floor, has no identity to match.
+                continue;
             }
 
-            if ( cudaIds.empty() )
+            if ( own == wanted )
             {
-                return DeviceId{ DeviceType::Cuda, -1 };
+                exact = id;
             }
-
-            int bestId = Compute::Cuda::getBestDeviceId( preferMemory );
-
-            DeviceId bestDeviceId{ DeviceType::Cuda, bestId };
-
-            for ( const auto& id : cudaIds )
+            else if ( own.starts_with( wanted ) )
             {
-                if ( id == bestDeviceId )
-                {
-                    return id;
-                }
-            }
-
-            return cudaIds.front();
-        }
-#endif
-
-        for ( const auto& id : allDeviceIds )
-        {
-            if ( id.type == type )
-            {
-                return id;
+                prefixed.emplace_back( id, own );
             }
         }
 
-        return DeviceId{ type, -1 };
+        if ( exact )
+        {
+            return exact;
+        }
+
+        if ( prefixed.size() > 1 )
+        {
+            std::string matches;
+
+            for ( const auto& [id, own] : prefixed )
+            {
+                matches += std::format( "{}{} ({})", matches.empty() ? "" : ", ", own, id.toString() );
+            }
+
+            throw std::invalid_argument( std::format(
+                "'{}' is the start of more than one device's identity: {}", identity, matches ) );
+        }
+
+        if ( prefixed.size() == 1 )
+        {
+            return prefixed.front().first;
+        }
+
+        return std::nullopt;
     }
 
     /**

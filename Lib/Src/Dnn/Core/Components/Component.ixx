@@ -482,22 +482,13 @@ namespace Mila::Dnn
                         getName(), parameter_name ) );
                 }
 
-                if constexpr ( TDeviceType == DeviceType::Cuda )
-                {
-                    // Pinned staging, matching saveParameterToArchive and the
-                    // WeightsReader load path: copyFromBlob issues a direct DMA
-                    // from pinned host memory with no driver staging copy.
-                    auto blob = readTensorBlob<HostStagingMemoryResource>(
-                        archive, prefix, getDeviceId().index );
+                // The host writes the archive's bytes here, so the staging memory has to be host-readable: pinned on
+                // CUDA, so copyFromBlob is a direct DMA with no driver staging copy, and the host's own memory where the
+                // device's staging memory is not host-readable (the CPU, Metal).
+                auto blob = readTensorBlob<HostReadableStagingMemoryResource<TDeviceType>>(
+                    archive, prefix, getDeviceId().index );
 
-                    loadParameter( parameter_name, blob );
-                }
-                else
-                {
-                    auto blob = readTensorBlob<CpuMemoryResource>( archive, prefix );
-
-                    loadParameter( parameter_name, blob );
-                }
+                loadParameter( parameter_name, blob );
             }
         }
 

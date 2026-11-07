@@ -62,13 +62,17 @@ export import Compute.ExecutionContextFactory;
 // ====================================================================
 export import Compute.Device;
 export import Compute.DeviceId;
+export import Compute.DeviceMemoryInfo;
+export import Compute.DevicePerformance;
 export import Compute.DeviceType;
 export import Compute.DeviceTypeTraits;
 export import Compute.DeviceTypeTraits.Cpu;
 export import Compute.CpuDevice;
+export import Compute.CpuDeviceRegistrar;
 #ifdef MILA_HAS_CUDA
 export import Compute.DeviceTypeTraits.Cuda;
 export import Compute.CudaDevice;
+export import Compute.CudaDeviceRegistrar;
 #endif
 #ifdef MILA_HAS_METAL
 export import Compute.DeviceTypeTraits.Metal;
@@ -83,9 +87,9 @@ export import Compute.OptimizerBase;
 // ====================================================================
 // Compute - Device Registry
 // ====================================================================
-// DeviceRegistryHelpers exports free functions (getDeviceCount / getBestDevice /
-// listDevicesByName / listDevicesByType) that the test suite uses pervasively as
-// CUDA-availability guards; unqualified calls resolve only if the module is re-exported here.
+// DeviceRegistryHelpers exports free functions (getDeviceCount / listDevicesByName / listDevicesByType /
+// findDeviceByStableIdentity) that the test suite uses pervasively as CUDA-availability guards; unqualified calls
+// resolve only if the module is re-exported here.
 import Compute.DeviceRegistrar; // Not part of the Mila public API
 export import Compute.DeviceRegistry;
 export import Compute.DeviceRegistryHelpers;
@@ -206,6 +210,7 @@ export import Dnn.Components.AttentionOutputGate;
 export import Dnn.Components.Swiglu;
 export import Dnn.Components.LayerNorm;
 export import Dnn.Components.RmsNorm;
+export import Dnn.Components.EmbeddingTableResidency;
 export import Dnn.Components.TokenEmbedding;
 export import Dnn.Components.NgramEmbedding;
 

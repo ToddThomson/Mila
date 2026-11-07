@@ -289,9 +289,11 @@ Placement is the planner's device dimension (`Deployment.md`, Phase 5). It is de
 construction, from prices that read no bound context and from one free-memory reading per device
 (`Deployment.md` sections 4 and 3.2). What this spec fixes is what the planner must respect.
 
-**Devices.** The request names an ordered device list or `auto`. The planner's objective adds devices
-only when no single device holds an acceptable deployment (`Deployment.md` section 5, rule 2). With an
-explicit list, the list's order is the layer order: the first device takes block 0.
+**Devices.** The request names the devices the planner may use, with no order, or names none, and then
+every device the build sees may be used. The planner's objective adds devices only when no single
+allowed device holds an acceptable deployment (`Deployment.md` section 5, rule 2), and the planner orders
+the stages. A caller who wants a particular order fixes the placement instead (6.1), which is the fully
+fixed request. Decided 2026-11-07 (Todd), section 12.2.
 
 **The prefill chunk is shared.** A chunk's rows flow through every stage, so one chunk size applies to
 all of them. Among devices, chunk rungs and split points the planner searches:
@@ -325,11 +327,13 @@ three places a split breaks, and several it does not.
 
 ### 6.1 Two types
 
-- **Public: a device list, or `auto`,** in the `DeploymentRequest` (`Deployment.md` 3.3). A user names
-  cards and never counts blocks. A single `DeviceId` remains the one-card case.
-- **Internal: `DevicePlacement`,** in `Detail` — the ordered stages, each a `DeviceId` and a block
-  count. The plan holds it; the transformer's constructor takes it (section 4); a test constructs one
-  directly to force a split point. A `DeviceId` converts implicitly to one stage holding every block.
+- **Public: the allowed devices,** in the `DeploymentRequest` (`Deployment.md` 3.3): a set, never an
+  order, and every device the build sees when the request names none. A user names cards and never counts
+  blocks. A single `DeviceId` is the set of one, so it never splits.
+- **`DevicePlacement`** — the ordered stages, each a `DeviceId` and a block count. The plan holds it; the
+  transformer's constructor takes it (section 4). A request may also fix it, for a developer who wants a
+  layer order and for a test that forces a split point; the planner then prices exactly that placement or
+  refuses it. A `DeviceId` converts implicitly to one stage holding every block.
 
 ### 6.2 What a split breaks
 
@@ -388,21 +392,27 @@ therefore puts all of them behind one `StagedTransformerBlock` before any stage 
 Every surface sends the same `DeploymentRequest`; none decides anything itself (`Deployment.md`
 section 8). Adaptor work is outside the feature freeze by definition.
 
-- **C++.** `planDeployment( path, request )` with `devices` set to a list or `auto`, then
-  `load( path, plan )`. A single `DeviceId` still works. A request that cannot be met anywhere
-  yields a plan that says so, with the per-device shortfall.
-- **Chat.** `--device 1,0` or `"device": [1, 0]`, and `"device": "auto"`. A single number still means one
-  card, as today. `ChatConfig::device_index` (`Chat.Config.ixx:217`) becomes the request's device field,
-  and it already reaches the load, the pre-flight and the fit column, which is where the plan now comes
-  from. `context_length: "auto"` is resolved in the same plan. `/models` renders the plan's binding
-  constraint, naming the short card; the stats line names every card in use.
-- **Python binding.** `from_store( name, context_length="auto", devices="auto" )`, accepting an int or a
-  list. `devices` replaces `device_index` (`Mila_py.cpp:382` and siblings): one concept, one name. The
-  QuickStart Python samples and `getting-started.md` change in the same commit.
-- **MIS.** `MILA_DEVICES` (a list or `auto`) replaces `MILA_DEVICE_INDEX` (`config.py:43`,
-  `model_worker.py:163`, the README table).
-- **Ordinals.** Lists hold CUDA ordinals, which differ from nvidia-smi's order on a mixed-generation
-  machine, this one included (`Chat.Config.ixx:213`). User-facing text says which is meant.
+- **C++.** `planDeployment( path, request )` with the allowed devices set, or left unset for all of them,
+  then `load( path, plan )`. A single `DeviceId` still works. A request that cannot be met by the allowed
+  devices yields a refusal that says so, with the per-device shortfall, and names the devices it was not
+  allowed to use.
+- **Chat.** `--device cuda:1,cuda:0` or `"device": ["cuda:1", "cuda:0"]` names the devices Chat may use, in
+  no order; leaving it unset allows every device. `ChatConfig::device_index` (`Chat.Config.ixx:217`)
+  becomes the request's allowed devices, and it already reaches the load, the pre-flight and the fit column,
+  which is where the plan now comes from. `context_length: "auto"` is resolved in the same plan. `/models`
+  renders the plan's binding constraint, naming the short card; the stats line names every card in use. A bare
+  number, as `"device": 1` or `--device 1` read before, is refused, naming the new form: a number alone means CUDA
+  only by assumption (Todd, 2026-11-07).
+- **Python binding.** `from_store( name, context_length="auto", devices=... )`, accepting a device or a
+  set of them, all when unset. `devices` replaces `device_index` (`Mila_py.cpp:382` and siblings): one
+  concept, one name. The QuickStart Python samples and `getting-started.md` change in the same commit.
+- **MIS.** `MILA_DEVICES` (the allowed devices, all when unset) replaces `MILA_DEVICE_INDEX`
+  (`config.py:43`, `model_worker.py:163`, the README table). `MILA_DEVICE_INDEX` set is refused, naming
+  `MILA_DEVICES`.
+- **Ordinals.** A device is written as its type and index (`DeviceId::parse`). CUDA's index differs from
+  nvidia-smi's order on a mixed-generation machine, this one included (`Chat.Config.ixx:213`), and moves
+  with `CUDA_VISIBLE_DEVICES`, so a stored setting names the device's stable identity (`Deployment.md` 12.8).
+  User-facing text says which is meant.
 
 ---
 
@@ -555,8 +565,8 @@ device dimension (`Deployment.md` Phase 5): per-device footprints in the plan, a
 devices, chunk rungs and split points. *Exit:* V5, N3 and N4 on Qwen 3.8 27B FP4 across both cards, at a
 context length the 5060 Ti alone cannot hold.
 
-**Phase 5 — user surface.** Section 8 through Chat, the Python binding and MIS, including `"auto"` devices.
-*Exit:* a Chat session on the split Qwen answers coherently with `"device": "auto"`; `/models` names the
+**Phase 5 — user surface.** Section 8 through Chat, the Python binding and MIS, including every device allowed.
+*Exit:* a Chat session on the split Qwen answers coherently with both cards allowed; `/models` names the
 short card for a model that fits neither card alone nor both; a QuickStart Python session and an MIS
 request each run split.
 
@@ -647,16 +657,19 @@ same stream; a kernel launch is queued the same way, but the probe launches no k
 
 ## 12. Open Decisions
 
-**Decided 2026-09-16:** a split has an `auto` (section 8), chosen by the deployment planner
-(`Deployment.md`); a named single device never splits. The stages bind by construction order, not
+**Decided 2026-09-16:** a split is chosen by the deployment planner (`Deployment.md`), within the devices
+the request allows (12.2, 2026-11-07, which replaced the `auto` list of section 8); a named single device
+never splits. The stages bind by construction order, not
 through a `Stage` composite (section 4).
 
 1. **Tied tables** (3.5): a copy on each end, or a host-resident embedding gather.
-2. **Device order under `auto`.** With an explicit list the list's order is the layer order. With `auto`
-   the planner orders the devices, and the rule is open: by free memory, by CUDA ordinal, or by which
-   order leaves the largest minimum headroom.
-3. **Chat's default device.** Stays `0`, as today, or becomes `"auto"`. Recommended: `0` until `auto` has
-   run through Phase 5's exit, then decide.
+2. **Device order. DECIDED 2026-11-07 (Todd): a list of devices is permission, never order.** The request
+   names the devices the planner may use; the planner always orders the stages; a caller who wants an
+   order fixes the placement (6.1). A list that meant both would decide a layer order for a user who only
+   meant to allow two cards. Still open: the planner's rule, by free memory, by index, or by which order
+   leaves the largest minimum headroom.
+3. **Chat's default devices.** The first device only, as today, or every device the build sees.
+   Recommended: the first only until a split has run through Phase 5's exit, then decide.
 4. **Concurrent prefill** (3.6): whether stages overlap during chunked prefill. Decided by
    measurement after Phase 3, against the sequential split on the same model. It must be
    bit-identical to the sequential split, since each card runs the same kernels in the same order.

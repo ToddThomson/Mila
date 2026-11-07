@@ -43,8 +43,8 @@ The values that decide how a model runs, and which of them a caller can choose t
 
 | Knob | Selectable at run time | Today |
 |---|---|---|
-| Devices | one CUDA ordinal | caller; `LayerSplit.md` makes it a list |
-| Placement of blocks across devices | no | new, `LayerSplit.md` |
+| Devices | one device, by its index | caller; `LayerSplit.md` makes it the set the planner may use |
+| Placement of blocks across devices | no | new, `LayerSplit.md`: the planner's, or fixed by the caller |
 | Context length | yes, `withContextLength` | caller, or Chat's `"auto"` |
 | Prefill chunk | no | the transformer, at build |
 | Weight format | only for a BF16 package, by quantize-on-load to FP8 or FP4; a pre-quantized package fixes it (`requireStoredQuantizationMatches`) | caller |
@@ -123,7 +123,8 @@ std::expected<DeploymentPlans, DeploymentRefusal> planDeployment( path, request 
 ```
 
 - **`DeploymentRequest`** — what the caller asks for. Each plannable knob is either a value or `auto`:
-  devices (a list, or `auto`), context length (a number, or `auto` between a floor and a ceiling, as
+  the **allowed devices** (a set with no order, every device the build sees when unset; 12.8), placement
+  (the planner's, or a `DevicePlacement` the caller fixes, `LayerSplit.md` 6.1), context length (a number, or `auto` between a floor and a ceiling, as
   Chat's `resolveAutomaticContext` already takes them, `Chat.Footprint.ixx:448`). Also
   the fixed inputs: weight format and **headroom** — bytes to leave free on each device.
   Headroom is a caller input: how much another process or a display needs is a fact about the user's
@@ -276,7 +277,7 @@ planner applies this order, strictly:
 1. **Honour every value the caller fixed.** If they cannot all be met, there is no plan: the answer is a
    refusal naming the reason (sections 3.3 and 12.2).
 2. **Fewest devices.** A model on one card beats the same model split: no crossings, and no second card
-   (possibly the display) carrying part of it. Devices are only added when no single named device can
+   (possibly the display) carrying part of it. Devices are only added when no single allowed device can
    hold an acceptable deployment.
 3. **A full prefill chunk over a longer context.** Among fitting context lengths, the largest one whose
    prefill chunk is not reduced by memory.
@@ -356,7 +357,7 @@ continues, deciding again at execution. Recorded in `Issues/Vnext.md`.
 - **Library.** `planDeployment( path, request )` per family, beside `load` and
   `getDeploymentFootprint`. The family comes from the package; a family-neutral entry point that reads
   it from the metadata is an open question (section 12).
-- **Chat.** `"auto"` for `context_length` and for `device` both become fields of one request. An explicit
+- **Chat.** `"auto"` for `context_length` and the devices Chat may use both become fields of one request. An explicit
   value that does not fit is refused, naming the refusal's reason, no longer attempted with a warning
   (section 12.2); `--help` and `ChatConfiguration.md` §6 change with Phase 3. `resolveAutomaticContext`
   and the fit grading in `Chat.ModelCatalog.ixx` are replaced by reading the plans. `/models` renders the
@@ -364,10 +365,10 @@ continues, deciding again at execution. Recorded in `Issues/Vnext.md`.
   prices against the card's *capacity* (total memory), so a resident model does not count against the
   others. Planning it needs a described reading rather than a live one, which is decision 12.5; section 8.1
   decides it for a present device, and the listing renders plans made against the device's whole memory.
-- **Python binding.** `from_store( name, context_length="auto", devices="auto" )`: the same request.
-  The QuickStart samples and `getting-started.md` change with it.
-- **MIS.** Its settings (`config.py`) take `auto` for context and devices and pass them through the
-  binding. MIS gains the automatic context it has never had.
+- **Python binding.** `from_store( name, context_length="auto", devices=... )`: the same request, every
+  device allowed when `devices` is unset. The QuickStart samples and `getting-started.md` change with it.
+- **MIS.** Its settings (`config.py`) take `auto` for context and the allowed devices, and pass them
+  through the binding. MIS gains the automatic context it has never had.
 
 ### 8.1 Installed models
 
@@ -550,8 +551,8 @@ and answered; MIS started at 121856 and served a chat completion; Llama 3.1 8B a
 FP4 were refused before allocating. A second load in one process chooses one step lower (120832) and every load
 after that the same, a one-time cost of the process's first load rather than a leak. MIS suite: 65 pass.
 
-**Phase 5 — devices.** The device list, `"auto"` devices and placement: `LayerSplit.md` Phases 4 and 5 land
-here as a new dimension of the planner, not beside it.
+**Phase 5 — devices.** The allowed devices and placement: `LayerSplit.md` Phases 4 and 5 land here as a
+new dimension of the planner, not beside it.
 
 ---
 
@@ -596,6 +597,30 @@ here as a new dimension of the planner, not beside it.
    carry described devices instead of readings is a later decision. **Partly decided 2026-10-12 (section 8.1):**
    a request may plan against a present device's whole memory instead of its free memory, which is what a model
    listing needs. Hardware that is not present stays open, and so does `DeviceReading`'s name.
+8. **The planner chooses within what the user allows. DECIDED 2026-11-07 (Todd).** The request carries the
+   devices the planner may use -- one device (`cuda:0`), every device of a type (`cuda`), or several --
+   as a set with no order, and every device the build sees when it names none. The planner chooses devices,
+   order and placement within it; a caller who wants a particular placement fixes it (`LayerSplit.md` 6.1
+   and 12.2). The user sets the allowed devices up once in an application's settings, which pass them on
+   each request; the library stores nothing. A refusal names what the allowed devices could not hold, and
+   which present devices were not allowed, so "nothing fits on what you allowed" is never reported as
+   "nothing fits on this machine". Open: whether a device can be excluded rather than listed (a display
+   card).
+
+   **A device is named two ways, and a stored setting by the one that does not move. *Decided 2026-11-07
+   (Todd).*** `DeviceId` stays a type and an index, a position in the running process. Each `Device` also
+   carries a **stable identity** -- CUDA's 16-byte UUID (`cudaDeviceProp::uuid`), ROCm's equivalent when it
+   exists, and on Metal the one GPU -- and the hardware's **name**. The allowed devices take either form: `cuda:0`,
+   meaning index 0 in this run, or the stable identity. A CUDA index moves with `CUDA_VISIBLE_DEVICES`, differs
+   from nvidia-smi's order, and cannot tell two cards of one model apart, so an application saving a choice made
+   in its own interface saves the stable identity, and one a person typed keeps what they typed. A stored identity
+   that is not present is refused, naming it and the devices that are; it never falls back to another card.
+9. **The planner knows each device's speed, and does not rank by it yet. *Decided 2026-11-07 (Todd).*** Each
+   `Device` reports its performance facts raw -- on CUDA its multiprocessors, clock, memory and bus width, and
+   memory bandwidth where the runtime reports it; on Metal what Metal reports -- and `DeviceReading` carries them
+   beside free memory, so a plan records them. Section 5's objective is unchanged. A rule that orders devices by
+   speed is measured before it is written (`LayerSplit.md` 12.2, `Direction.md` 6.6); the score
+   `getBestDeviceId` computed was never measured, and it is deleted with `getBestDevice` and `findCudaDevice`.
 
 ---
 

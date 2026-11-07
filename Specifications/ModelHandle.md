@@ -66,15 +66,22 @@ source is the fact.
 
 One object per opened model, holding:
 
-- the **model**, erased to its `LanguageModel<TDeviceType, TPrecision>` base;
+- the **model**, erased to a language-model base that names no device and no precision (10.7);
 - its **tokenizer**;
 - its **protocol**, the grammar it was trained on;
 - its **capabilities**, each read from the one place that knows it;
 - its **plan**, the `DeploymentPlan` it was loaded with;
 - its **record**: name, architecture, variant, lineage.
 
-The family is erased. Device and precision are not: they stay compile-time, as they are everywhere in Mila,
-so the handle is `ModelHandle<TDeviceType, TPrecision>` (name open, 10.1).
+The family, the device and the precision are erased, each chosen once at load (10.7, Todd, 2026-11-07). The
+family comes from the store's record, the device from the devices the request allows (`Deployment.md` 12.8),
+and the precision from the device (`Metal/MetalBackend.md` 3.3). Beneath the network everything stays
+compile-time, as it is everywhere in Mila. The handle is a plain class, `ModelHandle` (10.1).
+
+*Until 2026-11-07* the handle was `ModelHandle<TDeviceType, TPrecision>`, erasing the family only. Neither
+parameter appears in the public members of `LanguageModel` or `Model` -- generation takes token ids and
+observation hands out an `ITensor` -- so they reached the handle and the agent only because the base was a
+template for what it holds, not for what it offers.
 
 ---
 
@@ -340,6 +347,8 @@ the template, the template wins and the difference is recorded as a finding.
 
 ### 3.5 The handle, in the Mila library
 
+As built at `+96`, before 10.7; under 10.7 the template line goes and `model()` returns the untemplated base:
+
 ```cpp
 // Lib/Src/Deployment/ModelHandle.ixx, module Deployment.ModelHandle, namespace Mila::Deployment
 template<DeviceType TDeviceType, TensorDataType TPrecision>
@@ -439,9 +448,13 @@ measured), overridable before creation, and never a second path: a preset produc
 **A variant of every family, as Chat has.** Every new family edits every `std::visit`, and the variant grows
 by one per family and precision. The base class already erases the family.
 
-**Erase device and precision too.** A handle over `LanguageModel<Cuda, BF16>` and `<Cuda, FP32>` behind
-one interface would make precision a run-time value, against Mila's first design rule. The handle stays a
-template; `Mila::Agents` fixes the pair a program uses.
+**Keep device and precision a program's compile-time choice.** *Rejected 2026-11-07 (Todd), reversing this
+entry's earlier judgement, which rejected erasing them as making precision a run-time value against Mila's
+first design rule.* The rule holds where it was written for: beneath the network, where every tensor and kernel
+is typed. Above it neither parameter is in any public member, and keeping them there put the choice of device in
+every application -- the CUDA assumption `Notebooks/DeviceAssumptions.md` found in 25 of their files -- and kept
+one build from serving two backends or a precision from following the chip (`Metal/MetalBackend.md` 3.3). The
+choice at load is the step the weight format and the family already take.
 
 **Capabilities in the manifest, all of them.** What `Direction.md` 3.2 first said. Prefix reuse and the
 context ceiling are not facts a publisher can state (3.2); a manifest that claimed prefix reuse for a Llama
@@ -539,7 +552,6 @@ there.
 
 - Choosing a package for a base-model name, or naming an intent (`Direction.md` 6.5).
 - Opening a loose weights file with no store record. `Direction.md` 4.2 rule 7: in v0.22.0 a model is named.
-- Erasing device or precision (4).
 - Conversation state, tool dispatch, the splice, and the autonomy policy: `Mila::Agents` and the agent core.
 
 ---
@@ -582,3 +594,11 @@ there.
    setting", and the same for the inference server. Chat's five-step scale and its Gemma sentences go, and
    its reasoning setting becomes the loaded model's own template variables (3.4). What replaces the server's fixed
    thinking-off is `InferenceServerWire.md` 3.6's to settle.
+7. **Device and precision. *Decided 2026-11-07 (Todd): chosen at load, with no parameter above the network.***
+   An untemplated language-model base carries the public members `LanguageModel` and `Model` have today, and
+   `LanguageModel<D, P>` derives from it. The handle reads the device type from the devices the request allows,
+   the precision from the device, and builds the compiled type, as it does the family; `model()` returns the
+   base, and `as<GemmaModel<Metal, FP16>>()` is still the one call to the typed model. `ModelHandle` and
+   `Mila::Agents::Agent` become plain classes and `BasicAgent` goes. A device type the build lacks is refused before
+   any type is chosen, naming the devices it has. Evidence: `Notebooks/DeviceAssumptions.md`. Not yet designed:
+   the base's name, and where a device's precision is kept (a device-type trait now, the chip's table on Metal).

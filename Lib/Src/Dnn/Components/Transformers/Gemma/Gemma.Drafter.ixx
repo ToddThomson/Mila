@@ -27,9 +27,6 @@ import Compute.ExecutionContext;
 import Compute.IExecutionContext;
 import Compute.CpuMemoryResource;
 import Compute.Observation;
-#ifdef MILA_HAS_CUDA
-import Compute.CudaPinnedMemoryResource;
-#endif
 import Dnn.Components.RmsNorm;
 import Dnn.Components.Linear;
 import Serialization.ModelArchive;
@@ -233,16 +230,9 @@ namespace Mila::Dnn
                 this->getExecutionContext()->synchronize();
             };
 
-#ifdef MILA_HAS_CUDA
-            if constexpr ( TDeviceType == DeviceType::Cuda )
-            {
-                reader.streamTensorBlobs<CudaPinnedMemoryResource>( consume, device_index );
-            }
-            else
-#endif
-            {
-                reader.streamTensorBlobs<CpuMemoryResource>( consume );
-            }
+            // Pinned on CUDA, the host's own memory on the CPU, shared memory on Metal.
+            reader.streamTensorBlobs<typename DeviceTypeTraits<TDeviceType>::host_staging_memory_resource>(
+                consume, device_index );
 
             this->getExecutionContext()->synchronize();
             this->getExecutionContext()->releaseLoadStaging();

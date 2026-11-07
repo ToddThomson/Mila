@@ -24,6 +24,29 @@ import Cuda.Error;
 
 namespace Mila::Dnn::Compute
 {
+    namespace Detail
+    {
+        // The sixteen bytes in order, grouped 4-2-2-2-6, as NVIDIA's tools print them. Kept out of the class so no CUDA
+        // type appears in its declaration (see the file comment), and module-linked rather than file-local because the
+        // exported constructor calls it.
+        inline std::string formatUuid( const cudaUUID_t& value )
+        {
+            std::string text = "GPU-";
+
+            for ( int i = 0; i < 16; ++i )
+            {
+                if ( i == 4 || i == 6 || i == 8 || i == 10 )
+                {
+                    text += '-';
+                }
+
+                text += std::format( "{:02x}", static_cast<unsigned char>( value.bytes[ i ] ) );
+            }
+
+            return text;
+        }
+    }
+
     /**
      * @brief Wrapper for CUDA device properties with cached values.
      *
@@ -73,6 +96,7 @@ namespace Mila::Dnn::Compute
             pciBusID = props.pciBusID;
             pciDeviceID = props.pciDeviceID;
             pciDomainID = props.pciDomainID;
+            uuid = Detail::formatUuid( props.uuid );
 
             int clockRateKHz = 0;
             int memoryClockRateKHz = 0;
@@ -104,6 +128,9 @@ namespace Mila::Dnn::Compute
         int pciBusID{ 0 };
         int pciDeviceID{ 0 };
         int pciDomainID{ 0 };
+
+        /// The device's UUID as nvidia-smi -L and CUDA_VISIBLE_DEVICES write it: "GPU-" and five hyphenated hex groups.
+        std::string uuid;
 
         /**
          * @brief Gets compute capability as major/minor version pair.

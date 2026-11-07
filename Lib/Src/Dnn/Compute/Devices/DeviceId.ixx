@@ -17,9 +17,8 @@ namespace Mila::Dnn::Compute
     /**
      * @brief Lightweight identifier for a compute device.
      *
-     * Pairs a DeviceType with a zero-based index. Used throughout the API
-     * as a value type for device identification, function parameters, and
-     * class members.
+     * Pairs a DeviceType with a zero-based index: the device's place in this process, which can differ from one run to
+     * the next. A setting kept between runs names the device's stable identity instead (Device::getStableIdentity).
      *
      * Construction:
      * - Preferred: Use Device factory methods (Device::Cuda(0), Device::Cpu())
@@ -36,15 +35,9 @@ namespace Mila::Dnn::Compute
         /// Zero-based device index for the given type.
         int index = -1;
 
-        /**
-         * @brief Construct a default DeviceId.
-         *
-         * Default constructs to Cuda device 0.
-         */
-        constexpr DeviceId() noexcept
-            : type( DeviceType::Cuda ), index( 0 )
-        {
-        }
+        /// No default: an id always names its device type, and which device to use when none is named is the
+        /// deployment planner's to decide (Specifications/Deployment.md 12.8).
+        DeviceId() = delete;
 
         /**
          * @brief Construct a DeviceId from components.

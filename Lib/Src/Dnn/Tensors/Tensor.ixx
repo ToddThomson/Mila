@@ -209,11 +209,11 @@ namespace Mila::Dnn
             view_offset_( other.view_offset_ )
         {
 
-            // Leave moved-from object in clearly invalid state
+            // Leave moved-from object in clearly invalid state. It keeps its device id: an id names no memory, and
+            // there is no id that means "no device".
             other.size_ = 0;
             other.shape_ = {};
             other.strides_ = {};
-            other.device_id_ = {};
             other.is_view_ = false;
             other.view_offset_ = 0;
         }
@@ -247,7 +247,6 @@ namespace Mila::Dnn
                 other.size_ = 0;
                 other.shape_ = {};
                 other.strides_ = {};
-                other.device_id_ = {};
                 other.is_view_ = false;
                 other.view_offset_ = 0;
             }

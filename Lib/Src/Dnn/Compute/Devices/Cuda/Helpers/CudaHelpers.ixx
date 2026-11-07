@@ -2,9 +2,8 @@
  * @file CudaHelpers.ixx
  * @brief CUDA utility functions for device management and kernel execution
  *
- * Provides helper functions for CUDA device discovery, selection,
- * and kernel execution optimization. These utilities simplify working
- * with CUDA devices and provide consistent error handling.
+ * Binding a thread to a device, the runtime's versions and device count, and grid arithmetic. Choosing a device is
+ * the deployment planner's (Specifications/Deployment.md 12.8, 12.9).
  */
 
 module;
@@ -127,75 +126,5 @@ namespace Mila::Dnn::Compute::Cuda
         }
 
         return deviceId;
-    };
-
-    /**
-     * @brief Identifies the best CUDA device based on performance characteristics
-     *
-     * Evaluates available CUDA devices and selects the one with highest performance
-     * potential. Selection criteria vary based on the intended workload type.
-     *
-     * @param preferMemory When true, prioritizes memory bandwidth over compute
-     * @return Device ID of the best available CUDA device
-     * @throws CudaError If device properties cannot be accessed
-     */
-    export inline int getBestDeviceId( bool preferMemory = false ) {
-        int deviceCount = getDeviceCount();
-        int bestDevice = 0;
-        std::uint64_t bestScore = 0;
-
-        for ( int device = 0; device < deviceCount; device++ ) {
-            
-            cudaDeviceProp props;
-            if ( cudaGetDeviceProperties( &props, device ) != cudaSuccess ) continue;
-
-            int computeMode;
-            cudaDeviceGetAttribute( &computeMode, cudaDevAttrComputeMode, device );
-
-            if ( computeMode == cudaComputeModeProhibited ) continue;
-
-            std::uint64_t score;
-            if ( preferMemory ) {
-                score = (std::uint64_t)props.totalGlobalMem * props.memoryBusWidth;
-            }
-            else {
-                int clockRate;
-                cudaDeviceGetAttribute( &clockRate, cudaDevAttrClockRate, device );
-
-                score = (std::uint64_t)props.multiProcessorCount * props.maxThreadsPerMultiProcessor *
-                    clockRate * (props.major >= 7 ? 10 : 1);
-            }
-
-            if ( score > bestScore ) {
-                bestScore = score;
-                bestDevice = device;
-            }
-        }
-
-        return bestDevice;
-    }
-
-    /**
-     * @brief Finds the most appropriate CUDA device for computation
-     *
-     * Either validates a specific device ID if provided or finds
-     * the best available device when no preference is specified.
-     *
-     * @param deviceId Preferred device ID, or -1 to select the best device
-     * @return Valid CUDA device ID
-     * @throws std::runtime_error If no CUDA devices are found
-     */
-    export inline int findCudaDevice( int deviceId = -1, bool preferMemory = false ) {
-        int device_count = getDeviceCount();
-
-        if ( device_count == 0 ) {
-            throw std::runtime_error( "No CUDA devices found." );
-        }
-
-        if ( deviceId < 0 ) {
-            return getBestDeviceId( preferMemory );
-        }
-
-        return checkDevice( deviceId );
     };
 }

@@ -112,7 +112,7 @@ namespace Mila::Tests::Deployment
         }
 
         int ordinal_{ 0 };
-        DeviceId device_{};
+        DeviceId device_{ DeviceType::Cuda, 0 };
     };
 
     // Section 3.6, depth 2: plan, inspect, run exactly that. The loaded model reports the plan it ran, and what it

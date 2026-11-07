@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 #include <memory>
+#include <optional>
 #include <type_traits>
 
 import Mila;
@@ -124,7 +125,7 @@ namespace Dnn::Compute::ExecutionContexts::Tests
     // ============================================================================
 
     TEST_F( CpuExecutionContextTest, DeviceIdOutlivesContext ) {
-        DeviceId saved_id;
+        std::optional<DeviceId> saved_id;
 
         {
             auto ctx = createExecutionContext( Device::Cpu() );
@@ -133,8 +134,9 @@ namespace Dnn::Compute::ExecutionContexts::Tests
         } // ctx destroyed here
 
         // DeviceId is a value type; it should remain valid after context destruction
-        EXPECT_EQ( saved_id.type, DeviceType::Cpu );
-        EXPECT_EQ( saved_id.index, 0 );
+        ASSERT_TRUE( saved_id.has_value() );
+        EXPECT_EQ( saved_id->type, DeviceType::Cpu );
+        EXPECT_EQ( saved_id->index, 0 );
     }
 
     TEST_F( CpuExecutionContextTest, MultipleScopedContexts ) {

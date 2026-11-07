@@ -23,5 +23,8 @@ namespace Mila::Dnn::Compute
 
         // Metal runs inference only, so its operations declare no backward pass (MetalBackend.md section 1).
         static constexpr bool supports_training = false;
+
+        // Unified memory: the GPU and the host share one pool, so keeping a table "in host memory" saves nothing.
+        static constexpr bool memory_separate_from_host = false;
     };
 }

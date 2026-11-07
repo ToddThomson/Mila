@@ -252,7 +252,7 @@ three consumers fall back to it; the manifest's settings replace it whole, never
 below, is now decided by the library's deployment planner, unchanged: Chat sends a `DeploymentRequest` --
 the context automatic below the family ceiling, or fixed -- and reports the plan the load ran or the refusal
 it got. G2 reproduced every choice Chat made before the move. MIS and the Python binding reach the same
-planner in Phase 4, and `"device": "auto"` joins it in Phase 5 (`LayerSplit.md` section 8). One behaviour
+planner in Phase 4, and the devices Chat may use join it in Phase 5 (`LayerSplit.md` section 8). One behaviour
 changed (decided 2026-09-16, `Deployment.md` 12.2): an explicit `context_length` that will not fit is
 refused, naming what it needs and what is free, where it used to be attempted with a warning. The rest of
 this section is how the rule was reached, and stays as its record.
@@ -683,7 +683,7 @@ user types rather than for its build target.
 | `--prompt-file` | path to a text file | the same one shot, for a prompt past the ~32 KB a Windows command line holds. Refuses to pair with `-p` |
 | `--settings` | path to a JSON file | replaces `--config`; layer 6 of §3, not layer 4 |
 | `--context-length` | integer or `auto` | spelled as the key it overrides |
-| `--device` | integer, 0 or more | the CUDA ordinal; spelled as the key it overrides |
+| `--device` | a device or several, `cuda:1` or `cuda:0,cuda:1` | the devices the model may run on, in no order (`Deployment.md` 12.8); the default is `LayerSplit.md` 12.3's; spelled as the key it overrides. A bare number, the form until 0.21, is refused, naming the new form (Todd, 2026-11-07). Built today as one integer, the CUDA ordinal |
 | `--system-prompt` | name or path | resolved against the working directory, per §8 |
 | `--folder` | path | the folder the file tools work in; the key `folder`, a relative path resolving as §8's does |
 | `--web` | — | lets the web tool read public pages; the key `web`, true or false |
