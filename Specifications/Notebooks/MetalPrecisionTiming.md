@@ -132,8 +132,7 @@ where it costs nothing, and at decode in an own kernel Phase 2 found (`MetalMatr
 6. **Explained since, in `MetalMatrixPath.md` section 4:** TensorOps BF16 at D takes 0.48 of FP16, though it takes 1.9 times
    at S and L. The tile at D makes FP16 slow, on this program's weight layout, so FP16's `matmul2d` figure at D is not a fair one.
 7. **TensorOps takes a quarter of `gemm-direct` at S and L** and about the same at D. `gemm-direct` is untuned, so this
-   is not a verdict on either. llama.cpp keeps TensorOps off before M5 on its own measurements (its source comment:
-   M2 Ultra about 5% slower, M4 no significant difference), which is the reason to tune before concluding.
+   is not a verdict on either, and both are tuned before concluding.
 
 ## 6. What went wrong on the way
 

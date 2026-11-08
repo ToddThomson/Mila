@@ -34,7 +34,8 @@ namespace Mila::Dnn::Compute::Metal::RmsNorm
 
         MetalRmsNormOp( IExecutionContext* context, const RmsNormConfig& config )
             : context_( validateExecutionContext_<DeviceType::Metal>( context, "MetalRmsNormOp" ) ),
-              config_( config )
+              config_( config ),
+              pipeline_( context_->device().kernels().pipeline( std::format( "rms_norm_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type ) ) )
         {
             config_.validate();
         }
@@ -95,9 +96,8 @@ namespace Mila::Dnn::Compute::Metal::RmsNorm
                 input.rawData(), weight_->rawData(), bias_ != nullptr ? bias_->rawData() : weight_->rawData(), output.rawData() };
 
             context_->dispatchThreadgroups(
-                context_->device().kernels().pipeline( std::format( "rms_norm_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type ) ),
-                buffers, std::as_bytes( std::span( &shape, 1 ) ),
-                static_cast<std::size_t>( narrowToKernelIndex( input.size() / width_ * groups_ ) ), 1 );
+                pipeline_, buffers, std::as_bytes( std::span( &shape, 1 ) ),
+                static_cast<std::size_t>( narrowToKernelIndex( input.size() / width_ * groups_ ) ), 1, kSimdgroups );
         }
 
         [[nodiscard]] OperationType getOperationType() const override
@@ -122,8 +122,15 @@ namespace Mila::Dnn::Compute::Metal::RmsNorm
             float unit_offset;
         };
 
+        // RmsNorm.metal's threadgroup: eight SIMD-groups to a slice.
+        static constexpr std::size_t kSimdgroups = 8;
+
+        // Metal's pipeline type, named through the library that hands it out, since this module does not include Metal's headers.
+        using Pipeline = decltype( std::declval<MetalKernelLibrary&>().pipeline( std::string{} ) );
+
         MetalExecutionContext* context_;
         RmsNormConfig config_;
+        Pipeline pipeline_;
         ITensor* weight_{ nullptr };
         ITensor* bias_{ nullptr };
         dim_t width_{ 0 };

@@ -29,9 +29,10 @@ namespace Mila::Dnn::Compute::Metal::Sampling
     /**
      * @brief Draws one token from the last row of logits, or one from each of several rows, greedy or by temperature, top-k and top-p.
      *
-     * Metal has no event for one small readback, so `awaitToken` synchronizes the context, which also finishes anything encoded after
-     * the sample. The decode-ahead pipeline therefore runs one step at a time here, with the same tokens. Several rows are a speculative
-     * round's (Gemma4Mtp.md 4.8): each row is drawn by the kernels that draw one, with its own uniform.
+     * The multinomial is CUDA's multi-block pipeline in stages (Sampling.metal): a row spread over many threadgroups, each truncation's
+     * cut found exactly by radix selection on the scaled logits' bits. Metal has no event for one small readback, so `awaitToken` synchronizes the context, which also finishes anything
+     * encoded after the sample. The decode-ahead pipeline therefore runs one step at a time here, with the same tokens. Several rows are
+     * a speculative round's (Gemma4Mtp.md 4.8): each row is drawn by the kernels that draw one, with its own uniform.
      */
     export template<TensorDataType TPrecision>
     class MetalSamplingOp : public Operation<DeviceType::Metal, TPrecision>
@@ -45,7 +46,10 @@ namespace Mila::Dnn::Compute::Metal::Sampling
         MetalSamplingOp( IExecutionContext* context, const SamplingConfig& config )
             : context_( validateExecutionContext_<DeviceType::Metal>( context, "MetalSamplingOp" ) ),
               config_( validated( config ) ),
-              scratch_( context->getDeviceId(), shape_t{ config.getMaximumRows() * config.getVocabularySize() } )
+              scratch_( context->getDeviceId(), shape_t{ config.getMaximumRows() * config.getVocabularySize() } ),
+              reduction_scratch_( context->getDeviceId(), shape_t{ config.getMaximumRows() * kFloatScratchPerRow } ),
+              count_scratch_( context->getDeviceId(), shape_t{ config.getMaximumRows() * kCountScratchPerRow } ),
+              pipelines_( resolvePipelines( context_->device().kernels() ) )
         {
             uploadSuppressedTokens();
         }
@@ -134,7 +138,7 @@ namespace Mila::Dnn::Compute::Metal::Sampling
             const std::array<const void*, 4> buffers{
                 tokens.rawData(), chosen.rawData(), result.rawData(), produced != nullptr ? produced->rawData() : result.rawData() };
 
-            context_->dispatch( context_->device().kernels().pipeline( "sampling_accept" ), buffers, std::as_bytes( std::span( &parameters, 1 ) ), 1 );
+            context_->dispatch( pipelines_.accept, buffers, std::as_bytes( std::span( &parameters, 1 ) ), 1 );
         }
 
         /// Wait for the sample `enqueueForward` encoded, and return its token. @throws std::logic_error When there is none.
@@ -173,6 +177,15 @@ namespace Mila::Dnn::Compute::Metal::Sampling
 
     private:
 
+        // Sampling.metal's pipeline shape, which sizes the scratch and the grids.
+        static constexpr std::size_t kSimdgroups = 8;
+        static constexpr dim_t kThreads = 256;
+        static constexpr dim_t kMaximumChunks = 1024;
+        static constexpr dim_t kHistogramGroups = 64;
+        static constexpr std::int32_t kRadixRounds = 3;
+        static constexpr dim_t kFloatScratchPerRow = 16 + kMaximumChunks + 4096 + kMaximumChunks;
+        static constexpr dim_t kCountScratchPerRow = 16 + 4096;
+
         // The kernels' SamplingParameters, field for field.
         struct Parameters
         {
@@ -186,7 +199,53 @@ namespace Mila::Dnn::Compute::Metal::Sampling
             std::uint32_t use_produced;
             std::uint32_t use_round;
             std::array<float, kMaximumRows> uniforms;
+            std::int32_t round;
+            std::int32_t partial_count;
+            std::int32_t chunk_size;
+            std::int32_t chunk_count;
         };
+
+        // Metal's pipeline type, named through the library that hands it out, since this module does not include Metal's headers.
+        using Pipeline = decltype( std::declval<MetalKernelLibrary&>().pipeline( std::string{} ) );
+
+        // Every kernel this op dispatches, resolved once when it is built: a dispatch names none.
+        struct Pipelines
+        {
+            Pipeline greedy;
+            Pipeline scale;
+            Pipeline prepare;
+            Pipeline top_k_count;
+            Pipeline top_k_select;
+            Pipeline top_p_mass;
+            Pipeline top_p_select;
+            Pipeline probability;
+            Pipeline draw;
+            Pipeline mark_produced;
+            Pipeline accept;
+        };
+
+        [[nodiscard]] static Pipelines resolvePipelines( MetalKernelLibrary& kernels )
+        {
+            const std::string type( MetalTensorDataTypeMap<TPrecision>::kernel_type );
+
+            return Pipelines{
+                kernels.pipeline( "sampling_greedy_" + type ),
+                kernels.pipeline( "sampling_scale_" + type ),
+                kernels.pipeline( "sampling_prepare" ),
+                kernels.pipeline( "sampling_top_k_count" ),
+                kernels.pipeline( "sampling_top_k_select" ),
+                kernels.pipeline( "sampling_top_p_mass" ),
+                kernels.pipeline( "sampling_top_p_select" ),
+                kernels.pipeline( "sampling_probability" ),
+                kernels.pipeline( "sampling_draw" ),
+                kernels.pipeline( "sampling_mark_produced" ),
+                kernels.pipeline( "sampling_accept" ) };
+        }
+
+        [[nodiscard]] static constexpr dim_t ceilingDivision( dim_t numerator, dim_t denominator )
+        {
+            return ( numerator + denominator - 1 ) / denominator;
+        }
 
         // The kernels' SamplingAcceptParameters.
         struct AcceptParameters
@@ -261,7 +320,7 @@ namespace Mila::Dnn::Compute::Metal::Sampling
             {
                 const std::array<const void*, 2> buffers{ token_out.rawData(), produced->rawData() };
 
-                context_->dispatch( context_->device().kernels().pipeline( "sampling_mark_produced" ), buffers, {}, 1 );
+                context_->dispatch( pipelines_.mark_produced, buffers, {}, 1 );
             }
         }
 
@@ -288,9 +347,17 @@ namespace Mila::Dnn::Compute::Metal::Sampling
 
             const bool with_round = penalized && round_tokens != nullptr;
 
+            const dim_t vocab = config_.getVocabularySize();
+            const dim_t element_groups = ceilingDivision( vocab, kThreads );
+            const dim_t scale_groups = std::min( element_groups, kMaximumChunks );
+            const dim_t histogram_groups = std::min( element_groups, kHistogramGroups );
+            const dim_t chunk_size = kThreads * ceilingDivision( vocab, kThreads * kMaximumChunks );
+            const dim_t chunk_count = ceilingDivision( vocab, chunk_size );
+
             Parameters parameters{
-                narrowToKernelIndex( config_.getVocabularySize() ), params.top_k, params.top_p, params.temperature,
-                config_.getFinalLogitSoftcap(), params.presence_penalty, suppressed_ ? 1u : 0u, penalized ? 1u : 0u, with_round ? 1u : 0u, {} };
+                narrowToKernelIndex( vocab ), params.top_k, params.top_p, params.temperature,
+                config_.getFinalLogitSoftcap(), params.presence_penalty, suppressed_ ? 1u : 0u, penalized ? 1u : 0u, with_round ? 1u : 0u, {},
+                0, narrowToKernelIndex( scale_groups ), narrowToKernelIndex( chunk_size ), narrowToKernelIndex( chunk_count ) };
 
             for ( dim_t row = 0; row < rows; ++row )
             {
@@ -302,30 +369,61 @@ namespace Mila::Dnn::Compute::Metal::Sampling
             const void* const suppressed = suppressed_ ? static_cast<const ITensor*>( suppressed_.get() )->rawData() : scratch;
             const void* const flags = penalized ? produced->rawData() : scratch;
             const void* const round = with_round ? round_tokens->rawData() : scratch;
+            const auto height = static_cast<std::size_t>( rows );
 
-            const std::string_view type = MetalTensorDataTypeMap<TPrecision>::kernel_type;
-            const bool greedy = params.temperature <= 0.0f || params.top_k == 1;
-            const auto constants = std::as_bytes( std::span( &parameters, 1 ) );
-
-            if ( greedy )
+            if ( params.temperature <= 0.0f || params.top_k == 1 )
             {
                 const std::array<const void*, 5> buffers{ first_row, tokens_out.rawData(), suppressed, flags, round };
 
-                context_->dispatchThreadgroups(
-                    context_->device().kernels().pipeline( std::format( "sampling_greedy_{}", type ) ), buffers, constants,
-                    static_cast<std::size_t>( rows ), 1 );
-            } else {
-                const std::array<const void*, 6> buffers{ first_row, tokens_out.rawData(), scratch, suppressed, flags, round };
+                context_->dispatchThreadgroups( pipelines_.greedy, buffers, std::as_bytes( std::span( &parameters, 1 ) ), 1, height, kSimdgroups );
 
-                context_->dispatchThreadgroups(
-                    context_->device().kernels().pipeline( std::format( "sampling_draw_{}", type ) ), buffers, constants,
-                    static_cast<std::size_t>( rows ), 1 );
+                return;
             }
+
+            const std::array<const void*, 8> buffers{
+                first_row, tokens_out.rawData(), scratch, reduction_scratch_.rawData(), count_scratch_.rawData(), suppressed, flags, round };
+
+            // Each stage is told its radix round; the rest of the parameters are the call's.
+            auto stage = [&]( Pipeline pipeline, dim_t width, std::int32_t radix_round )
+                {
+                    Parameters staged = parameters;
+                    staged.round = radix_round;
+
+                    context_->dispatchThreadgroups(
+                        pipeline, buffers, std::as_bytes( std::span( &staged, 1 ) ), static_cast<std::size_t>( width ), height, kSimdgroups );
+                };
+
+            stage( pipelines_.scale, scale_groups, 0 );
+            stage( pipelines_.prepare, 1, 0 );
+
+            if ( params.top_k > 0 && params.top_k < vocab )
+            {
+                for ( std::int32_t radix_round = 0; radix_round < kRadixRounds; ++radix_round )
+                {
+                    stage( pipelines_.top_k_count, histogram_groups, radix_round );
+                    stage( pipelines_.top_k_select, 1, radix_round );
+                }
+            }
+
+            if ( params.top_p < 1.0f )
+            {
+                for ( std::int32_t radix_round = 0; radix_round < kRadixRounds; ++radix_round )
+                {
+                    stage( pipelines_.top_p_mass, histogram_groups, radix_round );
+                    stage( pipelines_.top_p_select, 1, radix_round );
+                }
+            }
+
+            stage( pipelines_.probability, chunk_count, 0 );
+            stage( pipelines_.draw, 1, 0 );
         }
 
         MetalExecutionContext* context_;
         SamplingConfig config_;
         mutable Tensor<TensorDataType::FP32, MetalMemoryResource> scratch_;
+        mutable Tensor<TensorDataType::FP32, MetalMemoryResource> reduction_scratch_;
+        mutable Tensor<TensorDataType::INT32, MetalMemoryResource> count_scratch_;
+        Pipelines pipelines_;
         std::unique_ptr<Tensor<TensorDataType::UINT8, MetalMemoryResource>> suppressed_;
         mutable ITensor* pending_token_{ nullptr };
     };

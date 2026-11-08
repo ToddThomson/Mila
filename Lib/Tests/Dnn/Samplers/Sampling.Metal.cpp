@@ -320,6 +320,38 @@ namespace Mila::Tests::Dnn::Samplers
         fixture.expectDistribution( Settings{ .top_k = 40 } );
     }
 
+    // Logits that share their leading bits put every candidate for the cut in one bin of the first round, so the cut is found only by
+    // the later rounds, which count what lies above the prefix the first chose.
+    // A ladder of 64 distinct values from 3 in steps of 1/64, exact in FP16 and BF16 alike, in shuffled token order: the first round's
+    // bins hold 16 each.
+    std::vector<float> crowdedLogits()
+    {
+        std::vector<float> values( 64 );
+
+        for ( std::size_t i = 0; i < values.size(); ++i )
+        {
+            values[i] = 3.0f + static_cast<float>( i ) / 64.0f;
+        }
+
+        std::ranges::shuffle( values, std::mt19937( 90 ) );
+
+        return values;
+    }
+
+    TYPED_TEST( SamplingMetal, TopKRefinesWhereTheLogitsCrowdIntoOneBin )
+    {
+        Fixture<TypeParam::value> fixture( crowdedLogits() );
+
+        fixture.expectDistribution( Settings{ .top_k = 20 } );
+    }
+
+    TYPED_TEST( SamplingMetal, TopPRefinesWhereTheLogitsCrowdIntoOneBin )
+    {
+        Fixture<TypeParam::value> fixture( crowdedLogits() );
+
+        fixture.expectDistribution( Settings{ .top_p = 0.5f } );
+    }
+
     TYPED_TEST( SamplingMetal, TopKKeepsEveryTokenTiedWithTheKth )
     {
         Fixture<TypeParam::value> fixture( { 1.0f, 4.0f, 2.0f, 2.0f, 2.0f, 0.5f, 3.0f, -1.0f } );

@@ -171,6 +171,16 @@ namespace Mila::Dnn::Compute
             return result;
         }
 
+        /// The kernel a pipeline of this library runs, for a profile's labels; empty for one it did not make.
+        [[nodiscard]] std::string nameOf( const MTL::ComputePipelineState* state )
+        {
+            std::lock_guard lock( mutex_ );
+
+            const auto found = std::ranges::find_if( pipelines_, [&]( const auto& entry ) { return entry.second == state; } );
+
+            return found != pipelines_.end() ? found->first : std::string{};
+        }
+
         [[nodiscard]] MetalKernelLimits limits( const std::string& kernel_name )
         {
             const MTL::ComputePipelineState* const state = pipeline( kernel_name );

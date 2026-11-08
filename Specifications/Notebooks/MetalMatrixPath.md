@@ -439,3 +439,11 @@ Milliseconds, FP16, at each path's form in the gate: eight weights from one load
 | 8B head | unquantized | 5.794 | 6.116 | - | | own |
 | 8B head | fp4-128 | 2.747 (table) | 45.642 | - | 0.00021 / 0.0003 | own |
 | 8B head | q6 | 4.126 | 41.738 | - | 0.00021 / 0.00028 | own |
+
+## 7. Q4_0 at one row
+
+2026-11-07, at `0.21.0-dev+127`. **Question:** Gemma 4 12B's decode spent 50.2 of about 67 ms a token in Q4_0's one-row
+lanes kernel, which read its weights at about 117 GB/s (the per-kernel GPU times of `setDispatchProfiling`), where the
+M1 Pro's peak is about 200. Section 6 found that kernel limited by arithmetic. Can less arithmetic per weight move it?
+
+**Open:** a faster Q4_0 product, designed and measured in Mila.

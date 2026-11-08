@@ -13,9 +13,11 @@ export module Compute.MetalExecutionContext;
 import std;
 import Compute.DeviceId;
 import Compute.DeviceType;
+import Compute.DispatchTime;
 import Compute.IExecutionContext;
 import Compute.MetalBufferLocation;
 import Compute.MetalDevice;
+import Compute.MetalKernelLibrary;
 import Compute.MetalMatrixView;
 import Dnn.TensorDataType;
 import Dnn.TensorTypes;
@@ -117,6 +119,42 @@ namespace Mila::Dnn::Compute
             return device_id_;
         }
 
+        /**
+         * @brief Time each dispatch by the GPU's own timestamps: each in an encoder of its own, named for its kernel, with a
+         *        timestamp at its start and end. Turning it on starts afresh.
+         *
+         * @throws std::runtime_error When this GPU cannot sample timestamps at an encoder's boundaries.
+         */
+        void setDispatchProfiling( bool enabled ) override
+        {
+            if ( enabled && !device_->handle()->supportsCounterSampling( MTL::CounterSamplingPointAtStageBoundary ) )
+            {
+                throw std::runtime_error( "This GPU cannot time each Metal dispatch: it does not sample timestamps at an encoder's boundaries." );
+            }
+
+            if ( enabled )
+            {
+                profile_.clear();
+            }
+
+            dispatch_profiling_ = enabled;
+        }
+
+        [[nodiscard]] std::vector<DispatchTime> dispatchProfile() const override
+        {
+            std::vector<DispatchTime> result;
+            result.reserve( profile_.size() );
+
+            for ( const auto& [kernel, time] : profile_ )
+            {
+                result.push_back( time );
+            }
+
+            std::ranges::sort( result, std::ranges::greater{}, &DispatchTime::gpu_seconds );
+
+            return result;
+        }
+
         /// @throws std::runtime_error When the GPU reports that the work failed, saying why.
         void synchronize() override
         {
@@ -135,6 +173,7 @@ namespace Mila::Dnn::Compute
             const std::string reason = failed && commands_->error()
                 ? commands_->error()->localizedDescription()->utf8String() : "no reason given";
 
+            collectDispatchTimes( failed ? 0.0 : commands_->GPUEndTime() - commands_->GPUStartTime() );
             commands_->release();
             commands_ = nullptr;
 
@@ -275,8 +314,7 @@ namespace Mila::Dnn::Compute
         {
             LocalPool pool;
 
-            MTL::ComputeCommandEncoder* const encoder = computeEncoder();
-            encoder->setComputePipelineState( pipeline );
+            MTL::ComputeCommandEncoder* const encoder = computeEncoder( pipeline );
 
             NS::UInteger index = 0;
 
@@ -310,8 +348,7 @@ namespace Mila::Dnn::Compute
         {
             LocalPool pool;
 
-            MTL::ComputeCommandEncoder* const encoder = computeEncoder();
-            encoder->setComputePipelineState( pipeline );
+            MTL::ComputeCommandEncoder* const encoder = computeEncoder( pipeline );
 
             NS::UInteger index = 0;
 
@@ -341,8 +378,7 @@ namespace Mila::Dnn::Compute
         {
             LocalPool pool;
 
-            MTL::ComputeCommandEncoder* const encoder = computeEncoder();
-            encoder->setComputePipelineState( pipeline );
+            MTL::ComputeCommandEncoder* const encoder = computeEncoder( pipeline );
 
             NS::UInteger index = 0;
 
@@ -376,8 +412,7 @@ namespace Mila::Dnn::Compute
         {
             LocalPool pool;
 
-            MTL::ComputeCommandEncoder* const encoder = computeEncoder();
-            encoder->setComputePipelineState( pipeline );
+            MTL::ComputeCommandEncoder* const encoder = computeEncoder( pipeline );
 
             std::vector<MTL::ResourceID> identifiers;
             identifiers.reserve( matrices.size() );
@@ -503,20 +538,148 @@ namespace Mila::Dnn::Compute
             return commands_;
         }
 
-        /// The compute encoder, ending a blit one so that order is kept. Blit is the same the other way.
-        MTL::ComputeCommandEncoder* computeEncoder()
+        /// The compute encoder, set to run `pipeline`, ending a blit one so that order is kept; blit is the same the other way.
+        /// Profiling dispatches, each gets an encoder of its own named for its kernel.
+        MTL::ComputeCommandEncoder* computeEncoder( MTL::ComputePipelineState* pipeline )
         {
-            if ( blit_encoder_ )
+            if ( blit_encoder_ || dispatch_profiling_ )
             {
                 endEncoding();
             }
 
             if ( !compute_encoder_ )
             {
-                compute_encoder_ = openCommands()->computeCommandEncoder()->retain();
+                compute_encoder_ = dispatch_profiling_ ? timedComputeEncoder( pipeline ) : openCommands()->computeCommandEncoder()->retain();
             }
 
+            compute_encoder_->setComputePipelineState( pipeline );
+
             return compute_encoder_;
+        }
+
+        /// A compute encoder for one dispatch of `pipeline`, with a GPU timestamp at its start and its end.
+        MTL::ComputeCommandEncoder* timedComputeEncoder( MTL::ComputePipelineState* pipeline )
+        {
+            if ( sample_buffers_.empty() || sample_buffers_.back().used + 2 > kSamplesPerBuffer )
+            {
+                sample_buffers_.push_back( SampleBuffer{ newTimestampBuffer(), 0 } );
+            }
+
+            SampleBuffer& samples = sample_buffers_.back();
+            std::string kernel = device_->kernels().nameOf( pipeline );
+
+            MTL::ComputePassDescriptor* const descriptor = MTL::ComputePassDescriptor::computePassDescriptor();
+            MTL::ComputePassSampleBufferAttachmentDescriptor* const attachment = descriptor->sampleBufferAttachments()->object( 0 );
+            attachment->setSampleBuffer( samples.buffer );
+            attachment->setStartOfEncoderSampleIndex( samples.used );
+            attachment->setEndOfEncoderSampleIndex( samples.used + 1 );
+
+            MTL::ComputeCommandEncoder* const encoder = openCommands()->computeCommandEncoder( descriptor )->retain();
+            encoder->setLabel( NS::String::string( kernel.c_str(), NS::UTF8StringEncoding ) );
+
+            timed_dispatches_.push_back( TimedDispatch{ std::move( kernel ), sample_buffers_.size() - 1, samples.used } );
+            samples.used += 2;
+
+            return encoder;
+        }
+
+        MTL::CounterSampleBuffer* newTimestampBuffer()
+        {
+            MTL::CounterSet* timestamps = nullptr;
+            const NS::Array* const sets = device_->handle()->counterSets();
+
+            for ( NS::UInteger i = 0; sets && i < sets->count(); ++i )
+            {
+                MTL::CounterSet* const set = sets->object<MTL::CounterSet>( i );
+
+                if ( set->name()->isEqualToString( MTL::CommonCounterSetTimestamp ) )
+                {
+                    timestamps = set;
+                }
+            }
+
+            if ( !timestamps )
+            {
+                throw std::runtime_error( "This GPU has no timestamp counters to time each Metal dispatch with." );
+            }
+
+            MTL::CounterSampleBufferDescriptor* const descriptor = MTL::CounterSampleBufferDescriptor::alloc()->init();
+            descriptor->setCounterSet( timestamps );
+            descriptor->setStorageMode( MTL::StorageModeShared );
+            descriptor->setSampleCount( kSamplesPerBuffer );
+
+            NS::Error* error = nullptr;
+            MTL::CounterSampleBuffer* const buffer = device_->handle()->newCounterSampleBuffer( descriptor, &error );
+            descriptor->release();
+
+            if ( !buffer )
+            {
+                throw std::runtime_error( std::format( "Metal refused a buffer of GPU timestamps: {}",
+                    error ? error->localizedDescription()->utf8String() : "no reason given" ) );
+            }
+
+            return buffer;
+        }
+
+        /**
+         * @brief Add the finished command buffer's timed dispatches to the profile.
+         *
+         * Timestamps are GPU ticks; the command buffer's own GPU time, over the span from its first timed start to its last
+         * timed end, converts them to seconds. Zero time, as a failed buffer gives, adds nothing.
+         */
+        void collectDispatchTimes( double command_buffer_seconds )
+        {
+            if ( !timed_dispatches_.empty() && command_buffer_seconds > 0.0 )
+            {
+                std::vector<const MTL::CounterResultTimestamp*> resolved;
+
+                for ( const SampleBuffer& samples : sample_buffers_ )
+                {
+                    NS::Data* const data = samples.buffer->resolveCounterRange( NS::Range( 0, samples.used ) );
+                    resolved.push_back( data ? static_cast<const MTL::CounterResultTimestamp*>( data->bytes() ) : nullptr );
+                }
+
+                std::uint64_t first = std::numeric_limits<std::uint64_t>::max();
+                std::uint64_t last = 0;
+
+                auto valid = []( std::uint64_t tick ) { return tick != MTL::CounterErrorValue && tick != 0; };
+
+                for ( const TimedDispatch& dispatch : timed_dispatches_ )
+                {
+                    const MTL::CounterResultTimestamp* const ticks = resolved[dispatch.buffer];
+
+                    if ( ticks && valid( ticks[dispatch.index].timestamp ) && valid( ticks[dispatch.index + 1].timestamp ) )
+                    {
+                        first = std::min( first, ticks[dispatch.index].timestamp );
+                        last = std::max( last, ticks[dispatch.index + 1].timestamp );
+                    }
+                }
+
+                const double seconds_per_tick = last > first ? command_buffer_seconds / static_cast<double>( last - first ) : 0.0;
+
+                for ( const TimedDispatch& dispatch : timed_dispatches_ )
+                {
+                    const MTL::CounterResultTimestamp* const ticks = resolved[dispatch.buffer];
+
+                    if ( !ticks || !valid( ticks[dispatch.index].timestamp ) || !valid( ticks[dispatch.index + 1].timestamp ) )
+                    {
+                        continue;
+                    }
+
+                    DispatchTime& time = profile_[dispatch.kernel];
+                    time.kernel = dispatch.kernel;
+                    time.dispatches += 1;
+                    time.gpu_seconds += static_cast<double>( ticks[dispatch.index + 1].timestamp - ticks[dispatch.index].timestamp ) * seconds_per_tick;
+                }
+            }
+
+            for ( SampleBuffer& samples : sample_buffers_ )
+            {
+                samples.buffer->release();
+            }
+
+            sample_buffers_.clear();
+            timed_dispatches_.clear();
         }
 
         MTL::BlitCommandEncoder* blitEncoder()
@@ -564,6 +727,26 @@ namespace Mila::Dnn::Compute
         bool scratch_reserved_{ false };
         void* load_staging_{ nullptr };
         std::size_t load_staging_bytes_{ 0 };
+        // Dispatch profiling: the timestamp buffers of the open command buffer, each dispatch's place in them, and the totals.
+        struct SampleBuffer
+        {
+            MTL::CounterSampleBuffer* buffer;
+            NS::UInteger used;
+        };
+
+        struct TimedDispatch
+        {
+            std::string kernel;
+            std::size_t buffer;
+            NS::UInteger index;
+        };
+
+        static constexpr NS::UInteger kSamplesPerBuffer = 4096;
+
+        bool dispatch_profiling_{ false };
+        std::vector<SampleBuffer> sample_buffers_;
+        std::vector<TimedDispatch> timed_dispatches_;
+        std::unordered_map<std::string, DispatchTime> profile_;
 
         // As CUDA's: it bounds the load's peak, and Qwen 3.8's head is 2.54 GiB of BF16.
         static constexpr std::size_t kLoadStagingLimitBytes = std::size_t{ 256 } * 1024 * 1024;

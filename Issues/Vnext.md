@@ -1316,3 +1316,33 @@ which opens only installed models; the two ROADMAP criteria and the `Mila::Agent
 it went with it.
 
 `Lib/Src/Deployment/ModelHandle.ixx` · `Specifications/ModelHandle.md` 3.7, 10.4 · `Direction.md` decision 7
+
+## The library's own generation statistics
+
+`api` · `apps` · `observability` · `mila-src`
+
+**Leaning, not a design (Todd, 2026-11-07); the work is secondary and waits.** The library is the authority of its own
+statistics. Today it keeps none: `LanguageModel::generate` returns only a `GenerateStatus`, and each consumer times
+itself from the token callback (Chat's `RoundTimer`, Desktop's session, `mila-metal-model-timing`). That rests on
+`722fb7d1` (2026-07-01, `0.20.0-alpha.6+79`), which deleted `GenerationStatistics` on the premise that callback
+timestamps reconstruct the model's time. They do not: the callback runs inside the decode loop, so a consumer's
+per-token work is counted as model time and also delays the next step, and a consumer can never see GPU time. Found
+diagnosing Gemma 4 12B's 2 tokens/s in Chat on the Mac, which the callback stream could not attribute (it was
+sampling).
+
+The leanings:
+
+- **What the library reports** is what a consumer cannot reconstruct: prefill and decode time with the callback's own
+  time taken out and reported apart, and GPU time once a backend reads it (a Metal command buffer's GPU times, CUDA
+  events).
+- **Returned with each call's result**, never held in a member: what `722fb7d1` was right to delete was
+  `last_generation_statistics_`, per-call state on the object.
+- **Chat shows throughput only when the user asks.** `/stats` stays as the way to ask, in plain terms (how fast the
+  reply came, the time to its first word), read from the library; nothing is printed after each reply. The
+  diagnostic detail (gaps, stalls, percentiles, rounds) goes to `-p`'s JSON output and the log, not to the command.
+- Desktop follows the same split: the window shows only what is asked for, the protocol carries the detail.
+
+Open: whether the agent (`Mila::Agents`) adds per-round totals over its tool calls, or passes the model's through.
+
+`Lib/Src/Dnn/Core/Models/LanguageModel.ixx` (`generate`'s "the model keeps no stopwatch") ·
+`Apps/Chat/Src/Chat.Session.ixx` (`RoundTimer`) · `Specifications/Notebooks/SessionInventory.md` decision 4

@@ -14,6 +14,7 @@ import Dnn.GenerateStatus;
 import Dnn.RuntimeMode;
 import Dnn.TensorDataType;
 import Compute.DeviceId;
+import Compute.DispatchTime;
 import Compute.Observation;
 
 namespace Mila::Dnn
@@ -65,6 +66,12 @@ namespace Mila::Dnn
         virtual void setDecodeReplay( bool enabled ) = 0;
 
         [[nodiscard]] virtual bool isDecodeReplayed() const noexcept = 0;
+
+        /// Time each GPU dispatch by kernel from now; turning it on starts afresh. Slower; values unchanged.
+        virtual void setDispatchProfiling( bool enabled ) = 0;
+
+        /// Each kernel's GPU time while dispatch profiling was on, longest first; empty where the device times nothing.
+        [[nodiscard]] virtual std::vector<Compute::DispatchTime> dispatchProfile() const = 0;
 
         /// The device the model runs on; with a split model, the one holding its input.
         [[nodiscard]] virtual DeviceId getDeviceId() const noexcept = 0;

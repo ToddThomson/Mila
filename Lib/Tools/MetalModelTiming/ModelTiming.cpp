@@ -1,8 +1,8 @@
 /**
  * @file ModelTiming.cpp
- * @brief Llama on Metal through `LlamaModel::load` and `generate`, timed at llama-bench's shapes in FP16 and BF16, with memory.
+ * @brief Llama or Gemma on Metal through the family's `load` and `generate`, timed at llama-bench's shapes in FP16 and BF16, with memory.
  *
- * Phase 4's measures; the method and results are in Specifications/Notebooks/MetalFirstModel.md section 4.
+ * Phase 4's measures, in the weights' own stored format; the method is in Specifications/Notebooks/MetalFirstModel.md section 4.
  */
 
 #include <mach/mach.h>
@@ -21,13 +21,35 @@ namespace
 
     constexpr std::uint32_t kPromptSeed = 20261105;
 
-    // Ordinary vocabulary, clear of Llama 3's special tokens from 128000.
+    // Ordinary vocabulary in both families: clear of Llama 3's special tokens from 128000 and of Gemma's below 1000.
     constexpr std::int32_t kFirstOrdinaryToken = 1000;
     constexpr std::int32_t kLastOrdinaryToken = 100000;
+
+    enum class Family
+    {
+        Llama,
+        Gemma
+    };
+
+    template<Family TFamily, TensorDataType TPrecision>
+    struct FamilyModel;
+
+    template<TensorDataType TPrecision>
+    struct FamilyModel<Family::Llama, TPrecision>
+    {
+        using type = LlamaModel<DeviceType::Metal, TPrecision>;
+    };
+
+    template<TensorDataType TPrecision>
+    struct FamilyModel<Family::Gemma, TPrecision>
+    {
+        using type = GemmaModel<DeviceType::Metal, TPrecision>;
+    };
 
     struct Options
     {
         std::filesystem::path weights;
+        Family family{ Family::Llama };
         int rounds{ 3 };
         int runs{ 5 };
         dim_t context{ 8192 };
@@ -38,7 +60,18 @@ namespace
         bool rates{ true };
         bool fp16{ true };
         bool bf16{ true };
+
+        // Greedy unless set: an application samples, which a comparison of engines does not.
+        float temperature{ 0.0f };
+        int top_k{ 0 };
+        float top_p{ 1.0f };
+
+        // Each dispatch timed by the GPU and printed by kernel; the rates it gives are not the model's.
+        bool profile_dispatches{ false };
     };
+
+    // Set once from the command line; read by every generate call.
+    Options sampling_options;
 
     struct ProcessMemory
     {
@@ -160,12 +193,13 @@ namespace
         return { median, values.front(), values.back() };
     }
 
-    GenerateParams greedy( int max_new_tokens )
+    GenerateParams generateParams( int max_new_tokens )
     {
         GenerateParams params;
         params.max_new_tokens = max_new_tokens;
-        params.sampling.temperature = 0.0f;
-        params.sampling.top_k = 0;
+        params.sampling.temperature = sampling_options.temperature;
+        params.sampling.top_k = sampling_options.top_k;
+        params.sampling.top_p = sampling_options.top_p;
 
         // Every run prefills its whole prompt, and decodes its full count past an end-of-sequence token.
         params.reuse_kv_prefix = false;
@@ -180,7 +214,7 @@ namespace
         Clock::time_point first_token{};
         const Clock::time_point start = Clock::now();
 
-        (void)model.generate( prompt, [&]( std::int32_t ) { first_token = Clock::now(); }, greedy( 1 ) );
+        (void)model.generate( prompt, [&]( std::int32_t ) { first_token = Clock::now(); }, generateParams( 1 ) );
 
         return static_cast<double>( prompt.size() ) / seconds( start, first_token );
     }
@@ -191,7 +225,7 @@ namespace
         std::vector<Clock::time_point> stamps;
         stamps.reserve( static_cast<std::size_t>( tokens ) );
 
-        (void)model.generate( prompt, [&]( std::int32_t ) { stamps.push_back( Clock::now() ); }, greedy( tokens ) );
+        (void)model.generate( prompt, [&]( std::int32_t ) { stamps.push_back( Clock::now() ); }, generateParams( tokens ) );
 
         if ( stamps.size() != static_cast<std::size_t>( tokens ) )
         {
@@ -199,6 +233,34 @@ namespace
         }
 
         return static_cast<double>( tokens - 1 ) / seconds( stamps.front(), stamps.back() );
+    }
+
+    // One decode of `tokens` from a one-token prompt, every dispatch timed by the GPU, shown per generated token. The one prefill
+    // of the prompt's single token is in it, under the prefill kernels' own names.
+    template<typename TModel>
+    void printDecodeProfile( TModel& model, std::span<const std::int32_t> prompt, int tokens, std::string_view label )
+    {
+        model.setDispatchProfiling( true );
+        (void)decodeRate( model, prompt, tokens );
+        model.setDispatchProfiling( false );
+
+        const std::vector<DispatchTime> profile = model.dispatchProfile();
+        double total = 0.0;
+
+        for ( const DispatchTime& time : profile )
+        {
+            total += time.gpu_seconds;
+        }
+
+        std::cout << std::format( "[ profile ] {}: {} kernels, {:.2f} ms of GPU time a token over {} tokens\n",
+            label, profile.size(), 1000.0 * total / tokens, tokens );
+
+        for ( const DispatchTime& time : profile )
+        {
+            std::cout << std::format( "[ profile ] {:8.3f} ms a token {:5.1f}%  {:7.1f} dispatches a token  {}\n",
+                1000.0 * time.gpu_seconds / tokens, 100.0 * time.gpu_seconds / total,
+                static_cast<double>( time.dispatches ) / tokens, time.kernel );
+        }
     }
 
     void printMemory( std::string_view label, const DeploymentPlan& plan )
@@ -213,18 +275,22 @@ namespace
             gib( reading.total_bytes ), 100.0 * static_cast<double>( allocated ) / static_cast<double>( reading.total_bytes ) );
     }
 
-    template<TensorDataType TPrecision>
+    template<Family TFamily, TensorDataType TPrecision>
     void measureLoad( const Options& options, Samples& samples, std::string_view label )
     {
-        using Model = LlamaModel<DeviceType::Metal, TPrecision>;
+        using Model = typename FamilyModel<TFamily, TPrecision>::type;
+
+        // Naming no weight format loads the one the weights are stored in.
+        const DeploymentRequest request = DeploymentRequest().withContextLength( options.context ).withAllowedDevices( Device::Metal( 0 ) );
 
         const Clock::time_point start = Clock::now();
-        auto model = Model::load( options.weights, LlamaModelConfig( options.context ), Device::Metal( 0 ) );
+        auto model = Model::load( options.weights, request );
         const double load = seconds( start, Clock::now() );
 
         samples.load_seconds.push_back( load );
-        std::cout << std::format( "[ load ] {} {}: {:.2f} s, context {}, prefill chunk {}\n", label, precisionName( TPrecision ), load,
-            model->getDeploymentPlan().contextLength(), model->getDeploymentPlan().prefillChunkRows() );
+        std::cout << std::format( "[ load ] {} {}: {:.2f} s, context {}, prefill chunk {}, weights {}\n", label, precisionName( TPrecision ), load,
+            model->getDeploymentPlan().contextLength(), model->getDeploymentPlan().prefillChunkRows(),
+            weightQuantizationName( model->getDeploymentPlan().weightQuantization() ) );
         printMemory( std::format( "{} {} after load", label, precisionName( TPrecision ) ), model->getDeploymentPlan() );
 
         const std::vector<std::int32_t> prompt = randomTokens( options.prefill_tokens, kPromptSeed );
@@ -234,6 +300,13 @@ namespace
         (void)prefillRate( *model, prompt );
         (void)decodeRate( *model, one_token, options.decode_tokens );
         (void)decodeRate( *model, deep, options.decode_tokens );
+
+        if ( options.profile_dispatches )
+        {
+            printDecodeProfile( *model, one_token, options.decode_tokens, label );
+
+            return;
+        }
 
         for ( int run = 0; run < options.runs; ++run )
         {
@@ -252,10 +325,10 @@ namespace
         printMemory( std::format( "{} {} after the runs", label, precisionName( TPrecision ) ), model->getDeploymentPlan() );
     }
 
-    template<TensorDataType TPrecision>
+    template<Family TFamily, TensorDataType TPrecision>
     void measurePlannerContext( const Options& options )
     {
-        using Model = LlamaModel<DeviceType::Metal, TPrecision>;
+        using Model = typename FamilyModel<TFamily, TPrecision>::type;
 
         const DeploymentRequest request = DeploymentRequest().withAutomaticContextLength().withAllowedDevices( Device::Metal( 0 ) );
         const auto planned = Model::planDeployment( options.weights, request );
@@ -341,6 +414,35 @@ namespace
             if ( arg == "--weights" )
             {
                 options.weights = next();
+            } else if ( arg == "--family" )
+            {
+                const std::string_view family = next();
+
+                if ( family == "llama" )
+                {
+                    options.family = Family::Llama;
+                } else if ( family == "gemma" )
+                {
+                    options.family = Family::Gemma;
+                } else
+                {
+                    throw std::invalid_argument( "--family is llama or gemma" );
+                }
+            } else if ( arg == "--context" )
+            {
+                options.context = std::stoll( std::string( next() ) );
+            } else if ( arg == "--profile-dispatches" )
+            {
+                options.profile_dispatches = true;
+            } else if ( arg == "--temperature" )
+            {
+                options.temperature = std::stof( std::string( next() ) );
+            } else if ( arg == "--top-k" )
+            {
+                options.top_k = std::stoi( std::string( next() ) );
+            } else if ( arg == "--top-p" )
+            {
+                options.top_p = std::stof( std::string( next() ) );
             } else if ( arg == "--rounds" )
             {
                 options.rounds = std::stoi( std::string( next() ) );
@@ -374,22 +476,17 @@ namespace
 
         if ( options.weights.empty() )
         {
-            throw std::invalid_argument( "usage: mila-metal-model-timing --weights <llama bf16 weights> [--rounds 3] [--runs 5] [--depth 4096] "
-                "[--precision fp16|bf16] [--no-planner | --planner-only]" );
+            throw std::invalid_argument( "usage: mila-metal-model-timing --weights <weights> [--family llama|gemma] [--context 8192] "
+                "[--rounds 3] [--runs 5] [--depth 4096] [--precision fp16|bf16] [--temperature 0] [--top-k 0] [--top-p 1] "
+                "[--profile-dispatches] [--no-planner | --planner-only]" );
         }
 
         return options;
     }
-}
 
-int main( int argc, char** argv )
-{
-    try
+    template<Family TFamily>
+    void run( const Options& options )
     {
-        const Options options = parse( argc, argv );
-
-        Mila::initialize( 0, std::make_shared<Mila::Logging::ConsoleSink>( Mila::Logging::LogLevel::Warning ) );
-
         Samples fp16;
         Samples bf16;
 
@@ -401,7 +498,7 @@ int main( int argc, char** argv )
             {
                 if ( options.fp16 )
                 {
-                    measureLoad<TensorDataType::FP16>( options, fp16, label );
+                    measureLoad<TFamily, TensorDataType::FP16>( options, fp16, label );
                 }
             };
 
@@ -409,7 +506,7 @@ int main( int argc, char** argv )
             {
                 if ( options.bf16 )
                 {
-                    measureLoad<TensorDataType::BF16>( options, bf16, label );
+                    measureLoad<TFamily, TensorDataType::BF16>( options, bf16, label );
                 }
             };
 
@@ -436,12 +533,31 @@ int main( int argc, char** argv )
 
         if ( options.planner && options.fp16 )
         {
-            measurePlannerContext<TensorDataType::FP16>( options );
+            measurePlannerContext<TFamily, TensorDataType::FP16>( options );
         }
 
         if ( options.planner && options.bf16 )
         {
-            measurePlannerContext<TensorDataType::BF16>( options );
+            measurePlannerContext<TFamily, TensorDataType::BF16>( options );
+        }
+    }
+}
+
+int main( int argc, char** argv )
+{
+    try
+    {
+        const Options options = parse( argc, argv );
+        sampling_options = options;
+
+        Mila::initialize( 0, std::make_shared<Mila::Logging::ConsoleSink>( Mila::Logging::LogLevel::Warning ) );
+
+        if ( options.family == Family::Gemma )
+        {
+            run<Family::Gemma>( options );
+        } else
+        {
+            run<Family::Llama>( options );
         }
 
         return 0;

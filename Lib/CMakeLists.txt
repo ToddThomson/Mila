@@ -310,6 +310,7 @@ PUBLIC
         "Src/Dnn/Compute/ExecutionContext/ExecutionContext.ixx"
         "Src/Dnn/Compute/ExecutionContext/IExecutionContext.ixx"
         "Src/Dnn/Compute/ExecutionContext/IDecodeRecording.ixx"
+        "Src/Dnn/Compute/ExecutionContext/DispatchTime.ixx"
         "Src/Dnn/Compute/ExecutionContext/ExecutionContextFactory.ixx"
 
         

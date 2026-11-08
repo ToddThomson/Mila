@@ -32,6 +32,7 @@ import Dnn.Component;
 import Compute.Observation;
 import Compute.CpuMemoryResource;
 import Compute.DeviceTypeTraits;
+import Compute.DispatchTime;
 import Dnn.LanguageModelConfig;
 import Serialization.SafeTensors;
 import Serialization.WeightsReader;
@@ -241,6 +242,24 @@ namespace Mila::Dnn
         [[nodiscard]] bool isDecodeReplayed() const noexcept override
         {
             return this->getNetwork().isDecodeReplayed();
+        }
+
+        /**
+         * @brief Time each GPU dispatch by kernel, from now until it is turned off; turning it on starts afresh.
+         *
+         * For profiling a forward pass on Metal, which otherwise times only a whole command buffer: each dispatch is
+         * encoded apart and timed by the GPU's own timestamps. Slower, with the same values; the rates while it is on
+         * are not the model's. A no-op on CUDA, whose kernels Nsight Systems times one by one.
+         */
+        void setDispatchProfiling( bool enabled ) override
+        {
+            this->getNetwork().getExecutionContext()->setDispatchProfiling( enabled );
+        }
+
+        /// Each kernel's GPU time while dispatch profiling was on, longest first; empty on a device that times nothing.
+        [[nodiscard]] std::vector<DispatchTime> dispatchProfile() const override
+        {
+            return this->getNetwork().getExecutionContext()->dispatchProfile();
         }
 
         [[nodiscard]] DeviceId getDeviceId() const noexcept override

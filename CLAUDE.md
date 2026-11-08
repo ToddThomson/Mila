@@ -226,6 +226,11 @@ bound a new input fails; a default written for an older model; a harness setting
   idea where it lands: title and arXiv id.
 - **Verify external behaviour** -- an API, a harness, a library -- from its documentation or source before
   recommending on it.
+- **No design comes from an engine Mila is measured against** (Todd, 2026-09-28, restated 2026-11-07). llama.cpp is
+  the rate reference, as HuggingFace is the accuracy reference: its rates are measured, and its source is not read for a
+  kernel, an algorithm or a layout, nor its implementation described in a spec. A source published for others to build
+  on -- a paper, MLX -- may be taken and cited where it lands. Ask before reading a comparator's source
+  for any reason.
 
 ### The machine and its tools
 

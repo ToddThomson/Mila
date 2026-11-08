@@ -10,6 +10,36 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Metal's one-row quantized products read their weights at about 117 GB/s of the M1 Pro's 200
+
+`Lib/Src/Dnn/Compute/Devices/Metal/Operations/Linear/Kernels/LinearQuantized.metal` (`linear_quantized_lanes`, `linear_codebook_lanes`) @ 0.21.0-dev+127
+
+Found profiling Gemma 4 12B's decode, 2026-11-07 (`Specifications/Notebooks/MetalRates.md`): Q4_0's lanes read about 117 GB/s and are two thirds of a token's GPU time; the six-bit head reads about 134 GB/s. `MetalMatrixPath.md` section 6 found the lanes limited by arithmetic: shifting, offsetting and converting each code. The other formats' lanes share the structure and are unmeasured on a model.
+
+## Nobody has checked whether CUDA's one-row Q4_0 product is limited by arithmetic, as Metal's was
+
+`Lib/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Int4/CudaInt4Gemm.cu`, `Kernels/DecodeRows/CudaDecodeRows.cu` @ 0.21.0-dev+127
+
+Raised by Todd, 2026-11-07, after Metal's Q4_0 lanes were found limited by arithmetic. CUDA's path is a different design: it quantizes the activations to INT8 and multiplies on integer MMA. What an Nsight Compute profile of Gemma 4 12B's decode products on the 5060 Ti would say, memory- or compute-bound and at what share of the card's bandwidth, has not been looked at.
+
+## A top-p test on 4099 FP16 logits disagreed with the reference on two draws, under two different Metal kernels
+
+`Lib/Tests/Dnn/Samplers/Sampling.Metal.cpp`, logits `randomLogits( 4099, 90 )` with one at -30000, `top_p = 0.9` or `top_k = 40` @ 0.21.0-dev+127
+
+Seen building the multi-threadgroup sampler, 2026-11-07: draws at uniforms 0.789 and 0.930 gave tokens 3330 and 3926 against the reference's 3328 and 3923, both with a histogram cut on float bin edges and with the radix cut on keys, so not the cut's arithmetic. Suspected, not shown: ties among 4099 FP16 logits at the nucleus edge, which the kernels keep whole and the test's reference splits by token order. Which of the two settings failed was not split. The test was replaced by ladders of distinct values.
+
+## Gemma's decode step is not replayed on Metal, where Llama's is
+
+`Lib/Src/Dnn/Core/Networks/LanguageModelNetwork.ixx:601` (the warning), Gemma 4 12B Q4_0 on Metal @ 0.21.0-dev+127
+
+Every load of Gemma 4 12B in `mila-metal-model-timing`, 2026-11-07, warns "replay of the decode step is off for this network -- it could not be recorded; every decode step is called". Llama 3.2 3B and 3.1 8B on the same Mac do not. Gemma decodes at 0.56 of llama.cpp's rate there against Llama 3.1 8B Q4_0's 0.66 (same run); how much of that the lost replay is, is not measured.
+
+## Mila's Metal rates on Llama 3.2 3B fell 5 to 8% between +122 and +127
+
+`mila-metal-model-timing`, Llama 3.2 3B BF16 weights at FP16, M1 Pro @ 0.21.0-dev+127
+
+2026-11-07, same tool and shapes as `Notebooks/MetalFirstModel.md` section 4: prefill 512 at 511 tokens/s (was 555), decode 19.1 (19.4), decode after 4096 17.5 (18.65 after the attention rebuild). llama.cpp b12138 on the same Mac the same day held or rose (627 / 25.3 / 23.3 against 649 / 24.3 / 22.4), so the Mac is not the cause. Spreads are within 3%. Not bisected.
+
 ## A session that fails as it starts hangs silently instead of saying why
 
 `Apps/Desktop/Session/Src/Desktop.SessionProcess.ixx` (`run`, the `reader` jthread) @ 0.21.0-dev+126
@@ -39,12 +69,6 @@ The decision is `OperationDispatch.md`'s: the activations' element type and the 
 `Lib/Src/Dnn/Components/Linear/Linear.ixx` (`decode`), `Attention/GQA/GroupedQueryAttention.ixx`, `MixtureOfExperts/Router.ixx` (`decodeTokens`), `Transformers/Gemma/Gemma.ixx` (`kDraftModelRuns`) @ 0.21.0-dev+123
 
 Each is `requires ( TDeviceType == DeviceType::Cuda )` or gated by it, and Metal has no `SharedKvAttentionOp`. Metal's expert bank, router and sampler now take several tokens or rows (`Notebooks/MetalGemma.md` 2.1), so a drafter on Metal needs Linear's and attention's multi-token decode and the shared-cache attention. The Q4_0 Metal bank also has one kernel for prefill and decode, where CUDA has a grouped prefill; its speed is unmeasured.
-
-## Gemma 4 12B on CUDA decodes two positions past the sliding window ten times further from HuggingFace than the rest
-
-`Lib/Tests/Dnn/Models/Gemma/GemmaModel.HuggingFaceReference.Cuda.cpp` (`Q4_0_AcrossTheWindowEdge`); `Specifications/Notebooks/MetalGemma.md` 1.3 @ 0.21.0-dev+123
-
-Q4_0 at BF16 on the 5060 Ti, prefill of 993 tokens of a PG-19 book, then 63 decodes teacher-forced across the local layers' window of 1024. Rows 19 and 57 (positions 1011 and 1049) are 2.9e-1 and 3.3e-1 relative L2 from HuggingFace FP32 on the package's decoded weights, and as far from HuggingFace's BF16 run; every other row is at most 3.4e-2, and HuggingFace BF16's worst is 2.5e-2. No argmax changes. Metal's run of the same check, the same ring design, shows no such rows: its worst is 2.7e-3 in FP16 and 2.0e-2 in BF16 (`MetalGemma.md` 2.2), so it is CUDA's own, the fused decode or its ring indexing. Not yet known which.
 
 ## Metal loads Q4_0 and six-bit weights only as stored, where CUDA also quantizes them at load
 

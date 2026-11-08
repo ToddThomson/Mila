@@ -743,10 +743,11 @@ Apple silicon, and none is published. Labelled experimental on PyPI's page and i
 
 `in progress` · `perf` · `docs` · `measured`
 
-Measured once, on Llama 3.2 3B in FP16 and BF16 against llama.cpp b12138 on the same Mac
-(`Notebooks/MetalFirstModel.md` section 5, `Notebooks/MetalDecodeAttention.md` section 7), by
-`Lib/Tools/MetalModelTiming` and `llama-bench` at the same shapes. Not yet: every model the Mac admits, a script that
-reruns both, and a page that shows them. Absent: no published surface shows a Mac number.
+Measured on Llama 3.2 3B, Llama 3.1 8B and Gemma 4 12B against llama.cpp b12138 and MLX on the same Mac
+(`Notebooks/MetalRates.md`), by `Lib/Tools/MetalModelTiming`, `llama-bench` and `mlx_lm benchmark` at the same shapes;
+before that on Llama 3.2 3B alone (`Notebooks/MetalFirstModel.md` section 5). The rates of that notebook's section 2
+predate its section 4's decode changes. Not yet: Qwen 3.8, a script in the tree that reruns all three, and a page that
+shows them. Absent: no published surface shows a Mac number.
 
 #### Every Metal kernel launch finds its kernel by name and its buffers by address, where a CUDA launch is resolved when it is compiled
 
@@ -761,8 +762,9 @@ as it is. Decode replay is off on Metal, so all of it runs again every token. By
 decodes about 700 dispatches a token, at 1 to 3 microseconds each 1 to 2 ms. The design is to be changed (Todd,
 2026-11-06); what it becomes is the next session's. Considered so far: names fixed at compile time from each op's template
 arguments, the pipeline resolved once at `build()` and held by the op, a Metal tensor carrying its buffer and offset, and
-one pool a pass. First, a decode step's host encoding and GPU time measured apart. `Specifications/Metal/MetalBackend.md`
-section 4.
+one pool a pass. Measured apart since: a Metal System Trace of Gemma 4 12B's decode shows the GPU busy about 97% of each
+token and about 2 ms idle between its command buffers, which bounds the host's share. The sampler, RMSNorm and Q4_0's
+one-row Linear already resolve their pipelines once when built. `Specifications/Metal/MetalBackend.md` section 4.
 
 #### Metal's kernels are compiled when a model first loads, so a kernel that does not compile is found only when it runs
 
@@ -894,6 +896,22 @@ at token 402, measured 2026-10-05. Not checked: on which card that was measured,
 the 4070.
 
 `Lib/Tests/Dnn/Models/Gemma/Gemma.DraftModel.Cuda.cpp:367` `Gemma4_12B_GreedyGenerationIsUnchanged`
+
+#### Gemma 4 12B in BF16 strays ten times further from HuggingFace at two positions near its sliding window, on CUDA and on a Mac
+
+`open` · `gemma` · `measured`
+
+Q4_0 at BF16, a 993-token prefill of a PG-19 book, then 63 decodes teacher-forced across the local layers' window of
+1024. Rows 19 and 57 (positions 1011 and 1049) are about 3e-1 relative L2 from HuggingFace FP32 on the package's decoded
+weights, every other row at most 3.4e-2, and HuggingFace's own BF16 run's worst is 2.5e-2; no argmax changes on CUDA.
+CUDA on the 5060 Ti shows it at `0.21.0-dev+123`. On the M1 Pro, a Metal kernel change that alters only the order of
+float sums moves it: row 19 is 1.87e-2 before it and 2.66e-1 with RMSNorm across a 256-thread threadgroup per row.
+FP16 on Metal stays near 2e-3. So these look like positions where BF16 magnifies
+any change of rounding order, and CUDA's rows the same effect rather than a CUDA defect. Not shown: what makes those
+positions sensitive; the activation ranges there have not been read. The Metal BF16 test fails until this is resolved.
+
+`Lib/Tests/Dnn/Models/Gemma/GemmaModel.HuggingFaceReference.Metal.cpp` `AcrossTheWindowEdge`,
+`GemmaModel.HuggingFaceReference.Cuda.cpp` `Q4_0_AcrossTheWindowEdge`
 
 ### Internal fixes
 

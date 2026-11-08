@@ -139,7 +139,7 @@ dispatch reaches `LlamaModel<Metal, FP16>` or `LlamaModel<Metal, BF16>`. Both in
 | Apple11 | M6 | Unknown | FP16 |
 
 A family above the table is treated as the highest row. If M3 and M4 ever differ, the family cannot express it and the
-table needs the device name, as llama.cpp's guard does; that is a defect to be faced then, not designed for now.
+table needs the device name; that is a defect to be faced then, not designed for now.
 
 **An outside AI answer put to Todd said M1 to M4 lack native BF16 and M5 has it.** It gave no source and none was found.
 It is not in this table. If it is right, FP16 is the path most Macs in use today run, so FP16's correctness gate should be
@@ -186,8 +186,7 @@ Kernels are MSL source using MSL templates, one source for FP16 and BF16 where t
 **Measured on the M1 Pro (Phase 2, `Notebooks/MetalMatrixPath.md`): Linear uses its own kernel at M = 1, and TensorOps from M = 8 up, with
 both paths tuned.** **M = 2 to 7 depends on the shape, so a product says when it pads.** Padding copies the rows into scratch, zeroes the rest of a tile of 8, runs the tile and copies the rows back, and that costs at least about 60 microseconds. Timed through the real path (`Notebooks/MetalLlamaOperations.md`): **a Linear pads rows left over from 50 million multiplies up**, rows x inputs x outputs, the point above which every shape timed won by more than Phase 2's 10% in FP16. **Attention does not pad, and asks for no scratch.** The own kernel beats padding at every context up to 4096, and attention x V loses at every length timed. Q x K^T wins from 16384 positions and at least 4 rows, which is about 40 ms once per prompt on Llama 3.1 8B at 64K (arithmetic). One row stays with the own kernel, as above. The own kernel reads the weights at nearly the chip's
 bandwidth, widening inside itself to 32 bits, which needs no storage. TensorOps needs at least 8 rows in a tile. Own tiles do not ship: they take 1.6 to
-4.8 times TensorOps, and FP16's sum in a tile misses the accuracy bar. llama.cpp keeps TensorOps off before M5 on its own measurements
-(its source comment: M2 Ultra about 5% slower, M4 no significant difference), and it was not looked into why that differs here. Phase 4 compares
+4.8 times TensorOps, and FP16's sum in a tile misses the accuracy bar. Phase 4 compares
 the two on a model. Beyond the M1, *BaseRT: Advancing Best-in-Class LLM
 Inference with Apple M5 Neural Accelerators*, arXiv 2607.19438 (abstract read only), routes compute-bound matmuls through
 the accelerators and keeps memory-bound decoding on existing kernels. Apple also says prefill is compute-bound and decode
@@ -203,7 +202,7 @@ which is NVFP4's shape, and it has no six-bit or codebook weights. FP8 is the ex
 | 128 | TensorOps on the bare codes, scales after | TensorOps, on FP16 expanded a block of outputs at a time |
 | 2048 | TensorOps, expanded | TensorOps, expanded |
 
-Expanding costs 1% to 5% at M = 2048, and a scratch buffer of 8 to 29 MB. Decode reads less memory than FP16 and is limited by arithmetic: 0.20 ms for FP4 and 0.24 ms for Q4_0 against 0.65 ms unquantized, at 1 x 4096 x 14336. These are weights in isolation, on normal values.
+Expanding costs 1% to 5% at M = 2048, and a scratch buffer of 8 to 29 MB. Decode reads less memory than FP16 and is limited by arithmetic: 0.20 ms for FP4 and 0.24 ms for Q4_0 against 0.65 ms unquantized, at 1 x 4096 x 14336. These are weights in isolation, on normal values. In Gemma 4 12B's decode the Q4_0 lanes read their weights at about 117 GB/s, two thirds of a token's time (`Notebooks/MetalRates.md`); a faster Q4_0 product is open work (`Notebooks/MetalMatrixPath.md` section 7).
 
 **Binding.** Measured: a tensor bound alone at a buffer index gave all-zero output with no error, and a struct of resource
 ids at one index worked. So every kernel test checks values, and a test that only checks completion is not a test here.
@@ -224,6 +223,20 @@ Indirect command buffers (Apple3 and later) are the candidate for replay, and on
 dispatch about 3 us, so a decode step commits once.
 
 **Attention's decode is own kernels, reading the position from memory, in two passes** (`Notebooks/MetalDecodeAttention.md`, Todd, 2026-11-05). Three dispatches of a fixed grid: the cache write; a partial pass that splits the keys over 32 blocks, a threadgroup holding the query heads of one KV head so that they read its rows together, each lane a contiguous run of a head's channels, the softmax online in 32 bits; and a merge that rescales each block to the largest score of all. The shape is MLX's two-pass decode (`ml-explore/mlx`, `sdpa_vector.h`) and the split and merge Flash-Decoding's (Dao, Haziza, Massa, Sizov, 2023). The partials are FP32 in the context's scratch. The heads the models use, 64, 128, 256 and 512, have their own kernels; any other size up to 512 runs a slower one. It replaced one SIMD-group per query head walking whole key rows, which Phase 4 measured at about 22 times llama.cpp's cost a key; on Llama 3.2 3B decode after 4096 went from 7.95 to 18.65 tokens/s in FP16, 0.83 of llama.cpp, and a key now costs about 24 ns in each layer against llama.cpp's 30. The decode position is written by the host once the context's open work has finished.
+
+**No per-token kernel gives a long row to one SIMD-group (Todd, 2026-11-07; `Notebooks/MetalRates.md`).** One SIMD-group
+alone waits on memory through every step of a row, and a decode step runs hundreds of these kernels. The sampler, which
+gave one SIMD-group 85 passes over Gemma's 262,144 logits and was the whole of Chat's 2 tokens a second, now runs in the
+stages of CUDA's multi-block pipeline, its row across many threadgroups. Where CUDA narrows each truncation over float
+histogram rounds, Metal's cut is radix selection on the scaled logits' bits, three rounds of 12, 12 and 8, so the k-th
+value and the nucleus edge are exact. Greedy and RMSNorm take a 256-thread threadgroup a row. Those operations resolve their
+pipelines once, when built.
+
+**A decode step is timed kernel by kernel by the library (Todd, 2026-11-07).** `setDispatchProfiling` on the model encodes
+each dispatch apart with a GPU timestamp at its start and end, at the encoder's boundary, and `dispatchProfile()` returns
+each kernel's GPU time; the command buffer's own GPU time converts ticks to seconds. Slower, values unchanged, for
+profiling only; a no-op on CUDA, whose kernels Nsight Systems times one by one. The library being the authority on its
+own statistics is Todd's leaning (`Issues/Vnext.md`); this is the first piece of it.
 
 ## 5. Memory
 

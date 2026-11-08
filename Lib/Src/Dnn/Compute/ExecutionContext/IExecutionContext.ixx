@@ -9,6 +9,7 @@ import std;
 import Compute.DeviceId;
 import Compute.Observation;
 import Compute.IDecodeRecording;
+import Compute.DispatchTime;
 import Dnn.TensorTypes;
 
 namespace Mila::Dnn::Compute
@@ -102,6 +103,22 @@ namespace Mila::Dnn::Compute
         /// Return the next prefill to causal attention. Safe when no bounds are set.
         virtual void clearPrefillKeyBounds() noexcept
         {
+        }
+
+        /**
+         * @brief Time each dispatch on the GPU, by kernel, from now until it is turned off; turning it on starts afresh.
+         *
+         * For profiling only: it is slower, and the values are unchanged. A no-op for contexts whose kernels a trace
+         * already times one by one, as CUDA's are under Nsight Systems.
+         */
+        virtual void setDispatchProfiling( [[maybe_unused]] bool enabled )
+        {
+        }
+
+        /// Each kernel's GPU time over the work finished while profiling was on, longest first; empty where nothing is timed.
+        [[nodiscard]] virtual std::vector<DispatchTime> dispatchProfile() const
+        {
+            return {};
         }
 
         /**
