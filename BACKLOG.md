@@ -701,7 +701,7 @@ the cells do not show.
 
 ### Mila on Apple Silicon
 
-#### A Mac runs Llama, Gemma 4 12B and four layers of Qwen 3.8, and not yet a whole Qwen 3.8, the Gemma 26B or a drafter
+#### A Mac runs Llama, Gemma 4 12B with its drafter and four layers of Qwen 3.8, and not yet a whole Qwen 3.8 or the Gemma 26B
 
 `in progress` · `architecture` · `quantization` · `mila-src` · `measured`
 
@@ -716,7 +716,8 @@ HuggingFace's (2.2 there). Qwen 3.8's operations are on Metal: the elementwise a
 gated delta rule, two- and three-bit codebook Linear and the tensor math, each checked against a double-precision
 reference, and its four-layer packed build passes its HuggingFace gate in FP16 and BF16 (`Notebooks/MetalQwen.md`). No
 Qwen 3.8 agentic build fits a 16 GB Mac's working set; `cb2-3` fits at a short context and has not been run whole. Q6_K
-has no Metal operation, and speculative decoding runs on CUDA only (`Issues/Untriaged.md`). What remains is the rest of
+has no Metal operation. Gemma 4 12B decodes with Google's drafter on Metal, its greedy output that of decoding without it
+(`Metal/MetalBackend.md` section 4.6). What remains is the rest of
 Phase 5, and Phase 6's whole-model runs on what a 16 GB Mac admits. The planner chooses a context at 99% of a Mac's
 working set, where the model runs and macOS swaps the rest of the Mac out (`MetalFirstModel.md` section 5).
 `Specifications/Metal/MetalBackend.md` section 9.

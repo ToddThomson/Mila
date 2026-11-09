@@ -121,7 +121,7 @@ namespace Mila::Dnn
          * Each token's logits equal a one-token forward()'s to FP32 rounding, so a token whose top_k-th and next expert
          * are within that rounding of a tie may select the other.
          */
-        Routing decodeTokens( const TensorType& input ) requires ( TDeviceType == DeviceType::Cuda )
+        Routing decodeTokens( const TensorType& input ) requires ( TDeviceType == DeviceType::Cuda || TDeviceType == DeviceType::Metal )
         {
             if ( !this->isBuilt() )
             {

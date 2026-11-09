@@ -73,9 +73,10 @@ namespace Mila::Tests::Common
             .withLinearConvKernelDim( 4 );
     }
 
-    /// Build `TNetwork` with its parameters initialized from kTinyDecodeSeed; the global seed is restored after.
+    /// Build `TNetwork` on `device` with its parameters initialized from kTinyDecodeSeed; the global seed is restored after.
     template<typename TNetwork, typename TConfig>
-    std::unique_ptr<TNetwork> buildTinyNetwork( const TConfig& config, Mila::Dnn::dim_t context_length )
+    std::unique_ptr<TNetwork> buildTinyNetwork( const TConfig& config, Mila::Dnn::dim_t context_length,
+        Mila::Dnn::Compute::DeviceId device = Mila::Dnn::Compute::Device::Cuda( 0 ) )
     {
         using namespace Mila::Dnn;
 
@@ -83,7 +84,7 @@ namespace Mila::Tests::Common
         const unsigned int previous = generator.getSeed();
         generator.setSeed( kTinyDecodeSeed );
 
-        auto network = std::make_unique<TNetwork>( "tiny", config, Compute::Device::Cuda( 0 ) );
+        auto network = std::make_unique<TNetwork>( "tiny", config, device );
         network->build( BuildContext( shape_t{ 1, context_length }, RuntimeMode::Inference, true )
             .withPrefillSize( kTinyPrefillRows ) );
         network->synchronize();

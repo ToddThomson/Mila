@@ -32,6 +32,10 @@ struct GqaGeometry
 
     // The distance between rows of prefill's scores, the context's length, whatever the cache holds.
     uint score_stride;
+
+    // A decode query's keys end this many positions before its own: 0 for the layer that owns the cache, which has just written its
+    // own key, and 1 for a layer that reads another's cache (Gemma4Mtp.md 4.3).
+    uint keys_before;
 };
 
 // The position a cache row holds, when the last position attended is `last`: the latest at or before it that maps to the row.
@@ -398,12 +402,15 @@ template [[host_name("gqa_unpermute_output_bfloat")]] kernel void gqa_unpermute_
     device const bfloat*, device bfloat*, constant GqaGeometry&, uint );
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Decode, one token, in two passes (Notebooks/MetalDecodeAttention.md). The partial pass splits the keys over a fixed grid of blocks,
+// Decode in two passes (Notebooks/MetalDecodeAttention.md). The partial pass splits the keys over a fixed grid of blocks,
 // a threadgroup taking one KV head's query heads, a SIMD-group each, so that they read the same rows together; block b takes keys
 // b, b + blocks, ... up to the position, with the softmax kept online. The merge rescales each block's output to the largest score of
 // all. The shape is MLX's two-pass decode (ml-explore/mlx, sdpa_vector.h) and the split with its merge Flash-Decoding's (Dao,
-// Haziza, Massa, Sizov, 2023). The partials are FP32 in the context's scratch: output [B * NH, blocks, HS], then largest and sum
-// [B * NH, blocks].
+// Haziza, Massa, Sizov, 2023). The partials are FP32 in the context's scratch: output [B * T * NH, blocks, HS], then largest and sum
+// [B * T * NH, blocks].
+//
+// A decode of T tokens in a row (Gemma4Mtp.md 4.7) runs token t at the decode position plus t, its band ending there, so that each
+// token's sums are the ones its own one-token decode would form, in the same order. At T = 1 it is the one-token decode exactly.
 // ---------------------------------------------------------------------------------------------------------------------
 
 // Head sizes the models use: a lane's channels are a contiguous run of HS / 32, which is what reaches the floor.
@@ -487,17 +494,22 @@ inline void gqa_decode_block(
     device float* partial_output, device float* partial_largest, device float* partial_sum, device const int* decode_position,
     constant GqaGeometry& geometry, uint2 group, uint simd, uint lane, TChannels channels )
 {
-    const uint kv_head_of_batch = group.y;
+    // The grid's y is (token, KV head of every batch), the token slowest.
+    const uint kv_heads_of_batches = geometry.batches * geometry.kv_heads;
+    const uint kv_head_of_batch = group.y % kv_heads_of_batches;
+    const uint token = group.y / kv_heads_of_batches;
     const uint block = group.x;
     const uint batch = kv_head_of_batch / geometry.kv_heads;
     const uint kv_head = kv_head_of_batch % geometry.kv_heads;
-    const uint head_of_batch = batch * geometry.heads + kv_head * ( geometry.heads / geometry.kv_heads ) + simd;
+    const uint head_of_batch = ( batch * geometry.tokens + token ) * geometry.heads + kv_head * ( geometry.heads / geometry.kv_heads ) + simd;
     const uint head_size = geometry.head_size;
 
     const TCache rows = cache.atKvHead( kv_head_of_batch, geometry.capacity, head_size );
 
-    const uint position = uint( *decode_position );
-    const uint first_key = geometry.window > 0 && position + 1 > geometry.window ? position + 1 - geometry.window : 0;
+    // A reader at position 0 has no key before it, and attends nothing: every block writes a sum of zero.
+    const int last = *decode_position + int( token ) - int( geometry.keys_before );
+    const uint position = last >= 0 ? uint( last ) : 0;
+    const uint first_key = last < 0 ? 1 : geometry.window > 0 && position + 1 > geometry.window ? position + 1 - geometry.window : 0;
 
     float q[kPerLane];
     float out[kPerLane];
@@ -559,7 +571,7 @@ inline void gqa_decode_block(
     }
 }
 
-// The grid is (blocks, KV heads of every batch); a threadgroup holds one SIMD-group per query head of its KV head.
+// The grid is (blocks, KV heads of every batch for each token); a threadgroup holds one SIMD-group per query head of its KV head.
 template<typename TElement, uint HS>
 kernel void gqa_decode_partial(
     device const TElement* query [[buffer(0)]],
@@ -658,7 +670,8 @@ template [[host_name( "gqa_decode_partial_fp8_bfloat_any" )]] kernel void gqa_de
     device const bfloat*, device const uchar*, device const uchar*, device const float*, device const float*, device float*, device float*,
     device float*, device const int*, constant GqaGeometry&, uint2, uint, uint );
 
-// One SIMD-group per query head of each batch: the largest score of the blocks, then each block's output and sum rescaled to it.
+// One SIMD-group per query head of each token of each batch: the largest score of the blocks, then each block's output and sum
+// rescaled to it.
 template<typename TElement, uint kPerLane, typename TChannels>
 inline void gqa_decode_merge_head(
     device const float* partial_output, device const float* partial_largest, device const float* partial_sum,
@@ -699,7 +712,8 @@ inline void gqa_decode_merge_head(
     {
         if ( channels.present( e ) )
         {
-            output[head_of_batch * geometry.head_size + channels.channel( e )] = TElement( out[e] / total );
+            // No keys at all, a reader at position 0, gives zero rather than 0 / 0.
+            output[head_of_batch * geometry.head_size + channels.channel( e )] = TElement( total > 0.0f ? out[e] / total : 0.0f );
         }
     }
 }

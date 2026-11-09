@@ -986,6 +986,7 @@ if(MILA_HAS_METAL)
                 "Src/Dnn/Compute/Devices/Metal/Operations/Activations/Geglu/MetalGegluOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/Activations/Swiglu/MetalSwigluOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/Attention/GQA/MetalGqaOp.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Operations/Attention/GQA/MetalSharedKvAttentionOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/Convolutions/MetalCausalConv1dOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/DeltaNet/MetalGatedDeltaRuleOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/Embeddings/MetalTokenEmbeddingOp.ixx"

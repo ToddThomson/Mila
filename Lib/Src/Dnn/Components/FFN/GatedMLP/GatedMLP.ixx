@@ -169,7 +169,7 @@ namespace Mila::Dnn
          * @brief Decode's arithmetic for each of up to 8 rows: both projections through Linear::decode, which
          *        reads each weight once for all the rows (Gemma4Mtp.md 4.7). decode() above runs prefill's.
          */
-        TensorType& decodeTokens( const TensorType& input ) const requires ( TDeviceType == DeviceType::Cuda )
+        TensorType& decodeTokens( const TensorType& input ) const requires ( TDeviceType == DeviceType::Cuda || TDeviceType == DeviceType::Metal )
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "GatedMLP must be built before decodeTokens()." );

@@ -197,12 +197,12 @@ namespace Mila::Tests::Dnn::Components
                 }
             }
 
-            std::vector<float> run( dim_t rows )
+            std::vector<float> run( dim_t rows, bool decode = false )
             {
                 const std::vector<float> input_values = randomValues( static_cast<std::size_t>( rows * inputs ), 13, 1.0f );
                 TensorType input = metalTensor<kPrecision>( input_values, shape_t{ rows, inputs } );
 
-                const TensorType& output = linear->forward( input );
+                const TensorType& output = decode ? linear->decode( input ) : linear->forward( input );
                 linear->synchronize();
 
                 const std::vector<float> all = readFloats<kPrecision>( output );
@@ -210,10 +210,10 @@ namespace Mila::Tests::Dnn::Components
                 return std::vector<float>( all.begin(), all.begin() + rows * outputs );
             }
 
-            /// Run `rows` rows, and return the error against the reference on the codes and scales as stored.
-            double errorAt( dim_t rows )
+            /// Run `rows` rows, through decode() or forward(), and return the error against the reference on the codes and scales as stored.
+            double errorAt( dim_t rows, bool decode = false )
             {
-                const std::vector<float> actual = run( rows );
+                const std::vector<float> actual = run( rows, decode );
                 const std::vector<float> input_values = randomValues( static_cast<std::size_t>( rows * inputs ), 13, 1.0f );
                 const std::vector<double> stored_input = asStored<kPrecision>( std::span<const float>( input_values ) );
 
@@ -258,6 +258,20 @@ namespace Mila::Tests::Dnn::Components
         for ( const dim_t rows : kEveryRowCount )
         {
             EXPECT_LE( fixture.errorAt( rows ), kBar<TypeParam::kPrecision> ) << rows << " rows";
+        }
+    }
+
+    // A speculative round's verify (MetalBackend.md section 4.6): decode() of up to 8 rows takes own lanes, where forward() would take
+    // FP8's bare codes from 8, with a bias too.
+    TYPED_TEST( LinearQuantizedMetal, DecodeMatchesTheReferenceAtEveryRowItTakes )
+    {
+        Fixture<TypeParam> fixture( 256, 48, 1031, Load::StoredQuantized );
+        Fixture<TypeParam> biased( 256, 48, 1031, Load::StoredQuantized, true );
+
+        for ( dim_t rows = 1; rows <= 8; ++rows )
+        {
+            EXPECT_LE( fixture.errorAt( rows, true ), kBar<TypeParam::kPrecision> ) << rows << " rows";
+            EXPECT_LE( biased.errorAt( rows, true ), kBar<TypeParam::kPrecision> ) << rows << " rows, with a bias";
         }
     }
 

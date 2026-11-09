@@ -309,6 +309,46 @@ namespace Mila::Dnn::Compute::Metal::Linear
             }
         }
 
+        /**
+         * @brief Decode's arithmetic for each of up to kDecodeRowsMaximum rows, every weight read once for all of them (`MetalBackend.md`
+         *        section 4.6, `Gemma4Mtp.md` 4.7).
+         *
+         * Quantized weights take own lanes at every row count, where forward() would move to TensorOps from more rows; one row keeps
+         * its own kernel, so a row of several equals a one-row decode to FP32 rounding, not to the bit. Unquantized weights take
+         * forward()'s matrix product.
+         *
+         * @throws std::invalid_argument for more than kDecodeRowsMaximum rows.
+         */
+        void decode( const TensorType& input, TensorType& output ) const
+        {
+            const int rows = narrowToKernelIndex( input.size() / config_.getInputFeatures() );
+
+            if ( rows > kDecodeRowsMaximum )
+            {
+                throw std::invalid_argument( std::format( "MetalLinearOp::decode: {} rows; decode takes at most {}", rows, kDecodeRowsMaximum ) );
+            }
+
+            const void* const input_address = static_cast<const ITensor&>( input ).rawData();
+            const void* const output_address = static_cast<const ITensor&>( output ).rawData();
+
+            if constexpr ( kIsQuantized )
+            {
+                encodeLanes( input_address, output_address, 0, rows, 0, outputs_ );
+            } else {
+                encodeMatrixProduct<TComputePrecision>( *context_, MatrixProduct{
+                    input_address, static_cast<const ITensor*>( weight_ )->rawData(), output_address,
+                    rows, inputs_, outputs_, outputs_, kFewestMultipliesToPad } );
+            }
+
+            if ( config_.hasBias() )
+            {
+                encodeBias( output_address, rows );
+            }
+        }
+
+        /// The most rows decode() takes: a speculative round's draft and the token before it.
+        static constexpr int kDecodeRowsMaximum = 8;
+
         [[nodiscard]] OperationType getOperationType() const override
         {
             return OperationType::LinearOp;

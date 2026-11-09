@@ -143,8 +143,8 @@ double-precision reference in FP16 and BF16, 40 tests in `Router.Metal.cpp`, `Mi
 - **The sampler** draws up to eight rows in one call, each as the one-row entry draws it, with each row penalizing the
   drafts before it, and walks a speculative round's acceptance on the device.
 
-The multi-token decode through the rest of the network (Linear, attention, the drafter's shared-cache attention) is still
-CUDA's only, so speculative decoding does not yet run on Metal.
+The multi-token decode through the rest of the network (Linear, attention, the drafter's shared-cache attention) came on
+2026-11-09, and Gemma 4 12B decodes with its drafter on Metal (`Metal/MetalBackend.md` section 4.6).
 
 ### 2.2 The model
 

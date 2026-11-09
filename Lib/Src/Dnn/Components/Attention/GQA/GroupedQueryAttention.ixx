@@ -393,10 +393,10 @@ namespace Mila::Dnn
 
         /**
          * @brief This layer's KV cache, for attention another component runs over it without writing
-         *        (Gemma4Mtp.md 4.3). CUDA only: the CPU backend keeps no cache.
+         *        (Gemma4Mtp.md 4.3). CUDA and Metal: the CPU backend keeps no cache.
          */
         [[nodiscard]] Compute::KvCacheView getKvCacheView() const
-            requires ( TDeviceType == DeviceType::Cuda )
+            requires ( TDeviceType == DeviceType::Cuda || TDeviceType == DeviceType::Metal )
         {
             return operation_->getKvCacheView();
         }

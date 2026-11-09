@@ -323,12 +323,12 @@ namespace Mila::Dnn
          */
         TensorType& decodeTokens( const TensorType& input, dim_t position ) override
         {
-            if constexpr ( TDeviceType != DeviceType::Cuda )
+            if constexpr ( TDeviceType != DeviceType::Cuda && TDeviceType != DeviceType::Metal )
             {
                 ( void )input;
                 ( void )position;
 
-                throw std::logic_error( "GemmaBlock::decodeTokens: a multi-token decode runs on CUDA" );
+                throw std::logic_error( "GemmaBlock::decodeTokens: a multi-token decode runs on CUDA and Metal" );
             }
             else
             {
@@ -442,7 +442,7 @@ namespace Mila::Dnn
 
         /// This layer's KV cache, which Gemma 4's draft model attends without writing (Gemma4Mtp.md 4.3).
         [[nodiscard]] KvCacheView kvCacheView() const
-            requires ( TDeviceType == DeviceType::Cuda )
+            requires ( TDeviceType == DeviceType::Cuda || TDeviceType == DeviceType::Metal )
         {
             if ( !attn_ )
                 throw std::logic_error( std::format( "GemmaBlock '{}': no KV cache before build", this->getName() ) );

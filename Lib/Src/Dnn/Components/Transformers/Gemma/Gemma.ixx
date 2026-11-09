@@ -129,8 +129,12 @@ namespace Mila::Dnn
         using TransformerBlockType = ITransformerBlock<TDeviceType, TPrecision>;
         using DrafterType = GemmaDrafter<TDeviceType, TPrecision>;
 
-        /// Where a draft model can run: its read-only attention over this network's caches is CUDA and BF16 only.
-        static constexpr bool kDraftModelRuns = TDeviceType == DeviceType::Cuda && TPrecision == TensorDataType::BF16;
+        /// Where a draft model can run: wherever the device has its read-only attention over this network's caches at this precision,
+        /// CUDA at BF16 and Metal at FP16 and BF16.
+        static constexpr bool kDraftModelRuns = OperationSupported<OperationType::SharedKvAttentionOp, TDeviceType, TPrecision, void>;
+
+        /// Where a decode can take several tokens in a row, the verify of a draft.
+        static constexpr bool kDecodesTokens = TDeviceType == DeviceType::Cuda || TDeviceType == DeviceType::Metal;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
         using ComponentPtr = typename NetworkBase::ComponentPtr;
 
@@ -264,12 +268,12 @@ namespace Mila::Dnn
          */
         TensorType& onDecodeTokens( const TokenIndexType& input, dim_t position ) override
         {
-            if constexpr ( TDeviceType != DeviceType::Cuda )
+            if constexpr ( !kDecodesTokens )
             {
                 ( void )input;
                 ( void )position;
 
-                throw std::logic_error( "GemmaTransformer::decodeTokens: a multi-token decode runs on CUDA" );
+                throw std::logic_error( "GemmaTransformer::decodeTokens: a multi-token decode runs on CUDA and Metal" );
             }
             else
             {
@@ -306,7 +310,7 @@ namespace Mila::Dnn
             {
                 ( void )hidden_row;
 
-                throw std::logic_error( "GemmaTransformer::draftTokens: a draft model runs on CUDA at BF16" );
+                throw std::logic_error( "GemmaTransformer::draftTokens: no draft model runs on this device at this precision" );
             }
             else
             {
@@ -332,7 +336,7 @@ namespace Mila::Dnn
                 ( void )tokens;
                 ( void )position;
 
-                throw std::logic_error( "GemmaTransformer::draftTokens: a draft model runs on CUDA at BF16" );
+                throw std::logic_error( "GemmaTransformer::draftTokens: no draft model runs on this device at this precision" );
             }
             else
             {
@@ -633,7 +637,7 @@ namespace Mila::Dnn
 
         /// The cache of the last sliding layer, which the drafter's sliding layers attend.
         KvCacheView lastSlidingLayerCache() const
-            requires ( TDeviceType == DeviceType::Cuda )
+            requires ( kDecodesTokens )
         {
             for ( dim_t i = config_.getNumLayers() - 1; i >= 0; --i )
             {
@@ -646,7 +650,7 @@ namespace Mila::Dnn
 
         /// The cache of the last global layer, which the drafter's global layer attends.
         KvCacheView lastGlobalLayerCache() const
-            requires ( TDeviceType == DeviceType::Cuda )
+            requires ( kDecodesTokens )
         {
             for ( dim_t i = config_.getNumLayers() - 1; i >= 0; --i )
             {

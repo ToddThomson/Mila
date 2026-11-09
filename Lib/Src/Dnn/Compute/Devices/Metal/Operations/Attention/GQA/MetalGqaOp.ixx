@@ -13,6 +13,7 @@ import Compute.ExecutionContext;
 import Compute.GqaState;
 import Compute.IExecutionContext;
 import Compute.IKvInference;
+import Compute.KvCacheView;
 import Compute.MetalExecutionContext;
 import Compute.MetalKernelLibrary;
 import Compute.MetalKernelLimits;
@@ -42,9 +43,9 @@ namespace Mila::Dnn::Compute::Metal::Gqa
      * Prefill writes the cache, then runs the fused kernel (`MetalBackend.md` section 4.5) when the transformer switches it on, or else
      * CUDA's non-flash pipeline: permute Q, Q * K^T, a causal softmax, attention * V, unpermute. The fused prefill reads no score
      * buffer, which is why the transformer, which sizes those, is the one that chooses. A decode
-     * of one token writes the cache, then splits the keys over a fixed number of blocks and merges them, reading the position from the
-     * execution context (`MetalBackend.md` section 4.4, `Notebooks/MetalDecodeAttention.md`). Several tokens in one decode are Phase 6's,
-     * with the model that uses them, and are refused here.
+     * writes the cache, then splits the keys over a fixed number of blocks and merges them, reading the position from the execution
+     * context (`MetalBackend.md` section 4.4, `Notebooks/MetalDecodeAttention.md`); a decode of a few tokens in a row runs each at its
+     * own position, the verify of a speculative round (`MetalBackend.md` section 4.6).
      *
      * An FP8 cache holds each row, one KV head at one token, as E4M3 codes with one FP32 scale, [B, NKV, capacity] for K and for V. A
      * decode step reads the codes and scales directly. Prefill expands one KV head's rows at a time to the compute precision in the
@@ -112,6 +113,7 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             heads_ = narrowToKernelIndex( config_.getNumHeads() );
             kv_heads_ = narrowToKernelIndex( config_.getNumKvHeads() );
             head_size_ = narrowToKernelIndex( config_.getHeadDim() );
+            decode_tokens_ = narrowToKernelIndex( context.getDecodeTokens() );
 
             if ( head_size_ > kMostDecodeChannels )
             {
@@ -186,7 +188,20 @@ namespace Mila::Dnn::Compute::Metal::Gqa
 
         bool rewindKvCache( dim_t position, dim_t cached_length ) override
         {
-            return position >= 0 && position <= cached_length;
+            if ( position < 0 || position > cached_length )
+            {
+                return false;
+            }
+
+            // A ring holds the latest positions written; a continuation from `position` attends a window back from it, which the
+            // positions written past it must not have wrapped over. CUDA's ring refuses the same.
+            if constexpr ( kBounded )
+            {
+                // A ring as long as the context holds every position, as a short context's does.
+                return cache_rows_ >= active_length_ || cached_length - position <= cache_rows_ - config_.getWindow();
+            }
+
+            return true;
         }
 
         /**
@@ -298,68 +313,64 @@ namespace Mila::Dnn::Compute::Metal::Gqa
                 geometry, count * heads_ * head_size_ );
         }
 
-        /// `position` is checked here, and the kernels read the same value from the context.
+        /**
+         * One token, or a few in a row from the decode position (Gemma4Mtp.md 4.7), each attending through its own position.
+         * `position` is checked here, and the kernels read the same value from the context.
+         *
+         * @throws std::invalid_argument When the tokens run past the cache, are more than the op was built for, or on the ring would
+         *         overwrite a key the first of them still attends.
+         */
         void decode( const ITensor& q, const ITensor& k, const ITensor& v, ITensor& output, dim_t position ) override
         {
             requireReady();
 
-            if ( q.shape()[1] != 1 )
-            {
-                throw std::logic_error( std::format( "MetalGqaOp::decode takes one token at a time, not {}", q.shape()[1] ) );
-            }
-
-            if ( position < 0 || position >= active_length_ )
-            {
-                throw std::invalid_argument( std::format(
-                    "MetalGqaOp::decode: position {} is past the {} positions of the cache", position, active_length_ ) );
-            }
-
-            const Geometry geometry = geometryFor( 1, 0 );
+            const int tokens = decodeTokenCount( q, position );
+            const Geometry geometry = geometryFor( tokens, 0 );
             const void* const decode_position = context_->decodePositionAddress();
+            const std::size_t rows = static_cast<std::size_t>( batches_ * tokens * kv_heads_ );
 
             if constexpr ( kFp8Cache )
             {
                 context_->dispatchThreadgroups( context_->device().kernels().pipeline( kernelName( "gqa_write_fp8_decode" ) ),
                     std::array<const void*, 7>{ k.rawData(), v.rawData(), key_cache_->rawData(), value_cache_->rawData(), key_scales_->rawData(),
                         value_scales_->rawData(), decode_position },
-                    std::as_bytes( std::span( &geometry, 1 ) ), static_cast<std::size_t>( batches_ * kv_heads_ ), 1 );
+                    std::as_bytes( std::span( &geometry, 1 ) ), rows, 1 );
             } else {
                 encode( "gqa_write_decode", std::array<const void*, 5>{ k.rawData(), v.rawData(), key_cache_->rawData(), value_cache_->rawData(), decode_position },
-                    geometry, static_cast<std::size_t>( batches_ * kv_heads_ * head_size_ ) );
+                    geometry, rows * static_cast<std::size_t>( head_size_ ) );
             }
 
-            // The partials: each block's output, then its largest score and its sum, for every head of every batch.
-            const std::size_t slots = static_cast<std::size_t>( batches_ * heads_ ) * kDecodeBlocks;
-            auto* const partial_output = static_cast<float*>( context_->getDeviceScratchBuffer( decodeScratchBytes() ) );
-            float* const partial_largest = partial_output + slots * static_cast<std::size_t>( head_size_ );
-            float* const partial_sum = partial_largest + slots;
+            encodeDecodeAttention( q, output, geometry, decode_position );
+        }
 
-            auto& pipelines = context_->device().kernels();
-            const std::size_t query_heads = static_cast<std::size_t>( heads_ / kv_heads_ );
+        /**
+         * @brief This op's cache, for attention another component runs over it without writing (Gemma4Mtp.md 4.3).
+         *
+         * @throws std::logic_error Before the cache is initialized.
+         */
+        [[nodiscard]] KvCacheView getKvCacheView() const
+        {
+            requireReady();
 
-            if constexpr ( kFp8Cache )
-            {
-                context_->dispatchThreadgroups( pipelines.pipeline( decodeKernelName( "gqa_decode_partial_fp8" ) ),
-                    std::array<const void*, 9>{ q.rawData(), key_cache_->rawData(), value_cache_->rawData(), key_scales_->rawData(),
-                        value_scales_->rawData(), partial_output, partial_largest, partial_sum, decode_position },
-                    std::as_bytes( std::span( &geometry, 1 ) ), kDecodeBlocks, static_cast<std::size_t>( batches_ * kv_heads_ ), query_heads );
-            } else {
-                context_->dispatchThreadgroups( pipelines.pipeline( decodeKernelName( "gqa_decode_partial" ) ),
-                    std::array<const void*, 7>{ q.rawData(), key_cache_->rawData(), value_cache_->rawData(), partial_output, partial_largest, partial_sum,
-                        decode_position },
-                    std::as_bytes( std::span( &geometry, 1 ) ), kDecodeBlocks, static_cast<std::size_t>( batches_ * kv_heads_ ), query_heads );
-            }
+            KvCacheView view;
+            view.keys = key_cache_->rawData();
+            view.values = value_cache_->rawData();
+            view.key_scales = kFp8Cache ? static_cast<const float*>( key_scales_->rawData() ) : nullptr;
+            view.value_scales = kFp8Cache ? static_cast<const float*>( value_scales_->rawData() ) : nullptr;
+            view.capacity = cache_rows_;
+            view.num_kv_heads = kv_heads_;
+            view.head_size = head_size_;
+            view.window = narrowToKernelIndex( config_.getWindow() );
+            view.fp8 = kFp8Cache;
 
-            context_->dispatchThreadgroups( pipelines.pipeline( decodeKernelName( "gqa_decode_merge" ) ),
-                std::array<const void*, 4>{ partial_output, partial_largest, partial_sum, output.rawData() },
-                std::as_bytes( std::span( &geometry, 1 ) ), static_cast<std::size_t>( batches_ * heads_ ), 1 );
+            return view;
         }
 
         /// A decode step's partials, and with an FP8 cache one KV head's rows expanded for prefill, from the context's scratch: none
         /// before the operation is built.
         [[nodiscard]] std::size_t getScratchBytes() const override
         {
-            return this->isBuilt() ? scratchBytesFor( batches_, heads_, head_size_, capacity_ ) : 0;
+            return this->isBuilt() ? scratchBytesFor( batches_, heads_, head_size_, capacity_, decode_tokens_ ) : 0;
         }
 
         [[nodiscard]] std::size_t getRequiredScratchBytes( const BuildContext& context ) const override
@@ -368,7 +379,7 @@ namespace Mila::Dnn::Compute::Metal::Gqa
 
             validateInputShape( input_shape );
 
-            return scratchBytesFor( input_shape[0], config_.getNumHeads(), config_.getHeadDim(), input_shape[1] );
+            return scratchBytesFor( input_shape[0], config_.getNumHeads(), config_.getHeadDim(), input_shape[1], context.getDecodeTokens() );
         }
 
         /// @throws std::runtime_error Always: GQA is inference only, as on CUDA, and is driven by prefill() and decode().
@@ -450,6 +461,7 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             float attention_scale;
             std::uint32_t decode_blocks;
             std::uint32_t score_stride;
+            std::uint32_t keys_before;
         };
 
         /**
@@ -503,6 +515,76 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             }
         }
 
+        /**
+         * The tokens of a decode call -- one, or a few in a row from the decode position -- after checking that the last of them is
+         * inside the cache and, on the ring, that writing them evicts no key the first still attends.
+         */
+        [[nodiscard]] int decodeTokenCount( const ITensor& q, dim_t position ) const
+        {
+            const int tokens = narrowToKernelIndex( q.shape()[1] );
+
+            if ( tokens < 1 || position < 0 || position + tokens > active_length_ )
+            {
+                throw std::invalid_argument( std::format(
+                    "MetalGqaOp::decode: {} tokens from position {} do not fit the {} positions of the cache", tokens, position, active_length_ ) );
+            }
+
+            // More would grow the context's scratch past what the planner priced.
+            if ( tokens > decode_tokens_ )
+            {
+                throw std::invalid_argument( std::format(
+                    "MetalGqaOp::decode: {} tokens, and this op was built for decode calls of at most {} (BuildContext::withDecodeTokens)",
+                    tokens, decode_tokens_ ) );
+            }
+
+            if constexpr ( kBounded )
+            {
+                const int window = narrowToKernelIndex( config_.getWindow() );
+
+                if ( tokens > 1 && window + tokens - 1 > cache_rows_ )
+                {
+                    throw std::invalid_argument( std::format(
+                        "MetalGqaOp::decode: {} tokens over a window of {} need {} ring rows; the ring holds {}",
+                        tokens, window, window + tokens - 1, cache_rows_ ) );
+                }
+            }
+
+            return tokens;
+        }
+
+        /// The partial pass over the cache for every query head of every token, then the merge, into `output`.
+        void encodeDecodeAttention( const ITensor& q, ITensor& output, const Geometry& geometry, const void* decode_position ) const
+        {
+            const int tokens = static_cast<int>( geometry.tokens );
+
+            // The partials: each block's output, then its largest score and its sum, for every head of every token of every batch.
+            const std::size_t slots = static_cast<std::size_t>( batches_ * tokens * heads_ ) * kDecodeBlocks;
+            auto* const partial_output = static_cast<float*>( context_->getDeviceScratchBuffer( decodeScratchBytes( tokens ) ) );
+            float* const partial_largest = partial_output + slots * static_cast<std::size_t>( head_size_ );
+            float* const partial_sum = partial_largest + slots;
+
+            auto& pipelines = context_->device().kernels();
+            const std::size_t query_heads = static_cast<std::size_t>( heads_ / kv_heads_ );
+            const std::size_t kv_heads_of_tokens = static_cast<std::size_t>( batches_ * tokens * kv_heads_ );
+
+            if constexpr ( kFp8Cache )
+            {
+                context_->dispatchThreadgroups( pipelines.pipeline( decodeKernelName( "gqa_decode_partial_fp8" ) ),
+                    std::array<const void*, 9>{ q.rawData(), key_cache_->rawData(), value_cache_->rawData(), key_scales_->rawData(),
+                        value_scales_->rawData(), partial_output, partial_largest, partial_sum, decode_position },
+                    std::as_bytes( std::span( &geometry, 1 ) ), kDecodeBlocks, kv_heads_of_tokens, query_heads );
+            } else {
+                context_->dispatchThreadgroups( pipelines.pipeline( decodeKernelName( "gqa_decode_partial" ) ),
+                    std::array<const void*, 7>{ q.rawData(), key_cache_->rawData(), value_cache_->rawData(), partial_output, partial_largest, partial_sum,
+                        decode_position },
+                    std::as_bytes( std::span( &geometry, 1 ) ), kDecodeBlocks, kv_heads_of_tokens, query_heads );
+            }
+
+            context_->dispatchThreadgroups( pipelines.pipeline( decodeKernelName( "gqa_decode_merge" ) ),
+                std::array<const void*, 4>{ partial_output, partial_largest, partial_sum, output.rawData() },
+                std::as_bytes( std::span( &geometry, 1 ) ), static_cast<std::size_t>( batches_ * tokens * heads_ ), 1 );
+        }
+
         [[nodiscard]] Geometry geometryFor( int tokens, int position_offset ) const
         {
             return Geometry{
@@ -516,18 +598,20 @@ namespace Mila::Dnn::Compute::Metal::Gqa
                 static_cast<std::uint32_t>( position_offset ),
                 config_.getAttentionScale(),
                 static_cast<std::uint32_t>( kDecodeBlocks ),
-                static_cast<std::uint32_t>( capacity_ ) };
+                static_cast<std::uint32_t>( capacity_ ),
+                0u };
         }
 
-        [[nodiscard]] static std::size_t decodeScratchBytesFor( dim_t batches, dim_t heads, dim_t head_size )
+        /// A decode call's partials: every block of every query head of each of its tokens.
+        [[nodiscard]] static std::size_t decodeScratchBytesFor( dim_t batches, dim_t heads, dim_t head_size, dim_t tokens )
         {
-            return static_cast<std::size_t>( batches * heads ) * kDecodeBlocks * static_cast<std::size_t>( head_size + 2 ) * sizeof( float );
+            return static_cast<std::size_t>( batches * tokens * heads ) * kDecodeBlocks * static_cast<std::size_t>( head_size + 2 ) * sizeof( float );
         }
 
         // An FP8 prefill expands one KV head's K, and for the fused prefill its V beside it, into the context's scratch.
-        [[nodiscard]] static std::size_t scratchBytesFor( dim_t batches, dim_t heads, dim_t head_size, dim_t capacity )
+        [[nodiscard]] static std::size_t scratchBytesFor( dim_t batches, dim_t heads, dim_t head_size, dim_t capacity, dim_t decode_tokens )
         {
-            const std::size_t decode_bytes = decodeScratchBytesFor( batches, heads, head_size );
+            const std::size_t decode_bytes = decodeScratchBytesFor( batches, heads, head_size, decode_tokens );
 
             if constexpr ( kFp8Cache )
             {
@@ -537,9 +621,9 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             }
         }
 
-        [[nodiscard]] std::size_t decodeScratchBytes() const
+        [[nodiscard]] std::size_t decodeScratchBytes( int tokens ) const
         {
-            return decodeScratchBytesFor( batches_, heads_, head_size_ );
+            return decodeScratchBytesFor( batches_, heads_, head_size_, tokens );
         }
 
         /**
@@ -816,5 +900,8 @@ namespace Mila::Dnn::Compute::Metal::Gqa
         int kv_heads_{ 0 };
         int head_size_{ 0 };
         int active_length_{ 0 };
+
+        // The most tokens one decode call takes (BuildContext::withDecodeTokens), which its scratch reservation holds.
+        int decode_tokens_{ 1 };
     };
 }

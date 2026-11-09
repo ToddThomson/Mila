@@ -306,6 +306,99 @@ attention (256, six), in FP16 and BF16, uncompressed and FP8, at 0, 4096 and 16,
 the kernel is broken on purpose; then the HuggingFace gates on Metal of Llama 3.2 3B, Gemma 4 12B Q4_0 and Qwen 3.8's four
 layers; then prefill at the depths of `MetalRates.md` 5, and the context a 16 GB Mac plans, before and after.
 
+### 4.6 Speculative decoding
+
+**Agreed (Todd, 2026-11-09); built the same day.** Gemma 4's drafter runs on Metal as on CUDA (`Gemma4Mtp.md`), on backend parity
+(section 10): the same loop, the same drafter component, the same rule for what is kept. No measurement is asked to earn
+it (Todd, 2026-11-09: "the math is not on our side yet, but we will get there"). It is designed for every M-series chip,
+and only the M1 Pro can be run; a kernel choice the M1 measures is its row of a table per family, not a rule.
+
+**What already runs on Metal, unchanged.** The loop, `GemmaModel::generateWithDraft`: it calls `draftTokens`,
+`decodeTokens`, the speculative sampler and `rewindKvCache`, none of them device-specific. The speculative sampler draws up
+to eight rows and walks acceptance on the device (`Notebooks/MetalGemma.md` 2.1). RoPE's decode already rotates T tokens
+from the context's decode position, the token embedding and the norms are row-count blind, and the router and expert bank
+take several tokens. `KvCacheView` is plain addresses, which Metal's dispatch already resolves to a buffer and offset.
+
+**What is CUDA only today, and becomes Metal's too:**
+
+1. **The gates in the components.** `Linear::decode`, `GatedMLP::decodeTokens`, the dense and routed feed-forwards'
+   `decodeTokens`, `Router::decodeTokens`, `GemmaBlock::decodeTokens`, `GemmaTransformer::onDecodeTokens`,
+   `GroupedQueryAttention::getKvCacheView`, `GemmaBlock::kvCacheView` and the transformer's two cache views are each
+   `requires Cuda`. They become CUDA or Metal. `kDraftModelRuns` is CUDA at BF16 today, because CUDA's shared-cache
+   attention is BF16 only; it becomes "the device has a shared-cache attention at this precision", which on Metal is FP16
+   and BF16, and the load's refusal says which.
+2. **`MetalLinearOp::decode`, up to 8 rows,** each at decode's arithmetic, every weight read once for all of them. Own
+   lanes already serve 2 to 15 rows in `forward`, so `decode` is that path held below the expanded one, for every format
+   the drafter and the 12B use: Q4_0, the six-bit head, and the drafter's unquantized weights (BF16 stored, FP16 or BF16
+   compute). One row keeps its own kernel, so a verify row is not bit-identical to a one-row decode: CUDA's choice (b) of
+   `Gemma4Mtp.md` 4.7, with the same gate. Unquantized weights keep `forward`'s matrix product, which pads 2 to 7 rows
+   for TensorOps where that was measured to win. Which kernel serves which row count is a per-family choice: on the M1
+   own lanes won at 8 rows for Q4_0 and six bits and TensorOps for unquantized weights (`Notebooks/MetalMatrixPath.md`
+   6), at about six times one row's time for Q4_0; TensorOps, which Apple says runs on the M5's neural accelerators,
+   stays the other arm wherever it can carry the format.
+3. **`MetalGqaOp::decode` of T tokens,** T up to 8: the cache write of T rows from the decode position; the partial pass
+   with each token's band ending at its own position, so token r attends through p + r; the merge per token. Over the
+   whole cache, the ring and the FP8 cache, at head sizes 256 and 512 (and the others the one-token decode serves). On the
+   ring, T rows written must evict no key a token still attends, the check `CudaGqaOp::decode` makes. At T = 1 the
+   kernels compute today's decode exactly.
+4. **`MetalSharedKvAttentionOp`,** the `OperationTraits` specialization the drafter's layers need: one query at the
+   decode position over another layer's cache, through position p - 1, writing nothing. The partial and merge kernels of
+   3 with the band ending one before the position, derived on the device as CUDA derives it, so a step stays a pure
+   function of device memory. FP16 and BF16, uncompressed and FP8 caches, ring and whole.
+
+**The drafter in FP16.** On the M1 the drafter computes in FP16, and it was trained in BF16. FP16's gate is per model
+(section 3.4), so the drafter gets its own: its activations' largest magnitude recorded, and its parity with HuggingFace
+as stage 1 of `Gemma4Mtp.md` 5.1 holds it, in FP16 and BF16.
+
+**Not in this change.** Decode replay: Metal records nothing (4.4) and the loop runs without it, as one-token decode
+does today. A drafter in a package: `BACKLOG.md`, *Gemma 4 packages do not carry Google's drafters*, unchanged; the gate
+loads the drafter's own file as the CUDA tests do. The 26B-A4B compiles with it, and does not fit a 16 GB Mac.
+
+**Gate, written before any code.**
+
+- **Each operation against R one-row runs,** R = 1 to 8, FP16 and BF16, at Phase 3's bar (`kBar`): `Linear::decode`
+  per format at Gemma's and the drafter's shapes; attention of T tokens over the whole cache, the ring before, across and
+  after its wrap, and the FP8 cache, against T one-token decodes at their own positions; the shared-cache attention
+  against the one-token decode at the same position with its write left out. Each with a forced failure: a row's band
+  ending at the round's position and not its own, the ring's row taken as its position, the shared read's band ending at
+  p and not p - 1, a weight row read per row and offset wrongly.
+- **The drafter against HuggingFace,** as `Gemma4Mtp.md` 5.1 gated it on CUDA (`Tools/Drafting drafter-parity`, then
+  HuggingFace on the same explicit inputs): argmax equal at every step, the mean logit difference within twice
+  HuggingFace's BF16 run's, in FP16 and BF16. The tool runs on CUDA today, so this needs it on Metal first.
+- **The loop.** Greedy: every token the plain loop's except at a near-tie, as on CUDA. Sampled: the fraction of rounds
+  whose first draft is kept within its standard error of the mean of p(d1) (`Gemma4Mtp.md` 4.4).
+- **Then measured, not judged:** decode tokens a second with and without the drafter on chat, code and prose, at K = 1
+  to 4, Gemma's own sampling, one run each, on the M1 Pro. The result is recorded whichever way it falls. Every run in
+  this gate is under ten minutes or is put to Todd first.
+
+**As built.** The decode kernels of 4.4 take the token as part of the grid, and a field of the geometry says how many
+positions before its own a query's keys end: 0 for the layer that owns the cache, 1 for a reader of another's. So the
+verify's attention and the drafter's are the one-token decode's kernels, and a token of several computes exactly what its
+own one-token decode computes. `MetalLinearOp::decode` runs own lanes for quantized weights at 1 to 8 rows and
+`forward`'s matrix product for unquantized ones. The ring now refuses a rewind past what its rows still hold, as CUDA's
+does; it accepted any before, safe only because nothing rewound that far.
+
+**Results, 2026-11-09, the M1 Pro, FP16 and BF16.**
+
+- Every operation check passes: 228 tests in the attention and Linear suites, the earlier ones among them, and 236 with
+  the model tests below. A decode of
+  1 to 8 tokens equals the same tokens decoded one at a time to the bit, over the whole cache, the window, the ring
+  before and after its wrap and the FP8 cache, at the models' head sizes and groupings, and the decode after them reads
+  the rows the one call wrote. The reader of another layer's cache holds the attention bar against the reference at the
+  position before its own, over the whole cache, the ring and the FP8 cache, and writes nothing.
+- The tiny Gemma (`DecodeTokens.Metal.cpp`, `Gemma.DraftModel.Metal.cpp`): a decode of 5 tokens equals five one-token
+  decodes to the bit, dense and routed, where CUDA's is within its rounding; rejected tokens leave nothing after the
+  rewind; the drafter is priced as built and leaves the caches as they were.
+- **Gemma 4 12B Q4_0 with Google's drafter, FP16: greedy generation gives the same 128 tokens with the drafter as
+  without it**, on CUDA's test prompt at K = 4.
+- **Forced failures, 10 of 10 caught** (`D:\Claude\metal\drafter\mutate.sh`): a token's band ending at the round's
+  position; every token on token 0's query head; the reader's band ending at its own position; the KV head taken from
+  the whole grid row; the ring's eviction check removed; the cache write or the merge over one token's rows only; the
+  ring's rewind check removed; the reader's band offset left at 0; a Linear decode of its first row only. Two needed a
+  second run: the first text matched the prefill's query permute earlier in the file, and the second was not applied.
+  The multi-token tests now hold their setup prefills to the reference as well.
+- Not yet run: the drafter against HuggingFace, the sampled check, and the rates.
+
 ## 5. Memory
 
 **Storage mode:** shared. The allocator returns the buffer's `contents` as the pointer a tensor holds, and the scaffold's
@@ -541,5 +634,6 @@ development Mac and neither can reach a user's.
 | Pad 2 to 7 rows before Phase 4, with the scratch buffer here and not in Phase 5, and the rows that pad a tile zero. Attention pads only if its timing earns it (section 4.2) | Todd, 2026-11-05 |
 | Phase 4's library changes: `DeviceTypeTraits` says whether a device trains, every network's load synchronizes on every device, and the weight dispatch builds a format where `OperationSupported` says its Linear exists (`Notebooks/MetalFirstModel.md` section 3) | Todd, 2026-11-05 |
 | Attention's decode in two passes on MLX's path, 32 blocks fixed, the partials in the context's scratch (section 4.4, `Notebooks/MetalDecodeAttention.md`) | Todd, 2026-11-05 |
+| Gemma 4's drafter runs on Metal: the multi-token decode, the reader of another layer's cache, every M-series chip in view, no measurement asked to earn it (section 4.6) | Todd, 2026-11-09 |
 | Backend parity: what CUDA runs fused or replayed, Metal does too, with no measurement asked to earn it. First, prefill attention fused, over the whole cache, the sliding-window ring and the FP8 cache, as CUDA's flash prefill is (section 4.5); its rates before the change at 0, 4096 and 16384 held tokens are in `Notebooks/MetalRates.md` | Todd, 2026-11-08 |
 | Phase 5's model runs are Llama's (3.2 3B FP8 and FP4, 3.1 8B FP4); Gemma's and Qwen's formats are operations here and model runs in Phase 6. The FP8 cache dispatch asks `OperationSupported` (section 9, Phase 5) | Todd, 2026-11-05 |

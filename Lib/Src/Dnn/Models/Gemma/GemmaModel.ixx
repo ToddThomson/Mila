@@ -816,7 +816,9 @@ namespace Mila::Dnn
 
             if constexpr ( !Network::kDraftModelRuns )
             {
-                throw std::invalid_argument( std::format( "{}: a draft model runs on CUDA at BF16", caller ) );
+                throw std::invalid_argument( std::format(
+                    "{}: no draft model runs on {} at {}; one runs on CUDA at BF16 and on Metal at FP16 and BF16", caller,
+                    deviceTypeToString( TDeviceType ), tensorDataTypeToString( TPrecision ) ) );
             }
             else
             {

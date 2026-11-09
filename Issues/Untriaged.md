@@ -70,11 +70,11 @@ The decision is `OperationDispatch.md`'s: the activations' element type and the 
 
 `RocmDevice.ixx` declares `module Compute.VulkanDevice` and a `VulkanDevice` returning `DeviceType::Vulkan`, which `DeviceType` does not have; it is not in the ROCm file set. `DeviceRegistrar` calls `RocmDeviceRegistrar::registerDevices()`, which no file defines. `DeviceType.ixx` still marks Metal and ROCm `FUTURE`.
 
-## Speculative decoding runs on CUDA only: Metal has no multi-token decode outside the expert bank and the sampler
+## Metal's Q4_0 expert bank runs one kernel for prefill and decode, where CUDA has a grouped prefill, and its speed is unmeasured
 
-`Lib/Src/Dnn/Components/Linear/Linear.ixx` (`decode`), `Attention/GQA/GroupedQueryAttention.ixx`, `MixtureOfExperts/Router.ixx` (`decodeTokens`), `Transformers/Gemma/Gemma.ixx` (`kDraftModelRuns`) @ 0.21.0-dev+123
+`Lib/Src/Dnn/Compute/Devices/Metal/Operations/Moe/MetalMoeOp.ixx` @ 0.21.0-dev+129
 
-Each is `requires ( TDeviceType == DeviceType::Cuda )` or gated by it, and Metal has no `SharedKvAttentionOp`. Metal's expert bank, router and sampler now take several tokens or rows (`Notebooks/MetalGemma.md` 2.1), so a drafter on Metal needs Linear's and attention's multi-token decode and the shared-cache attention. The Q4_0 Metal bank also has one kernel for prefill and decode, where CUDA has a grouped prefill; its speed is unmeasured.
+Found beside the drafter work (`Notebooks/MetalGemma.md` 2.1); the 26B-A4B that uses it does not fit a 16 GB Mac.
 
 ## Metal loads Q4_0 and six-bit weights only as stored, where CUDA also quantizes them at load
 

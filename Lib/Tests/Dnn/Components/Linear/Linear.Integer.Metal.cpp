@@ -137,13 +137,13 @@ namespace Mila::Tests::Dnn::Components
                 linear->loadParameter( "weight_scale", blobOver( scales, shape_t{ outputs, inputs / kGroup }, TensorDataType::FP16 ) );
             }
 
-            /// Run `rows` rows, and return the error against the reference at every `stride`th output.
-            double errorAt( dim_t rows, dim_t stride = 1 )
+            /// Run `rows` rows, through decode() or forward(), and return the error against the reference at every `stride`th output.
+            double errorAt( dim_t rows, dim_t stride = 1, bool decode = false )
             {
                 const std::vector<float> input_values = randomValues( static_cast<std::size_t>( rows * inputs ), 13, 1.0f );
                 TensorType input = metalTensor<kPrecision>( input_values, shape_t{ rows, inputs } );
 
-                const TensorType& output = linear->forward( input );
+                const TensorType& output = decode ? linear->decode( input ) : linear->forward( input );
                 linear->synchronize();
 
                 const std::vector<float> all = readFloats<kPrecision>( output );
@@ -241,6 +241,35 @@ namespace Mila::Tests::Dnn::Components
         {
             EXPECT_LE( fixture.errorAt( rows, 97 ), kBar<TypeParam::kPrecision> ) << rows << " rows";
         }
+    }
+
+    // A speculative round's verify (MetalBackend.md section 4.6): decode() of up to 8 rows, built for a prefill chunk, at Gemma's shapes
+    // and the tied head's width too, since a verify runs the head at every row.
+    TYPED_TEST( LinearIntegerMetal, DecodeMatchesTheReferenceAtEveryRowItTakes )
+    {
+        Fixture<TypeParam> fixture( 3840, 8704, 1024 );
+
+        for ( dim_t rows = 1; rows <= 8; ++rows )
+        {
+            EXPECT_LE( fixture.errorAt( rows, 7, true ), kBar<TypeParam::kPrecision> ) << rows << " rows";
+        }
+
+        Fixture<TypeParam> head( 3840, 32768, 16 );
+
+        for ( const dim_t rows : { dim_t{ 1 }, dim_t{ 5 }, dim_t{ 8 } } )
+        {
+            EXPECT_LE( head.errorAt( rows, 97, true ), kBar<TypeParam::kPrecision> ) << "head, " << rows << " rows";
+        }
+    }
+
+    TYPED_TEST( LinearIntegerMetal, DecodeRefusesMoreThanEightRows )
+    {
+        using TensorType = Tensor<TypeParam::kPrecision, MetalMemoryResource>;
+
+        Fixture<TypeParam> fixture( 256, 48, 16 );
+        TensorType input( Device::Metal( 0 ), shape_t{ 9, 256 } );
+
+        EXPECT_THROW( fixture.linear->decode( input ), std::invalid_argument );
     }
 
     TYPED_TEST( LinearIntegerMetal, RefusesFullPrecisionWeightsAndNamesThem )

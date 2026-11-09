@@ -20,6 +20,7 @@ import Compute.MetalRmsNormOp;
 import Compute.MetalRopeOp;
 import Compute.MetalRouterOp;
 import Compute.MetalSamplingOp;
+import Compute.MetalSharedKvAttentionOp;
 import Compute.MetalSwigluOp;
 import Compute.MetalTokenEmbeddingOp;
 import Dnn.Quantization.KvCache.PerTokenKvFp8;
@@ -56,6 +57,14 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Metal, TPrecision, SlidingWindowKvCache>
     {
         using type = Metal::Gqa::MetalGqaOp<TPrecision, SlidingWindowKvCache>;
+    };
+
+    // A query over a cache another layer owns (Gemma4Mtp.md 4.3); the cache's own format is read from the view at decode.
+    template<TensorDataType TPrecision>
+        requires ( TPrecision == TensorDataType::FP16 || TPrecision == TensorDataType::BF16 )
+    struct OperationTraits<OperationType::SharedKvAttentionOp, DeviceType::Metal, TPrecision, void>
+    {
+        using type = Metal::Gqa::MetalSharedKvAttentionOp<TPrecision>;
     };
 
     template<>

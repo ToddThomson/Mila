@@ -10,6 +10,7 @@
 import Mila;
 import std;
 import Compute.GqaWorkspace;
+import Compute.MetalSharedKvAttentionOp;
 import Dnn.Components.Gqa;
 import Serialization.Tensor;
 
@@ -44,6 +45,9 @@ namespace Mila::Tests::Dnn::Components
             dim_t context{ 64 };
             dim_t chunk{ 16 };
             dim_t window{ 0 };
+
+            // The most tokens one decode call takes, a speculative round's verify.
+            dim_t decode_tokens{ 1 };
         };
 
         /// A row of the cache as an FP8 cache stores it: E4M3 codes of x * (1 / scale), saturating, with scale max |x| / 448.
@@ -92,7 +96,7 @@ namespace Mila::Tests::Dnn::Components
                 const dim_t packed = ( geometry.heads + 2 * geometry.kv_heads ) * geometry.head_size;
 
                 attention.build( BuildContext( shape_t{ geometry.batches, geometry.context, packed }, RuntimeMode::Inference, false )
-                    .withPrefillSize( geometry.chunk ) );
+                    .withPrefillSize( geometry.chunk ).withDecodeTokens( geometry.decode_tokens ) );
 
                 workspace = makeGqaWorkspace<DeviceType::Metal, TPrecision>( Device::Metal( 0 ), geometry.batches, geometry.heads,
                     geometry.head_size, geometry.context, geometry.chunk, fused ? dim_t{ 0 } : geometry.context, "workspace." );
@@ -283,28 +287,6 @@ namespace Mila::Tests::Dnn::Components
     {
         expectChunksThenDecodes<TypeParam::value>( Geometry{ .head_size = 32, .context = 64, .chunk = 16 }, 2, 1 );
         expectChunksThenDecodes<TypeParam::value>( Geometry{ .head_size = 48, .context = 128, .chunk = 68 }, 1, 1 );
-    }
-
-    TYPED_TEST( GqaMetal, SeveralTokensInOneDecodeAreRefusedEvenWhenBuiltForThem )
-    {
-        constexpr TensorDataType kPrecision = TypeParam::value;
-        using TensorType = Tensor<kPrecision, MetalMemoryResource>;
-
-        GroupedQueryAttention<DeviceType::Metal, kPrecision> attention( "attention", GqaConfig( 64, 4, 2 ), Device::Metal( 0 ) );
-
-        attention.build( BuildContext( shape_t{ 1, 64, 128 }, RuntimeMode::Inference, false ).withPrefillSize( 16 ).withDecodeTokens( 2 ) );
-
-        auto workspace = makeGqaWorkspace<DeviceType::Metal, kPrecision>( Device::Metal( 0 ), 1, 4, 16, 64, 16, 64, "workspace." );
-
-        attention.setState( workspace.state() );
-
-        TensorType q( Device::Metal( 0 ), shape_t{ 1, 2, 64 } );
-        TensorType k( Device::Metal( 0 ), shape_t{ 1, 2, 32 } );
-        TensorType v( Device::Metal( 0 ), shape_t{ 1, 2, 32 } );
-
-        attention.getExecutionContext()->setDecodePosition( 0 );
-
-        EXPECT_THROW( attention.decode( q, k, v, 0 ), std::logic_error );
     }
 
     TYPED_TEST( GqaMetal, MoreThanOneBatch )
@@ -812,5 +794,343 @@ namespace Mila::Tests::Dnn::Components
         EXPECT_TRUE( ( OperationSupported<OperationType::GroupedQueryAttentionOp, DeviceType::Metal, TensorDataType::FP16, SlidingWindowKvCache> ) );
         EXPECT_TRUE( ( OperationSupported<OperationType::GroupedQueryAttentionOp, DeviceType::Metal, TensorDataType::BF16, SlidingWindowKvCache> ) );
         EXPECT_FALSE( ( OperationSupported<OperationType::GroupedQueryAttentionOp, DeviceType::Metal, TensorDataType::FP32, SlidingWindowKvCache> ) );
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // A decode of several tokens in a row (MetalBackend.md section 4.6, Gemma4Mtp.md 4.7): each token at its own position, against the
+    // reference, and equal to the bit to the same tokens decoded one at a time, since each token's sums run as its own decode's do.
+    // -----------------------------------------------------------------------------------------------------------------
+
+    namespace
+    {
+        /// Rows [first, first + count) of each batch of a [B, T, width] tensor's values.
+        std::vector<float> tokenRows( std::span<const float> values, dim_t batches, dim_t tokens, dim_t width, dim_t first, dim_t count )
+        {
+            std::vector<float> rows;
+
+            for ( dim_t b = 0; b < batches; ++b )
+            {
+                const auto start = values.begin() + static_cast<std::ptrdiff_t>( ( b * tokens + first ) * width );
+
+                rows.insert( rows.end(), start, start + static_cast<std::ptrdiff_t>( count * width ) );
+            }
+
+            return rows;
+        }
+
+        /// One decode call of `count` of `tokens` tokens from `first`, its output as floats.
+        template<TensorDataType TPrecision, typename TKvPolicy>
+        std::vector<float> decodeCall( Stack<TPrecision, TKvPolicy>& stack, std::span<const float> q, std::span<const float> k,
+            std::span<const float> v, dim_t tokens, dim_t position, dim_t first, dim_t count )
+        {
+            const Geometry& g = stack.shape;
+            const auto qs = tokenRows( q, g.batches, tokens, g.heads * g.head_size, first, count );
+            const auto ks = tokenRows( k, g.batches, tokens, g.kv_heads * g.head_size, first, count );
+            const auto vs = tokenRows( v, g.batches, tokens, g.kv_heads * g.head_size, first, count );
+
+            auto q_tensor = metalTensor<TPrecision>( qs, shape_t{ g.batches, count, g.heads * g.head_size } );
+            auto k_tensor = metalTensor<TPrecision>( ks, shape_t{ g.batches, count, g.kv_heads * g.head_size } );
+            auto v_tensor = metalTensor<TPrecision>( vs, shape_t{ g.batches, count, g.kv_heads * g.head_size } );
+
+            stack.attention.getExecutionContext()->setDecodePosition( position + first );
+
+            auto& output = stack.attention.decode( q_tensor, k_tensor, v_tensor, position + first );
+
+            stack.attention.synchronize();
+
+            return readFloats<TPrecision>( output );
+        }
+
+        /**
+         * Two stacks given the same chunks, then `tokens` tokens from `position`: one at a time into the first, in one call into the
+         * second. Every output equal, the one call's within the reference's bar, and a decode after them in each equal, which reads the
+         * rows the one call wrote.
+         */
+        template<TensorDataType TPrecision, typename TKvPolicy = NoKvCompression>
+        void expectOneCallEqualsOneAtATime( Geometry geometry, dim_t chunks, dim_t tokens )
+        {
+            geometry.decode_tokens = tokens;
+
+            Stack<TPrecision, TKvPolicy> one_at_a_time( geometry );
+            Stack<TPrecision, TKvPolicy> one_call( geometry );
+
+            dim_t position = 0;
+
+            // The chunks that write the history are held to the reference too, so a wrong cache cannot pass as two equal ones.
+            for ( dim_t c = 0; c < chunks; ++c )
+            {
+                EXPECT_LE( one_at_a_time.errorOfStep( geometry.chunk, position, false ), kAttentionBar<TPrecision> ) << "chunk " << c;
+                EXPECT_LE( one_call.errorOfStep( geometry.chunk, position, false ), kAttentionBar<TPrecision> ) << "chunk " << c;
+                position += geometry.chunk;
+            }
+
+            const auto q_count = static_cast<std::size_t>( geometry.batches * tokens * geometry.heads * geometry.head_size );
+            const auto kv_count = static_cast<std::size_t>( geometry.batches * tokens * geometry.kv_heads * geometry.head_size );
+            const std::vector<float> q = randomValues( q_count, 501, 0.5f );
+            const std::vector<float> k = randomValues( kv_count, 502, 0.5f );
+            const std::vector<float> v = randomValues( kv_count, 503, 0.5f );
+
+            const auto stored_k = asStored<TPrecision>( std::span<const float>( k ) );
+            const auto stored_v = asStored<TPrecision>( std::span<const float>( v ) );
+
+            one_at_a_time.remember( stored_k, stored_v, tokens, position );
+            one_call.remember( stored_k, stored_v, tokens, position );
+
+            const dim_t width = geometry.heads * geometry.head_size;
+            std::vector<float> expected( q_count );
+
+            for ( dim_t t = 0; t < tokens; ++t )
+            {
+                const std::vector<float> row = decodeCall( one_at_a_time, q, k, v, tokens, position, t, 1 );
+
+                for ( dim_t b = 0; b < geometry.batches; ++b )
+                {
+                    std::copy_n( row.begin() + static_cast<std::ptrdiff_t>( b * width ), width,
+                        expected.begin() + static_cast<std::ptrdiff_t>( ( b * tokens + t ) * width ) );
+                }
+            }
+
+            const std::vector<float> produced = decodeCall( one_call, q, k, v, tokens, position, 0, tokens );
+
+            ASSERT_EQ( produced.size(), expected.size() );
+
+            std::size_t differing = 0;
+
+            for ( std::size_t i = 0; i < expected.size(); ++i )
+            {
+                differing += produced[i] != expected[i] ? 1 : 0;
+            }
+
+            EXPECT_EQ( differing, 0u ) << "of " << expected.size() << " outputs";
+
+            const auto stored_q = asStored<TPrecision>( std::span<const float>( q ) );
+
+            EXPECT_LE( relativeError( produced, one_call.reference( stored_q, tokens, position ) ), kAttentionBar<TPrecision> );
+
+            const double after_one_at_a_time = one_at_a_time.errorOfStep( 1, position + tokens, true );
+            const double after_one_call = one_call.errorOfStep( 1, position + tokens, true );
+
+            EXPECT_EQ( after_one_call, after_one_at_a_time ) << "the decode after them read other rows";
+            EXPECT_LE( after_one_call, kAttentionBar<TPrecision> );
+        }
+    }
+
+    template<typename TPrecisionConstant>
+    class GqaMetalDecodeTokens : public ::testing::Test
+    {
+    };
+
+    TYPED_TEST_SUITE( GqaMetalDecodeTokens, Precisions, PrecisionNames );
+
+    TYPED_TEST( GqaMetalDecodeTokens, ARoundOfEveryLengthUpToEight )
+    {
+        for ( const dim_t tokens : { dim_t{ 1 }, dim_t{ 2 }, dim_t{ 5 }, dim_t{ 8 } } )
+        {
+            SCOPED_TRACE( std::format( "{} tokens", tokens ) );
+            expectOneCallEqualsOneAtATime<TypeParam::value>( Geometry{ .context = 128 }, 3, tokens );
+        }
+    }
+
+    TYPED_TEST( GqaMetalDecodeTokens, TheModelsHeadSizesAndGroupings )
+    {
+        // Gemma 4's global layer, 16 query heads to one KV head at 512 channels; its sliding layer, 2 to a KV head at 256; Llama's 128.
+        expectOneCallEqualsOneAtATime<TypeParam::value>( Geometry{ .heads = 16, .kv_heads = 1, .head_size = 512, .context = 96, .chunk = 32 }, 2, 5 );
+        expectOneCallEqualsOneAtATime<TypeParam::value>( Geometry{ .heads = 4, .kv_heads = 2, .head_size = 256, .context = 96, .chunk = 32 }, 2, 5 );
+        expectOneCallEqualsOneAtATime<TypeParam::value>( Geometry{ .heads = 8, .kv_heads = 2, .head_size = 128, .context = 96, .chunk = 32 }, 2, 8 );
+    }
+
+    TYPED_TEST( GqaMetalDecodeTokens, MoreThanOneBatch )
+    {
+        expectOneCallEqualsOneAtATime<TypeParam::value>( Geometry{ .batches = 2, .context = 96 }, 2, 4 );
+    }
+
+    TYPED_TEST( GqaMetalDecodeTokens, AWindowEachTokenCutsAtItsOwnPosition )
+    {
+        expectOneCallEqualsOneAtATime<TypeParam::value>( Geometry{ .context = 96, .window = 7 }, 3, 6 );
+    }
+
+    TYPED_TEST( GqaMetalDecodeTokens, TheRingBeforeAcrossAndAfterItsWrap )
+    {
+        // The ring holds one fused tile, 64 rows, past its 13 + 16 - 1: a round from 16 sits before the wrap, from 64 at it, from 96 after.
+        for ( const dim_t chunks : { dim_t{ 1 }, dim_t{ 4 }, dim_t{ 6 } } )
+        {
+            SCOPED_TRACE( std::format( "after {} chunks", chunks ) );
+            expectOneCallEqualsOneAtATime<TypeParam::value, SlidingWindowKvCache>(
+                Geometry{ .heads = 4, .kv_heads = 2, .head_size = 256, .context = 128, .chunk = 16, .window = 13 }, chunks, 8 );
+        }
+    }
+
+    TYPED_TEST( GqaMetalDecodeTokens, AnFp8Cache )
+    {
+        expectOneCallEqualsOneAtATime<TypeParam::value, PerTokenKvFp8<>>( Geometry{ .heads = 16, .kv_heads = 1, .head_size = 512, .context = 96, .chunk = 32 }, 2, 4 );
+    }
+
+    TYPED_TEST( GqaMetalDecodeTokens, RefusesMoreTokensThanBuiltForOrTheRingKeeps )
+    {
+        constexpr TensorDataType kPrecision = TypeParam::value;
+        using TensorType = Tensor<kPrecision, MetalMemoryResource>;
+
+        Stack<kPrecision> stack( Geometry{ .decode_tokens = 4 } );
+
+        stack.errorOfStep( 16, 0, false );
+
+        TensorType q( Device::Metal( 0 ), shape_t{ 1, 5, 64 } );
+        TensorType k( Device::Metal( 0 ), shape_t{ 1, 5, 32 } );
+        TensorType v( Device::Metal( 0 ), shape_t{ 1, 5, 32 } );
+
+        stack.attention.getExecutionContext()->setDecodePosition( 16 );
+
+        EXPECT_THROW( stack.attention.decode( q, k, v, 16 ), std::invalid_argument );
+
+        // A ring of 4 + 4 - 1 = 7 rows keeps a window of 4 for 4 tokens; 5 would write over a key the first still attends.
+        Stack<kPrecision, SlidingWindowKvCache> ring( Geometry{ .context = 64, .chunk = 4, .window = 4, .decode_tokens = 5 } );
+
+        ring.errorOfStep( 4, 0, false );
+        ring.attention.getExecutionContext()->setDecodePosition( 4 );
+
+        EXPECT_THROW( ring.attention.decode( q, k, v, 4 ), std::invalid_argument );
+    }
+
+    TYPED_TEST( GqaMetalDecodeTokens, AsksForScratchForEveryTokensPartials )
+    {
+        constexpr TensorDataType kPrecision = TypeParam::value;
+
+        const Geometry geometry{ .batches = 2, .decode_tokens = 5 };
+        Stack<kPrecision> stack( geometry );
+
+        const std::size_t partials = static_cast<std::size_t>( geometry.batches * geometry.decode_tokens * geometry.heads ) * 32
+            * static_cast<std::size_t>( geometry.head_size + 2 ) * sizeof( float );
+
+        EXPECT_EQ( stack.attention.getMemoryStats().device_scratch_bytes, occupiedDeviceBytes( partials, allocationGranularity( Device::Metal( 0 ) ) ) );
+    }
+
+    TYPED_TEST( GqaMetalDecodeTokens, ARingRewindsOnlyAsFarAsItsRowsStillHoldTheWindow )
+    {
+        constexpr TensorDataType kPrecision = TypeParam::value;
+
+        // 16 + 16 - 1 = 31 rows in a context of 256: 15 positions past the window may be dropped, not 16.
+        Stack<kPrecision, SlidingWindowKvCache> ring( Geometry{ .context = 256, .chunk = 16, .window = 16 } );
+
+        ring.errorOfStep( 16, 0, false );
+        ring.errorOfStep( 16, 16, false );
+
+        EXPECT_TRUE( ring.attention.rewindKvCache( 17, 32 ) );
+        EXPECT_FALSE( ring.attention.rewindKvCache( 16, 32 ) );
+
+        // A ring as long as the context holds every position.
+        Stack<kPrecision, SlidingWindowKvCache> whole( Geometry{ .context = 64, .chunk = 16, .window = 64 } );
+
+        whole.errorOfStep( 16, 0, false );
+        whole.errorOfStep( 16, 16, false );
+
+        EXPECT_TRUE( whole.attention.rewindKvCache( 0, 32 ) );
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // A reader of another layer's cache (MetalBackend.md section 4.6, Gemma4Mtp.md 4.3): a query at position p over the keys through
+    // p - 1, as the reference computes for that query at p - 1, and nothing written.
+    // -----------------------------------------------------------------------------------------------------------------
+
+    namespace
+    {
+        template<TensorDataType TPrecision, typename TKvPolicy = NoKvCompression>
+        void expectAReaderAttendsTheKeysBeforeIt( const Geometry& geometry, dim_t chunks, dim_t decodes )
+        {
+            using TensorType = Tensor<TPrecision, MetalMemoryResource>;
+            using ReaderType = Metal::Gqa::MetalSharedKvAttentionOp<TPrecision>;
+
+            Stack<TPrecision, TKvPolicy> stack( geometry );
+
+            dim_t position = 0;
+
+            for ( dim_t c = 0; c < chunks; ++c )
+            {
+                EXPECT_LE( stack.errorOfStep( geometry.chunk, position, false ), kAttentionBar<TPrecision> ) << "chunk " << c;
+                position += geometry.chunk;
+            }
+
+            for ( dim_t d = 0; d < decodes; ++d )
+            {
+                EXPECT_LE( stack.errorOfStep( 1, position, true ), kAttentionBar<TPrecision> ) << "decode at " << position;
+                ++position;
+            }
+
+            const dim_t width = geometry.heads * geometry.head_size;
+            const GqaConfig config = GqaConfig( width, geometry.heads, geometry.kv_heads ).withWindow( geometry.window );
+
+            ReaderType reader( stack.attention.getExecutionContext(), config );
+            reader.build( BuildContext( shape_t{ geometry.batches, geometry.context, width }, RuntimeMode::Inference, false ) );
+
+            const auto q_count = static_cast<std::size_t>( geometry.batches * width );
+            const std::vector<float> q = randomValues( q_count, 601, 0.5f );
+
+            TensorType q_tensor = metalTensor<TPrecision>( q, shape_t{ geometry.batches, 1, width } );
+            TensorType output( Device::Metal( 0 ), shape_t{ geometry.batches, 1, width } );
+
+            // The reader's query sits at the next position, which holds no key yet.
+            stack.attention.getExecutionContext()->setDecodePosition( position );
+            reader.decode( q_tensor, stack.attention.getKvCacheView(), output );
+            stack.attention.synchronize();
+
+            const auto stored_q = asStored<TPrecision>( std::span<const float>( q ) );
+
+            EXPECT_LE( relativeError( readFloats<TPrecision>( output ), stack.reference( stored_q, 1, position - 1 ) ), kAttentionBar<TPrecision> );
+
+            // It wrote nothing: the next decode of the layer that owns the cache still matches the reference.
+            EXPECT_LE( stack.errorOfStep( 1, position, true ), kAttentionBar<TPrecision> );
+        }
+    }
+
+    template<typename TPrecisionConstant>
+    class GqaMetalSharedKv : public ::testing::Test
+    {
+    };
+
+    TYPED_TEST_SUITE( GqaMetalSharedKv, Precisions, PrecisionNames );
+
+    TYPED_TEST( GqaMetalSharedKv, AttendsTheKeysBeforeItsPosition )
+    {
+        expectAReaderAttendsTheKeysBeforeIt<TypeParam::value>( Geometry{ .context = 96 }, 2, 3 );
+    }
+
+    TYPED_TEST( GqaMetalSharedKv, TheDrafterOfGemmasLayers )
+    {
+        // The drafter's global layer: 16 query heads over the target's one KV head at 512; its sliding layers, 2 to a KV head at 256,
+        // over the ring before and after it wraps.
+        expectAReaderAttendsTheKeysBeforeIt<TypeParam::value>( Geometry{ .heads = 16, .kv_heads = 1, .head_size = 512, .context = 96, .chunk = 32 }, 2, 1 );
+        expectAReaderAttendsTheKeysBeforeIt<TypeParam::value, SlidingWindowKvCache>(
+            Geometry{ .heads = 4, .kv_heads = 2, .head_size = 256, .context = 128, .chunk = 16, .window = 13 }, 1, 2 );
+        expectAReaderAttendsTheKeysBeforeIt<TypeParam::value, SlidingWindowKvCache>(
+            Geometry{ .heads = 4, .kv_heads = 2, .head_size = 256, .context = 128, .chunk = 16, .window = 13 }, 4, 3 );
+    }
+
+    TYPED_TEST( GqaMetalSharedKv, AnFp8Cache )
+    {
+        expectAReaderAttendsTheKeysBeforeIt<TypeParam::value, PerTokenKvFp8<>>( Geometry{ .heads = 16, .kv_heads = 1, .head_size = 512, .context = 96, .chunk = 32 }, 2, 2 );
+    }
+
+    TYPED_TEST( GqaMetalSharedKv, RefusesACacheOfAnotherGeometry )
+    {
+        constexpr TensorDataType kPrecision = TypeParam::value;
+        using TensorType = Tensor<kPrecision, MetalMemoryResource>;
+
+        Stack<kPrecision> stack( Geometry{} );
+
+        stack.errorOfStep( 16, 0, false );
+
+        Metal::Gqa::MetalSharedKvAttentionOp<kPrecision> reader( stack.attention.getExecutionContext(), GqaConfig( 64, 4, 4 ) );
+        reader.build( BuildContext( shape_t{ 1, 64, 64 }, RuntimeMode::Inference, false ) );
+
+        TensorType q( Device::Metal( 0 ), shape_t{ 1, 1, 64 } );
+        TensorType output( Device::Metal( 0 ), shape_t{ 1, 1, 64 } );
+
+        EXPECT_THROW( reader.decode( q, stack.attention.getKvCacheView(), output ), std::invalid_argument );
+    }
+
+    TEST( GqaMetalSharedKvRows, TheReaderExistsAtFp16AndBf16Only )
+    {
+        EXPECT_TRUE( ( OperationSupported<OperationType::SharedKvAttentionOp, DeviceType::Metal, TensorDataType::FP16, void> ) );
+        EXPECT_TRUE( ( OperationSupported<OperationType::SharedKvAttentionOp, DeviceType::Metal, TensorDataType::BF16, void> ) );
+        EXPECT_FALSE( ( OperationSupported<OperationType::SharedKvAttentionOp, DeviceType::Metal, TensorDataType::FP32, void> ) );
     }
 }

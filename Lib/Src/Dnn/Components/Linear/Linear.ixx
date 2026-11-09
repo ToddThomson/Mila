@@ -198,7 +198,7 @@ namespace Mila::Dnn
          *
          * @throws std::invalid_argument for more than 8 rows, or an input feature mismatch.
          */
-        TensorType& decode( const TensorType& input ) requires ( TDeviceType == DeviceType::Cuda )
+        TensorType& decode( const TensorType& input ) requires ( TDeviceType == DeviceType::Cuda || TDeviceType == DeviceType::Metal )
         {
             if ( !this->isBuilt() )
             {

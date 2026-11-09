@@ -62,7 +62,7 @@ namespace Mila::Dnn
         }
 
         /// forward() at decode's arithmetic, for each of up to 8 rows of a multi-token decode (Gemma4Mtp.md 4.7).
-        TensorType& decodeTokens( const TensorType& residual ) requires ( TDeviceType == DeviceType::Cuda )
+        TensorType& decodeTokens( const TensorType& residual ) requires ( TDeviceType == DeviceType::Cuda || TDeviceType == DeviceType::Metal )
         {
             auto& input = pre_norm_->forward( residual );
             auto& dense = mlp_->decodeTokens( input );
