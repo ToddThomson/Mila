@@ -10,6 +10,12 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## A TensorOp matrix product scoped to one SIMD-group gave wrong values past 128 channels on the M1 Pro, with no error
+
+`Lib/Src/Dnn/Compute/Devices/Metal/Operations/Attention/GQA/Kernels/GroupedQueryAttention.Flash.metal` @ 0.21.0-dev+128
+
+Found building the fused prefill, 2026-11-08 (`Specifications/Metal/MetalBackend.md` 4.5): `matmul2d` at `execution_simdgroup`, Q x K^T with K = 256 or 512 and P x V with N = 256 or 512 in the same kernel, FP16 and BF16, returned outputs 0.7 to 1.3 relative error from the reference, nothing reported; at 128 they matched. Summing over 128-channel slices fixed every geometry. Not isolated: which product, K or N, or whether wider scopes (`execution_simdgroups<N>`, which `gqa_value_tiles` uses at N = 16) have the same edge. Apple's MSL specification and `MPPTensorOpsMatMul2d.h` (macOS 27.2 SDK) state no such limit. Untested elsewhere than the M1 Pro.
+
 ## Metal's one-row quantized products read their weights at about 117 GB/s of the M1 Pro's 200
 
 `Lib/Src/Dnn/Compute/Devices/Metal/Operations/Linear/Kernels/LinearQuantized.metal` (`linear_quantized_lanes`, `linear_codebook_lanes`) @ 0.21.0-dev+127
@@ -81,6 +87,8 @@ CUDA's `CudaLinearOp` and `CudaTokenEmbeddingOp` quantize BF16 weights to Q4_0 a
 `Lib/Tests/Dnn/Models/LlaMa/LlamaModel.HuggingFaceReference.Metal.cpp` (`Fp8`, `Fp8QuantizedAtLoad`, `Fp8Cache`, fail); `Specifications/Notebooks/MetalQuantizedWeights.md` 2.3 @ 0.21.0-dev+123
 
 The gate holds Metal to "no further from HuggingFace FP32 than CUDA's run of the same weights". Both carry the format's same rounding, so it compares two draws of each engine's small difference: FP8 and the FP8 cache miss on one number each by 1% to 15%, with every argmax and greedy token HuggingFace's, and FP4 passes. Holding Metal to CUDA's run directly fails on FP4, where CUDA's prefill rounds activations to FP8 (`kUseFp8ActivationPrefill`, inferred cause of Metal scoring the sequence 0.012 better). Decided (Todd, 2026-11-06): HuggingFace FP32 on each format's weights decoded to full precision is the reference, with Phase 4's bars (`Metal/MetalBackend.md` section 10). Gemma 4 12B is gated that way first (`Notebooks/MetalGemma.md` 1.1); Llama's FP8 and FP4 tests are not yet moved to it, so they still fail as above. The 8B's FP32 run needs the layer-streamed driver Gemma's capture uses.
+
+The `Fp8Cache` likelihood difference against the bar of 0.0009, Llama 3.2 3B on the M1 Pro: 0.0010 in FP16 at `+126`; at `+128` unfused 0.0019 FP16 and 0.0025 BF16 (with BF16's logits at 0.0558 against 0.0530); with the fused prefill as tuned and committed (2026-11-08, `Metal/MetalBackend.md` 4.5) 0.0028 FP16 and 0.0015 BF16, BF16's logits 0.0563. Every argmax unchanged. The FP8 weight tests moved under 1% with the fused prefill. The BF16 `SequenceLogLikelihoodAndRanges` miss of `+128` passes with it.
 
 ## CUDA's quantize at load writes codes for weights that are not finite, where Metal's refuses the tensor
 

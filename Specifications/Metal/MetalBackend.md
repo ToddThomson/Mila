@@ -238,6 +238,74 @@ each kernel's GPU time; the command buffer's own GPU time converts ticks to seco
 profiling only; a no-op on CUDA, whose kernels Nsight Systems times one by one. The library being the authority on its
 own statistics is Todd's leaning (`Issues/Vnext.md`); this is the first piece of it.
 
+### 4.5 Fused prefill attention
+
+**Agreed (Todd, 2026-11-08), on backend parity (section 10).** Prefill attention on Metal is one fused kernel a layer, as
+CUDA's flash prefill is (`GqaFlashAttention.md`), over every cache CUDA's covers: the whole cache, the sliding window's
+ring and the FP8 cache, at head sizes 128, 256 and 512, in FP16 and BF16. The unfused pipeline of Phase 3 -- Q x K^T
+through the Linear product, a causal softmax over the scores, attention x V -- stays built as the reference the fused
+kernel is tested against, and runs only where the op is told not to fuse.
+
+**Why it is a memory change first.** The unfused pipeline keeps two score buffers in the stack's workspace, each a chunk's
+query rows by the whole context by every query head. Arithmetic, not measured: on Gemma 4 12B's global layers, 1024 rows
+by a 57,344 context by 16 heads in FP16 is 1.9 GB a buffer, 3.8 GB of the M1 Pro's 11.8 GB working set. Fused, the
+transformer asks the op, the score width is zero, and the planner prices no score buffer (`makeGqaWorkspace`), so the
+same Mac plans a longer context or a longer prefill chunk. Speed follows where the scores' traffic was the cost: after
+16,384 held tokens on Llama 3.1 8B, the softmax pass alone is 0.94 s of a 4.9 s prompt (`Notebooks/MetalRates.md` 5).
+
+**The kernel** (`Attention/GQA/Kernels/GroupedQueryAttention.Flash.metal`):
+
+- Q is read in the projection's layout `[B, tokens, NH * HS]` and the output written in it, so neither permute runs.
+- A threadgroup owns one KV head and a block of query rows, its query-head group packed into the rows position-major (row
+  `f` is position `f / G`, head `f % G`), as CUDA's packed kernel (`GqaFlashAttention.md` 5.7): one K and V tile in
+  threadgroup memory serves every head of the group.
+- Q x K^T and P x V run on 8 x 8 SIMD-group matrices, operands in the compute type, accumulation in FP32; the softmax is
+  online in FP32 (FlashAttention-2, Dao, arXiv 2307.08691), in base 2 with the scale carrying log2(e), as MLX's
+  `steel_attention.h` (`ml-explore/mlx` v0.32.4) does. P is rounded to the compute type for P x V.
+- A key's position is its cache row's: the row for the whole cache, the latest position mapping to it for the ring (the
+  rule `gqa_prefill_softmax` uses), and a row of the FP8 cache is widened with its scale as its tile loads.
+- Tile sizes start from MLX's M1 choices (32 query rows; keys 32 below head size 128 and 16 at and above it) and are
+  timed against neighbours before they are fixed.
+
+**As built (2026-11-08).** The products are TensorOps scoped to one SIMD-group, as the Metal Shading Language
+recommends over SIMD-group matrices, whose layout across lanes it leaves unspecified: the scores are a cooperative
+tensor, masked through `get_multidimensional_index`, reduced by `reduce_rows`, and P reaches P x V through threadgroup
+memory. **No product is wider than 128 channels.** Measured on the M1 Pro: Q x K^T and P x V as one
+TensorOp over a head of 256 or 512 returned wrong values with no error (relative error 0.7 to 1.3 in FP16), where 128
+matched the reference; with Q x K^T summed over 128-channel slices and P x V written 128 columns at a time, every
+geometry passes. Which of the two products, and which dimension, breaks was not isolated, and Apple's documentation
+states no such limit (`Issues/Untriaged.md`). At head size 512 the kernel is given at most 384 threads a threadgroup, so
+Gemma's group of 16 query heads is split over threadgroups, halved until it fits what the device reports. The cache is
+cleared when built and holds at least one tile of rows, since a tile reads whole rows and some are not yet written; an
+FP8 cache expands a KV head's K and V side by side in the context's scratch, twice what the unfused pipeline expanded. A
+tile is left unmasked only when every row attends it whole. In a ring of a window and a chunk less one, those conditions
+already make each of its rows hold its own position, so the kernel's "not yet wrapped" condition is redundant, and a forced
+failure that removes it is caught by no test: the one equivalent mutant of 17.
+
+**Measured, first build (`Notebooks/MetalRates.md` 6).** The memory goal is met: a 16 GB Mac plans Gemma 4 12B at its
+trained maximum of 262,144 where it planned 57,344, and Llama 3.1 8B at 49,152 where it planned 24,576. The speed is not:
+on Llama 3.1 8B after 4,096 held tokens the fused kernel takes 1.7 times the unfused pipeline's attention time, 127 tokens
+a second against 158. Put to Todd, 2026-11-08: keep it on and tune it (Todd, "Go ahead with A").
+
+**Tuned (`Notebooks/MetalRates.md` 6.1).** A SIMD-group takes 16 query rows (8 at head size 512) and 64 cache rows a tile,
+a threadgroup at most 8 SIMD-groups. A tile every row attends whole is not masked; the ring's mapping runs only once it
+has wrapped; the row maximum is taken before scaling, so the scale joins the exponent; the output is rescaled only when a
+row's maximum moved. Measured and not kept: P in registers (the conversion keeps FP32, and FP32 x FP16 products were
+slower), K and V shared through threadgroup memory (the tile that fits is too small), and 32 query rows a SIMD-group. From an
+empty cache the fused prefill is 13 to 16% faster than the unfused pipeline; after a held prompt on Llama 3.1 8B it is 7%
+slower at 4,096 and 15% at 16,384, one run each.
+
+**What MLX measured that this may meet.** MLX v0.32.4 does not fuse every head size on a chip without its neural
+accelerators (`scaled_dot_product_attention.cpp`, `use_fallback`): head size 256 goes unfused after a held prompt, and
+512 runs blocked and unfused, scores in blocks of 256 rows. If the fused kernel is slower than Phase 3's pipeline at a
+head size on the M1, the numbers go to Todd before anything else is decided; the unfused pipeline is not kept on quietly.
+
+**Gate.** Parity with the unfused pipeline, the invariant of `GqaFlashAttention.md` section 6, at Llama's geometry (128,
+four query heads to a KV head), Gemma's sliding (256, two, window 1024) and global (512, sixteen) and Qwen 3.8's full
+attention (256, six), in FP16 and BF16, uncompressed and FP8, at 0, 4096 and 16,384 held tokens, each test failing when
+the kernel is broken on purpose; then the HuggingFace gates on Metal of Llama 3.2 3B, Gemma 4 12B Q4_0 and Qwen 3.8's four
+layers; then prefill at the depths of `MetalRates.md` 5, and the context a 16 GB Mac plans, before and after.
+
 ## 5. Memory
 
 **Storage mode:** shared. The allocator returns the buffer's `contents` as the pointer a tensor holds, and the scaffold's
@@ -368,7 +436,7 @@ In order: Linear, TokenEmbedding, RmsNorm, Rope, Swiglu, Residual, grouped-query
 NextTokenLogProbability. BF16 weights first, quantized in Phase 5. BF16 kernels are tested here through the emulation layer:
 that shows correctness, and says nothing about the speed of native BF16.
 
-**Agreed for this phase (Todd, 2026-11-05).** Weights reach a test as a BF16 blob through `loadParameter`, in both precisions, since that is what a model hands them. Attention's decode is one own kernel, which reads the position from memory; its prefill is TensorOps, a softmax kernel, then TensorOps, and a fused prefill follows only on a Phase 4 measurement. TensorOps writes FP16, not FP32. Rows and outputs off a multiple of the tile go through the own kernel, and M = 2 to 7 is timed against padding. Metal operations declare no `backward`. Left to later phases: `Llama.ixx`'s load synchronization (Phase 4) and `Linear::decode` over several rows (Phase 6). The scratch buffer, planned for Phase 5, came with padding after this phase (Todd, 2026-11-05).
+**Agreed for this phase (Todd, 2026-11-05).** Weights reach a test as a BF16 blob through `loadParameter`, in both precisions, since that is what a model hands them. Attention's decode is one own kernel, which reads the position from memory; its prefill is TensorOps, a softmax kernel, then TensorOps. Phase 4 measured prefill only at 512 tokens, so the measurement a fused prefill waited on never came; it is now decided on parity with CUDA (Todd, 2026-11-08, section 10). TensorOps writes FP16, not FP32. Rows and outputs off a multiple of the tile go through the own kernel, and M = 2 to 7 is timed against padding. Metal operations declare no `backward`. Left to later phases: `Llama.ixx`'s load synchronization (Phase 4) and `Linear::decode` over several rows (Phase 6). The scratch buffer, planned for Phase 5, came with padding after this phase (Todd, 2026-11-05).
 
 **Tests:** each against a double-precision reference in both precisions, with the decode rule (`CLAUDE.md`) held by a test that
 sets the position first. **Notebook:** `Notebooks/MetalLlamaOperations.md`.
@@ -473,4 +541,5 @@ development Mac and neither can reach a user's.
 | Pad 2 to 7 rows before Phase 4, with the scratch buffer here and not in Phase 5, and the rows that pad a tile zero. Attention pads only if its timing earns it (section 4.2) | Todd, 2026-11-05 |
 | Phase 4's library changes: `DeviceTypeTraits` says whether a device trains, every network's load synchronizes on every device, and the weight dispatch builds a format where `OperationSupported` says its Linear exists (`Notebooks/MetalFirstModel.md` section 3) | Todd, 2026-11-05 |
 | Attention's decode in two passes on MLX's path, 32 blocks fixed, the partials in the context's scratch (section 4.4, `Notebooks/MetalDecodeAttention.md`) | Todd, 2026-11-05 |
+| Backend parity: what CUDA runs fused or replayed, Metal does too, with no measurement asked to earn it. First, prefill attention fused, over the whole cache, the sliding-window ring and the FP8 cache, as CUDA's flash prefill is (section 4.5); its rates before the change at 0, 4096 and 16384 held tokens are in `Notebooks/MetalRates.md` | Todd, 2026-11-08 |
 | Phase 5's model runs are Llama's (3.2 3B FP8 and FP4, 3.1 8B FP4); Gemma's and Qwen's formats are operations here and model runs in Phase 6. The FP8 cache dispatch asks `OperationSupported` (section 9, Phase 5) | Todd, 2026-11-05 |

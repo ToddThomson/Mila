@@ -80,7 +80,8 @@ namespace Mila::Tests::Dnn::Components
             std::vector<double> values;
             std::uint32_t seed{ 71 };
 
-            explicit Stack( const Geometry& geometry )
+            /// `fused` prefills through the fused kernel, with a workspace that holds no score buffers, as a transformer sizes it then.
+            explicit Stack( const Geometry& geometry, bool fused = false )
                 : shape( geometry ),
                   attention( "attention",
                       GqaConfig( geometry.heads * geometry.head_size, geometry.heads, geometry.kv_heads ).withWindow( geometry.window ),
@@ -93,10 +94,11 @@ namespace Mila::Tests::Dnn::Components
                 attention.build( BuildContext( shape_t{ geometry.batches, geometry.context, packed }, RuntimeMode::Inference, false )
                     .withPrefillSize( geometry.chunk ) );
 
-                workspace = makeGqaWorkspace<DeviceType::Metal, TPrecision>(
-                    Device::Metal( 0 ), geometry.batches, geometry.heads, geometry.head_size, geometry.context, geometry.chunk, geometry.context, "workspace." );
+                workspace = makeGqaWorkspace<DeviceType::Metal, TPrecision>( Device::Metal( 0 ), geometry.batches, geometry.heads,
+                    geometry.head_size, geometry.context, geometry.chunk, fused ? dim_t{ 0 } : geometry.context, "workspace." );
 
                 attention.setState( workspace.state() );
+                attention.setUseFlashPrefill( fused );
             }
 
             [[nodiscard]] double scale() const
@@ -233,9 +235,9 @@ namespace Mila::Tests::Dnn::Components
         };
 
         template<TensorDataType TPrecision, typename TKvPolicy = NoKvCompression>
-        void expectChunksThenDecodes( const Geometry& geometry, dim_t chunks, dim_t decodes )
+        void expectChunksThenDecodes( const Geometry& geometry, dim_t chunks, dim_t decodes, bool fused = false )
         {
-            Stack<TPrecision, TKvPolicy> stack( geometry );
+            Stack<TPrecision, TKvPolicy> stack( geometry, fused );
 
             dim_t position = 0;
 
@@ -548,7 +550,8 @@ namespace Mila::Tests::Dnn::Components
             .withPrefillSize( geometry.chunk )
             .withAllocationGranularity( allocationGranularity( Device::Metal( 0 ) ) );
 
-        const std::size_t expanded = static_cast<std::size_t>( geometry.context * geometry.head_size ) * 2;
+        // One KV head's K and V side by side, as the fused prefill expands them; the unfused pipeline uses the first half.
+        const std::size_t expanded = 2 * static_cast<std::size_t>( geometry.context * geometry.head_size ) * 2;
 
         EXPECT_EQ( stack.attention.getMemoryStats().device_scratch_bytes, occupiedDeviceBytes( expanded, allocationGranularity( Device::Metal( 0 ) ) ) );
         EXPECT_EQ( stack.attention.getMemoryStats().device_scratch_bytes, stack.attention.getRequiredMemory( context ).device_scratch_bytes );
@@ -654,6 +657,154 @@ namespace Mila::Tests::Dnn::Components
         // component's own outputs are the same either way. Both caches are under the size that rounds to the granularity.
         EXPECT_EQ( state, ring.attention.getRequiredMemory( context ).device_state_bytes );
         EXPECT_EQ( uncompressed.attention.getMemoryStats().device_state_bytes - state, std::size_t{ 2 * 2 * ( 1024 - 191 ) * 128 * 2 } );
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // The fused prefill (MetalBackend.md section 4.5), held to the same reference and bars as the unfused pipeline, at the geometries
+    // of the models and through every cache. Its decodes run the same kernels as an unfused stack's, after a fused prefill wrote the cache.
+    // -----------------------------------------------------------------------------------------------------------------
+
+    template<typename TPrecisionConstant>
+    class GqaMetalFused : public ::testing::Test
+    {
+    };
+
+    TYPED_TEST_SUITE( GqaMetalFused, Precisions, PrecisionNames );
+
+    TYPED_TEST( GqaMetalFused, LlamasGeometries )
+    {
+        // Four query heads to a KV head (3.1 8B), and three (3.2 3B), at a head of 128.
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .heads = 8, .kv_heads = 2, .head_size = 128, .context = 512, .chunk = 64 }, 4, 2, true );
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .heads = 6, .kv_heads = 2, .head_size = 128, .context = 512, .chunk = 64 }, 4, 2, true );
+    }
+
+    TYPED_TEST( GqaMetalFused, QwensFullAttention )
+    {
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .heads = 6, .kv_heads = 1, .head_size = 256, .context = 256, .chunk = 64 }, 3, 2, true );
+    }
+
+    TYPED_TEST( GqaMetalFused, GemmasGlobalLayers )
+    {
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .heads = 16, .kv_heads = 1, .head_size = 512, .context = 256, .chunk = 64 }, 3, 2, true );
+    }
+
+    TYPED_TEST( GqaMetalFused, GemmasSlidingLayersOnTheRing )
+    {
+        // Rings of 103 and 71 rows, each wrapped several times over the chunks.
+        expectChunksThenDecodes<TypeParam::value, SlidingWindowKvCache>(
+            Geometry{ .heads = 4, .kv_heads = 2, .head_size = 256, .context = 384, .chunk = 64, .window = 40 }, 5, 4, true );
+        expectChunksThenDecodes<TypeParam::value, SlidingWindowKvCache>(
+            Geometry{ .heads = 4, .kv_heads = 2, .head_size = 128, .context = 384, .chunk = 32, .window = 40 }, 9, 4, true );
+    }
+
+    TYPED_TEST( GqaMetalFused, AWrappedRingWhoseWindowHoldsWholeTiles )
+    {
+        // A window of 100 in a ring of 131 rows: once wrapped, some tiles sit inside every row's window and before every row's
+        // position by row number, yet hold positions after them; only the ring's own mapping tells them apart.
+        expectChunksThenDecodes<TypeParam::value, SlidingWindowKvCache>(
+            Geometry{ .heads = 4, .kv_heads = 2, .head_size = 128, .context = 512, .chunk = 32, .window = 100 }, 12, 4, true );
+        expectChunksThenDecodes<TypeParam::value, SlidingWindowKvCache>(
+            Geometry{ .heads = 4, .kv_heads = 2, .head_size = 256, .context = 512, .chunk = 64, .window = 200 }, 7, 4, true );
+    }
+
+    TYPED_TEST( GqaMetalFused, AWindowOverTheWholeCache )
+    {
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .heads = 8, .kv_heads = 2, .head_size = 128, .context = 256, .chunk = 32, .window = 37 }, 5, 3, true );
+    }
+
+    TYPED_TEST( GqaMetalFused, ChunksOffTheTilesAndShorterThanOne )
+    {
+        // 67 positions leave a part block of rows; chunks of 5, 3 and 1 attend fewer keys than a tile reads.
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .heads = 8, .kv_heads = 2, .head_size = 128, .context = 256, .chunk = 67 }, 2, 1, true );
+
+        constexpr TensorDataType kPrecision = TypeParam::value;
+
+        Stack<kPrecision> stack( Geometry{ .heads = 8, .kv_heads = 2, .head_size = 128, .context = 128, .chunk = 16 }, true );
+
+        EXPECT_LE( stack.errorOfStep( 5, 0, false ), kAttentionBar<kPrecision> );
+        EXPECT_LE( stack.errorOfStep( 3, 5, false ), kAttentionBar<kPrecision> );
+        EXPECT_LE( stack.errorOfStep( 1, 8, false ), kAttentionBar<kPrecision> );
+        EXPECT_LE( stack.errorOfStep( 16, 9, false ), kAttentionBar<kPrecision> );
+        EXPECT_LE( stack.errorOfStep( 1, 25, true ), kAttentionBar<kPrecision> );
+    }
+
+    TYPED_TEST( GqaMetalFused, MoreThanOneBatch )
+    {
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .batches = 2, .heads = 8, .kv_heads = 2, .head_size = 128, .context = 128, .chunk = 32 }, 2, 2, true );
+    }
+
+    TYPED_TEST( GqaMetalFused, APartBlockOfRowsWritesOnlyItsOwnBatch )
+    {
+        // Five positions leave eleven rows of a 16-row block empty; written, they would land on the next batch's first rows.
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .batches = 3, .heads = 8, .kv_heads = 2, .head_size = 128, .context = 64, .chunk = 5 }, 8, 1, true );
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .batches = 3, .heads = 16, .kv_heads = 1, .head_size = 512, .context = 64, .chunk = 5 }, 4, 1, true );
+    }
+
+    TYPED_TEST( GqaMetalFused, AHeldPromptOfFifteenHundredPositions )
+    {
+        // Three chunks of 512 after a first: the last attends 2048 keys, 64 tiles.
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .heads = 8, .kv_heads = 2, .head_size = 128, .context = 2112, .chunk = 512 }, 4, 1, true );
+    }
+
+    TYPED_TEST( GqaMetalFused, AnFp8Cache )
+    {
+        expectChunksThenDecodes<TypeParam::value, PerTokenKvFp8<>>(
+            Geometry{ .heads = 8, .kv_heads = 2, .head_size = 128, .context = 256, .chunk = 64 }, 3, 2, true );
+        expectChunksThenDecodes<TypeParam::value, PerTokenKvFp8<>>(
+            Geometry{ .batches = 2, .heads = 16, .kv_heads = 1, .head_size = 512, .context = 128, .chunk = 32 }, 3, 2, true );
+    }
+
+    TYPED_TEST( GqaMetalFused, ALaterChunkOverwritesAnEarlierOneFromTheSameOffset )
+    {
+        constexpr TensorDataType kPrecision = TypeParam::value;
+
+        Stack<kPrecision> stack( Geometry{ .heads = 8, .kv_heads = 2, .head_size = 128, .context = 128, .chunk = 32 }, true );
+
+        EXPECT_LE( stack.errorOfStep( 32, 0, false ), kAttentionBar<kPrecision> );
+        EXPECT_LE( stack.errorOfStep( 32, 32, false ), kAttentionBar<kPrecision> );
+        EXPECT_LE( stack.errorOfStep( 32, 0, false ), kAttentionBar<kPrecision> );
+        EXPECT_LE( stack.errorOfStep( 1, 32, true ), kAttentionBar<kPrecision> );
+    }
+
+    TYPED_TEST( GqaMetalFused, RefusesWhatItDoesNotServe )
+    {
+        constexpr TensorDataType kPrecision = TypeParam::value;
+        using TensorType = Tensor<kPrecision, MetalMemoryResource>;
+
+        EXPECT_TRUE( ( GroupedQueryAttention<DeviceType::Metal, kPrecision>::supportsFlashPrefill( 128 ) ) );
+        EXPECT_TRUE( ( GroupedQueryAttention<DeviceType::Metal, kPrecision>::supportsFlashPrefill( 512 ) ) );
+        EXPECT_FALSE( ( GroupedQueryAttention<DeviceType::Metal, kPrecision>::supportsFlashPrefill( 64 ) ) );
+
+        // A head the kernel has no instance for, and an unfused prefill with no score buffers.
+        Stack<kPrecision> small_head( Geometry{}, true );
+        Stack<kPrecision> unsized( Geometry{ .heads = 8, .kv_heads = 2, .head_size = 128, .context = 64, .chunk = 16 }, true );
+
+        unsized.attention.setUseFlashPrefill( false );
+
+        TensorType q( Device::Metal( 0 ), shape_t{ 1, 4, 64 } );
+        TensorType k( Device::Metal( 0 ), shape_t{ 1, 4, 32 } );
+        TensorType v( Device::Metal( 0 ), shape_t{ 1, 4, 32 } );
+
+        TensorType wide_q( Device::Metal( 0 ), shape_t{ 1, 4, 8 * 128 } );
+        TensorType wide_k( Device::Metal( 0 ), shape_t{ 1, 4, 2 * 128 } );
+        TensorType wide_v( Device::Metal( 0 ), shape_t{ 1, 4, 2 * 128 } );
+
+        EXPECT_THROW( small_head.attention.prefill( q, k, v, 0 ), std::logic_error );
+        EXPECT_THROW( unsized.attention.prefill( wide_q, wide_k, wide_v, 0 ), std::logic_error );
+    }
+
+    TYPED_TEST( GqaMetalFused, AContextShorterThanATile )
+    {
+        // A tile reads 64 rows; contexts of 16 and 32, each head size, the cache built a tile long and only the context's rows written.
+        for ( const dim_t head_size : { dim_t{ 128 }, dim_t{ 256 }, dim_t{ 512 } } )
+        {
+            SCOPED_TRACE( std::format( "head of {}", head_size ) );
+            expectChunksThenDecodes<TypeParam::value>( Geometry{ .heads = 4, .kv_heads = 2, .head_size = head_size, .context = 16, .chunk = 8 }, 2, 0, true );
+            expectChunksThenDecodes<TypeParam::value>( Geometry{ .heads = 4, .kv_heads = 2, .head_size = head_size, .context = 32, .chunk = 16 }, 1, 16, true );
+        }
+
+        expectChunksThenDecodes<TypeParam::value, SlidingWindowKvCache>(
+            Geometry{ .heads = 4, .kv_heads = 2, .head_size = 256, .context = 32, .chunk = 8, .window = 12 }, 3, 8, true );
     }
 
     TEST( GqaMetalRingRows, TheRingExistsAtFp16AndBf16Only )

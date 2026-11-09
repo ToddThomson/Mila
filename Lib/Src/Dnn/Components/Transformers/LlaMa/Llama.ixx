@@ -505,17 +505,16 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Whether prefill attention runs the fused FlashAttention kernel: every BF16 build whose head size
-         *        the kernel serves.
+         * @brief Whether prefill attention runs the fused FlashAttention kernel: every build whose attention operation
+         *        has one at its head size, which the operation answers for its device and precision.
          *
-         * No context threshold: the kernel is 5.9x to 9.1x faster than the cuBLASLt pipeline at Llama's
-         * geometries from a 512-token prompt up (GqaFlashAttention.md 5.7). FP32 has no flash kernel, and the
-         * 3.2 1B's head size of 64 is not one it serves.
+         * No context threshold: on CUDA the kernel is 5.9x to 9.1x faster than the cuBLASLt pipeline at Llama's
+         * geometries from a 512-token prompt up (GqaFlashAttention.md 5.7); CUDA has none in FP32, and none serves
+         * the 3.2 1B's head size of 64. Metal fuses on parity (MetalBackend.md 4.5).
          */
         bool usesFlashPrefill() const
         {
-            return TPrecision == TensorDataType::BF16
-                && TransformerBlockType::AttentionType::supportsFlashPrefill( config_.getModelDim() / config_.getNumHeads() );
+            return TransformerBlockType::AttentionType::supportsFlashPrefill( config_.getModelDim() / config_.getNumHeads() );
         }
 
         /**

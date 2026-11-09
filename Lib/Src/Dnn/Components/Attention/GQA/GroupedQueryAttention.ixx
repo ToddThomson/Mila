@@ -352,16 +352,15 @@ namespace Mila::Dnn
         /**
          * @brief Route the BF16 prefill through the fused FlashAttention kernel.
          *
-         * Only the CUDA BF16 ops honor this -- the unbounded/global kernel and the bounded
-         * sliding-window ring variant; other backends and FP32 ignore it. The transformer
-         * couples this to the shared preatt/att workspace width (flash on -> the
-         * O(chunk x T_ctx) score buffer is reclaimed), so it must be set consistently with
-         * that sizing -- a narrow workspace with flash off would overflow.
-         * See GqaFlashAttention.md 5.6.
+         * CUDA's BF16 operations and Metal's honor this, over the whole cache and the sliding
+         * window's ring; CUDA's FP32 ignores it. The transformer couples this to the shared
+         * preatt/att workspace width (flash on -> the O(chunk x T_ctx) score buffer is
+         * reclaimed), so it must be set consistently with that sizing -- a narrow workspace
+         * with flash off would overflow. See GqaFlashAttention.md 5.6, MetalBackend.md 4.5.
          */
         void setUseFlashPrefill( bool enabled )
         {
-            if constexpr ( TDeviceType == DeviceType::Cuda )
+            if constexpr ( TDeviceType == DeviceType::Cuda || TDeviceType == DeviceType::Metal )
                 operation_->setUseFlashPrefill( enabled );
         }
 
@@ -372,7 +371,7 @@ namespace Mila::Dnn
          */
         static bool supportsFlashPrefill( dim_t head_size )
         {
-            if constexpr ( TDeviceType == DeviceType::Cuda )
+            if constexpr ( TDeviceType == DeviceType::Cuda || TDeviceType == DeviceType::Metal )
                 return OpType::supportsFlashPrefill( head_size );
             else
                 return false;

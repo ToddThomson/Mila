@@ -1159,26 +1159,25 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Whether the global layers prefill through the unbounded flash kernel: every BF16 build whose global
-         *        head size it serves.
+         * @brief Whether the global layers prefill through the unbounded flash kernel: every build whose attention
+         *        operation has one at the global head size, which the operation answers for its device and precision.
          *
-         * No context threshold: the kernel is 1.4x to 3.7x faster than the cuBLASLt pipeline at the global layers'
-         * geometry from a 512-token prompt up (GqaFlashAttention.md 5.7). FP32 has no flash kernel.
+         * No context threshold: on CUDA the kernel is 1.4x to 3.7x faster than the cuBLASLt pipeline at the global
+         * layers' geometry from a 512-token prompt up (GqaFlashAttention.md 5.7), and has none in FP32. Metal fuses on
+         * parity (MetalBackend.md 4.5).
          */
         bool usesFlashPrefillOnGlobalLayers() const
         {
-            return TPrecision == TensorDataType::BF16
-                && GlobalBlockType::AttentionType::supportsFlashPrefill( config_.getGlobalHeadDim() );
+            return GlobalBlockType::AttentionType::supportsFlashPrefill( config_.getGlobalHeadDim() );
         }
 
         /**
-         * @brief Whether the sliding layers prefill through the bounded-ring flash kernel, 2.0x to 3.5x faster than
-         *        their cuBLASLt pipeline: every BF16 build whose sliding head size it serves.
+         * @brief Whether the sliding layers prefill through the bounded-ring flash kernel, on CUDA 2.0x to 3.5x faster
+         *        than their cuBLASLt pipeline: every build whose attention operation has one at the sliding head size.
          */
         bool usesFlashPrefillOnLocalLayers() const
         {
-            return TPrecision == TensorDataType::BF16
-                && LocalBlockType::AttentionType::supportsFlashPrefill( config_.getHeadDim() );
+            return LocalBlockType::AttentionType::supportsFlashPrefill( config_.getHeadDim() );
         }
 
         /**

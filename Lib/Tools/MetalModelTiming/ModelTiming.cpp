@@ -1,6 +1,7 @@
 /**
  * @file ModelTiming.cpp
- * @brief Llama or Gemma on Metal through the family's `load` and `generate`, timed at llama-bench's shapes in FP16 and BF16, with memory.
+ * @brief Llama or Gemma on Metal through the family's `load` and `generate`, timed at llama-bench's shapes in FP16 and BF16, with memory;
+ * `--prefill-depths` times a prompt added after a held one, as `-p 512 -d N`.
  *
  * Phase 4's measures, in the weights' own stored format; the method is in Specifications/Notebooks/MetalFirstModel.md section 4.
  */
@@ -68,6 +69,13 @@ namespace
 
         // Each dispatch timed by the GPU and printed by kernel; the rates it gives are not the model's.
         bool profile_dispatches{ false };
+
+        // When set, each load times a prompt of `prefill_tokens` added after a held prompt of each depth, llama-bench's
+        // `-p 512 -d N`, in place of the decode shapes.
+        std::vector<dim_t> prefill_depths;
+
+        // Shows the library's information lines, among them each prompt's prefix reuse.
+        bool log_info{ false };
     };
 
     // Set once from the command line; read by every generate call.
@@ -170,6 +178,10 @@ namespace
         std::vector<double> decode;
         std::vector<double> decode_at_depth;
         std::vector<double> load_seconds;
+
+        // By held depth: the held prompt's own prefill, and the prompt added after it.
+        std::map<dim_t, std::vector<double>> fill;
+        std::map<dim_t, std::vector<double>> extend;
     };
 
     struct Spread
@@ -193,7 +205,7 @@ namespace
         return { median, values.front(), values.back() };
     }
 
-    GenerateParams generateParams( int max_new_tokens )
+    GenerateParams generateParams( int max_new_tokens, bool reuse_kv_prefix = false )
     {
         GenerateParams params;
         params.max_new_tokens = max_new_tokens;
@@ -201,8 +213,9 @@ namespace
         params.sampling.top_k = sampling_options.top_k;
         params.sampling.top_p = sampling_options.top_p;
 
-        // Every run prefills its whole prompt, and decodes its full count past an end-of-sequence token.
-        params.reuse_kv_prefix = false;
+        // Every run prefills its whole prompt unless it extends a held one, and decodes its full count past an
+        // end-of-sequence token.
+        params.reuse_kv_prefix = reuse_kv_prefix;
         params.stop_tokens = { -1 };
 
         return params;
@@ -235,6 +248,26 @@ namespace
         return static_cast<double>( tokens - 1 ) / seconds( stamps.front(), stamps.back() );
     }
 
+    // Each kernel's GPU time divided by `per`: generated tokens for a decode, one for a prefill.
+    void printProfile( const std::vector<DispatchTime>& profile, int per, std::string_view unit, std::string_view heading )
+    {
+        double total = 0.0;
+
+        for ( const DispatchTime& time : profile )
+        {
+            total += time.gpu_seconds;
+        }
+
+        std::cout << std::format( "[ profile ] {}: {} kernels, {:.2f} ms of GPU time {}\n", heading, profile.size(), 1000.0 * total / per, unit );
+
+        for ( const DispatchTime& time : profile )
+        {
+            std::cout << std::format( "[ profile ] {:9.3f} ms {} {:5.1f}%  {:7.1f} dispatches {}  {}\n",
+                1000.0 * time.gpu_seconds / per, unit, 100.0 * time.gpu_seconds / total,
+                static_cast<double>( time.dispatches ) / per, unit, time.kernel );
+        }
+    }
+
     // One decode of `tokens` from a one-token prompt, every dispatch timed by the GPU, shown per generated token. The one prefill
     // of the prompt's single token is in it, under the prefill kernels' own names.
     template<typename TModel>
@@ -244,23 +277,49 @@ namespace
         (void)decodeRate( model, prompt, tokens );
         model.setDispatchProfiling( false );
 
-        const std::vector<DispatchTime> profile = model.dispatchProfile();
-        double total = 0.0;
+        printProfile( model.dispatchProfile(), tokens, "a token", std::format( "{}: decode over {} tokens", label, tokens ) );
+    }
 
-        for ( const DispatchTime& time : profile )
+    struct DepthRates
+    {
+        double fill{ 0.0 };
+        double extend{ 0.0 };
+    };
+
+    // Prefills `held` whole, then `held` followed by `added` with the held prefix reused, timing each to its first token.
+    // The extension's rate is llama-bench's `-p added -d held`; the fill's is what a first message of that length costs.
+    // With `profile`, only the extension is timed dispatch by dispatch.
+    template<typename TModel>
+    DepthRates depthRates( TModel& model, std::span<const std::int32_t> held, std::span<const std::int32_t> added, bool profile = false )
+    {
+        DepthRates rates;
+
+        if ( !held.empty() )
         {
-            total += time.gpu_seconds;
+            rates.fill = prefillRate( model, held );
         }
 
-        std::cout << std::format( "[ profile ] {}: {} kernels, {:.2f} ms of GPU time a token over {} tokens\n",
-            label, profile.size(), 1000.0 * total / tokens, tokens );
+        std::vector<std::int32_t> prompt( held.begin(), held.end() );
+        prompt.insert( prompt.end(), added.begin(), added.end() );
 
-        for ( const DispatchTime& time : profile )
+        if ( profile )
         {
-            std::cout << std::format( "[ profile ] {:8.3f} ms a token {:5.1f}%  {:7.1f} dispatches a token  {}\n",
-                1000.0 * time.gpu_seconds / tokens, 100.0 * time.gpu_seconds / total,
-                static_cast<double>( time.dispatches ) / tokens, time.kernel );
+            model.setDispatchProfiling( true );
         }
+
+        Clock::time_point first_token{};
+        const Clock::time_point start = Clock::now();
+
+        (void)model.generate( prompt, [&]( std::int32_t ) { first_token = Clock::now(); }, generateParams( 1, !held.empty() ) );
+
+        if ( profile )
+        {
+            model.setDispatchProfiling( false );
+        }
+
+        rates.extend = static_cast<double>( added.size() ) / seconds( start, first_token );
+
+        return rates;
     }
 
     void printMemory( std::string_view label, const DeploymentPlan& plan )
@@ -273,6 +332,43 @@ namespace
             "working set {:.3f} GiB, allocated {:.1f}% of it\n",
             label, gib( plan.footprint().totalDeviceBytes() ), gib( allocated ), gib( process.footprint ), gib( process.peak ),
             gib( reading.total_bytes ), 100.0 * static_cast<double>( allocated ) / static_cast<double>( reading.total_bytes ) );
+    }
+
+    // Each depth warmed once, then timed `runs` times; with --profile-dispatches, one profiled extension per depth instead.
+    template<typename TModel>
+    void measureDepths( TModel& model, const Options& options, Samples& samples, std::string_view label, std::span<const std::int32_t> added )
+    {
+        for ( const dim_t depth : options.prefill_depths )
+        {
+            const std::vector<std::int32_t> held = randomTokens( depth, kPromptSeed + 3 );
+
+            (void)depthRates( model, held, added );
+
+            if ( options.profile_dispatches )
+            {
+                const DepthRates rates = depthRates( model, held, added, true );
+
+                printProfile( model.dispatchProfile(), 1, "a prompt",
+                    std::format( "{}: prefill {} after {} (profiled at {:.1f} tokens/s)", label, added.size(), depth, rates.extend ) );
+
+                continue;
+            }
+
+            for ( int run = 0; run < options.runs; ++run )
+            {
+                const DepthRates rates = depthRates( model, held, added );
+
+                samples.extend[ depth ].push_back( rates.extend );
+
+                if ( depth > 0 )
+                {
+                    samples.fill[ depth ].push_back( rates.fill );
+                }
+
+                std::cout << std::format( "[ run ] {} run {}: prefill {} after {} {:.1f} tokens/s, the {} held {:.1f} tokens/s\n",
+                    label, run, added.size(), depth, rates.extend, depth, rates.fill );
+            }
+        }
     }
 
     template<Family TFamily, TensorDataType TPrecision>
@@ -294,6 +390,15 @@ namespace
         printMemory( std::format( "{} {} after load", label, precisionName( TPrecision ) ), model->getDeploymentPlan() );
 
         const std::vector<std::int32_t> prompt = randomTokens( options.prefill_tokens, kPromptSeed );
+
+        if ( !options.prefill_depths.empty() )
+        {
+            measureDepths( *model, options, samples, label, prompt );
+            printMemory( std::format( "{} {} after the runs", label, precisionName( TPrecision ) ), model->getDeploymentPlan() );
+
+            return;
+        }
+
         const std::vector<std::int32_t> one_token = randomTokens( 1, kPromptSeed + 1 );
         const std::vector<std::int32_t> deep = randomTokens( options.depth, kPromptSeed + 2 );
 
@@ -387,9 +492,24 @@ namespace
                 precisionName( precision ), shape, s.median, unit, s.lowest, s.highest, values.size() );
         };
 
-        line( std::format( "prefill {}", options.prefill_tokens ), samples.prefill, "tokens/s" );
-        line( std::format( "decode {}", options.decode_tokens ), samples.decode, "tokens/s" );
-        line( std::format( "decode {} after {}", options.decode_tokens, options.depth ), samples.decode_at_depth, "tokens/s" );
+        if ( !options.prefill_depths.empty() )
+        {
+            for ( const auto& [depth, values] : samples.extend )
+            {
+                line( std::format( "prefill {} after {}", options.prefill_tokens, depth ), values, "tokens/s" );
+            }
+
+            for ( const auto& [depth, values] : samples.fill )
+            {
+                line( std::format( "prefill {} from empty", depth ), values, "tokens/s" );
+            }
+        } else
+        {
+            line( std::format( "prefill {}", options.prefill_tokens ), samples.prefill, "tokens/s" );
+            line( std::format( "decode {}", options.decode_tokens ), samples.decode, "tokens/s" );
+            line( std::format( "decode {} after {}", options.decode_tokens, options.depth ), samples.decode_at_depth, "tokens/s" );
+        }
+
         line( "load", samples.load_seconds, "s" );
     }
 
@@ -452,6 +572,15 @@ namespace
             } else if ( arg == "--depth" )
             {
                 options.depth = std::stoll( std::string( next() ) );
+            } else if ( arg == "--prefill-depths" )
+            {
+                for ( const auto part : std::views::split( next(), ',' ) )
+                {
+                    options.prefill_depths.push_back( std::stoll( std::string( std::string_view( part ) ) ) );
+                }
+            } else if ( arg == "--log-info" )
+            {
+                options.log_info = true;
             } else if ( arg == "--no-planner" )
             {
                 options.planner = false;
@@ -478,7 +607,16 @@ namespace
         {
             throw std::invalid_argument( "usage: mila-metal-model-timing --weights <weights> [--family llama|gemma] [--context 8192] "
                 "[--rounds 3] [--runs 5] [--depth 4096] [--precision fp16|bf16] [--temperature 0] [--top-k 0] [--top-p 1] "
-                "[--profile-dispatches] [--no-planner | --planner-only]" );
+                "[--prefill-depths 0,4096,16384] [--profile-dispatches] [--log-info] [--no-planner | --planner-only]" );
+        }
+
+        for ( const dim_t depth : options.prefill_depths )
+        {
+            if ( depth < 0 || depth + options.prefill_tokens > options.context )
+            {
+                throw std::invalid_argument( std::format( "--prefill-depths: {} and the {} added do not fit a context of {}",
+                    depth, options.prefill_tokens, options.context ) );
+            }
         }
 
         return options;
@@ -550,7 +688,8 @@ int main( int argc, char** argv )
         const Options options = parse( argc, argv );
         sampling_options = options;
 
-        Mila::initialize( 0, std::make_shared<Mila::Logging::ConsoleSink>( Mila::Logging::LogLevel::Warning ) );
+        Mila::initialize( 0, std::make_shared<Mila::Logging::ConsoleSink>(
+            options.log_info ? Mila::Logging::LogLevel::Info : Mila::Logging::LogLevel::Warning ) );
 
         if ( options.family == Family::Gemma )
         {

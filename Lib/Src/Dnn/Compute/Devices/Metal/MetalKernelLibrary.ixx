@@ -32,6 +32,8 @@ namespace Mila::Dnn::Compute
             ,
 #include "GroupedQueryAttention.metal.inc"
             ,
+#include "GroupedQueryAttention.Flash.metal.inc"
+            ,
 #include "Sampling.metal.inc"
             ,
 #include "NextTokenLogProbability.metal.inc"

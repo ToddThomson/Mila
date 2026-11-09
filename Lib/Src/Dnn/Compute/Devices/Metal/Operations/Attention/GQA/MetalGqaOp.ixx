@@ -39,7 +39,9 @@ namespace Mila::Dnn::Compute::Metal::Gqa
     /**
      * @brief Attention with its own [B, NKV, capacity, HS] cache and the shared workspace of the stack it belongs to.
      *
-     * Prefill follows CUDA's non-flash pipeline: write the cache, permute Q, Q * K^T, a causal softmax, attention * V, unpermute. A decode
+     * Prefill writes the cache, then runs the fused kernel (`MetalBackend.md` section 4.5) when the transformer switches it on, or else
+     * CUDA's non-flash pipeline: permute Q, Q * K^T, a causal softmax, attention * V, unpermute. The fused prefill reads no score
+     * buffer, which is why the transformer, which sizes those, is the one that chooses. A decode
      * of one token writes the cache, then splits the keys over a fixed number of blocks and merges them, reading the position from the
      * execution context (`MetalBackend.md` section 4.4, `Notebooks/MetalDecodeAttention.md`). Several tokens in one decode are Phase 6's,
      * with the model that uses them, and are refused here.
@@ -142,6 +144,16 @@ namespace Mila::Dnn::Compute::Metal::Gqa
                     key_scales_ = std::make_unique<ScaleTensorType>( context_->getDeviceId(), scale_shape, "gqa.key_scales" );
                     value_scales_ = std::make_unique<ScaleTensorType>( context_->getDeviceId(), scale_shape, "gqa.value_scales" );
                 }
+
+                // The fused prefill reads whole tiles of rows, some not yet written, and multiplies them by zero; zero keeps them finite.
+                clear( *key_cache_ );
+                clear( *value_cache_ );
+
+                if constexpr ( kFp8Cache )
+                {
+                    clear( *key_scales_ );
+                    clear( *value_scales_ );
+                }
             }
 
             Operation<DeviceType::Metal, TPrecision>::build( context );
@@ -177,14 +189,31 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             return position >= 0 && position <= cached_length;
         }
 
+        /**
+         * @brief Prefill through the fused kernel, or the unfused pipeline its tests compare it with. Off when built.
+         *
+         * The transformer sizes the shared score buffers by the same decision (`MetalBackend.md` section 4.5), so a narrow
+         * workspace with the fused prefill off is refused at prefill.
+         */
+        void setUseFlashPrefill( bool enabled ) noexcept
+        {
+            use_flash_prefill_ = enabled;
+        }
+
+        /// Whether the fused prefill runs at `head_size`: the head sizes of the models Mila runs, in FP16 and BF16.
+        static bool supportsFlashPrefill( dim_t head_size )
+        {
+            return head_size == 128 || head_size == 256 || head_size == 512;
+        }
+
         /// @throws std::invalid_argument Past the cache. @throws std::logic_error When no cache or workspace is in place.
         void prefill( const ITensor& q, const ITensor& k, const ITensor& v, ITensor& output, dim_t position_offset ) override
         {
             requireReady();
 
-            if ( q_permute_ == nullptr || preatt_ == nullptr || att_ == nullptr || v_out_ == nullptr )
+            if ( !use_flash_prefill_ && ( q_permute_ == nullptr || preatt_ == nullptr || att_ == nullptr || v_out_ == nullptr ) )
             {
-                throw std::logic_error( "MetalGqaOp::prefill needs setState() first" );
+                throw std::logic_error( "MetalGqaOp::prefill needs setState() first, with score buffers when the fused prefill is off" );
             }
 
             const int tokens = narrowToKernelIndex( q.shape()[1] );
@@ -220,6 +249,13 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             } else {
                 encode( "gqa_write_prefill", std::array<const void*, 4>{ k.rawData(), v.rawData(), key_cache_->rawData(), value_cache_->rawData() },
                     geometry, count * kv_heads_ * head_size_ );
+            }
+
+            if ( use_flash_prefill_ )
+            {
+                flashPrefill( q, output, geometry, columns );
+
+                return;
             }
 
             encode( "gqa_permute_query", std::array<const void*, 2>{ q.rawData(), q_permute_->rawData() },
@@ -416,10 +452,14 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             std::uint32_t score_stride;
         };
 
-        /// The rows a KV head's cache holds: every position of the context, or for a ring the window and a prefill chunk less one.
+        /**
+         * The rows a KV head's cache holds: every position of the context, or for a ring the window and a prefill chunk less one; and
+         * never fewer than one tile of the fused prefill, which reads whole tiles. The rows past a short context are never written.
+         */
         [[nodiscard]] int cacheRowsFor( const BuildContext& context ) const
         {
             const int sequence_length = narrowToKernelIndex( context.inputShape()[1] );
+            const int one_tile = supportsFlashPrefill( config_.getHeadDim() ) ? flashTileFor( config_.getHeadDim() ).keys : 0;
 
             if constexpr ( kBounded )
             {
@@ -431,9 +471,9 @@ namespace Mila::Dnn::Compute::Metal::Gqa
                         "position keeps the uncompressed cache" );
                 }
 
-                return std::min( sequence_length, window + prefillChunkOf( context ) - 1 );
+                return std::max( one_tile, std::min( sequence_length, window + prefillChunkOf( context ) - 1 ) );
             } else {
-                return sequence_length;
+                return std::max( one_tile, sequence_length );
             }
         }
 
@@ -484,13 +524,14 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             return static_cast<std::size_t>( batches * heads ) * kDecodeBlocks * static_cast<std::size_t>( head_size + 2 ) * sizeof( float );
         }
 
+        // An FP8 prefill expands one KV head's K, and for the fused prefill its V beside it, into the context's scratch.
         [[nodiscard]] static std::size_t scratchBytesFor( dim_t batches, dim_t heads, dim_t head_size, dim_t capacity )
         {
             const std::size_t decode_bytes = decodeScratchBytesFor( batches, heads, head_size );
 
             if constexpr ( kFp8Cache )
             {
-                return std::max( decode_bytes, metalElementBytes<TPrecision>( capacity * head_size ) );
+                return std::max( decode_bytes, 2 * metalElementBytes<TPrecision>( capacity * head_size ) );
             } else {
                 return decode_bytes;
             }
@@ -619,8 +660,141 @@ namespace Mila::Dnn::Compute::Metal::Gqa
                 std::as_bytes( std::span( rectangle ) ), static_cast<std::size_t>( rows ) * static_cast<std::size_t>( columns ) );
         }
 
+        // The kernels' GqaFlashConstants, field for field.
+        struct FlashConstants
+        {
+            Geometry geometry;
+            std::uint32_t kv_stride;
+            std::uint32_t first_kv_head;
+            std::uint32_t positions;
+            std::uint32_t heads_per_threadgroup;
+            std::uint32_t head_splits;
+        };
+
+        struct FlashTile
+        {
+            int rows;
+            int keys;
+            int most_simdgroups;
+
+            // SIMD-groups a threadgroup is given when the query-head group is smaller, more blocks of rows reading each tile.
+            int wanted_simdgroups;
+        };
+
+        // The kernel's instance for this head size: query rows a SIMD-group takes, cache rows a tile reads, and the most SIMD-groups its
+        // threadgroup memory holds (GroupedQueryAttention.Flash.metal states the same).
+        [[nodiscard]] static FlashTile flashTileFor( dim_t head_size )
+        {
+            switch ( head_size )
+            {
+                case 128:
+                    return { 16, 64, 8, 4 };
+                case 256:
+                    return { 16, 64, 8, 4 };
+                default:
+                    return { 8, 64, 8, 4 };
+            }
+        }
+
+        template<typename TTensor>
+        void clear( TTensor& tensor ) const
+        {
+            context_->zeroBytes( tensor.rawData(), occupiedTensorBytes( tensor ) );
+        }
+
+        /// Q x K^T, the causal softmax and P x V in one kernel, from Q's own layout to the output's (`MetalBackend.md` section 4.5).
+        void flashPrefill( const ITensor& q, ITensor& output, const Geometry& geometry, int columns ) const
+        {
+            if ( !supportsFlashPrefill( head_size_ ) )
+            {
+                throw std::logic_error( std::format( "MetalGqaOp: no fused prefill serves a head of {} channels", head_size_ ) );
+            }
+
+            const FlashTile tile = flashTileFor( head_size_ );
+
+            if ( cache_rows_ < tile.keys )
+            {
+                throw std::logic_error( std::format(
+                    "MetalGqaOp: the fused prefill reads {} cache rows a tile, more than the {} this cache was built with", tile.keys, cache_rows_ ) );
+            }
+
+            const int group_size = heads_ / kv_heads_;
+
+            const std::string kernel = std::format( "gqa_flash_prefill_{}_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type, head_size_ );
+            const MetalKernelLimits limits = context_->device().kernels().limits( kernel );
+            const std::size_t most_simdgroups = std::min<std::size_t>( static_cast<std::size_t>( tile.most_simdgroups ),
+                limits.max_total_threads_per_threadgroup / limits.thread_execution_width );
+
+            // The whole group to a threadgroup where its threads fit, else halves of it, then quarters.
+            int heads_per_threadgroup = group_size;
+
+            while ( static_cast<std::size_t>( heads_per_threadgroup ) > most_simdgroups && heads_per_threadgroup % 2 == 0 )
+            {
+                heads_per_threadgroup /= 2;
+            }
+
+            if ( static_cast<std::size_t>( heads_per_threadgroup ) > most_simdgroups )
+            {
+                throw std::invalid_argument( std::format(
+                    "MetalGqaOp: the fused prefill cannot split {} query heads to a KV head into threadgroups of {} SIMD-groups, the most "
+                    "this device gives {}", group_size, most_simdgroups, kernel ) );
+            }
+
+            const int head_splits = group_size / heads_per_threadgroup;
+            const int blocks = std::max( 1, std::min( tile.wanted_simdgroups / heads_per_threadgroup,
+                static_cast<int>( most_simdgroups ) / heads_per_threadgroup ) );
+            const int positions = tile.rows * blocks;
+            const std::size_t simdgroups = static_cast<std::size_t>( heads_per_threadgroup * blocks );
+            const std::size_t position_groups = static_cast<std::size_t>( ( geometry.tokens + positions - 1 ) / positions ) * head_splits;
+
+            auto* const pipeline = context_->device().kernels().pipeline( kernel );
+
+            FlashConstants constants{ geometry, 0, 0, static_cast<std::uint32_t>( positions ),
+                static_cast<std::uint32_t>( heads_per_threadgroup ), static_cast<std::uint32_t>( head_splits ) };
+
+            if constexpr ( !kFp8Cache )
+            {
+                constants.kv_stride = static_cast<std::uint32_t>( cache_rows_ * head_size_ );
+
+                context_->dispatchThreadgroups( pipeline,
+                    std::array<const void*, 4>{ q.rawData(), key_cache_->rawData(), value_cache_->rawData(), output.rawData() },
+                    std::as_bytes( std::span( &constants, 1 ) ), position_groups, static_cast<std::size_t>( batches_ * kv_heads_ ), simdgroups );
+            } else {
+                // Every row a tile can read, written or not: unwritten ones are cleared codes with a zero scale.
+                const int rows_read = std::min( cache_rows_, std::max( columns, tile.keys ) );
+                const std::size_t half_bytes = metalElementBytes<TPrecision>( static_cast<dim_t>( cache_rows_ ) * head_size_ );
+                auto* const expanded = static_cast<std::byte*>( context_->getDeviceScratchBuffer( 2 * half_bytes ) );
+
+                for ( int kv_head_of_batch = 0; kv_head_of_batch < batches_ * kv_heads_; ++kv_head_of_batch )
+                {
+                    expandRows( key_cache_.get(), key_scales_.get(), kv_head_of_batch, rows_read, expanded, geometry );
+                    expandRows( value_cache_.get(), value_scales_.get(), kv_head_of_batch, rows_read, expanded + half_bytes, geometry );
+
+                    constants.first_kv_head = static_cast<std::uint32_t>( kv_head_of_batch );
+
+                    context_->dispatchThreadgroups( pipeline,
+                        std::array<const void*, 4>{ q.rawData(), expanded, expanded + half_bytes, output.rawData() },
+                        std::as_bytes( std::span( &constants, 1 ) ), position_groups, 1, simdgroups );
+                }
+            }
+        }
+
+        /// One KV head's first `rows` FP8 rows, widened to the compute type at `destination`.
+        void expandRows( const CacheTensorType* cache, const ScaleTensorType* scales, int kv_head_of_batch, int rows, void* destination,
+            const Geometry& geometry ) const
+        {
+            const std::size_t first_row = static_cast<std::size_t>( kv_head_of_batch ) * cache_rows_;
+            const auto* const codes = bytesOf( cache ) + storageBytes<kCacheType>( static_cast<dim_t>( first_row * head_size_ ) );
+            const auto* const row_scales = static_cast<const float*>( static_cast<const ITensor*>( scales )->rawData() ) + first_row;
+
+            encode( "gqa_expand_fp8_rows", std::array<const void*, 3>{ codes, row_scales, destination }, geometry,
+                static_cast<std::size_t>( rows ) * static_cast<std::size_t>( head_size_ ) );
+        }
+
         MetalExecutionContext* context_;
         GqaConfig config_;
+
+        bool use_flash_prefill_{ false };
 
         std::unique_ptr<CacheTensorType> key_cache_;
         std::unique_ptr<CacheTensorType> value_cache_;

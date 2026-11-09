@@ -1044,6 +1044,7 @@ if(MILA_HAS_METAL)
         "Operations/DeltaNet/Kernels/GatedDeltaRule.metal"
         "Operations/Residual/Kernels/Residual.metal"
         "Operations/Attention/GQA/Kernels/GroupedQueryAttention.metal"
+        "Operations/Attention/GQA/Kernels/GroupedQueryAttention.Flash.metal"
         "Operations/Sampling/Kernels/Sampling.metal"
         "Operations/LogLikelihood/Kernels/NextTokenLogProbability.metal"
         "Operations/Routing/Kernels/Router.metal"
