@@ -296,6 +296,13 @@ budget.
 The budget on each device is its free memory at the reading, less the requested headroom. A caller who
 wants a different trade fixes that knob.
 
+**Decided 2026-11-10 (Todd), not yet built: memory a plan has left may buy prefill speed, and never costs
+context or chunk.** Once rules 1 to 4 have fixed the context and the chunk, a second rule of the chunk's
+kind picks the prefill score rows: the largest rung, no larger than the chunk, whose whole footprint still
+fits, or none. It runs last, so no plan's context or chunk changes, and the plan records what it chose.
+Its first use is Gemma's global layers on Metal. Design and evidence:
+`Metal/MetalGlobalAttentionPrefill.md` sections 7 and 8.
+
 ---
 
 ## 6. The Plan Record

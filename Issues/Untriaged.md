@@ -10,6 +10,18 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## On a Mac under memory pressure, the first prompt timed after a held one reads up to a fifth slow, and the kernels' time does not
+
+`Lib/Tools/MetalModelTiming/ModelTiming.cpp` (`depthRates`) @ 0.21.0-dev+131
+
+Found 2026-11-10 measuring Gemma 4 12B Q4_0 beside llama.cpp (`Specifications/Notebooks/MetalRates.md` 7.1). 512 tokens after 4096 held read 133.0 tokens a second in eight readings of four loads with 0.5 GB of swap in use; with 1.1 GB in use, after a full-context planner load, the first timed reading of a load was 106.5 and 117.0 and the next three 133.0. The profiled GPU time was the same throughout, so the time is on the host, where is not known. The session of 2026-11-09 that gave 0.89 and 0.75 of llama.cpp read 140 and 106 to 110 in every reading, with 0.76 GB in use. A comparison takes several readings a cell and says how much swap was in use.
+
+## On a Mac, an FP8 KV cache is widened to FP16 in a separate pass before prefill attention, where CUDA widens it inside the tile
+
+`Lib/Src/Dnn/Compute/Devices/Metal/Operations/Attention/GQA/MetalGqaOp.ixx` (`gqa_expand_fp8_rows`) @ 0.21.0-dev+131
+
+Found 2026-11-10 while checking which cache Gemma 4 12B ran with on the Mac (it was uncompressed FP16: nothing requests FP8, `Quantization.md` KV decision 5). `Quantization.md` KV decision 2 says the flash kernels read FP8 directly with no transient 16-bit buffers, and CUDA does; Metal's fused prefill expands each KV head's K and V into FP16 in the context's scratch first (`MetalBackend.md` 4.5, "twice what the unfused pipeline expanded"). Contradicts decision 2 and backend parity (`MetalBackend.md` 4.5 decision). Metal's FP8 prefill rate is unmeasured; CUDA's FP8 prefill penalty and its fix are in `Quantization.md` *The FP8 prefill penalty*.
+
 ## A TensorOp matrix product scoped to one SIMD-group gave wrong values past 128 channels on the M1 Pro, with no error
 
 `Lib/Src/Dnn/Compute/Devices/Metal/Operations/Attention/GQA/Kernels/GroupedQueryAttention.Flash.metal` @ 0.21.0-dev+128

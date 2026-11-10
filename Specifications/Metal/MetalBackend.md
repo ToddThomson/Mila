@@ -232,7 +232,7 @@ dispatch about 3 us, so a decode step commits once.
 
 **Attention's decode is own kernels, reading the position from memory, in two passes** (`Notebooks/MetalDecodeAttention.md`, Todd, 2026-11-05). Three dispatches of a fixed grid: the cache write; a partial pass that splits the keys over 32 blocks, a threadgroup holding the query heads of one KV head so that they read its rows together, each lane a contiguous run of a head's channels, the softmax online in 32 bits; and a merge that rescales each block to the largest score of all. The shape is MLX's two-pass decode (`ml-explore/mlx`, `sdpa_vector.h`) and the split and merge Flash-Decoding's (Dao, Haziza, Massa, Sizov, 2023). The partials are FP32 in the context's scratch. The heads the models use, 64, 128, 256 and 512, have their own kernels; any other size up to 512 runs a slower one. It replaced one SIMD-group per query head walking whole key rows, which Phase 4 measured at about 22 times llama.cpp's cost a key; on Llama 3.2 3B decode after 4096 went from 7.95 to 18.65 tokens/s in FP16, 0.83 of llama.cpp, and a key now costs about 24 ns in each layer against llama.cpp's 30. The decode position is written by the host once the context's open work has finished.
 
-**Each lane reads its run of channels in wide loads** (Todd, 2026-11-09; `Notebooks/MetalRates.md` 7.2). Gemma 4 12B's global layers, one KV head of 512 for 16 query heads, read their cache at about 11.5 GB/s, and the GPU counters showed why: the kernel's load unit busy 91% while memory was barely read, each lane loading its 16 channels one value at a time. A lane now reads its run 16 bytes a load where it allows, two loads at a head of 512 and one at 256, the sums in the order they were. MLX's block count by keys held, and four keys read ahead (`sdpa_vector_2pass` and `sdpa_vector_2pass_1`, ml-explore/mlx v0.32.4), were built first and did not move the limit: in alternated runs, 4.5% faster after 16,384 held tokens and about 1% slower below, so not kept (`MetalRates.md` 7.2). The build checks the thread limit of the kernel it dispatches, which it had not for an FP8 cache.
+**Each lane reads its run of channels in wide loads** (Todd, 2026-11-09; `Notebooks/MetalRates.md` 7.2). Gemma 4 12B's global layers, one KV head of 512 for 16 query heads, read their cache at about 11.5 GB/s, and the GPU counters showed why: the kernel's load unit busy 91% while memory was barely read, each lane loading its 16 channels one value at a time. A lane now reads its run 16 bytes a load where it allows, two loads at a head of 512 and one at 256, the sums in the order they were. MLX's block count by keys held, and four keys read ahead (`sdpa_vector_2pass` and `sdpa_vector_2pass_1`, ml-explore/mlx v0.32.4), were built first and did not move the limit: in alternated runs, 4.5% faster after 16,384 held tokens and about 1% slower below, so not kept (`MetalRates.md` 7.2). The build checks the thread limit of the kernel it dispatches, which it had not for an FP8 cache. Sharing each tile of rows across the query heads through threadgroup memory was built after it and was slower on both of Gemma's shapes, so it was not kept either (`MetalRates.md` 7.2).
 
 **No per-token kernel gives a long row to one SIMD-group (Todd, 2026-11-07; `Notebooks/MetalRates.md`).** One SIMD-group
 alone waits on memory through every step of a row, and a decode step runs hundreds of these kernels. The sampler, which
@@ -309,6 +309,17 @@ slower at 4,096 and 15% at 16,384, one run each.
 accelerators (`scaled_dot_product_attention.cpp`, `use_fallback`): head size 256 goes unfused after a held prompt, and
 512 runs blocked and unfused, scores in blocks of 256 rows. If the fused kernel is slower than Phase 3's pipeline at a
 head size on the M1, the numbers go to Todd before anything else is decided; the unfused pipeline is not kept on quietly.
+
+**Decided 2026-11-10 (Todd), not yet built: a head of 512 prefills unfused, a block of query rows at a time, where the
+plan has memory for a block of 32 positions or more; under that the fused kernel runs.** The numbers the paragraph above
+asked for, one session on the M1 Pro: Gemma 4 12B's global layers take 1190 ms a prompt of 512 fused after 16,384 held
+and 756 unfused in one block, 1008 in blocks of 32 and 1239 in blocks of 8; beside llama.cpp the prompt goes from 0.88 to
+0.97. The fused kernel is held to 384 threads a threadgroup by the output it carries in registers, where the matrix
+product, which carries nothing, is given 832, and the GPU's occupancy follows that ratio. Heads 128 and 256 stay fused.
+This departs from CUDA's fused kernel at this head size on this chip, on measurement, and is MLX's choice on chips
+without neural accelerators (`scaled_dot_product_attention.cpp`, `use_blocked_d512`, ml-explore/mlx v0.32.4). Design,
+evidence and what `Lib/Src` changes: `MetalGlobalAttentionPrefill.md` sections 7 and 8; the planner's part:
+`Deployment.md` section 5.
 
 **Gate.** Parity with the unfused pipeline, the invariant of `GqaFlashAttention.md` section 6, at Llama's geometry (128,
 four query heads to a KV head), Gemma's sliding (256, two, window 1024) and global (512, sixteen) and Qwen 3.8's full

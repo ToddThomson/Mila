@@ -3,6 +3,7 @@
 Thank you for your interest in contributing to Mila! This document provides guidelines and instructions for contributing to the project.
 
 ## Table of Contents
+- [How We Work](#how-we-work)
 - [Code of Conduct](#code-of-conduct)
 - [Getting Started](#getting-started)
 - [Development Environment](#development-environment)
@@ -11,6 +12,42 @@ Thank you for your interest in contributing to Mila! This document provides guid
 - [Testing Requirements](#testing-requirements)
 - [Documentation](#documentation)
 - [Issue Reporting](#issue-reporting)
+
+## How We Work
+
+Mila is built by a maintainer working with an AI model, Anthropic's Claude, and the habits below are the ones that
+collaboration runs on. They are the bar for every contribution, written by a person, with an assistant, or both: the
+maintainer reviews, builds, runs and commits every change, and a change is judged by its evidence, not by who or what
+wrote it.
+
+**Fix the cause, not around it.** When a limit, a default, a refusal or older code is in the way, find where it came
+from (`git blame`, `git log`, the specification that decided it) and whether its reason still holds. A value nobody can
+explain is itself a finding. If it is wrong and the fix is small, fix it first and say so in the pull request; if not,
+raise it in an issue. A workaround is a decision someone makes on purpose, never something that happens quietly.
+
+**Premises before the case.** A proposal states what it assumes, what it costs and what it leaves out before it argues
+for itself. If it bends a rule of the project, it names the rule.
+
+**Measure before promising.** A speed or quality claim comes with the measurement that supports it, and an estimate
+follows a timing run rather than preceding it. A number inferred from arithmetic is labelled as arithmetic, and is never
+hardened into a rule.
+
+**Measure fairly.** A model is measured at its defaults, in the format it was trained for. A comparison is like for like:
+the same work, the same conditions, the other engine tuned. Rates on the same machine can move by a fifth between
+sessions, so a before and an after are built from one tree and run alternately in one sitting. Honesty is never traded
+to make Mila look better.
+
+**Let evidence decide, including against your own idea.** A hypothesis earns the next step by surviving a test that could
+have refuted it. When it fails, the failure is recorded beside the successes in the specification or notebook that owns
+the area, with what it rules out.
+
+**Sources.** Papers are found by searching, read at least to the abstract to confirm they say what is attributed to them,
+and cited where the idea lands (title and arXiv id) and in [ATTRIBUTIONS.md](ATTRIBUTIONS.md). Work published for others to
+build on, such as MLX, may be studied, adapted and cited. Engines Mila is measured against are rate references only: their
+source is not read for a kernel, an algorithm or a layout.
+
+**Say what was checked.** A pull request says what was built, on what hardware, which tests ran and which did not. "Not
+verified" is a complete and useful sentence; an unstated gap is not.
 
 ## Code of Conduct
 
@@ -80,8 +117,9 @@ reviewable: build the baseline and the change from the same tree one after the o
 the weights were resident in GPU memory or streaming from disk, because the ranking changes
 between them; and run it more than once.
 
-**Hardware the project can check on** is Ada (sm_89) and Blackwell (sm_120). If your change targets
-anything else — Ampere, Hopper, a datacentre part — say so in the PR. It can still land, but we
+**Hardware the project can check on** is Ada (sm_89) and Blackwell (sm_120), and for Metal an
+Apple M1 Pro. If your change targets anything else — Ampere, Hopper, a datacentre part, another
+M-series chip — say so in the PR. It can still land, but we
 should both know what went verified and what did not. **Pull Request Process** below has the rest
 of what happens after you open it.
 
@@ -92,8 +130,8 @@ on Windows, **`linux-clang-cpu-release`** on Linux — and you get the library, 
 working `ctest` run with no Toolkit and no card installed.
 
 There is real work there too: the model store, the tokenizers, the chat protocols and the
-quantization packing all build and test without a card. Compute runs on CUDA only, so testing kernel
-work needs an NVIDIA GPU.
+quantization packing all build and test without a card. Compute runs on CUDA and, on Apple silicon
+Macs, on Metal, so testing kernel work needs an NVIDIA GPU or a Mac with an M-series chip.
 
 Run the CPU-only build and its tests before you open a pull request, exactly as a contributor with
 a card runs `x64-validate` — the expectation is the fullest validation your hardware allows, not a
@@ -197,9 +235,9 @@ enforce (notably full-word identifiers and the blank-line placement rules):
 
 ### C++ Specific Guidelines
 * Use modern C++23 features where appropriate
-* Source files use `.ixx` for module interface units and module partitions. Module names
-  mirror the directory structure (e.g., `Dnn.Components.Linear`). Backend specializations
-  live in a `:Cuda` partition. There are no header guards or `#pragma once` — this
+* Source files use `.ixx` for module interface units and module partitions, each module with a
+  dotted name (e.g., `Dnn.Components.Linear`). Backend specializations live in a `:Cuda` or
+  `:Metal` partition. There are no header guards or `#pragma once` — this
   is a module-based codebase.
 * Resolve operations at compile time via `OperationTraits` rather than runtime registries.
   See [Specifications/OperationDispatch.md](Specifications/OperationDispatch.md).

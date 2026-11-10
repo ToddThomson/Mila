@@ -1399,6 +1399,14 @@ Qwen 3.8's operations are on Metal and its four-layer packed build passes its Hu
 context and has not been run whole, and Qwen has no Mac rates. The 26B-A4B does not fit at all. Qwen 3.8 on a Mac is
 v0.22.0's (Todd, 2026-11-09). `Specifications/Metal/MetalBackend.md` section 9, Phase 6.
 
+**The 26B-A4B needs a 24 to 32 GB Mac (Todd, 2026-11-10).** Arithmetic, not measured: Q4_0 weights are 13.5 GiB
+against the 16 GB M1 Pro's 11.84 GiB working set, and with the FP8 global cache at 65536 about 14.7 GiB in all (CUDA's
+measured fit, `MemoryFootprint.md` 8). The expert bank is 90% of the weights (22.84B of 25.23B parameters); only experts
+below four bits (a 3-bit codebook, about 11.4 GiB at 65536) would fit 16 GB, which bends "a model runs in the format it
+was trained for" and was declined. A 24 GB Mac fits the Q4_0 build if its working set is near three quarters of its
+memory, which is assumed, not measured. Either way it needs the FP8 global cache on Metal (`Untriaged.md`, the FP8
+cache widened in a separate pass) and Metal's MoE operations.
+
 ## Metal has run only on an M1 Pro, so which chips have native BF16 and which matrix path wins on each is unknown
 
 `architecture` · `perf` · `blocked`
