@@ -64,14 +64,18 @@ namespace Mila::Dnn::Compute::Metal::Gqa
 
             batches_ = narrowToKernelIndex( context.inputShape()[0] );
 
-            const MetalKernelLimits limits = context_->device().kernels().limits( decodeKernelName( "gqa_decode_partial" ) );
-            const std::size_t threads = static_cast<std::size_t>( queryHeadsPerKvHead() ) * limits.thread_execution_width;
-
-            if ( threads > limits.max_total_threads_per_threadgroup )
+            // The cache, and so whether it is FP8, is seen only at decode(): both kernels must take the threadgroup.
+            for ( const std::string_view family : { std::string_view( "gqa_decode_partial" ), std::string_view( "gqa_decode_partial_fp8" ) } )
             {
-                throw std::invalid_argument( std::format(
-                    "MetalSharedKvAttentionOp: {} query heads to a key/value head take {} threads, past the {} this device's kernel takes",
-                    queryHeadsPerKvHead(), threads, limits.max_total_threads_per_threadgroup ) );
+                const MetalKernelLimits limits = context_->device().kernels().limits( decodeKernelName( family ) );
+                const std::size_t threads = static_cast<std::size_t>( queryHeadsPerKvHead() ) * limits.thread_execution_width;
+
+                if ( threads > limits.max_total_threads_per_threadgroup )
+                {
+                    throw std::invalid_argument( std::format(
+                        "MetalSharedKvAttentionOp: {} query heads to a key/value head take {} threads, past the {} this device's {} takes",
+                        queryHeadsPerKvHead(), threads, limits.max_total_threads_per_threadgroup, decodeKernelName( family ) ) );
+                }
             }
 
             Operation<DeviceType::Metal, TPrecision>::build( context );

@@ -759,7 +759,8 @@ stage weights through a copy -- the question the next entry raises for coherent 
 called every step: `IExecutionContext::createDecodeRecording()` is null there, so replay needs nothing from it.
 
 Metal, 2026-11-04: the M1 Pro arrived, and `Specifications/Metal/MetalBackend.md` is now the design and its phases. That
-spec decides anything above that it contradicts, including the CPU-first order: Mac means the GPU only.
+spec decides anything above that it contradicts, including the CPU-first order. Since 2026-11-09 it is not limited to
+the GPU: every compute path Apple silicon offers, placed by measurement (Todd).
 
 Metal, 2026-11-05: promoted to v0.21.0, experimental, as `ROADMAP.md` *Mila on Apple Silicon*, whose items are in
 `BACKLOG.md` (Todd). What stays here is ROCm.

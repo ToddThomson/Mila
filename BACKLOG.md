@@ -701,7 +701,7 @@ the cells do not show.
 
 ### Mila on Apple Silicon
 
-#### A Mac runs Llama, Gemma 4 12B with its drafter and four layers of Qwen 3.8, and not yet a whole Qwen 3.8 or the Gemma 26B
+#### A Mac runs Llama and Gemma 4 12B with its drafter, and their gates on it are not all settled
 
 `in progress` · `architecture` · `quantization` · `mila-src` · `measured`
 
@@ -712,14 +712,12 @@ with every greedy token HuggingFace's or CUDA's (`Notebooks/MetalQuantizedWeight
 is decided: HuggingFace FP32 on the format's decoded weights. Q4_0, six bits, GeGLU, the sliding-window ring and the
 mixture of experts' router and bank have Metal operations, each checked against a double-precision reference
 (`Notebooks/MetalGemma.md`), and Gemma 4 12B in Q4_0 passes its HuggingFace gate in FP16 and BF16 with every greedy token
-HuggingFace's (2.2 there). Qwen 3.8's operations are on Metal: the elementwise activation, the causal convolution, the
-gated delta rule, two- and three-bit codebook Linear and the tensor math, each checked against a double-precision
-reference, and its four-layer packed build passes its HuggingFace gate in FP16 and BF16 (`Notebooks/MetalQwen.md`). No
-Qwen 3.8 agentic build fits a 16 GB Mac's working set; `cb2-3` fits at a short context and has not been run whole. Q6_K
-has no Metal operation. Gemma 4 12B decodes with Google's drafter on Metal, its greedy output that of decoding without it
-(`Metal/MetalBackend.md` section 4.6). What remains is the rest of
-Phase 5, and Phase 6's whole-model runs on what a 16 GB Mac admits. The planner chooses a context at 99% of a Mac's
-working set, where the model runs and macOS swaps the rest of the Mac out (`MetalFirstModel.md` section 5).
+HuggingFace's (2.2 there). Gemma 4 12B decodes with Google's drafter on Metal, its greedy output that of decoding
+without it (`Metal/MetalBackend.md` section 4.6). Metal in this release is what the development Mac, an M1 Pro with
+16 GB, builds and tests (Todd, 2026-11-09); Qwen 3.8 on a Mac, the Gemma 26B-A4B and decode replay are in
+`Issues/Vnext.md`. What remains: Llama's FP8 and FP4 tests on the decided gate, which still fail on the old one
+(`Issues/Untriaged.md`), and the drafter against HuggingFace and sampled. The planner chooses a context at 99% of a
+Mac's working set, where the model runs and macOS swaps the rest of the Mac out (`MetalFirstModel.md` section 5).
 `Specifications/Metal/MetalBackend.md` section 9.
 
 #### Mila Desktop for the Mac is neither signed nor notarized, so a person who downloads it cannot open it
@@ -747,8 +745,8 @@ Apple silicon, and none is published. Labelled experimental on PyPI's page and i
 Measured on Llama 3.2 3B, Llama 3.1 8B and Gemma 4 12B against llama.cpp b12138 and MLX on the same Mac
 (`Notebooks/MetalRates.md`), by `Lib/Tools/MetalModelTiming`, `llama-bench` and `mlx_lm benchmark` at the same shapes;
 before that on Llama 3.2 3B alone (`Notebooks/MetalFirstModel.md` section 5). The rates of that notebook's section 2
-predate its section 4's decode changes. Not yet: Qwen 3.8, a script in the tree that reruns all three, and a page that
-shows them. Absent: no published surface shows a Mac number.
+predate its section 4's decode changes. Not yet: a script in the tree that reruns all three, and a page that shows
+them. Absent: no published surface shows a Mac number.
 
 #### Every Metal kernel launch finds its kernel by name and its buffers by address, where a CUDA launch is resolved when it is compiled
 
@@ -909,7 +907,8 @@ CUDA on the 5060 Ti shows it at `0.21.0-dev+123`. On the M1 Pro, a Metal kernel 
 float sums moves it: row 19 is 1.87e-2 before it and 2.66e-1 with RMSNorm across a 256-thread threadgroup per row.
 FP16 on Metal stays near 2e-3. So these look like positions where BF16 magnifies
 any change of rounding order, and CUDA's rows the same effect rather than a CUDA defect. Not shown: what makes those
-positions sensitive; the activation ranges there have not been read. The Metal BF16 test fails until this is resolved.
+positions sensitive; the activation ranges there have not been read. The Metal BF16 test failed until `+130`'s one-row
+Q4_0 kernel changed the order of the sums again: worst 2.14e-2 against the bar of 2.54e-2 (2026-11-09).
 
 `Lib/Tests/Dnn/Models/Gemma/GemmaModel.HuggingFaceReference.Metal.cpp` `AcrossTheWindowEdge`,
 `GemmaModel.HuggingFaceReference.Cuda.cpp` `Q4_0_AcrossTheWindowEdge`

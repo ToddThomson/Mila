@@ -1,6 +1,6 @@
 # RoPE In Attention
 
-**Status:** Draft, 2026-10-01. No code. Both facts that decide it (section 5) were measured the same day and both
+**Status:** Draft, 2026-10-01; design proposed in section 6, 2026-11-09, awaiting Todd. No code. Both facts that decide it (section 5) were measured the same day and both
 pass; Todd, the same day, takes it forward for what it does to latency: the stored-once cache buys the 26B-A4B its
 largest prefill chunk at 64K on a 16 GB card (section 3). What remains before it is a design is section 4.3's quality
 gate and the kernels' shape. Admitted to v0.21 on 2026-10-04 (Todd), after the 26B-A4B's context profile measured it
@@ -149,8 +149,70 @@ attention only, gated per section 4.3, with section 3's figure re-derived from t
    parity within 5%. No MMA competes for issue in the microbenchmark, so the real kernel's margin is smaller; the
    accurate angle function is kept, since the recurrence buys 2%.
 
+A correction to item 1, from Mila's own RoPE (2026-11-09): Gemma's global layers rotate pairs across the whole head
+(`Rope.Rotation.cuh`, the WholeHead layout), channel i with channel i + 256, and the angle function gives the identity
+past 64 pairs. The rotated channels are 0 to 63 and 256 to 319, not the first 128.
+
 Section 4.2's cost is therefore not the obstacle it was feared to be, and section 4.5 changes: read-time fusion is now
 a speed gain at depth as well as a capacity one. Section 4.3 -- the FP8 cache quantizing unrotated values, so the
 long-context quality gate again -- stands, as does 4.4's cost in kernels. One more change rides with it: the cache's V
 could be stored FP16 rather than BF16 -- the same bytes, three more significand bits, bounded by the weightless
 `v_norm` -- which removes the per-tile narrowing the FP16 PV path pays over a BF16 cache (`GqaFlashAttention.md` 5.8).
+
+## 6. Design, for CUDA first (proposed 2026-11-09, awaiting Todd)
+
+**What changes in one sentence.** A Gemma 4 global layer caches V alone, and every kernel that reads that cache builds
+each key from its value row as it reads it: K = RoPE( V * w_k ), with w_k the layer's `k_norm` weight.
+
+### 6.1 The identity the kernels use
+
+For one key at position p and one query q (already rotated by the query's position, as today):
+
+- Channels 64 to 255 and 320 to 511 are not rotated: their part of the score is the sum of (q_d * w_d) * v_d. The
+  query is multiplied by w_k once per step, and those channels read V's row as it is.
+- Channels i and i + 256, for i < 64, are rotated: the kernel forms a = w_i * v_i and b = w_{i+256} * v_{i+256} and
+  rotates them by the angle of (p, i) from `rope_cos_sin` (`Rope.Angle.cuh`), the one angle function every rotation
+  uses. 64 pairs a key, as section 5 measured.
+- P x V reads the same row as V. So one tile serves both products, where today the kernels stage a K tile and a V tile.
+
+### 6.2 The policy
+
+A KV cache policy, since what changes is what the cache holds: one for a cache in the compute type and one for FP8,
+beside `PerTokenKvFp8<>` (names to choose; `KeysFromValues` and `KeysFromValuesFp8` proposed). Gemma's model already
+takes its global layers' policy apart from its sliding ones (`GemmaModel`'s `TGlobalKvCachePolicy`), so only the global
+layers take it, and `dispatchKvCacheCompression` keeps its `OperationSupported` rule: a device or precision without
+the policy's specialization keeps the two-tensor cache. The attention op is given w_k (the `k_norm` weight, borrowed as
+weights are) and the layer's RoPE angle parameters when built. Llama, Qwen and Gemma's sliding layers are untouched.
+
+### 6.3 What moves
+
+| Where | Today | With the policy |
+|---|---|---|
+| `GemmaBlock`, global layers | `k_norm` and RoPE on K, `v_norm` on the raw projection, both to attention | `v_norm` only; RoPE on Q alone; no K is formed |
+| Cache write (`Gqa.Cache.Bf16.cu`, `Gqa.Cache.Fp8.cu`) | K and V rows | V rows, and for FP8 V's codes and per-token scale |
+| Decode (`Gqa.Decode.Mma.cu`) | K and V tiles | one V tile; the 64 rotated pairs built into a small key tile; Q times w_k |
+| Prefill (`Gqa.Flash.WideHead.cu`, BF16 and FP8) | K(t+1) loads during P x V(t) | one tile per step, the rotated pairs built from it |
+| The drafter's reader (`CudaSharedKvAttentionOp`) | reads the 12B's K and V | `KvCacheView` says the keys are derived and carries w_k and the angles |
+| Footprint | two tensors on global layers | one: the planner prices it through the op's state memory, as it does today |
+
+### 6.4 What it costs, and the gate
+
+- **Numerics.** Keys are no longer rounded once, as stored keys are: they are built in FP32 from V's stored row. Over
+  an FP8 cache the codes are V's, so the key's error is V's scaled by w_k (section 4.3). Not bit-identical to today,
+  so the quality gate runs again.
+- **Kernels.** Section 5 measured 0.69 of today's read in a loop with no MMA competing for issue; the real decode and
+  prefill kernels have less slack, so their rates are measured, not assumed.
+- **Gate, written before the run:** each kernel against a double-precision reference that derives its keys as above,
+  BF16 and FP8, decode, multi-token decode, prefill and the shared reader, every test failing when the derivation is
+  broken on purpose; Gemma 4 12B's HuggingFace gate on CUDA; the G2 books and recall at depth equal to the two-tensor
+  cache's, BACKLOG's gate, for the 26B-A4B's FP8 global cache and the 12B's BF16 one; the 26B-A4B planning 96K on the
+  16 GB card; decode and prefill at 32K and 64K no slower than today. The book scoring is hours an arm (section 4.3).
+
+### 6.5 Open, for Todd
+
+1. **The policies' names**, and that a policy rather than a flag on `GqaConfig` carries it.
+2. **V's stored type:** BF16 as today, or FP16, which the weightless `v_norm` bounds (section 5's last paragraph).
+   Proposed: BF16 first, so one change is measured at a time.
+3. **Metal:** the two-tensor cache stays there until CUDA's gate passes, then the policy follows on parity, Gemma 4 12B
+   on the M1 Pro being something the development Mac can test.
+4. **When the book scoring runs**, since it holds the 5060 Ti for hours an arm.

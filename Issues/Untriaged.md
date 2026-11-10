@@ -34,17 +34,11 @@ Raised by Todd, 2026-11-07, after Metal's Q4_0 lanes were found limited by arith
 
 Seen building the multi-threadgroup sampler, 2026-11-07: draws at uniforms 0.789 and 0.930 gave tokens 3330 and 3926 against the reference's 3328 and 3923, both with a histogram cut on float bin edges and with the radix cut on keys, so not the cut's arithmetic. Suspected, not shown: ties among 4099 FP16 logits at the nucleus edge, which the kernels keep whole and the test's reference splits by token order. Which of the two settings failed was not split. The test was replaced by ladders of distinct values.
 
-## Gemma's decode step is not replayed on Metal, where Llama's is
-
-`Lib/Src/Dnn/Core/Networks/LanguageModelNetwork.ixx:601` (the warning), Gemma 4 12B Q4_0 on Metal @ 0.21.0-dev+127
-
-Every load of Gemma 4 12B in `mila-metal-model-timing`, 2026-11-07, warns "replay of the decode step is off for this network -- it could not be recorded; every decode step is called". Llama 3.2 3B and 3.1 8B on the same Mac do not. Gemma decodes at 0.56 of llama.cpp's rate there against Llama 3.1 8B Q4_0's 0.66 (same run); how much of that the lost replay is, is not measured.
-
 ## Mila's Metal rates on Llama 3.2 3B fell 5 to 8% between +122 and +127
 
 `mila-metal-model-timing`, Llama 3.2 3B BF16 weights at FP16, M1 Pro @ 0.21.0-dev+127
 
-2026-11-07, same tool and shapes as `Notebooks/MetalFirstModel.md` section 4: prefill 512 at 511 tokens/s (was 555), decode 19.1 (19.4), decode after 4096 17.5 (18.65 after the attention rebuild). llama.cpp b12138 on the same Mac the same day held or rose (627 / 25.3 / 23.3 against 649 / 24.3 / 22.4), so the Mac is not the cause. Spreads are within 3%. Not bisected.
+2026-11-07, same tool and shapes as `Notebooks/MetalFirstModel.md` section 4: prefill 512 at 511 tokens/s (was 555), decode 19.1 (19.4), decode after 4096 17.5 (18.65 after the attention rebuild). llama.cpp b12138 on the same Mac the same day held or rose (627 / 25.3 / 23.3 against 649 / 24.3 / 22.4), so the Mac is not the cause. Spreads are within 3%. Not bisected. At `+130` (2026-11-09, `Notebooks/MetalRates.md` 7) decode is 20.88 and after 4096 18.88, above `+122`; prefill 512 is still 512.6.
 
 ## A session that fails as it starts hangs silently instead of saying why
 
@@ -70,18 +64,6 @@ The decision is `OperationDispatch.md`'s: the activations' element type and the 
 
 `RocmDevice.ixx` declares `module Compute.VulkanDevice` and a `VulkanDevice` returning `DeviceType::Vulkan`, which `DeviceType` does not have; it is not in the ROCm file set. `DeviceRegistrar` calls `RocmDeviceRegistrar::registerDevices()`, which no file defines. `DeviceType.ixx` still marks Metal and ROCm `FUTURE`.
 
-## Metal's Q4_0 expert bank runs one kernel for prefill and decode, where CUDA has a grouped prefill, and its speed is unmeasured
-
-`Lib/Src/Dnn/Compute/Devices/Metal/Operations/Moe/MetalMoeOp.ixx` @ 0.21.0-dev+129
-
-Found beside the drafter work (`Notebooks/MetalGemma.md` 2.1); the 26B-A4B that uses it does not fit a 16 GB Mac.
-
-## Metal loads Q4_0 and six-bit weights only as stored, where CUDA also quantizes them at load
-
-`Lib/Src/Dnn/Compute/Devices/Metal/Operations/Linear/MetalLinearOp.ixx` (`quantize`), `MetalTokenEmbeddingOp.ixx` (`quantize`) @ 0.21.0-dev+123
-
-CUDA's `CudaLinearOp` and `CudaTokenEmbeddingOp` quantize BF16 weights to Q4_0 and to six bits at load (`Int4Packing.ixx`, `Int6Packing.ixx` are the rule). Metal refuses them with the tensor's name. Gemma's published package is stored Q4_0, so the gate does not need it (`Notebooks/MetalGemma.md` section 4).
-
 ## Metal's quantized model gate compares two engines' noise, so FP8 misses CUDA's bar by chance
 
 `Lib/Tests/Dnn/Models/LlaMa/LlamaModel.HuggingFaceReference.Metal.cpp` (`Fp8`, `Fp8QuantizedAtLoad`, `Fp8Cache`, fail); `Specifications/Notebooks/MetalQuantizedWeights.md` 2.3 @ 0.21.0-dev+123
@@ -95,12 +77,6 @@ The `Fp8Cache` likelihood difference against the bar of 0.0009, Llama 3.2 3B on 
 `Lib/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp8WeightQuantization.cu` (`quantize_fp8_per_channel_kernel`), and the FP4 kernel beside it @ 0.21.0-dev+122
 
 Found writing Metal's quantize to CUDA's bytes, from reading, not run. `fmaxf` passes over a NaN, so a row holding one gets the scale of its other weights and the NaN becomes E4M3's not-a-number code; an infinity makes the scale infinite and every code of its row a NaN. Nothing is refused and nothing is logged, so a damaged checkpoint quantizes into a model that runs and is wrong. Metal counts such weights and refuses the tensor by name (`MetalLinearOp::quantize`, `Notebooks/MetalQuantizedWeights.md` 2.1), as its BF16-to-FP16 load already refuses a value FP16 cannot hold.
-
-## Every model load on Metal warns that decode replay is off, which is how Metal is designed to run
-
-`Lib/Src/Dnn/Models/LlaMa/LlamaModel.ixx:546` (`setDecodeReplay( true )`), the same in `GemmaModel.ixx:679` and `QwenModel.ixx:503`; `Lib/Src/Dnn/Core/Models/LanguageModelNetwork.ixx:522` @ 0.21.0-dev+121
-
-Each family turns replay on whatever the device, and on Metal `createDecodeRecording()` returns null by design (`Metal/MetalBackend.md` 4.4), so the first decode of every load logs `[WARN] ... replay of the decode step is off for this network -- it could not be recorded; every decode step is called`. Seen 2026-11-05 on Llama 3.2 3B through `mila-metal-model-timing`. The same words would mean a real failure on CUDA. Not decided: whether a device says it records, or the network tells a null recording from a failed one.
 
 ## Llama 3.2 3B at BF16 on Metal scores a sequence further from HuggingFace than either accepted BF16 run
 
@@ -125,12 +101,6 @@ Todd, 2026-11-05: the case that matters is long-lived, an agent running a proces
 `Lib/Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Angle.cuh`; `Lib/Src/Dnn/Compute/Devices/Metal/Operations/Encodings/Rope/Kernels/Rope.metal` @ 0.21.0-dev+120
 
 Both compute position times frequency in single precision before taking the cosine and sine. Arithmetic, not measured: at position 8192 and a frequency of 1, the angle's own rounding is about 5e-4 radians, and at 128000 about 8e-3. Found writing Metal's Rope test against a double-precision reference, which holds the bar only to position 2048. Reducing the angle before the multiplication would remove it.
-
-## What MLX does on Apple silicon has not been studied for Metal's speed or for work on the CPU
-
-`Specifications/Metal/MetalBackend.md` decisions (GPU only, no CPU compute); an absence -- the spec does not mention MLX @ 0.21.0-dev+117
-
-Todd, 2026-11-04: Metal stays GPU only for now, and MLX may lead to optimizations, or to CPU use that makes sense. Read so far from its docs and Apple's posts only, nothing run: MLX chooses CPU or GPU per operation over unified memory, with its scheduler ordering work across the two; its docs halve a long chain of small operations on an M1 Max by moving them to the CPU. On the M1 Pro in Phase 1, a commit and wait costs about 220 us and a further dispatch about 3 us, on kernels doing almost nothing. Sampling is the first candidate, since it already sits outside the decode step (`DecodeGraph.md` 4.5). Timed on a real decode step, once Phase 4 has one.
 
 ## The token loader's test hung the full suite for two and a half hours
 

@@ -70,6 +70,10 @@ namespace
         // Each dispatch timed by the GPU and printed by kernel; the rates it gives are not the model's.
         bool profile_dispatches{ false };
 
+        // With profile_dispatches, the decode is profiled after a held prompt of each of these lengths, 0 the one-token prompt;
+        // unset, after the one-token prompt alone.
+        std::vector<dim_t> profile_depths;
+
         // When set, each load times a prompt of `prefill_tokens` added after a held prompt of each depth, llama-bench's
         // `-p 512 -d N`, in place of the decode shapes.
         std::vector<dim_t> prefill_depths;
@@ -268,16 +272,25 @@ namespace
         }
     }
 
-    // One decode of `tokens` from a one-token prompt, every dispatch timed by the GPU, shown per generated token. The one prefill
-    // of the prompt's single token is in it, under the prefill kernels' own names.
+    // One decode of `tokens` after `prompt`, every dispatch timed by the GPU from the first generated token on, so the prompt's
+    // prefill is not in it, shown per decode step.
     template<typename TModel>
     void printDecodeProfile( TModel& model, std::span<const std::int32_t> prompt, int tokens, std::string_view label )
     {
-        model.setDispatchProfiling( true );
-        (void)decodeRate( model, prompt, tokens );
+        int generated = 0;
+
+        (void)model.generate( prompt, [&]( std::int32_t )
+            {
+                if ( ++generated == 1 )
+                {
+                    model.setDispatchProfiling( true );
+                }
+            }, generateParams( tokens ) );
+
         model.setDispatchProfiling( false );
 
-        printProfile( model.dispatchProfile(), tokens, "a token", std::format( "{}: decode over {} tokens", label, tokens ) );
+        printProfile( model.dispatchProfile(), tokens - 1, "a token",
+            std::format( "{}: decode over {} tokens after {}", label, tokens - 1, prompt.size() ) );
     }
 
     struct DepthRates
@@ -408,7 +421,18 @@ namespace
 
         if ( options.profile_dispatches )
         {
-            printDecodeProfile( *model, one_token, options.decode_tokens, label );
+            if ( options.profile_depths.empty() )
+            {
+                printDecodeProfile( *model, one_token, options.decode_tokens, label );
+            }
+
+            for ( const dim_t depth : options.profile_depths )
+            {
+                const std::vector<std::int32_t> held = depth == 0 ? one_token : randomTokens( depth, kPromptSeed + 2 );
+
+                (void)decodeRate( *model, held, options.decode_tokens );
+                printDecodeProfile( *model, held, options.decode_tokens, label );
+            }
 
             return;
         }
@@ -578,6 +602,12 @@ namespace
                 {
                     options.prefill_depths.push_back( std::stoll( std::string( std::string_view( part ) ) ) );
                 }
+            } else if ( arg == "--profile-depths" )
+            {
+                for ( const auto part : std::views::split( next(), ',' ) )
+                {
+                    options.profile_depths.push_back( std::stoll( std::string( std::string_view( part ) ) ) );
+                }
             } else if ( arg == "--log-info" )
             {
                 options.log_info = true;
@@ -607,7 +637,16 @@ namespace
         {
             throw std::invalid_argument( "usage: mila-metal-model-timing --weights <weights> [--family llama|gemma] [--context 8192] "
                 "[--rounds 3] [--runs 5] [--depth 4096] [--precision fp16|bf16] [--temperature 0] [--top-k 0] [--top-p 1] "
-                "[--prefill-depths 0,4096,16384] [--profile-dispatches] [--log-info] [--no-planner | --planner-only]" );
+                "[--prefill-depths 0,4096,16384] [--profile-dispatches [--profile-depths 0,4096]] [--log-info] [--no-planner | --planner-only]" );
+        }
+
+        for ( const dim_t depth : options.profile_depths )
+        {
+            if ( depth < 0 || depth + options.decode_tokens > options.context )
+            {
+                throw std::invalid_argument( std::format( "--profile-depths: {} and the {} decoded do not fit a context of {}",
+                    depth, options.decode_tokens, options.context ) );
+            }
         }
 
         for ( const dim_t depth : options.prefill_depths )

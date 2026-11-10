@@ -93,7 +93,8 @@ namespace Mila::Dnn::Compute::Metal::Linear
 
         MetalLinearOp( IExecutionContext* context, const LinearConfig& config )
             : context_( validateExecutionContext_<DeviceType::Metal>( context, "MetalLinearOp" ) ),
-              config_( config )
+              config_( config ),
+              row_pipeline_( rowPipelineFor( *context_ ) )
         {
         }
 
@@ -435,6 +436,27 @@ namespace Mila::Dnn::Compute::Metal::Linear
 
         static constexpr int kFewestRowsToExpand = kMultipliesBareCodes ? kBareCodesFewestRowsToExpand : kLanesFewestRowsToExpand;
 
+        // One row of Q4_0 takes linear_quantized_row, MLX's one-row shape (MetalBackend.md section 4.2): eight outputs a
+        // threadgroup, sixteen inputs a lane, which Q4_0's group of 32 never splits.
+        static constexpr bool kTakesRowKernel = kIsInt4Weight;
+        static constexpr int kRowKernelOutputs = 8;
+
+        static_assert( !kTakesRowKernel || kGroup % 16 == 0, "linear_quantized_row reads sixteen inputs under one scale" );
+
+        // Metal's pipeline type, named through the library that hands it out, since this module does not include Metal's headers.
+        using Pipeline = decltype( std::declval<MetalKernelLibrary&>().pipeline( std::string{} ) );
+
+        static Pipeline rowPipelineFor( MetalExecutionContext& context )
+        {
+            if constexpr ( kTakesRowKernel )
+            {
+                return context.device().kernels().pipeline( std::format( "linear_quantized_row_{}_{}", kFormatName,
+                    MetalTensorDataTypeMap<TComputePrecision>::kernel_type ) );
+            } else {
+                return nullptr;
+            }
+        }
+
         [[nodiscard]] static constexpr int outputsInTiles( int outputs ) noexcept
         {
             return outputs - outputs % kTileColumns;
@@ -504,11 +526,26 @@ namespace Mila::Dnn::Compute::Metal::Linear
                 return;
             }
 
-            const int across = rows == 1 ? 4 : 1;
-            const int rows_together = rows == 1 ? 1 : 8;
             const QuantizedLinearShape shape = shapeOf( first_row, rows, first_output, last_output );
             const void* const weight = static_cast<const ITensor*>( weight_ )->rawData();
             const void* const scales = static_cast<const ITensor*>( weight_scales_ )->rawData();
+
+            if constexpr ( kTakesRowKernel )
+            {
+                if ( rows == 1 )
+                {
+                    // Two SIMD-groups of four outputs a threadgroup: LinearQuantized.metal, linear_quantized_row.
+                    const std::array<const void*, 4> buffers{ input, weight, scales, output };
+                    const std::size_t width = static_cast<std::size_t>( ( last_output - first_output + kRowKernelOutputs - 1 ) / kRowKernelOutputs );
+
+                    context_->dispatchThreadgroups( row_pipeline_, buffers, std::as_bytes( std::span( &shape, 1 ) ), width, 1, 2 );
+
+                    return;
+                }
+            }
+
+            const int across = rows == 1 ? 4 : 1;
+            const int rows_together = rows == 1 ? 1 : 8;
 
             const std::string kernel = std::format( "linear_{}_lanes_{}_{}_{}_{}", kIsCodebookWeight ? "codebook" : "quantized",
                 kFormatName, MetalTensorDataTypeMap<TComputePrecision>::kernel_type, across, rows_together );
@@ -644,6 +681,7 @@ namespace Mila::Dnn::Compute::Metal::Linear
 
         MetalExecutionContext* context_;
         LinearConfig config_;
+        Pipeline row_pipeline_;
         ITensor* weight_{ nullptr };
         ITensor* bias_{ nullptr };
         ITensor* weight_scales_{ nullptr };

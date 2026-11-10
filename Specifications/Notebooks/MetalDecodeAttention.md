@@ -108,7 +108,7 @@ depth 0's gap, about 10 ms a token, which is not attention's.
 Todd, 2026-11-05: continue with the attention work on MLX's path. Within it:
 
 1. The two decode kernels are replaced by the two passes, both precisions, every head size, as section 2.
-2. 32 blocks, fixed, until a measurement on a model shows a count per shape pays.
+2. 32 blocks, fixed, until a measurement on a model shows a count per shape pays. **Tried on Gemma 4 12B, 2026-11-09, and not kept:** MLX's count by keys held moved its global layers' decode by under 5%; what held them was each lane's value-at-a-time loads (`MetalRates.md` 7.2, `Metal/MetalBackend.md` 4.4).
 3. The partials come from the execution context's scratch, as Linear's padding does.
 4. The shared workspace's decode buffers (`preatt_decode`, `att_decode`, from `Compute/Operations/GqaWorkspace.ixx`) are no
    longer read on Metal and are still allocated for every device, about 0.8 MB on Llama 3.2 3B at 8192 (arithmetic). They

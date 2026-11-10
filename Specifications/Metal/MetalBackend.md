@@ -3,14 +3,18 @@
 How Mila runs on Apple M-series GPUs: which chips, how a capability is checked, which precision runs where, the kernels,
 memory, the build, and the phases that get there with their tests and measurements.
 
-**Status:** agreed 2026-11-04 (Todd, decisions in section 10). Phases 0 to 3 have passed, and Phase 4 on Llama 3.2 3B, its correctness gate and its measures; Phase 5 is under way (section 9). In v0.21.0, experimental, as `ROADMAP.md` *Mila on Apple Silicon* (Todd, 2026-11-05). Evidence:
-`Notebooks/MetalPrecisionTiming.md`, `Notebooks/MetalDeviceAndMemory.md`, `Notebooks/MetalMatrixPath.md`, `Notebooks/MetalLlamaOperations.md`, `Notebooks/MetalFirstModel.md`, `Notebooks/MetalQuantizedWeights.md`.
+**Status:** agreed 2026-11-04 (Todd, decisions in section 10). Phases 0 to 4 have passed; Phase 5's formats are built, with Llama's FP8 and FP4 tests not yet on the decided gate; Phase 6 has Gemma 4 12B with its drafter, and Qwen 3.8's operations and four layers (section 9). In v0.21.0, experimental, as `ROADMAP.md` *Mila on Apple Silicon* (Todd, 2026-11-05), limited to what the development Mac builds and tests: Llama and Gemma 4 12B. Decode replay, Qwen 3.8 whole, the Gemma 26B-A4B and its formats, and Phase 7 are in `Issues/Vnext.md` (Todd, 2026-11-09). Evidence:
+`Notebooks/MetalPrecisionTiming.md`, `Notebooks/MetalDeviceAndMemory.md`, `Notebooks/MetalMatrixPath.md`, `Notebooks/MetalLlamaOperations.md`, `Notebooks/MetalFirstModel.md`, `Notebooks/MetalQuantizedWeights.md`, `Notebooks/MetalDecodeAttention.md`, `Notebooks/MetalGemma.md`, `Notebooks/MetalQwen.md`, `Notebooks/MetalRates.md`.
 
 ---
 
 ## 1. Scope
 
-**In:** the GPU on M-series chips, M1 onward, on macOS. Inference, for the families Mila runs on CUDA.
+**In:** M-series chips, M1 onward, on macOS. Inference, for the families Mila runs on CUDA.
+
+**Every compute path Apple silicon offers is open to the backend** (Todd, 2026-11-09): the GPU and the CPU over the
+same unified memory, and where an operation runs is chosen by measuring it, for the best path overall. The GPU is
+where the work began, not a limit.
 
 **Every format Mila's components use on CUDA runs on Metal** (Todd, 2026-11-05). FP16 weights cannot carry the models Mila is for: Gemma 4 12B
 alone would take about 22 GiB, against this Mac's 11.84 GiB working set (arithmetic). The list is `OperationTraits.Cuda.ixx`:
@@ -25,9 +29,11 @@ alone would take about 22 GiB, against this Mac's 11.84 GiB working set (arithme
 
 These are storage: the precision a kernel computes in is section 3's. FP32 compute stays out (section 10), so CUDA's FP32 specializations are not on this list.
 
+**Not on Metal in v0.21.0** (Todd, 2026-11-09, `Issues/Vnext.md`): the FP8 token embedding and the FP8 sliding window, which no model's load builds on CUDA either; quantizing to Q4_0 and six bits at load, which serves the exporter and the Gemma 26B-A4B; and the mixture of experts' grouped prefill, the 26B-A4B's alone.
+
 **Out:**
 
-- **Intel Macs, and CPU compute** (Todd, 2026-11-04).
+- **Intel Macs** (Todd, 2026-11-04).
 - **The Neural Engine and Core ML.** Mila's kernels are its own, and neither fits a stack you can read.
 - **MPSGraph.** It is a hidden execution engine, which Mila's design rules out.
 - **Training.** Its operations can follow; nothing here depends on it.
@@ -197,12 +203,14 @@ which is NVFP4's shape, and it has no six-bit or codebook weights. FP8 is the ex
 
 | Rows (M) | FP8 | FP4, Q4_0, Q6_K, codebooks |
 |---|---|---|
-| 1 | Own lanes | Own lanes |
+| 1 | Own lanes | Q4_0: MLX's one-row shape. FP4, six bits, codebooks: own lanes |
 | 8 | TensorOps on the bare codes, scales after | Own lanes |
 | 128 | TensorOps on the bare codes, scales after | TensorOps, on FP16 expanded a block of outputs at a time |
 | 2048 | TensorOps, expanded | TensorOps, expanded |
 
-Expanding costs 1% to 5% at M = 2048, and a scratch buffer of 8 to 29 MB. Decode reads less memory than FP16 and is limited by arithmetic: 0.20 ms for FP4 and 0.24 ms for Q4_0 against 0.65 ms unquantized, at 1 x 4096 x 14336. These are weights in isolation, on normal values. In Gemma 4 12B's decode the Q4_0 lanes read their weights at about 117 GB/s, two thirds of a token's time (`Notebooks/MetalRates.md`); a faster Q4_0 product is open work (`Notebooks/MetalMatrixPath.md` section 7).
+Expanding costs 1% to 5% at M = 2048, and a scratch buffer of 8 to 29 MB. Decode reads less memory than FP16 and is limited by arithmetic: 0.20 ms for FP4 and 0.24 ms for Q4_0 against 0.65 ms unquantized, at 1 x 4096 x 14336. These are weights in isolation, on normal values. In Gemma 4 12B's decode the Q4_0 lanes read their weights at about 117 GB/s, two thirds of a token's time (`Notebooks/MetalRates.md`).
+
+**One row of Q4_0 takes MLX's one-row shape** (Todd, 2026-11-09, on the bar of section 6; `linear_quantized_row` in `LinearQuantized.metal`). It is MLX's `qmv_fast_impl` (`mlx/backend/metal/kernels/quantized.h`, ml-explore/mlx v0.32.4, MIT) on Mila's layout: a threadgroup of two SIMD-groups, four outputs a SIMD-group, each lane sixteen consecutive inputs of every 512, the activations read once into registers for all four outputs. The codes are masked in place and never shifted, against activations prescaled by 1, 1/16, 1/256 and 1/4096, and a code's offset comes off once through the activations' sum. A row whose inputs are not a multiple of 512, as Gemma's 3840 is, ends in a pass the lanes past it leave. The pipeline is resolved when the op is built. FP4 and six bits were built in the same shape and were slower than the own lanes, FP4 with its codes decoded by arithmetic as MLX's `fp4.h` does or by a table, so they keep the lanes, as do two to eight rows, FP8 and the codebooks. Results: `Notebooks/MetalMatrixPath.md` section 7.1.
 
 **Binding.** Measured: a tensor bound alone at a buffer index gave all-zero output with no error, and a struct of resource
 ids at one index worked. So every kernel test checks values, and a test that only checks completion is not a test here.
@@ -217,12 +225,14 @@ Xcode, which the development Mac does not have. Measured with Phase 3's 63 kerne
 
 `IExecutionContext::createDecodeRecording()` stays null, so a decode step is called every step. The rule in `CLAUDE.md`
 still binds, so that replay remains possible: read the position from the execution context, no per-token launch argument.
-Indirect command buffers (Apple3 and later) are the candidate for replay, and only after Phase 4 shows what a call costs.
+Indirect command buffers (Apple3 and later) are the candidate for replay, which is not in v0.21.0 (Todd, 2026-11-09, `Issues/Vnext.md`).
 
 `synchronize()` commits and waits, and an operation only encodes. Measured: a commit and wait is about 220 us and a further
 dispatch about 3 us, so a decode step commits once.
 
 **Attention's decode is own kernels, reading the position from memory, in two passes** (`Notebooks/MetalDecodeAttention.md`, Todd, 2026-11-05). Three dispatches of a fixed grid: the cache write; a partial pass that splits the keys over 32 blocks, a threadgroup holding the query heads of one KV head so that they read its rows together, each lane a contiguous run of a head's channels, the softmax online in 32 bits; and a merge that rescales each block to the largest score of all. The shape is MLX's two-pass decode (`ml-explore/mlx`, `sdpa_vector.h`) and the split and merge Flash-Decoding's (Dao, Haziza, Massa, Sizov, 2023). The partials are FP32 in the context's scratch. The heads the models use, 64, 128, 256 and 512, have their own kernels; any other size up to 512 runs a slower one. It replaced one SIMD-group per query head walking whole key rows, which Phase 4 measured at about 22 times llama.cpp's cost a key; on Llama 3.2 3B decode after 4096 went from 7.95 to 18.65 tokens/s in FP16, 0.83 of llama.cpp, and a key now costs about 24 ns in each layer against llama.cpp's 30. The decode position is written by the host once the context's open work has finished.
+
+**Each lane reads its run of channels in wide loads** (Todd, 2026-11-09; `Notebooks/MetalRates.md` 7.2). Gemma 4 12B's global layers, one KV head of 512 for 16 query heads, read their cache at about 11.5 GB/s, and the GPU counters showed why: the kernel's load unit busy 91% while memory was barely read, each lane loading its 16 channels one value at a time. A lane now reads its run 16 bytes a load where it allows, two loads at a head of 512 and one at 256, the sums in the order they were. MLX's block count by keys held, and four keys read ahead (`sdpa_vector_2pass` and `sdpa_vector_2pass_1`, ml-explore/mlx v0.32.4), were built first and did not move the limit: in alternated runs, 4.5% faster after 16,384 held tokens and about 1% slower below, so not kept (`MetalRates.md` 7.2). The build checks the thread limit of the kernel it dispatches, which it had not for an FP8 cache.
 
 **No per-token kernel gives a long row to one SIMD-group (Todd, 2026-11-07; `Notebooks/MetalRates.md`).** One SIMD-group
 alone waits on memory through every step of a row, and a decode step runs hundreds of these kernels. The sampler, which
@@ -442,6 +452,11 @@ Phase 4 tries it. **It does:** the whole 7.2 GB file, mapped read-only and wrapp
 - **On the Mac:** on AC, under `caffeinate -dimsu`, power source recorded at both ends and the sleep log checked. Its
   battery profile sleeps after 1 minute, and a pulled cable has already cost a run. One large job at a time.
 - **llama.cpp is the rate reference, as on CUDA,** run on the same Mac, tuned, like for like. It has no other bearing.
+- **MLX is the bar a Metal path is built to, and a design source** (Todd, 2026-11-09): its rate on the same Mac, model
+  and shape is the target, and its published source may be taken and cited. It is not a dependency; its scheduler is
+  an execution engine Mila does not hide behind. **The bar is 0.85 of MLX's rate**, at prefill and at decode. Work goes
+  to the largest gap first and stops at the bar; a change that arithmetic does not show moving a model by about 5% is
+  not started without Todd. A measurement that points past MLX is followed.
 
 ## 7. Build and the scaffold
 
@@ -590,6 +605,7 @@ weight dispatch builds a plan wherever `OperationSupported` says its Linears exi
 **Passed, 2026-11-07, on the four-layer build:** every operation holds its bar in FP16 and BF16, 30 of 31 forced failures
 are caught, and the build passes the gate against HuggingFace FP32 on its weights as Mila runs them, FP16 about ten times
 closer than either BF16 run. No Qwen 3.8 agentic build fits this Mac's working set, and the whole model has not run here.
+Qwen 3.8 whole on a Mac is v0.22.0's (Todd, 2026-11-09, `Issues/Vnext.md`).
 
 ### Phase 7 -- Other chips
 
@@ -599,7 +615,8 @@ Needs hardware Mila does not have: the report and the timing program, on each ge
 row of 3.3 changes on a measurement from that family and nothing else. Accelerators are measured on M5 here, and the path
 choice of Phase 2 may become per family.
 
-**Gate:** each row filled from that chip's own run, and a row with no run stays "Unknown".
+**Gate:** each row filled from that chip's own run, and a row with no run stays "Unknown". Not in v0.21.0, which is
+what the development Mac builds and tests (Todd, 2026-11-09).
 
 ### Phase 8 -- Apps and distribution
 
@@ -612,7 +629,10 @@ development Mac and neither can reach a user's.
 
 | Decision | By |
 |---|---|
-| GPU only, M-series only. No CPU compute, no Intel | Todd, 2026-11-04 |
+| M-series only, no Intel | Todd, 2026-11-04 |
+| Decode attention reads each lane's channels in wide loads; MLX's block count and read-ahead, built and measured, are not kept (section 4.4) | Todd, 2026-11-09 |
+| MLX is the target and a design source, not a dependency: 0.85 of its rate on the same Mac, model and shape, largest gap first, nothing under about 5% started without Todd (section 6). Decode is first: at `+127` it was 0.58 to 0.79 of MLX, prefill 0.87 and above (`Notebooks/MetalRates.md` 2) | Todd, 2026-11-09 |
+| Not restricted to the GPU: every compute path Apple silicon offers, each operation placed by measurement for the best path overall. Replaces "GPU only, no CPU compute" (2026-11-04) and "Metal stays GPU only for now" | Todd, 2026-11-09 |
 | BF16 kernels where the user's hardware has BF16 natively, a fallback where it does not | Todd, 2026-11-04 |
 | The M1 has no native BF16, and runs it through an emulation layer | Todd, 2026-11-04 |
 | On the M1, test both ways and ultimately fall back to FP16 | Todd, 2026-11-04 |
@@ -626,7 +646,6 @@ development Mac and neither can reach a user's.
 | The first model is Llama 3.2 3B, smallest with the smallest op set. Gemma 4 12B is the first agentic model, in Phase 6 | Todd, 2026-11-04 |
 | Host code uses metal-cpp. Phase 0 showed it works beside `import std;` | Todd, 2026-11-04 |
 | Whether a kernel calls TensorOps is what Phase 2 measures, with own kernels kept where the result is close | Todd, 2026-11-04 |
-| Metal stays GPU only for now. MLX may later lead to optimizations, or to CPU use that makes sense (`Issues/Untriaged.md`) | Todd, 2026-11-04 |
 | Every format Mila's components use on CUDA runs on Metal (section 1) | Todd, 2026-11-05 |
 | A quantized model is held to HuggingFace FP32 on its format's weights decoded to full precision, with Phase 4's bars, not to CUDA's run of the same weights | Todd, 2026-11-06; `Notebooks/MetalGemma.md` 1.1 |
 | No published model stores FP16, so an FP16 parameter reads BF16 weights, from Phase 3 on (section 5) | Todd, 2026-11-05 |
@@ -636,4 +655,5 @@ development Mac and neither can reach a user's.
 | Attention's decode in two passes on MLX's path, 32 blocks fixed, the partials in the context's scratch (section 4.4, `Notebooks/MetalDecodeAttention.md`) | Todd, 2026-11-05 |
 | Gemma 4's drafter runs on Metal: the multi-token decode, the reader of another layer's cache, every M-series chip in view, no measurement asked to earn it (section 4.6) | Todd, 2026-11-09 |
 | Backend parity: what CUDA runs fused or replayed, Metal does too, with no measurement asked to earn it. First, prefill attention fused, over the whole cache, the sliding-window ring and the FP8 cache, as CUDA's flash prefill is (section 4.5); its rates before the change at 0, 4096 and 16384 held tokens are in `Notebooks/MetalRates.md` | Todd, 2026-11-08 |
+| Metal in v0.21.0 is what the development Mac, an M1 Pro with 16 GB, builds and tests: Llama and Gemma 4 12B. Decode replay, Qwen 3.8 whole, the Gemma 26B-A4B and the formats only it or no model uses (section 1), and Phase 7 move to `Issues/Vnext.md`. Signing the Mac app stays in v0.21.0 | Todd, 2026-11-09 |
 | Phase 5's model runs are Llama's (3.2 3B FP8 and FP4, 3.1 8B FP4); Gemma's and Qwen's formats are operations here and model runs in Phase 6. The FP8 cache dispatch asks `OperationSupported` (section 9, Phase 5) | Todd, 2026-11-05 |

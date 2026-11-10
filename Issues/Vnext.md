@@ -1346,3 +1346,76 @@ Open: whether the agent (`Mila::Agents`) adds per-round totals over its tool cal
 
 `Lib/Src/Dnn/Core/Models/LanguageModel.ixx` (`generate`'s "the model keeps no stopwatch") ·
 `Apps/Chat/Src/Chat.Session.ixx` (`RoundTimer`) · `Specifications/Notebooks/SessionInventory.md` decision 4
+
+## A Mac encodes every kernel of every token again, because Metal does not replay a decode step
+
+`architecture` · `perf` · `mila-src`
+
+CUDA records a decode step once and replays it every token (`DecodeGraph.md`); on Metal
+`createDecodeRecording()` returns null (`Metal/MetalBackend.md` 4.4), so every network calls each step whole. Each
+family still turns replay on whatever the device (`setDecodeReplay( true )` in `LlamaModel.ixx`, `GemmaModel.ixx`,
+`QwenModel.ixx`), so the first decode of every Metal load warns "replay of the decode step is off for this network --
+it could not be recorded", words that mean a real failure on CUDA. A note of 2026-11-07 that Llama 3.2 3B and 3.1 8B
+loads did not warn where Gemma 4 12B's did was never explained: no Metal network can record. Indirect command buffers
+(Apple3 and later) are the candidate. Also open: whether a device says it records, or the network tells a null
+recording from a failed one. Moved out of v0.21.0 (Todd, 2026-11-09): Metal in that release is what the development
+Mac builds and tests, and replay is not part of it.
+
+## Metal has no grouped prefill for a Q4_0 expert bank
+
+`moe` · `perf` · `mila-src`
+
+`MetalMoeOp` runs one kernel for prefill and decode, where `CudaMoeOp` has a grouped prefill on INT8 matrix
+products; Metal's speed on a bank is unmeasured. Its only user is the Gemma 4 26B-A4B, which does not fit a 16 GB Mac
+(`Notebooks/MetalGemma.md` 2.1). `Lib/Src/Dnn/Compute/Devices/Metal/Operations/Moe/MetalMoeOp.ixx`
+
+## Metal cannot quantize BF16 weights to Q4_0 or six bits at load
+
+`quantization` · `mila-src`
+
+CUDA's `CudaLinearOp` and `CudaTokenEmbeddingOp` quantize BF16 weights to Q4_0 and to six bits at load
+(`Int4Packing.ixx`, `Int6Packing.ixx` are the rule); `MetalLinearOp::quantize` and `MetalTokenEmbeddingOp::quantize`
+refuse them with the tensor's name. On CUDA the path serves `ExportArtifact --quantization q4_0`, which writes Gemma's
+published packages, and the Gemma 4 26B-A4B, quantized at load from Google's unquantized QAT checkpoint. Gemma 4 12B's
+package is stored Q4_0, so a Mac running it needs neither.
+
+## Metal has no FP8 sliding-window cache and no FP8 token embedding
+
+`quantization` · `architecture` · `mila-src`
+
+CUDA specializes `SlidingWindowKvFp8` and a `PerChannelFp8<>` token embedding; Metal has neither. No model's load
+path builds either on CUDA: Gemma's sliding layers keep the BF16 ring under an FP8 request (`GemmaModel.ixx`,
+`GemmaSlidingKvPolicy`), after the FP8 ring lost the 2026-09-30 measurement on the 26B-A4B (`Quantization.md`, decision
+6's second arm), and no family asks for an FP8 embedding table. Only CUDA tests reach them
+(`CudaGqaOp.Fp8Cache.Cuda.cpp`, the disabled `Gemma.LogLikelihood.Cuda.cpp` arms, `TokenEmbedding.Cuda.cpp` section F).
+Whether CUDA keeps them is a question of its own.
+
+## Neither Qwen 3.8 nor the Gemma 4 26B-A4B runs whole on a Mac
+
+`qwen` · `gemma` · `measured`
+
+Qwen 3.8's operations are on Metal and its four-layer packed build passes its HuggingFace gate in FP16 and BF16
+(`Notebooks/MetalQwen.md`). No Qwen 3.8 agentic build fits a 16 GB Mac's working set; `cb2-3` fits at a short
+context and has not been run whole, and Qwen has no Mac rates. The 26B-A4B does not fit at all. Qwen 3.8 on a Mac is
+v0.22.0's (Todd, 2026-11-09). `Specifications/Metal/MetalBackend.md` section 9, Phase 6.
+
+## Metal has run only on an M1 Pro, so which chips have native BF16 and which matrix path wins on each is unknown
+
+`architecture` · `perf` · `blocked`
+
+`Specifications/Metal/MetalBackend.md` Phase 7: the capability report and the matrix timing program on each M-series
+generation, filling the chip rows of section 3.3 from each chip's own run, and the M5's accelerators measured. Blocked
+on hardware: the development Mac is the only one.
+
+## Every Metal operation runs on the GPU, and none has been measured on the Mac's CPU
+
+`architecture` · `perf` · `mila-src`
+
+The backend is not limited to the GPU (Todd, 2026-11-09, `Metal/MetalBackend.md` section 1): each operation runs where
+measurement says the whole path is fastest, over the memory the CPU and GPU share. Every operation built so far is a
+GPU kernel, and no CPU placement has been designed or timed. MLX is prior art, read so far from its docs and Apple's
+posts only, nothing run: MLX chooses CPU or GPU per operation over unified memory,
+with its scheduler ordering work across the two; its docs halve a long chain of small operations on an M1 Max by
+moving them to the CPU. On the M1 Pro in Phase 1, a commit and wait costs about 220 us and a further dispatch about
+3 us, on kernels doing almost nothing. Sampling is the first candidate, since it already sits outside the decode step
+(`DecodeGraph.md` 4.5).

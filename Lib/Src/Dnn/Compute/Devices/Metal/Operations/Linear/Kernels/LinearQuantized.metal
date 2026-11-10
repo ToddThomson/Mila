@@ -1,6 +1,6 @@
-// output = input * weight^T on quantized weights, on the paths Phase 2 measured (MetalBackend.md section 4.2): own lanes
-// for a few rows; for more, the weights expanded a block of outputs at a time for TensorOps, or for FP8, TensorOps on the
-// bare codes with each output's scale after. Sums are 32 bits. Needs QuantizedCodes.metal.
+// output = input * weight^T on quantized weights, on the paths of MetalBackend.md section 4.2: one row of Q4_0 on MLX's
+// one-row shape, other few rows on own lanes; for more, the weights expanded a block of outputs at a time for
+// TensorOps, or for FP8, TensorOps on the bare codes with each output's scale after. Sums are 32 bits. Needs QuantizedCodes.metal.
 
 #include <metal_stdlib>
 #include <metal_tensor>
@@ -155,7 +155,8 @@ kernel void linear_quantized_lanes(
         device const element##4*, device const uchar*, device const scale*, device element*, constant QuantizedLinearShape&, \
         uint3, uint, uint3 );
 
-// FP8's and FP4's scales are FP32, Q4_0's and six bits' FP16, each as its policy stores it.
+// FP8's and FP4's scales are FP32, Q4_0's and six bits' FP16, each as its policy stores it. One row of Q4_0 takes
+// linear_quantized_row below; two to eight take these lanes.
 #define MILA_QUANTIZED_LANES_ALL( codes, scale, name ) \
     MILA_QUANTIZED_LANES( codes, scale, name, half, 4, 1 ) \
     MILA_QUANTIZED_LANES( codes, scale, name, half, 1, 8 ) \
@@ -164,8 +165,133 @@ kernel void linear_quantized_lanes(
 
 MILA_QUANTIZED_LANES_ALL( Fp8Codes, float, "fp8" )
 MILA_QUANTIZED_LANES_ALL( Fp4Codes, float, "fp4" )
-MILA_QUANTIZED_LANES_ALL( Int4Codes, half, "int4" )
 MILA_QUANTIZED_LANES_ALL( Int6Codes, half, "int6" )
+MILA_QUANTIZED_LANES( Int4Codes, half, "int4", half, 1, 8 )
+MILA_QUANTIZED_LANES( Int4Codes, half, "int4", bfloat, 1, 8 )
+
+// One row of Q4_0, as decode runs it, in the shape of MLX's one-row quantized product (`qmv_fast_impl` in
+// mlx/backend/metal/kernels/quantized.h, ml-explore/mlx v0.32.4, MIT): two SIMD-groups a threadgroup, four outputs a
+// SIMD-group, and each lane sixteen consecutive inputs of every 512, read once into registers for all four outputs. The
+// codes are masked in place and never shifted: the activations are prescaled by 1, 1/16, 1/256 and 1/4096 to match each
+// nibble's place in a ushort, and a code's offset comes off once, through the activations' sum. Sixteen inputs never cross
+// a scale, since Q4_0's group is 32; a row of inputs not a multiple of 512 ends in a pass the lanes past it leave. FP4 and
+// six bits were slower in this shape than on the lanes above (Notebooks/MetalMatrixPath.md 7.1).
+template<typename TElement>
+static float loadPrescaled( device const TElement* x, thread float* values )
+{
+    device const vec<TElement, 4>* x4 = reinterpret_cast<device const vec<TElement, 4>*>( x );
+    float sum = 0.0f;
+
+    for ( uint i = 0; i < 4; ++i )
+    {
+        const float4 v = float4( x4[i] );
+        sum += v.x + v.y + v.z + v.w;
+        values[4 * i] = v.x;
+        values[4 * i + 1] = v.y / 16.0f;
+        values[4 * i + 2] = v.z / 256.0f;
+        values[4 * i + 3] = v.w / 4096.0f;
+    }
+
+    return sum;
+}
+
+// Sixteen nibbles, the low first, against prescaled activations: the codes' sum before any offset.
+static float maskedNibbles( device const ushort* codes, thread const float* values )
+{
+    float sum = 0.0f;
+
+    for ( uint i = 0; i < 4; ++i )
+    {
+        const ushort b = codes[i];
+        sum += values[4 * i] * float( b & 0x000f ) + values[4 * i + 1] * float( b & 0x00f0 )
+            + values[4 * i + 2] * float( b & 0x0f00 ) + values[4 * i + 3] * float( b & 0xf000 );
+    }
+
+    return sum;
+}
+
+struct Int4Row
+{
+    template<typename TElement>
+    static float load( device const TElement* x, thread float* values )
+    {
+        return loadPrescaled( x, values );
+    }
+
+    static float dot( device const uchar* row, uint first, uint, thread const float* values, float sum )
+    {
+        return maskedNibbles( reinterpret_cast<device const ushort*>( row + first / 2 ), values ) - 8.0f * sum;
+    }
+};
+
+template<typename TRow, typename TScale, typename TElement>
+kernel void linear_quantized_row(
+    device const TElement* input [[buffer(0)]],
+    device const uchar* codes [[buffer(1)]],
+    device const TScale* scales [[buffer(2)]],
+    device TElement* output [[buffer(3)]],
+    constant QuantizedLinearShape& shape [[buffer(4)]],
+    uint3 group [[threadgroup_position_in_grid]],
+    uint simdgroup [[simdgroup_index_in_threadgroup]],
+    uint lane [[thread_index_in_simdgroup]] )
+{
+    constexpr uint kOutputs = 4;
+    constexpr uint kValues = 16;
+    constexpr uint kBlock = kValues * 32;
+
+    const uint first_output = shape.first_output + ( group.x * 2 + simdgroup ) * kOutputs;
+
+    if ( first_output >= shape.last_output )
+    {
+        return;
+    }
+
+    // Outputs past the last read the last one's codes and are never written, so the loop needs no bounds.
+    const uint last = min( kOutputs, shape.last_output - first_output ) - 1;
+    device const TElement* x = input + shape.first_row * shape.inputs;
+
+    float results[kOutputs] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    float values[kValues];
+
+    for ( uint k = 0; k < shape.inputs; k += kBlock )
+    {
+        const uint first = k + lane * kValues;
+
+        if ( first >= shape.inputs )
+        {
+            break;
+        }
+
+        const float sum = TRow::load( x + first, values );
+
+        for ( uint a = 0; a < kOutputs; ++a )
+        {
+            const uint o = first_output + min( a, last );
+            const float scale = float( scales[o * shape.groups + first / shape.group] );
+
+            results[a] += scale * TRow::dot( codes + o * shape.row_bytes, first, shape.inputs, values, sum );
+        }
+    }
+
+    for ( uint a = 0; a < kOutputs; ++a )
+    {
+        const float total = simd_sum( results[a] );
+
+        if ( lane == 0 && a <= last )
+        {
+            output[shape.first_row * shape.output_stride + first_output + a] = TElement( total );
+        }
+    }
+}
+
+#define MILA_QUANTIZED_ROW( row, scale, name, element ) \
+    template [[host_name( "linear_quantized_row_" name "_" #element )]] \
+    kernel void linear_quantized_row<row, scale, element>( \
+        device const element*, device const uchar*, device const scale*, device element*, constant QuantizedLinearShape&, \
+        uint3, uint, uint );
+
+MILA_QUANTIZED_ROW( Int4Row, half, "int4", half )
+MILA_QUANTIZED_ROW( Int4Row, half, "int4", bfloat )
 
 // Expand outputs [first_output, last_output) to the compute type, a row of inputs each, for TensorOps to multiply. Eight
 // weights to a thread; the grid is every eight inputs of every output in the block.

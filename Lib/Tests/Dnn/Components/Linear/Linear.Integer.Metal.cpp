@@ -217,6 +217,23 @@ namespace Mila::Tests::Dnn::Components
         }
     }
 
+    // One row of Q4_0 reads 512 inputs a pass and eight outputs a threadgroup (MetalBackend.md section 4.2), six bits its own
+    // lanes: one pass, three, and four and a half, each with outputs that fill no threadgroup, fill one, and leave one partly
+    // empty.
+    TYPED_TEST( LinearIntegerMetal, OneRowMatchesTheReferenceOverWholeAndPartialPasses )
+    {
+        for ( const dim_t inputs : { dim_t{ 512 }, dim_t{ 1536 }, dim_t{ 2304 } } )
+        {
+            for ( const dim_t outputs : { dim_t{ 1 }, dim_t{ 7 }, dim_t{ 8 }, dim_t{ 9 }, dim_t{ 48 } } )
+            {
+                Fixture<TypeParam> fixture( inputs, outputs, 8 );
+
+                EXPECT_LE( fixture.errorAt( 1 ), kBar<TypeParam::kPrecision> ) << inputs << " by " << outputs;
+                EXPECT_LE( fixture.errorAt( 1, 1, true ), kBar<TypeParam::kPrecision> ) << inputs << " by " << outputs << ", decode";
+            }
+        }
+    }
+
     TYPED_TEST( LinearIntegerMetal, MatchesTheReferenceOnGemmasShapes )
     {
         // Gemma 4 12B's global layers: Q and the one K, 8704 by 3840, and the output projection of 4096 inputs.

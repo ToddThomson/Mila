@@ -447,3 +447,35 @@ lanes kernel, which read its weights at about 117 GB/s (the per-kernel GPU times
 M1 Pro's peak is about 200. Section 6 found that kernel limited by arithmetic. Can less arithmetic per weight move it?
 
 **Open:** a faster Q4_0 product, designed and measured in Mila.
+
+### 7.1 MLX's one-row shape, for FP4, Q4_0 and six bits
+
+2026-11-09, at `0.21.0-dev+130`. The bar is 0.85 of MLX's decode on the same Mac (`Metal/MetalBackend.md` section 6), and
+`Notebooks/MetalRates.md` 7 found the one-row quantized product 72 to 75% of every quantized model's decode. Todd chose
+MLX's one-row product as the design, cited. Built as `linear_quantized_row` (`MetalBackend.md` 4.2 has the shape and the
+citation).
+
+**Gate, written before the run.** Every Metal Linear test passes, FP16 and BF16, with a new test of one row over one,
+three and four and a half passes of 512 inputs and 1, 7, 8, 9 and 48 outputs, forward and decode; each forced failure of
+the new kernel is caught by a test; then each model's decode is timed against MLX as `MetalRates.md` 7 timed it, and
+its HuggingFace gate on Metal still passes.
+
+**Results.** Built first for FP4, Q4_0 and six bits. Every Metal Linear test passed (177), and 12 of 12 forced failures
+were caught (`D:\Claude\metal\row\mutate.sh`). Profiled decode, GPU time a token:
+
+| Product | Own lanes | MLX's one-row shape |
+|---|---|---|
+| Q4_0, Llama 3.1 8B body | 32.1 ms | **23.1 ms** |
+| Q4_0, Gemma 4 12B body | 50.5 ms | **36.9 ms** |
+| FP4, Llama 3.1 8B body, codes by arithmetic as MLX's `fp4.h` | 26.9 ms | 32.6 ms |
+| FP4, the same, codes by a table | 26.9 ms | 33.7 ms |
+| Six bits, Gemma's tied head | 6.1 ms | 7.4 ms |
+
+Q4_0 gains because its codes are masked in place against prescaled activations, with no shift; FP4 and six bits shift
+every code in either kernel, and the lanes do it for less. So only Q4_0 takes the new kernel; FP4 and six bits keep
+the lanes. Eight of the twelve forced failures fall on code that stayed, and all eight were caught. After the change
+198 Metal tests pass: every Linear test, Gemma 4 12B's HuggingFace gate in FP16 and BF16, and its drafter's greedy
+check. The BF16 window-edge test, failing since `+128` (`BACKLOG.md`), passes at a worst of 2.14e-2 against 2.54e-2.
+Rates: `MetalRates.md` 7.1.
+
+**Open:** FP4's one-row product, at about 138 GB/s, and the six-bit head, at about 122.

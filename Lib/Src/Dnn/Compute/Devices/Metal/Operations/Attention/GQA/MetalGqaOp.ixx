@@ -122,7 +122,7 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             }
 
             // A decode threadgroup holds a SIMD-group for each query head of one KV head, and the kernel says how many threads it takes.
-            const MetalKernelLimits limits = context_->device().kernels().limits( decodeKernelName( "gqa_decode_partial" ) );
+            const MetalKernelLimits limits = context_->device().kernels().limits( decodeKernelName( kFp8Cache ? "gqa_decode_partial_fp8" : "gqa_decode_partial" ) );
             const std::size_t decode_threads = static_cast<std::size_t>( heads_ / kv_heads_ ) * limits.thread_execution_width;
 
             if ( decode_threads > limits.max_total_threads_per_threadgroup )

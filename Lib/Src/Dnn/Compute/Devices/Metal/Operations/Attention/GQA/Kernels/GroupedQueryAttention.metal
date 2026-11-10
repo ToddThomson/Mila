@@ -417,6 +417,9 @@ template [[host_name("gqa_unpermute_output_bfloat")]] kernel void gqa_unpermute_
 template<uint HS>
 struct GqaContiguousChannels
 {
+    // A lane's channels are one run, which a decode reads in wide loads.
+    static constant constexpr bool kContiguous = true;
+
     uint lane;
 
     uint channel( uint e ) const
@@ -434,6 +437,8 @@ struct GqaContiguousChannels
 // (the notebook's section 3), and used by no model Mila runs.
 struct GqaInterleavedChannels
 {
+    static constant constexpr bool kContiguous = false;
+
     uint lane;
     uint head_size;
 
@@ -447,6 +452,80 @@ struct GqaInterleavedChannels
         return e * 32 + lane < head_size;
     }
 };
+
+// A lane's run of kCount 16-bit values from `run`, aligned to its own size, in as few loads as fit: 16 bytes a load where the
+// run allows, so that a head of 512 reads its 16 values in two loads and not sixteen (Notebooks/MetalRates.md 7.2: the
+// value-at-a-time loads held the global layers' decode on its load unit, with memory barely read).
+template<uint kCount, typename TElement>
+inline void gqa_load_run( device const TElement* run, thread float* out )
+{
+    if constexpr ( kCount % 8 == 0 )
+    {
+        device const uint4* words = reinterpret_cast<device const uint4*>( run );
+
+        for ( uint i = 0; i < kCount / 8; ++i )
+        {
+            const uint4 w = words[i];
+
+            for ( uint c = 0; c < 4; ++c )
+            {
+                const vec<TElement, 2> pair = as_type<vec<TElement, 2>>( w[c] );
+                out[8 * i + 2 * c] = float( pair.x );
+                out[8 * i + 2 * c + 1] = float( pair.y );
+            }
+        }
+    }
+    else if constexpr ( kCount == 4 )
+    {
+        const uint2 w = *reinterpret_cast<device const uint2*>( run );
+
+        for ( uint c = 0; c < 2; ++c )
+        {
+            const vec<TElement, 2> pair = as_type<vec<TElement, 2>>( w[c] );
+            out[2 * c] = float( pair.x );
+            out[2 * c + 1] = float( pair.y );
+        }
+    } else {
+        for ( uint e = 0; e < kCount; ++e )
+        {
+            out[e] = float( run[e] );
+        }
+    }
+}
+
+// The same for FP8 codes, widened through E4M3's table: 16 codes a load.
+template<uint kCount>
+inline void gqa_load_run( device const uchar* run, thread float* out )
+{
+    if constexpr ( kCount % 16 == 0 )
+    {
+        device const uint4* words = reinterpret_cast<device const uint4*>( run );
+
+        for ( uint i = 0; i < kCount / 16; ++i )
+        {
+            const uint4 w = words[i];
+
+            for ( uint c = 0; c < 16; ++c )
+            {
+                out[16 * i + c] = kFp8E4M3Values[( w[c / 4] >> ( 8 * ( c % 4 ) ) ) & 255u];
+            }
+        }
+    }
+    else if constexpr ( kCount == 8 )
+    {
+        const uint2 w = *reinterpret_cast<device const uint2*>( run );
+
+        for ( uint c = 0; c < 8; ++c )
+        {
+            out[c] = kFp8E4M3Values[( w[c / 4] >> ( 8 * ( c % 4 ) ) ) & 255u];
+        }
+    } else {
+        for ( uint e = 0; e < kCount; ++e )
+        {
+            out[e] = kFp8E4M3Values[run[e]];
+        }
+    }
+}
 
 // A cache in the compute type: each row as stored.
 template<typename TElement>
@@ -462,6 +541,13 @@ struct GqaCacheRows
 
     float key( uint row, uint head_size, uint channel ) const { return float( keys[row * head_size + channel] ); }
     float value( uint row, uint head_size, uint channel ) const { return float( values[row * head_size + channel] ); }
+
+    template<uint kCount>
+    void keyRun( uint row, uint head_size, uint first, thread float* out ) const { gqa_load_run<kCount>( keys + row * head_size + first, out ); }
+
+    template<uint kCount>
+    void valueRun( uint row, uint head_size, uint first, thread float* out ) const { gqa_load_run<kCount>( values + row * head_size + first, out ); }
+
     float keyScale( uint ) const { return 1.0f; }
     float valueScale( uint ) const { return 1.0f; }
 };
@@ -483,6 +569,12 @@ struct GqaFp8CacheRows
 
     float key( uint row, uint head_size, uint channel ) const { return kFp8E4M3Values[keys[row * head_size + channel]]; }
     float value( uint row, uint head_size, uint channel ) const { return kFp8E4M3Values[values[row * head_size + channel]]; }
+
+    template<uint kCount>
+    void keyRun( uint row, uint head_size, uint first, thread float* out ) const { gqa_load_run<kCount>( keys + row * head_size + first, out ); }
+
+    template<uint kCount>
+    void valueRun( uint row, uint head_size, uint first, thread float* out ) const { gqa_load_run<kCount>( values + row * head_size + first, out ); }
     float keyScale( uint row ) const { return key_scales[row]; }
     float valueScale( uint row ) const { return value_scales[row]; }
 };
@@ -528,11 +620,26 @@ inline void gqa_decode_block(
     {
         const uint j = p % geometry.capacity;
 
+        float key[kPerLane];
+        float value[kPerLane];
+
+        if constexpr ( TChannels::kContiguous )
+        {
+            rows.template keyRun<kPerLane>( j, head_size, channels.channel( 0 ), key );
+            rows.template valueRun<kPerLane>( j, head_size, channels.channel( 0 ), value );
+        } else {
+            for ( uint e = 0; e < kPerLane; ++e )
+            {
+                key[e] = channels.present( e ) ? rows.key( j, head_size, channels.channel( e ) ) : 0.0f;
+                value[e] = channels.present( e ) ? rows.value( j, head_size, channels.channel( e ) ) : 0.0f;
+            }
+        }
+
         float score = 0.0f;
 
         for ( uint e = 0; e < kPerLane; ++e )
         {
-            score += channels.present( e ) ? q[e] * rows.key( j, head_size, channels.channel( e ) ) : 0.0f;
+            score += q[e] * key[e];
         }
 
         score = simd_sum( score ) * rows.keyScale( j );
@@ -547,7 +654,7 @@ inline void gqa_decode_block(
 
         for ( uint e = 0; e < kPerLane; ++e )
         {
-            out[e] = out[e] * rescale + ( channels.present( e ) ? value_weight * rows.value( j, head_size, channels.channel( e ) ) : 0.0f );
+            out[e] = out[e] * rescale + value_weight * value[e];
         }
 
         largest = next;

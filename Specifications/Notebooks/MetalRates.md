@@ -175,8 +175,147 @@ Rates at depth with arm 2c, one run each, the fused and unfused builds alternate
 The fused prefill is faster from an empty cache, by 13 to 16%, and slower after a held prompt on Llama, by 7% after 4,096 and
 15% after 16,384. Gemma's fused cell at 16,384 equal to its cell at 4,096 is not explained, and is one run.
 
-## 7. What this cannot say
+## 7. Decode at `+130` against MLX's bar
 
-One Mac, one run per change in section 4, and short contexts. Mila's rates in section 2 are from before section 4's
-changes; the table has not been measured again. The BF16 check across Gemma's window edge moved with the RMSNorm
+The bar is 0.85 of MLX's rate on the same Mac, model and shape (`Metal/MetalBackend.md` section 6, Todd, 2026-11-09).
+Run 2026-11-09, 11:38 to 12:05, on AC, `0.21.0-dev+130`, by `D:\Claude\metal\decode130\run.sh` (log beside it). FP16,
+greedy, context 8192, 128 tokens decoded from a one-token prompt and after a 4096-token one. The sample is smaller than
+section 2's, the configuration the same: Mila two rounds of two runs, the median of four, every spread under 1%; MLX
+`mlx_lm benchmark -n 2`, the mean of two. MLX's decode from empty now follows a one-token prompt, as Mila's does, where
+section 2's followed 512. Swap rose from 0.99 to 1.46 GB over the run; MLX's QAT Gemma again ran out of memory at 4096.
+
+| Model | Mila | MLX | Ratio | Mila after 4096 | MLX after 4096 | Ratio |
+|---|---|---|---|---|---|---|
+| Llama 3.2 3B, 16-bit | 20.88 | 24.56 | **0.85** | 18.88 | 22.23 | **0.85** |
+| Llama 3.1 8B, Mila Q4_0 / MLX 4-bit | 23.65 | 37.56 | 0.63 | 20.49 | 32.76 | 0.63 |
+| Llama 3.1 8B, Mila FP4 / MLX 4-bit | 27.20 | 37.56 | 0.72 | 23.11 | 32.76 | 0.71 |
+| Gemma 4 12B, Mila Q4_0 / MLX 4-bit | 15.14 | 20.65 | 0.73 | 13.31 | 19.53 | 0.68 |
+| Gemma 4 12B, Mila Q4_0 / MLX QAT 4-bit | 15.14 | 14.62 | 1.04 | 13.31 | out of memory | |
+
+Since section 2, Mila's 3B decode is 9% faster (19.1 to 20.88) and the drop filed in `Issues/Untriaged.md` is gone from
+decode; its prefill is still 512 tokens a second against 555 at `+122`. The 8B is 11% faster on Q4_0 and 12% on FP4, Gemma
+24% (12.2 to 15.14), greedy, after section 4's sampler and RMSNorm changes.
+
+**Where a step goes**, `--profile-dispatches`, decode from empty, GPU time a token:
+
+| Model | GPU ms | Largest kernel | Its ms | Share | Next |
+|---|---|---|---|---|---|
+| Llama 3.2 3B | 49.0 | 16-bit Linear lanes (body and tied head) | 44.4 | 91% | RMSNorm 0.9, split 0.8 |
+| Llama 3.1 8B Q4_0 | 42.8 | Q4_0 lanes (body) | 32.1 | 75% | 16-bit head 5.8, RMSNorm 1.2 |
+| Llama 3.1 8B FP4 | 37.5 | FP4 lanes (body) | 26.9 | 72% | 16-bit head 5.8, RMSNorm 1.2 |
+| Gemma 4 12B Q4_0 | 67.5 | Q4_0 lanes (body) | 50.5 | 75% | six-bit head 6.1, RMSNorm 4.5 |
+
+Attention's decode from empty is 1 to 3% of each. What the weights read at, arithmetic from the stored bytes: the 3B's
+16-bit lanes about 145 GB/s; the 8B's Q4_0 body (3.93 GB) about 122 GB/s, its FP4 body (3.71 GB) about 138 GB/s, and its
+16-bit head (1.05 GB) about 182 GB/s; Gemma's Q4_0 body about 116 GB/s, as in section 3. The M1 Pro's is 200 GB/s.
+
+**What reaching the bar takes, by arithmetic, not measured.** If the quantized one-row product read at 170 GB/s, near the
+182 GB/s the 16-bit lanes reach on the 8B's head:
+
+- Gemma 4 12B: Q4_0 50.5 to about 34.4 ms, about 20.0 tokens a second, 0.97 of MLX. Past the bar.
+- Llama 3.1 8B FP4: 26.9 to about 21.8 ms, about 31.5 tokens a second, 0.84.
+- Llama 3.1 8B Q4_0: 32.1 to about 23.1 ms, about 30.0 tokens a second, 0.80. Short of the bar by its format, not its
+  kernel: Mila's Q4_0 package keeps a 16-bit head of 1.05 GB, and MLX's 4-bit build quantizes the head too, so Mila reads
+  about 5.0 GB a token to MLX's about 3.9. llama.cpp reads Mila's own bytes (section 1), and is the like-for-like
+  comparison for this row.
+
+So one kernel family, the quantized one-row product, carries every model below the bar. Gemma also loses more than MLX
+after 4096 held tokens: its step grows 9.1 ms where MLX's grows 2.8, so decode attention at depth on Gemma's head sizes
+is the second gap. Its profile at depth has not been taken; the tool profiles a decode from empty.
+
+### 7.1 After the one-row Q4_0 kernel
+
+Same day, same method, after Q4_0's one row moved to MLX's one-row shape (`Metal/MetalBackend.md` 4.2,
+`Notebooks/MetalMatrixPath.md` 7.1); logs `D:\Claude\metal\row\row-rates-2.log`. MLX's figures are section 7's.
+
+| Model | Decode | Ratio | Was | After 4096 | Ratio | Was |
+|---|---|---|---|---|---|---|
+| Llama 3.1 8B Q4_0 | 30.22 | 0.80 | 0.63 | 25.26 | 0.77 | 0.63 |
+| Llama 3.1 8B FP4 | 27.17 | 0.72 | 0.72 | 23.13 | 0.71 | 0.71 |
+| Gemma 4 12B Q4_0 | 19.14 | **0.93** | 0.73 | 16.28 | 0.83 | 0.68 |
+
+The Q4_0 product went from 32.1 to 23.5 ms a token on the 8B and from 50.5 to 37.1 ms on Gemma, about 167 GB/s from 122
+(arithmetic from the stored bytes). Prefill did not move. Gemma clears the bar from an empty cache and not after 4096;
+the 8B's Q4_0 is short of it by its 16-bit head, as section 7 found; FP4 is unchanged.
+
+**Gemma 4 12B against llama.cpp and MLX, the same afternoon** (`D:\Claude\metal\row\gemma-peers.sh`): llama.cpp b12138
+on Google's QAT Q4_0 GGUF, flash attention off and on, the faster cell taken, two repetitions; MLX `-p 512 -n 2`.
+
+| | Prefill 512 | Decode | Decode after 4096 |
+|---|---|---|---|
+| Mila, Q4_0 | 130.9 | 19.14 | 16.28 |
+| llama.cpp | 151.4 (fa off) | 21.09 (fa on) | 19.18 (fa on) |
+| MLX, 4-bit | 105.7 | 19.88 after 512 | 19.53 |
+| MLX, QAT 4-bit | 108.4 | 14.13 after 512 | out of memory |
+| Mila against llama.cpp | 0.86 | 0.91 | 0.85 |
+
+Swap stood at 1.4 to 1.6 GB through this run, against 1.0 in section 7's.
+
+### 7.2 Gemma's decode at depth, kernel by kernel
+
+`mila-metal-model-timing --profile-dispatches --profile-depths 0,1024,4096,16384` (the tool's profile now starts at the
+first generated token, so a held prompt's prefill is not in it), FP16, context 20480, 127 tokens decoded after each held
+prompt, one run; log `~/mila-work/gemma-depth-profile.log` on the Mac. GPU ms a token:
+
+| Held | Total | Q4_0 | Six-bit head | RMSNorm | Partial, sliding (256) | Partial, global (512) | Merges |
+|---|---|---|---|---|---|---|---|
+| 1 | 53.1 | 36.6 | 6.1 | 4.3 | 0.74 | 0.36 | 1.0 |
+| 1024 | 57.4 | 36.5 | 6.2 | 4.4 | 3.55 | 1.66 | 1.1 |
+| 4096 | 61.8 | 36.8 | 6.1 | 4.4 | 3.55 | 5.79 | 1.1 |
+| 16384 | 76.4 | 35.0 | 5.9 | 4.2 | 3.50 | 23.27 | 1.0 |
+
+Everything but the partial pass is flat. What the partial pass reads, arithmetic from the cache's shape: the 40 sliding
+layers' full window, 1024 rows of 8 KV heads of 256 for K and for V in FP16, is 336 MB a token, so about 95 GB/s; the 8
+global layers' cache, one KV head of 512 held as K and as V, is 67 MB a token at 4096 and 268 MB at 16384, so about
+11.5 GB/s at both. The global layers' grid is 32 blocks of one KV head, 32 threadgroups of 16 SIMD-groups, each SIMD-group
+walking its block's keys one after another; their time is linear in the keys held, about 5.7 us a key a block.
+
+**MLX's block count and read-ahead did not move it** (2026-11-09, the change of `Metal/MetalBackend.md` 4.4). The same build
+with and without them, alternated A B A B in one session, Gemma decode tokens a second: from empty 19.96 and 19.95
+without, 19.71 and 19.71 with; after 4096, 17.15 and 17.15 against 16.95 and 16.94; after 16384, 13.13 and 13.17 against
+13.73 and 13.75. Prefill unchanged at 156.7. Earlier runs the same afternoon had shown Mila's prefill 18% lower and its
+decode a few percent lower, with more swap: rates from different sessions are not compared.
+
+**What holds the global layers' kernel: its loads, not memory** (Metal System Trace with the Metal GPU Counters
+instrument, the last 30 seconds of a profiled decode after 4096, one dispatch per encoder, `~/mila-work/trace` on the
+Mac). Counters averaged over one dispatch of each kernel, the samples inside it:
+
+| Kernel | Buffer load utilization | Buffer read limiter | Last level cache limiter | Compute occupancy | ALU limiter |
+|---|---|---|---|---|---|
+| Decode partial, head 512 (global) | 91% | 92% | 31% | 14% | 17% |
+| Decode partial, head 256 (sliding) | 54% | 93% | 14% | 16% | 20% |
+| Q4_0 one-row product, for contrast | 12% | 94% | 42% | 30% | 43% |
+
+No register spills in the window. The read limiter is high in all three; what sets the head-512 kernel apart is its load
+unit, busy 91% of the time while DRAM is barely read, against 12% for the Q4_0 product, which reads near the chip's
+bandwidth. So the kernel issues too many loads for the bytes it brings: each lane loads its 16 channels one value at a
+time, and every one of a threadgroup's 16 SIMD-groups loads the same key and value rows. One dispatch a kernel and four
+to 34 samples each; the counters' read bandwidth is not taken as an absolute rate.
+
+**Wide loads** (`Metal/MetalBackend.md` 4.4): each lane reads its run of channels 16 bytes a load, two loads at a head of
+512 and one at 256. Profiled, GPU ms a token: the global layers' partial pass 5.79 to 1.93 after 4096 and 23.27 to 7.07
+after 16384, about 37 GB/s now; the sliding layers' 3.55 to 2.30, about 146 GB/s; the whole step 61.8 to 53.9 and 76.4
+to 59.1. Alternated A C A C in one session, tokens a second:
+
+| Gemma 4 12B | Without | With | |
+|---|---|---|---|
+| Decode from empty | 19.95, 19.96 | 20.04, 20.04 | +0.4% |
+| Decode after 4096 | 17.14, 17.16 | 18.79, 18.79 | +9.6% |
+| Decode after 16384 | 13.19, 13.19 | 17.13, 17.12 | +30% |
+| Prefill 512 | 156.7 | 156.7 | |
+
+After 4096 that is 0.98 of llama.cpp's 19.18 and 0.96 of MLX's 19.53 the same afternoon (section 7.1). The global
+layers' pass still reads at about a fifth of the chip's bandwidth: every one of a threadgroup's 16 SIMD-groups still
+loads the same rows, which one copy shared through threadgroup memory would remove.
+
+Gate: the 132 attention tests pass under Metal's API validation, the sums in the order they were; 7 of 7 forced failures
+are caught (`D:\Claude\metal\attention2\mutatewide.sh`: a pair's halves swapped, the first word reread, FP8's bytes
+taken from the wrong word or place, a lane's values read from its keys, a lane's run from channel 0); Gemma 4 12B's
+HuggingFace gate on Metal passes in FP16 and BF16 (BF16's window edge 2.36e-2 against 2.54e-2), and the drafter's
+greedy check gives 128 of 128.
+
+## 8. What this cannot say
+
+One Mac, one run per change in section 4, and short contexts. Section 2's rates are from before section 4's changes;
+section 7 measures decode again at `+130`, not prefill. The BF16 check across Gemma's window edge moved with the RMSNorm
 change (`BACKLOG.md`, *Gemma 4 12B in BF16 strays ten times further from HuggingFace*).

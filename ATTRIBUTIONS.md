@@ -65,6 +65,68 @@ Both rest on the online normalizer calculation for softmax introduced by Milakov
 
 </details>
 
+### MLX
+
+Mila's Metal backend for Apple silicon takes several kernel designs from Apple's MLX, an MIT-licensed array framework
+for Apple silicon. Mila writes its own kernels for its own weight layouts; the shapes below are MLX's, and each source
+file names the MLX file it follows (ml-explore/mlx v0.32.4).
+
+- **Decode attention** (`GroupedQueryAttention.metal`): the two-pass decode of `sdpa_vector.h`, the keys split across
+  blocks and merged, as Flash-Decoding does above.
+- **Prefill attention** (`GroupedQueryAttention.Flash.metal`): the online softmax in base 2 with the scale carrying
+  log2(e), and the starting tile sizes, from `steel_attention.h`.
+- **One-row Q4_0 product** (`LinearQuantized.metal`, `linear_quantized_row`): the shape of `qmv_fast_impl` in
+  `quantized.h`, with the codes masked in place against prescaled activations.
+
+- Awni Hannun, Jagrit Digani, Angelos Katharopoulos, and Ronan Collobert. *MLX: efficient and flexible machine learning
+  on Apple silicon.* Apple, 2023. [github.com/ml-explore/mlx](https://github.com/ml-explore/mlx)
+
+### MARLIN
+
+On CUDA, decoding several rows at once (`CudaDecodeRows.cu`) keeps a register accumulator per row, so the work per
+weight is the same at every row count up to 8, as MARLIN does for small batches.
+
+- Elias Frantar, Roberto L. Castro, Jiale Chen, Torsten Hoefler, and Dan Alistarh. *MARLIN: Mixed-Precision
+  Auto-Regressive Parallel Inference on Large Language Models.* 2024.
+  [arXiv:2408.11743](https://arxiv.org/abs/2408.11743)
+
+### Speculative decoding
+
+Gemma 4 decodes with Google's drafter on CUDA and on a Mac; a drafted token is kept by the rule of Leviathan et al.,
+which leaves the model's output distribution unchanged (`SpeculativeSampler.ixx`, `GemmaModel.ixx`).
+
+- Yaniv Leviathan, Matan Kalman, and Yossi Matias. *Fast Inference from Transformers via Speculative Decoding.*
+  ICML 2023. [arXiv:2211.17192](https://arxiv.org/abs/2211.17192)
+
+<details>
+<summary>BibTeX</summary>
+
+```bibtex
+@software{mlx2023,
+  title={{MLX}: efficient and flexible machine learning on Apple silicon},
+  author={Hannun, Awni and Digani, Jagrit and Katharopoulos, Angelos and Collobert, Ronan},
+  year={2023},
+  url={https://github.com/ml-explore}
+}
+
+@misc{frantar2024marlin,
+  title={{MARLIN}: Mixed-Precision Auto-Regressive Parallel Inference on Large Language Models},
+  author={Frantar, Elias and Castro, Roberto L. and Chen, Jiale and Hoefler, Torsten and Alistarh, Dan},
+  year={2024},
+  eprint={2408.11743},
+  archivePrefix={arXiv}
+}
+
+@inproceedings{leviathan2023fast,
+  title={Fast Inference from Transformers via Speculative Decoding},
+  author={Leviathan, Yaniv and Kalman, Matan and Matias, Yossi},
+  booktitle={International Conference on Machine Learning (ICML)},
+  year={2023}
+}
+```
+
+</details>
+
 ## A Steam Shovel Named Mary Anne
 
 Some of Mila's instincts predate any paper. Virginia Lee Burton's *Mike Mulligan and His Steam Shovel* (1939) — a favorite of mine as a boy — quietly shaped how I frame a solution.  Mike's loyalty to a machine he understands completely, in an age of flashier ones, is the mastery-over-novelty stance of a hand-built C++/CUDA runtime. And Burton's honest cutaway drawings — which let a child see exactly how the machine works — are the same promise as Mila's readable path from prompt to kernel, with no hidden engine. With gratitude to a steam shovel that dug this particular corner long before I did.

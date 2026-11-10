@@ -289,6 +289,22 @@ namespace Mila::Tests::Dnn::Components
         }
     }
 
+    // One row at one pass of 512 inputs, three, and four and a half, each with outputs that fill no group of eight, fill one,
+    // and leave one partly empty: the edges of the one-row kernels' grids (MetalBackend.md section 4.2).
+    TYPED_TEST( LinearQuantizedMetal, OneRowMatchesTheReferenceOverWholeAndPartialPasses )
+    {
+        for ( const dim_t inputs : { dim_t{ 512 }, dim_t{ 1536 }, dim_t{ 2304 } } )
+        {
+            for ( const dim_t outputs : { dim_t{ 1 }, dim_t{ 7 }, dim_t{ 8 }, dim_t{ 9 }, dim_t{ 48 } } )
+            {
+                Fixture<TypeParam> fixture( inputs, outputs, 8, Load::StoredQuantized );
+
+                EXPECT_LE( fixture.errorAt( 1 ), kBar<TypeParam::kPrecision> ) << inputs << " by " << outputs;
+                EXPECT_LE( fixture.errorAt( 1, true ), kBar<TypeParam::kPrecision> ) << inputs << " by " << outputs << ", decode";
+            }
+        }
+    }
+
     TYPED_TEST( LinearQuantizedMetal, MatchesTheReferenceWithABias )
     {
         Fixture<TypeParam> fixture( 256, 48, 1031, Load::StoredQuantized, true );
