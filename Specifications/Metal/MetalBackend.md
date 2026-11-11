@@ -203,14 +203,16 @@ which is NVFP4's shape, and it has no six-bit or codebook weights. FP8 is the ex
 
 | Rows (M) | FP8 | FP4, Q4_0, Q6_K, codebooks |
 |---|---|---|
-| 1 | Own lanes | Q4_0: MLX's one-row shape. FP4, six bits, codebooks: own lanes |
+| 1 | Own lanes | Q4_0, six bits: MLX's one-row shape. FP4, codebooks: own lanes |
 | 8 | TensorOps on the bare codes, scales after | Own lanes |
 | 128 | TensorOps on the bare codes, scales after | TensorOps, on FP16 expanded a block of outputs at a time |
 | 2048 | TensorOps, expanded | TensorOps, expanded |
 
 Expanding costs 1% to 5% at M = 2048, and a scratch buffer of 8 to 29 MB. Decode reads less memory than FP16 and is limited by arithmetic: 0.20 ms for FP4 and 0.24 ms for Q4_0 against 0.65 ms unquantized, at 1 x 4096 x 14336. These are weights in isolation, on normal values. In Gemma 4 12B's decode the Q4_0 lanes read their weights at about 117 GB/s, two thirds of a token's time (`Notebooks/MetalRates.md`).
 
-**One row of Q4_0 takes MLX's one-row shape** (Todd, 2026-11-09, on the bar of section 6; `linear_quantized_row` in `LinearQuantized.metal`). It is MLX's `qmv_fast_impl` (`mlx/backend/metal/kernels/quantized.h`, ml-explore/mlx v0.32.4, MIT) on Mila's layout: a threadgroup of two SIMD-groups, four outputs a SIMD-group, each lane sixteen consecutive inputs of every 512, the activations read once into registers for all four outputs. The codes are masked in place and never shifted, against activations prescaled by 1, 1/16, 1/256 and 1/4096, and a code's offset comes off once through the activations' sum. A row whose inputs are not a multiple of 512, as Gemma's 3840 is, ends in a pass the lanes past it leave. The pipeline is resolved when the op is built. FP4 and six bits were built in the same shape and were slower than the own lanes, FP4 with its codes decoded by arithmetic as MLX's `fp4.h` does or by a table, so they keep the lanes, as do two to eight rows, FP8 and the codebooks. Results: `Notebooks/MetalMatrixPath.md` section 7.1.
+**One row of Q4_0 takes MLX's one-row shape** (Todd, 2026-11-09, on the bar of section 6; `linear_quantized_row` in `LinearQuantized.metal`). It is MLX's `qmv_fast_impl` (`mlx/backend/metal/kernels/quantized.h`, ml-explore/mlx v0.32.4, MIT) on Mila's layout: a threadgroup of two SIMD-groups, four outputs a SIMD-group, each lane sixteen consecutive inputs of every 512, the activations read once into registers for all four outputs. The codes are masked in place and never shifted, against activations prescaled by 1, 1/16, 1/256 and 1/4096, and a code's offset comes off once through the activations' sum. A row whose inputs are not a multiple of 512, as Gemma's 3840 is, ends in a pass the lanes past it leave. The pipeline is resolved when the op is built. FP4 was built in the same shape and was slower than the own lanes, with its codes decoded by arithmetic as MLX's `fp4.h` does or by a table, so it keeps the lanes, as do two to eight rows, FP8 and the codebooks. Results: `Notebooks/MetalMatrixPath.md` section 7.1.
+
+**One row of six bits takes the same kernel, both planes masked in place** (Todd, 2026-11-11). With its codes shifted it had lost to the lanes. A six-bit row is Q4_0's nibbles and then a plane of each code's high pair, eight pairs to a ushort, so the nibbles are masked as Q4_0's and the pairs against sixteen more activations, prescaled by 16 / 4^j for a pair at bit 2j; the offset of 32 comes off through the activations' sum. The kernel takes its group from the format, 32 for both, and finds each output's code and scale addresses once: its scale index had divided by the shape's group size every pass. Alone, Q4_0's product is within 2 to 7% of a kernel that only reads its bytes. Results: `Notebooks/MetalMatrixPath.md` section 7.2, `Notebooks/MetalRates.md` 7.4.
 
 **Binding.** Measured: a tensor bound alone at a buffer index gave all-zero output with no error, and a struct of resource
 ids at one index worked. So every kernel test checks values, and a test that only checks completion is not a test here.
@@ -265,8 +267,16 @@ alone waits on memory through every step of a row, and a decode step runs hundre
 gave one SIMD-group 85 passes over Gemma's 262,144 logits and was the whole of Chat's 2 tokens a second, now runs in the
 stages of CUDA's multi-block pipeline, its row across many threadgroups. Where CUDA narrows each truncation over float
 histogram rounds, Metal's cut is radix selection on the scaled logits' bits, three rounds of 12, 12 and 8, so the k-th
-value and the nucleus edge are exact. Greedy and RMSNorm take a 256-thread threadgroup a row. Every operation resolves its
+value and the nucleus edge are exact. Greedy takes a 256-thread threadgroup a row. Every operation resolves its
 pipelines once, when constructed (section 4.3).
+
+**Nor one value a load where a thread makes several (Todd, 2026-11-11; `Notebooks/MetalRates.md` 7.4).** A thread's loads
+run one after another, each waiting on memory, so a kernel's time is the loads its busiest thread makes. RMSNorm at 256
+threads and a value a load took 13.9 us on a row of 3840, 15 loads a thread in each of two passes, and ran 334 times a
+token. It reads four values a load, keeps a thread's first four in registers between its passes, and gives a slice wider
+than 1024 a threadgroup of 1024 threads, so a row up to 4096 wide is read once: 4.1 us alone. A slice of any width starts
+where its width puts it, so the loads are packed ones. A device whose limit for the kernel is under 1024 threads keeps
+256 for every slice.
 
 **A decode step is timed kernel by kernel by the library (Todd, 2026-11-07).** `setDispatchProfiling` on the model encodes
 each dispatch apart with a GPU timestamp at its start and end, at the encoder's boundary, and `dispatchProfile()` returns

@@ -596,6 +596,61 @@ across the two runs of one session; the sliding layers' kernel took 391 to 394 m
 threadgroups a dispatch and the softmax 128, in 512 dispatches of each a prompt where the whole chunk took 8 (arithmetic
 from the tile shapes). The small block loses to the kernels' dispatches being small, not to the products' rate.
 
+### 7.4 Gemma's decode after `+134`: the product at the memory floor, RMSNorm and the head not
+
+2026-11-11, at `0.21.0-dev+134`. **Question:** Gemma 4 12B decoded a little behind llama.cpp and MLX; is the one-row Q4_0
+product leaving time unused? Sources, scripts and logs: `D:\Claude\metal\decode134`.
+
+**The kernels alone.** A standalone program ran copies of the `+134` kernels at Gemma's decode shapes, every launch
+reading a different copy of the weights out of about 1.5 GB in rotation: the same weights read again come from the cache
+at over 340 GB/s, which a model's 6 GB a token never does. Beside each, a kernel that loads the same codes and scales in
+the same order and only sums them. Milliseconds a launch, the median of seven rounds of 24 to 90 launches:
+
+| Inputs to outputs | Q4_0 one row at `+134` | Addresses found once, the group a constant | Reading alone |
+|---|---|---|---|
+| 3840 to 8192 | 0.1017 | 0.0972 | 0.0949 |
+| 3840 to 30720 | 0.3557 | 0.3446 | 0.3414 |
+| 15360 to 3840 | 0.1889 | 0.1894 | 0.1849 |
+| 8192 to 3840 | 0.1003 | 0.1004 | 0.0973 |
+
+The four over 48 layers are 35.8 ms, against 36.6 in section 7.2's profile. The product is within 2 to 7% of reading its
+bytes, 174 to 187 GB/s against 180 to 194. What it had left was its scale index, a division by a group size read from
+the shape every pass. One 8-byte load of a lane's codes, 32 inputs a lane and eight outputs a SIMD-group were equal or
+slower.
+
+RMSNorm, a chain of 334 launches on a row of 3840, each reading the one before's output and its own weights,
+microseconds a launch: 13.9 as at `+134` (256 threads, a value a load); 6.9 at 1024 threads; 6.4 at 256 threads and four
+values a load; 3.7 at 1024 threads and four values a load; 2.2 for a kernel that does nothing. An encoder a launch
+changed none of them. A thread makes its loads one after another, each waiting on memory, which is section 7.2's finding
+for attention's keys. On slices of 256 and of 1024, 256 threads and 1024 took the same.
+
+The six-bit head, 3840 inputs and 65,536 of its outputs: 1.498 ms on the lanes of `+134`, 136.5 GB/s; 1.245 ms in the
+one-row shape with both planes masked in place, 164.2 GB/s.
+
+**Built** (`Metal/MetalBackend.md` 4.2 and 4.3): the one-row kernel finds each output's addresses once and takes its
+group from the format; six bits take it too, their high pairs masked against a second set of prescaled activations;
+RMSNorm reads four values a load, and a slice wider than 1024 takes 1024 threads.
+
+**Rates, one session** (`after.log`): the `+134` binary and the changed one alternated, llama.cpp b12138 with flash
+attention on between them, two runs a cell. Tokens a second:
+
+| Gemma 4 12B | `+134` | Changed | | llama.cpp | Ratio |
+|---|---|---|---|---|---|
+| Decode from empty | 20.08, 20.01 | 21.83, 21.82 | +8.9% | 21.97 | 0.99 |
+| Decode after 4096 | 18.83, 18.81 | 20.37, 20.31 | +8.1% | 20.07 | 1.01 |
+| Prefill 512 | 156.5 | 156.5 | | | |
+
+An hour earlier the same `+134` binary gave 20.05 and 18.81, and llama.cpp 21.96 and 20.06 with flash attention on,
+21.09 and 16.56 with it off. MLX was not run.
+
+**Profiled**, GPU ms a token from an empty cache, `+134` then changed: the whole step 50.50 and 47.11; the Q4_0 product
+35.00 and 33.95; the six-bit head 5.91 and 5.39; RMSNorm 4.12 and 2.37, now 191.5 launches a token at 1024 threads
+(7.3 us each) and 142.9 at 256 (6.8 us); everything else 5.47 and 5.40. After 4096 the step is 53.86 and 50.46.
+
+**Open.** In the model a wide RMSNorm launch takes 7.3 us where the chain alone took 4.1, and the head reads at about
+140 GB/s where its kernel alone read 164; neither is explained. The other small kernels, about 510 launches and 5.4 ms a
+token, each already give a thread one value, so only fewer launches would move them.
+
 ## 8. What this cannot say
 
 One Mac, one run per change in section 4, and short contexts. Section 2's rates are from before section 4's changes;

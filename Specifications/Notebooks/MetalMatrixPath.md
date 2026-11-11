@@ -478,4 +478,25 @@ the lanes. Eight of the twelve forced failures fall on code that stayed, and all
 check. The BF16 window-edge test, failing since `+128` (`BACKLOG.md`), passes at a worst of 2.14e-2 against 2.54e-2.
 Rates: `MetalRates.md` 7.1.
 
-**Open:** FP4's one-row product, at about 138 GB/s, and the six-bit head, at about 122.
+**Open:** FP4's one-row product, at about 138 GB/s. The six-bit head is section 7.2.
+
+### 7.2 Six bits masked in place, and the group a constant
+
+2026-11-11, at `0.21.0-dev+134`; the timings are `Notebooks/MetalRates.md` 7.4. Section 7.1's six bits lost in the one-row
+shape because every code was still shifted. Mila's six-bit row is two planes (`Int6Packing.ixx`): Q4_0's nibbles, then a
+code's high pair, eight pairs to a ushort from bit 0. Both mask in place. The nibbles take Q4_0's sixteen prescaled
+activations; a pair weighs 16 and sits at bit 2j, j the input's place in eight, so sixteen more values hold each
+activation times 16 / 4^j, and the offset of 32 comes off through the activations' sum. Alone, at the head's width, it
+read 164 GB/s against the lanes' 136.5; in Gemma 4 12B's decode the head went from 5.91 to 5.39 ms a token.
+
+The same change takes the kernel's scale index off a division by the shape's group size, read every pass: the group is
+the format's constant, 32 for both, and each output's code and scale addresses are found once before the loop. Q4_0's
+product went from 35.00 to 33.95 ms a token, and alone it now runs within 3% of a kernel that only reads its bytes on
+three of Gemma's four shapes.
+
+Gate: the 194 Metal Linear and RMSNorm tests pass; 20 of 20 forced failures are caught
+(`D:\Claude\metal\decode134\mutate.sh`, 11 in this kernel: either offset, a prescale of each plane, a pair's mask, the
+pairs' plane address, the pairs read against the nibbles' values, the scale index, an output's code or scale address, a
+partial pass dropped); Gemma 4 12B's HuggingFace gate on Metal passes in FP16 and BF16, and its drafter's greedy check.
+
+**Open:** in the model the head reads at about 140 GB/s, under the 164 its kernel reads alone.

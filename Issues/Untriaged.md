@@ -64,11 +64,23 @@ Found 2026-11-10 while checking which cache Gemma 4 12B ran with on the Mac (it 
 
 Found building the fused prefill, 2026-11-08 (`Specifications/Metal/MetalBackend.md` 4.5): `matmul2d` at `execution_simdgroup`, Q x K^T with K = 256 or 512 and P x V with N = 256 or 512 in the same kernel, FP16 and BF16, returned outputs 0.7 to 1.3 relative error from the reference, nothing reported; at 128 they matched. Summing over 128-channel slices fixed every geometry. Not isolated: which product, K or N, or whether wider scopes (`execution_simdgroups<N>`, which `gqa_value_tiles` uses at N = 16) have the same edge. Apple's MSL specification and `MPPTensorOpsMatMul2d.h` (macOS 27.2 SDK) state no such limit. Untested elsewhere than the M1 Pro.
 
-## Metal's one-row quantized products read their weights at about 117 GB/s of the M1 Pro's 200
+## Metal's one-row FP4 and codebook products shift every code, and read their weights well under the M1 Pro's 200 GB/s
 
-`Lib/Src/Dnn/Compute/Devices/Metal/Operations/Linear/Kernels/LinearQuantized.metal` (`linear_quantized_lanes`, `linear_codebook_lanes`) @ 0.21.0-dev+127
+`Lib/Src/Dnn/Compute/Devices/Metal/Operations/Linear/Kernels/LinearQuantized.metal` (`linear_quantized_lanes`, `linear_codebook_lanes`) @ 0.21.0-dev+134
 
-Found profiling Gemma 4 12B's decode, 2026-11-07 (`Specifications/Notebooks/MetalRates.md`): Q4_0's lanes read about 117 GB/s and are two thirds of a token's GPU time; the six-bit head reads about 134 GB/s. `MetalMatrixPath.md` section 6 found the lanes limited by arithmetic: shifting, offsetting and converting each code. The other formats' lanes share the structure and are unmeasured on a model.
+Q4_0 and six bits left the lanes for a kernel that masks its codes in place (`Specifications/Notebooks/MetalMatrixPath.md` 7.1, 7.2), and Q4_0 now runs within 2 to 7% of reading its bytes. FP4's one row still reads about 138 GB/s on Llama 3.1 8B (`MetalRates.md` 7), slower in the one-row shape than on its lanes with its codes decoded by arithmetic or by a table; the codebooks' lanes are unmeasured on a model.
+
+## Gemma 4 12B's six-bit head reads at about 140 GB/s in a decode step, where the same kernel alone reads 164
+
+`Lib/Src/Dnn/Compute/Devices/Metal/Operations/Linear/Kernels/LinearQuantized.metal` (`linear_quantized_row`, `Int6Row`) @ 0.21.0-dev+134
+
+Found 2026-11-11 (`Specifications/Notebooks/MetalRates.md` 7.4): 5.39 ms a token for 755 MB in the model's profile; 1.245 ms for a quarter of the outputs alone, in a form that held the activations as vectors. Not separated: the form, the full head's size, or what runs before it. A wide RMSNorm launch likewise takes 7.3 us in the model against 4.1 alone.
+
+## About 510 small kernel launches take 5.4 ms of Gemma 4 12B's 47 ms decode step on a Mac
+
+`Lib/Src/Dnn/Compute/Devices/Metal/` (`split_columns`, `rope_decode`, `gqa_decode_merge`, `residual`, `geglu`, `scale`, `gqa_write_decode`) @ 0.21.0-dev+134
+
+Found 2026-11-11 (`Specifications/Notebooks/MetalRates.md` 7.4): each already gives a thread one value, and a launch that does nothing costs 2.2 us, so only fewer launches would move them: CUDA's fusions, not yet on Metal. RoPE's decode takes 16 us a launch and the sliding layers' merge 20, neither looked at.
 
 ## Nobody has checked whether CUDA's one-row Q4_0 product is limited by arithmetic, as Metal's was
 

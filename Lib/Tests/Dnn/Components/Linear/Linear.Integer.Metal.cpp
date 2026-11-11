@@ -217,9 +217,8 @@ namespace Mila::Tests::Dnn::Components
         }
     }
 
-    // One row of Q4_0 reads 512 inputs a pass and eight outputs a threadgroup (MetalBackend.md section 4.2), six bits its own
-    // lanes: one pass, three, and four and a half, each with outputs that fill no threadgroup, fill one, and leave one partly
-    // empty.
+    // One row of Q4_0 or of six bits reads 512 inputs a pass and eight outputs a threadgroup (MetalBackend.md section 4.2):
+    // one pass, three, and four and a half, each with outputs that fill no threadgroup, fill one, and leave one partly empty.
     TYPED_TEST( LinearIntegerMetal, OneRowMatchesTheReferenceOverWholeAndPartialPasses )
     {
         for ( const dim_t inputs : { dim_t{ 512 }, dim_t{ 1536 }, dim_t{ 2304 } } )

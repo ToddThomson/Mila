@@ -60,7 +60,8 @@ namespace Mila::Dnn::Compute::Metal::Linear
      *
      * Quantized weights are FP8 codes with a scale per output, or FP4, Q4_0, six-bit or codebook codes with a scale per group of
      * inputs; a codebook's two- or three-bit codes index the tensor's own FP32 table.
-     * The path each takes for a number of rows is the one `MetalBackend.md` section 4.2 measured: own lanes for a few rows; for
+     * The path each takes for a number of rows is the one `MetalBackend.md` section 4.2 measured: one row of Q4_0 or of six bits
+     * masked in place, own lanes for other few rows; for
      * FP8, TensorOps on the bare codes and each output's scale after; for more rows, the weights expanded to the compute
      * precision a block of outputs at a time for TensorOps.
      *
@@ -312,9 +313,9 @@ namespace Mila::Dnn::Compute::Metal::Linear
          * @brief Decode's arithmetic for each of up to kDecodeRowsMaximum rows, every weight read once for all of them (`MetalBackend.md`
          *        section 4.6, `Gemma4Mtp.md` 4.7).
          *
-         * Quantized weights take own lanes at every row count, where forward() would move to TensorOps from more rows; one row keeps
-         * its own kernel, so a row of several equals a one-row decode to FP32 rounding, not to the bit. Unquantized weights take
-         * forward()'s matrix product.
+         * Quantized weights take own lanes at every row count, where forward() would move to TensorOps from more rows; one row of
+         * Q4_0 or of six bits keeps its own kernel, so a row of several equals a one-row decode to FP32 rounding, not to the bit.
+         * Unquantized weights take forward()'s matrix product.
          *
          * @throws std::invalid_argument for more than kDecodeRowsMaximum rows.
          */
@@ -435,12 +436,12 @@ namespace Mila::Dnn::Compute::Metal::Linear
 
         static constexpr int kFewestRowsToExpand = kMultipliesBareCodes ? kBareCodesFewestRowsToExpand : kLanesFewestRowsToExpand;
 
-        // One row of Q4_0 takes linear_quantized_row, MLX's one-row shape (MetalBackend.md section 4.2): eight outputs a
-        // threadgroup, sixteen inputs a lane, which Q4_0's group of 32 never splits.
-        static constexpr bool kTakesRowKernel = kIsInt4Weight;
+        // One row of Q4_0 or of six bits takes linear_quantized_row, MLX's one-row shape (MetalBackend.md section 4.2): eight
+        // outputs a threadgroup, sixteen inputs a lane, which the group of 32 both formats have never splits.
+        static constexpr bool kTakesRowKernel = kIsInt4Weight || kIsInt6Weight;
         static constexpr int kRowKernelOutputs = 8;
 
-        static_assert( !kTakesRowKernel || kGroup % 16 == 0, "linear_quantized_row reads sixteen inputs under one scale" );
+        static_assert( !kTakesRowKernel || kGroup == 32, "linear_quantized_row's formats fix their group at 32" );
 
         // Every kernel this op may dispatch, resolved once when it is constructed: a dispatch names none. One this format, precision
         // or configuration never reaches stays null.
@@ -451,7 +452,7 @@ namespace Mila::Dnn::Compute::Metal::Linear
 
             MetalPipeline bias{ nullptr };
 
-            /// One row of Q4_0, and the own lanes: one row four outputs across, and up to eight rows together.
+            /// One row of Q4_0 or of six bits, and the own lanes: one row four outputs across, and up to eight rows together.
             MetalPipeline row{ nullptr };
             MetalPipeline one_row_lanes{ nullptr };
             MetalPipeline rows_lanes{ nullptr };

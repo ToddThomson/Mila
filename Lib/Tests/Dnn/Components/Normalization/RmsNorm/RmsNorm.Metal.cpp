@@ -118,6 +118,32 @@ namespace Mila::Tests::Dnn::Components
         }
     }
 
+    // A slice wider than 1024 takes the threadgroup of 1024 threads, four values a load: a width each thread reads once, widths
+    // that leave one, two and three values past the last four, and one a thread reads twice with values left over.
+    TYPED_TEST( RmsNormMetal, MatchesTheReferenceAcrossTheWiderThreadgroup )
+    {
+        for ( const dim_t width : { dim_t{ 1028 }, dim_t{ 3840 }, dim_t{ 3841 }, dim_t{ 3842 }, dim_t{ 3843 }, dim_t{ 5122 } } )
+        {
+            EXPECT_LE( errorOf<TypeParam::value>( { .width = width, .rows = 3 } ), kBar<TypeParam::value> ) << width << " wide";
+        }
+
+        EXPECT_LE( errorOf<TypeParam::value>( { .width = 3842, .rows = 2, .with_bias = true, .unit_offset = 1.0f } ), kBar<TypeParam::value> );
+    }
+
+    // The smaller threadgroup at its widest slice and at widths its threads read twice or leave values past the last four, and
+    // groups that start off a four-value boundary: Gemma's head norms are slices of 256 of a wider row.
+    TYPED_TEST( RmsNormMetal, MatchesTheReferenceAtTheSmallerThreadgroupsEdges )
+    {
+        for ( const dim_t width : { dim_t{ 1021 }, dim_t{ 1023 }, dim_t{ 1024 } } )
+        {
+            EXPECT_LE( errorOf<TypeParam::value>( { .width = width, .rows = 3 } ), kBar<TypeParam::value> ) << width << " wide";
+        }
+
+        EXPECT_LE( errorOf<TypeParam::value>( { .width = 4096, .rows = 3, .group_size = 256 } ), kBar<TypeParam::value> );
+        EXPECT_LE( errorOf<TypeParam::value>( { .width = 63, .rows = 5, .with_bias = true, .group_size = 7 } ), kBar<TypeParam::value> );
+        EXPECT_LE( errorOf<TypeParam::value>( { .width = 6150, .rows = 2, .group_size = 2050 } ), kBar<TypeParam::value> );
+    }
+
     TYPED_TEST( RmsNormMetal, AWidthWhoseSumOfSquaresFp16CannotHoldStaysCorrect )
     {
         // 4096 values of about 10 sum to about 400000, against FP16's largest of 65504.

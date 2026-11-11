@@ -11,6 +11,7 @@ import Compute.ExecutionContext;
 import Compute.IExecutionContext;
 import Compute.MetalExecutionContext;
 import Compute.MetalKernelLibrary;
+import Compute.MetalKernelLimits;
 import Compute.MetalTensorDataTypeMap;
 import Compute.OperationBase;
 import Compute.OperationType;
@@ -35,7 +36,8 @@ namespace Mila::Dnn::Compute::Metal::RmsNorm
         MetalRmsNormOp( IExecutionContext* context, const RmsNormConfig& config )
             : context_( validateExecutionContext_<DeviceType::Metal>( context, "MetalRmsNormOp" ) ),
               config_( config ),
-              pipeline_( context_->device().kernels().pipeline( std::format( "rms_norm_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type ) ) )
+              narrow_pipeline_( pipelineOf( kNarrowThreads ) ),
+              wide_pipeline_( wideFits() ? pipelineOf( kWideThreads ) : MetalPipeline{ nullptr } )
         {
             config_.validate();
         }
@@ -85,8 +87,11 @@ namespace Mila::Dnn::Compute::Metal::RmsNorm
 
         void forward( const ITensor& input, ITensor& output ) const
         {
+            const int elements = narrowToKernelIndex( width_ / groups_ );
+            const bool wide = wide_pipeline_ != nullptr && elements > kWidestNarrowSlice;
+
             const RmsNormShape shape{
-                static_cast<std::uint32_t>( narrowToKernelIndex( width_ / groups_ ) ),
+                static_cast<std::uint32_t>( elements ),
                 static_cast<std::uint32_t>( groups_ ),
                 bias_ != nullptr ? 1u : 0u,
                 config_.getEpsilon(),
@@ -96,8 +101,9 @@ namespace Mila::Dnn::Compute::Metal::RmsNorm
                 input.rawData(), weight_->rawData(), bias_ != nullptr ? bias_->rawData() : weight_->rawData(), output.rawData() };
 
             context_->dispatchThreadgroups(
-                pipeline_, buffers, std::as_bytes( std::span( &shape, 1 ) ),
-                static_cast<std::size_t>( narrowToKernelIndex( input.size() / width_ * groups_ ) ), 1, kSimdgroups );
+                wide ? wide_pipeline_ : narrow_pipeline_, buffers, std::as_bytes( std::span( &shape, 1 ) ),
+                static_cast<std::size_t>( narrowToKernelIndex( input.size() / width_ * groups_ ) ), 1,
+                ( wide ? kWideThreads : kNarrowThreads ) / kSimdgroupWidth );
         }
 
         [[nodiscard]] OperationType getOperationType() const override
@@ -122,12 +128,33 @@ namespace Mila::Dnn::Compute::Metal::RmsNorm
             float unit_offset;
         };
 
-        // RmsNorm.metal's threadgroup: eight SIMD-groups to a slice.
-        static constexpr std::size_t kSimdgroups = 8;
+        // RmsNorm.metal's two threadgroups. Timed on the M1 Pro, a launch in a chain of 334 (Notebooks/MetalRates.md 7.4): a slice of
+        // 3840 took 4.1 us at 1024 threads and 5.3 at 256; slices of 256 and of 1024 took the same at either, so those keep the
+        // smaller. A device whose limit for the kernel is under 1024 threads keeps the smaller for every slice.
+        static constexpr std::size_t kNarrowThreads = 256;
+        static constexpr std::size_t kWideThreads = 1024;
+        static constexpr std::size_t kSimdgroupWidth = 32;
+        static constexpr int kWidestNarrowSlice = 1024;
+
+        [[nodiscard]] static std::string kernelName( std::size_t threads )
+        {
+            return std::format( "rms_norm_{}_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type, threads );
+        }
+
+        [[nodiscard]] MetalPipeline pipelineOf( std::size_t threads ) const
+        {
+            return context_->device().kernels().pipeline( kernelName( threads ) );
+        }
+
+        [[nodiscard]] bool wideFits() const
+        {
+            return context_->device().kernels().limits( kernelName( kWideThreads ) ).max_total_threads_per_threadgroup >= kWideThreads;
+        }
 
         MetalExecutionContext* context_;
         RmsNormConfig config_;
-        MetalPipeline pipeline_;
+        MetalPipeline narrow_pipeline_;
+        MetalPipeline wide_pipeline_;
         ITensor* weight_{ nullptr };
         ITensor* bias_{ nullptr };
         dim_t width_{ 0 };
