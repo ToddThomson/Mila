@@ -217,9 +217,35 @@ ids at one index worked. So every kernel test checks values, and a test that onl
 
 ### 4.3 Compiling kernels
 
-Compile at run time from source embedded in the library, first. It needs nothing but the OS; offline `metallib`s need full
-Xcode, which the development Mac does not have. Measured with Phase 3's 63 kernels: about 400 ms on a first load, against about 35 ms with Phase 1's 9, and under
-1 ms once the OS's cache has the source (`Notebooks/MetalLlamaOperations.md`). It is paid once per Mac and kernel source, so a `metallib` or a pipeline cache is not earned yet, and Phase 4 can reopen it on a first run. With the two-pass decode's kernels it is 79 kernels and 578 ms (`Notebooks/MetalDecodeAttention.md` 7). Full Xcode and its Metal Toolchain are on the development Mac since 2026-11-05, so `xcrun metal` compiles a kernel file offline in about 3 s: what stood against a `metallib` is now only that it has not earned its place.
+Kernels are compiled when Mila is built, by Xcode's Metal compiler, as CUDA's are by nvcc (Todd, 2026-11-11). A build of Mila on a Mac
+needs Xcode and its Metal Toolchain, and the configure says so when it finds no compiler. Until `+134` the source was embedded and compiled on
+first use, chosen in Phase 1 because the development Mac had no full Xcode; that ended on 2026-11-05, and it left a kernel error to be
+found by a test and a compiler warning to be found by nobody.
+
+**One list, one library.** `Lib/CMakeLists.txt` lists the kernel files once. A generated source includes them in that order, and
+`xcrun metal` compiles it into one Metal library, which `Implementation/MetalKernelLibrary.cpp` alone embeds (`#embed`, told where by
+`--embed-dir`: an include directory does not serve it, and a miss gave an empty array with no error, which a `static_assert` now refuses).
+A kernel error stops the build and names its file and line; a warning prints in every build. A kernel edit recompiles the kernels and
+that one file, and nothing that imports the library: 6 build steps in 3 s on the M1 Pro. The files still compile as one source: a file
+may use what an earlier one declares, `QuantizedCodes.metal` is first, and every name shares one scope, kept apart by its operation's
+prefix. The options are stated, not left to the compiler's defaults: language 4.1, macOS 27.0, fast math and fast math functions, which
+the kernels are written for; a kernel that needs exact arithmetic or a precise function says so itself (`WeightQuantization.metal`,
+`Geglu.metal`).
+
+**Pipelines are resolved when an operation is constructed** (Todd, 2026-11-11). An operation asks the library for every kernel it may
+dispatch, by the format, precision and configuration it was built with, and holds the pipelines; a dispatch names none. A name Mila has no
+kernel for is then refused when a model loads, and no pipeline is created inside a timed prefill or decode. The names are still strings
+formatted from template arguments, so a missing instance is a refusal at load, not the compile error a missing `OperationTraits`
+specialization is. A matrix product's kernels are its caller's to resolve (`matrixProductPipelines`). TensorOps' functions are stateless
+and still look their kernel up by name at each call.
+
+**Cost, on the M1 Pro** (`mila-metal-report`, 217 kernels, one reading each). Loading the embedded library takes 1 to 3 ms. Preparing
+a pipeline is where the OS compiles a kernel for the GPU, and it keeps the result per kernel: all 217 took 12.4 s the first time this
+Mac saw the library and 7 ms on every run after, and after one kernel's arithmetic was changed the next run took 72 ms. So a Mac pays
+once for each kernel it has not seen, when the first model that uses it loads, and again only for kernels a Mila update changed. Not
+measured: what one model's first load pays, which is its own kernels and not all 217. Compiling from source at run time, as before
+`+134`, took 1,245 and 1,204 ms on a first run and 1.8 ms after (578 ms with 79 kernels, `Notebooks/MetalDecodeAttention.md` 7); whether
+its pipelines were ever prepared cold in those readings is not known.
 
 ### 4.4 Decode
 
@@ -239,8 +265,8 @@ alone waits on memory through every step of a row, and a decode step runs hundre
 gave one SIMD-group 85 passes over Gemma's 262,144 logits and was the whole of Chat's 2 tokens a second, now runs in the
 stages of CUDA's multi-block pipeline, its row across many threadgroups. Where CUDA narrows each truncation over float
 histogram rounds, Metal's cut is radix selection on the scaled logits' bits, three rounds of 12, 12 and 8, so the k-th
-value and the nucleus edge are exact. Greedy and RMSNorm take a 256-thread threadgroup a row. Those operations resolve their
-pipelines once, when built.
+value and the nucleus edge are exact. Greedy and RMSNorm take a 256-thread threadgroup a row. Every operation resolves its
+pipelines once, when constructed (section 4.3).
 
 **A decode step is timed kernel by kernel by the library (Todd, 2026-11-07).** `setDispatchProfiling` on the model encodes
 each dispatch apart with a GPU timestamp at its start and end, at the encoder's boundary, and `dispatchProfile()` returns
@@ -477,6 +503,8 @@ Phase 4 tries it. **It does:** the whole 7.2 GB file, mapped read-only and wrapp
 in module units, Intel and discrete paths, one type defined twice (`Issues/Vnext.md`), `MTLCopyAllDevices`, and capability
 checks that ask the wrong questions (`Issues/Untriaged.md`). `Lib/CMakeLists.txt`'s `MILA_HAS_METAL` block goes with it.
 
+**A Mac build needs Xcode's Metal Toolchain** (`xcodebuild -downloadComponent metaltoolchain`), for the kernels (section 4.3).
+
 **Host code is C++ through metal-cpp** (`github.com/apple/metal-cpp`, header-only, tagged to macOS 27.0.1, with
 `MTLTensor.hpp` and `MTLResidencySet.hpp`), pinned as other dependencies are. No Objective-C in module units. Measured in
 Phase 0: it works in a module's global fragment beside `import std;` under Clang, and `newTensor` returns null until the
@@ -643,6 +671,7 @@ development Mac and neither can reach a user's.
 | Decision | By |
 |---|---|
 | M-series only, no Intel | Todd, 2026-11-04 |
+| Kernels are compiled when Mila is built, by Xcode's Metal compiler, and embedded as one Metal library; a build on a Mac needs the Metal Toolchain, as a CUDA build needs nvcc. Every operation resolves its pipelines when it is constructed (section 4.3) | Todd, 2026-11-11 |
 | Decode attention reads each lane's channels in wide loads; MLX's block count and read-ahead, built and measured, are not kept (section 4.4) | Todd, 2026-11-09 |
 | MLX is the target and a design source, not a dependency: 0.85 of its rate on the same Mac, model and shape, largest gap first, nothing under about 5% started without Todd (section 6). Decode is first: at `+127` it was 0.58 to 0.79 of MLX, prefill 0.87 and above (`Notebooks/MetalRates.md` 2) | Todd, 2026-11-09 |
 | Not restricted to the GPU: every compute path Apple silicon offers, each operation placed by measurement for the best path overall. Replaces "GPU only, no CPU compute" (2026-11-04) and "Metal stays GPU only for now" | Todd, 2026-11-09 |

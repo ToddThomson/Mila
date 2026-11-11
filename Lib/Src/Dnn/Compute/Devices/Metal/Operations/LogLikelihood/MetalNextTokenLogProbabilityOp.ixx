@@ -35,6 +35,8 @@ namespace Mila::Dnn::Compute::Metal::LogLikelihood
         /// @param final_logit_softcap Applied as cap * tanh( logit / cap ) before the log-softmax; 0 means none.
         MetalNextTokenLogProbabilityOp( IExecutionContext* context, float final_logit_softcap )
             : context_( validateExecutionContext_<DeviceType::Metal>( context, "MetalNextTokenLogProbabilityOp" ) ),
+              pipeline_( context_->device().kernels().pipeline(
+                  std::format( "next_token_log_probability_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type ) ) ),
               final_logit_softcap_( final_logit_softcap )
         {
         }
@@ -72,8 +74,7 @@ namespace Mila::Dnn::Compute::Metal::LogLikelihood
             const Parameters parameters{ narrowToKernelIndex( logits.shape().back() ), final_logit_softcap_ };
 
             context_->dispatchThreadgroups(
-                context_->device().kernels().pipeline( std::format( "next_token_log_probability_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type ) ),
-                buffers, std::as_bytes( std::span( &parameters, 1 ) ), static_cast<std::size_t>( narrowToKernelIndex( rows ) ), 1 );
+                pipeline_, buffers, std::as_bytes( std::span( &parameters, 1 ) ), static_cast<std::size_t>( narrowToKernelIndex( rows ) ), 1 );
         }
 
         /// The first `count` positions' log-probabilities. Valid once the model is synchronized.
@@ -110,6 +111,7 @@ namespace Mila::Dnn::Compute::Metal::LogLikelihood
         };
 
         MetalExecutionContext* context_;
+        MetalPipeline pipeline_;
         float final_logit_softcap_;
         std::unique_ptr<StoreType> store_;
         dim_t capacity_{ 0 };

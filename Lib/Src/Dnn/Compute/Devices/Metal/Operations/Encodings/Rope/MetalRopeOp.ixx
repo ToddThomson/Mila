@@ -36,7 +36,9 @@ namespace Mila::Dnn::Compute::Metal::Rope
 
         MetalRopeOp( IExecutionContext* context, const RopeConfig& config )
             : context_( validateExecutionContext_<DeviceType::Metal>( context, "MetalRopeOp" ) ),
-              config_( config )
+              config_( config ),
+              prefill_pipeline_( context_->device().kernels().pipeline( kernelName( "rope_prefill" ) ) ),
+              decode_pipeline_( context_->device().kernels().pipeline( kernelName( "rope_decode" ) ) )
         {
             config_.validate();
 
@@ -119,8 +121,7 @@ namespace Mila::Dnn::Compute::Metal::Rope
                 q_out.rawData(), q_in.rawData(), k_out.rawData(), k_in.rawData(), context_->decodePositionAddress() };
 
             context_->dispatch(
-                context_->device().kernels().pipeline( kernelName( "rope_decode" ) ),
-                buffers, std::as_bytes( std::span( &parameters, 1 ) ), threadCount( q_in ) );
+                decode_pipeline_, buffers, std::as_bytes( std::span( &parameters, 1 ) ), threadCount( q_in ) );
         }
 
         [[nodiscard]] OperationType getOperationType() const override
@@ -180,12 +181,13 @@ namespace Mila::Dnn::Compute::Metal::Rope
             const std::array<const void*, 4> buffers{ q_out.rawData(), q_in.rawData(), k_out.rawData(), k_in.rawData() };
 
             context_->dispatch(
-                context_->device().kernels().pipeline( kernelName( "rope_prefill" ) ),
-                buffers, std::as_bytes( std::span( &parameters, 1 ) ), threadCount( q_in ) );
+                prefill_pipeline_, buffers, std::as_bytes( std::span( &parameters, 1 ) ), threadCount( q_in ) );
         }
 
         MetalExecutionContext* context_;
         RopeConfig config_;
+        MetalPipeline prefill_pipeline_;
+        MetalPipeline decode_pipeline_;
         RopeParameters parameters_;
         dim_t sequence_length_{ 0 };
     };

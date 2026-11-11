@@ -28,7 +28,8 @@ namespace Mila::Dnn::Compute::Metal::Swiglu
     public:
 
         MetalSwigluOp( IExecutionContext* context, const SwigluConfig& config )
-            : context_( validateExecutionContext_<DeviceType::Metal>( context, "MetalSwigluOp" ) )
+            : context_( validateExecutionContext_<DeviceType::Metal>( context, "MetalSwigluOp" ) ),
+              pipeline_( context_->device().kernels().pipeline( std::format( "swiglu_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type ) ) )
         {
             config.validate();
         }
@@ -45,8 +46,7 @@ namespace Mila::Dnn::Compute::Metal::Swiglu
             const std::uint32_t half_width = static_cast<std::uint32_t>( narrowToKernelIndex( input.shape().back() / 2 ) );
 
             context_->dispatch(
-                context_->device().kernels().pipeline( std::format( "swiglu_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type ) ),
-                buffers, std::as_bytes( std::span( &half_width, 1 ) ),
+                pipeline_, buffers, std::as_bytes( std::span( &half_width, 1 ) ),
                 static_cast<std::size_t>( narrowToKernelIndex( output.size() ) ) );
         }
 
@@ -63,5 +63,6 @@ namespace Mila::Dnn::Compute::Metal::Swiglu
     private:
 
         MetalExecutionContext* context_;
+        MetalPipeline pipeline_;
     };
 }

@@ -211,7 +211,7 @@ namespace Mila::Tests::Dnn::Components
 
         DirectProduct<kPrecision> full( 128, 64, 48, 48 );
 
-        encodeMatrixProduct<kPrecision>( context, full.product( false ) );
+        encodeMatrixProduct<kPrecision>( context, matrixProductPipelines<kPrecision>( context.device().kernels() ), full.product( false ) );
         context.synchronize();
 
         const std::vector<float> all = readFloats<kPrecision>( full.output );
@@ -221,7 +221,7 @@ namespace Mila::Tests::Dnn::Components
         {
             DirectProduct<kPrecision> few( rows, 64, 48, 48 );
 
-            encodeMatrixProduct<kPrecision>( context, few.product( true ) );
+            encodeMatrixProduct<kPrecision>( context, matrixProductPipelines<kPrecision>( context.device().kernels() ), few.product( true ) );
             context.synchronize();
 
             const std::vector<float> read = readFloats<kPrecision>( few.output );
@@ -238,7 +238,7 @@ namespace Mila::Tests::Dnn::Components
 
         const auto firstRows = [&]( DirectProduct<kPrecision>& direct, int rows, bool pad )
         {
-            encodeMatrixProduct<kPrecision>( context, direct.product( pad ) );
+            encodeMatrixProduct<kPrecision>( context, matrixProductPipelines<kPrecision>( context.device().kernels() ), direct.product( pad ) );
             context.synchronize();
 
             const std::vector<float> read = readFloats<kPrecision>( direct.output );
@@ -270,7 +270,7 @@ namespace Mila::Tests::Dnn::Components
 
             const std::vector<float> input_before = readFloats<kPrecision>( direct.input );
 
-            encodeMatrixProduct<kPrecision>( context, direct.product( true ) );
+            encodeMatrixProduct<kPrecision>( context, matrixProductPipelines<kPrecision>( context.device().kernels() ), direct.product( true ) );
             context.synchronize();
 
             const std::vector<float> written = readFloats<kPrecision>( direct.output );
@@ -307,8 +307,8 @@ namespace Mila::Tests::Dnn::Components
         DirectProduct<kPrecision> earlier( 7, 64, 48, 48 );
         DirectProduct<kPrecision> later( 3, 64, 48, 48 );
 
-        encodeMatrixProduct<kPrecision>( context, earlier.product( true ) );
-        encodeMatrixProduct<kPrecision>( context, later.product( true ) );
+        encodeMatrixProduct<kPrecision>( context, matrixProductPipelines<kPrecision>( context.device().kernels() ), earlier.product( true ) );
+        encodeMatrixProduct<kPrecision>( context, matrixProductPipelines<kPrecision>( context.device().kernels() ), later.product( true ) );
         context.synchronize();
 
         // The tile's input is the start of scratch: 8 rows of 64.
@@ -332,7 +332,7 @@ namespace Mila::Tests::Dnn::Components
 
             try
             {
-                encodeMatrixProduct<kPrecision>( context, direct.product( pad ) );
+                encodeMatrixProduct<kPrecision>( context, matrixProductPipelines<kPrecision>( context.device().kernels() ), direct.product( pad ) );
                 context.synchronize();
             }
             catch ( const std::logic_error& )

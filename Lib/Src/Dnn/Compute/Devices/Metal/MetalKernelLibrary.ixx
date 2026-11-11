@@ -1,12 +1,17 @@
 /**
  * @file MetalKernelLibrary.ixx
- * @brief Mila's Metal kernels: compiled from source carried in the library, on first use.
+ * @brief Mila's Metal kernels: compiled when Mila is built, and carried in the library.
  */
 
 module;
 
-#include <Foundation/Foundation.hpp>
-#include <Metal/Metal.hpp>
+// Only the names: each module that includes metal-cpp costs every importer of Mila (MetalBackend.md section 5).
+namespace MTL
+{
+    class ComputePipelineState;
+    class Device;
+    class Library;
+}
 
 export module Compute.MetalKernelLibrary;
 
@@ -15,216 +20,49 @@ import Compute.MetalKernelLimits;
 
 namespace Mila::Dnn::Compute
 {
-    namespace
-    {
-        // Each operation's kernels, from the Kernels/ folder beside it, embedded at configure time by Lib/CMakeLists.txt. What
-        // codes mean is first, since the kernels after it read and write them.
-        const char* const kKernelSources[] = {
-#include "QuantizedCodes.metal.inc"
-            ,
-#include "TensorOps.Fill.metal.inc"
-            ,
-#include "TensorOps.Math.metal.inc"
-            ,
-#include "TensorOps.Scale.metal.inc"
-            ,
-#include "TensorOps.Structural.metal.inc"
-            ,
-#include "GroupedQueryAttention.metal.inc"
-            ,
-#include "GroupedQueryAttention.Flash.metal.inc"
-            ,
-#include "Sampling.metal.inc"
-            ,
-#include "NextTokenLogProbability.metal.inc"
-            ,
-#include "Linear.metal.inc"
-            ,
-#include "LinearQuantized.metal.inc"
-            ,
-#include "WeightQuantization.metal.inc"
-            ,
-#include "TokenEmbedding.metal.inc"
-            ,
-#include "RmsNorm.metal.inc"
-            ,
-#include "Rope.metal.inc"
-            ,
-#include "Swiglu.metal.inc"
-            ,
-#include "Geglu.metal.inc"
-            ,
-#include "ElementwiseActivation.metal.inc"
-            ,
-#include "CausalConv1d.metal.inc"
-            ,
-#include "GatedDeltaRule.metal.inc"
-            ,
-#include "Residual.metal.inc"
-            ,
-#include "Router.metal.inc"
-            ,
-#include "Moe.metal.inc"
-        };
-
-        std::string describe( const NS::Error* error )
-        {
-            return error ? error->localizedDescription()->utf8String() : "no reason given";
-        }
-    }
+    /// A kernel ready to dispatch. Held by the library that handed it out, and valid for that library's lifetime.
+    export using MetalPipeline = MTL::ComputePipelineState*;
 
     /**
      * @brief The kernels of one device.
      *
-     * The source is compiled once, when a kernel is first asked for, and a pipeline is created once per kernel
-     * (MetalBackend.md section 4.3). Safe to call from several threads.
+     * The kernels are compiled by the build into one Metal library, embedded in Mila and loaded when a kernel is
+     * first asked for; a pipeline is created once per kernel (MetalBackend.md section 4.3). An operation asks for
+     * its pipelines when it is constructed, so that a kernel Mila does not have is refused when a model loads and
+     * no dispatch looks one up by name. Safe to call from several threads. The bodies are in
+     * Implementation/MetalKernelLibrary.cpp, with the compiled kernels.
      */
     export class MetalKernelLibrary
     {
     public:
 
-        explicit MetalKernelLibrary( MTL::Device* device )
-            : device_( device )
-        {
-        }
+        explicit MetalKernelLibrary( MTL::Device* device );
 
-        ~MetalKernelLibrary()
-        {
-            for ( auto& [name, pipeline] : pipelines_ )
-            {
-                pipeline->release();
-            }
-
-            if ( library_ )
-            {
-                library_->release();
-            }
-        }
+        ~MetalKernelLibrary();
 
         MetalKernelLibrary( const MetalKernelLibrary& ) = delete;
         MetalKernelLibrary& operator=( const MetalKernelLibrary& ) = delete;
 
         /**
-         * @brief The pipeline of a kernel. Held by this library, and valid for its lifetime.
+         * @brief The pipeline of a kernel.
          *
-         * @throws std::runtime_error When the source does not compile, the kernel does not exist, or its pipeline
-         *         cannot be created. Each says why.
+         * @throws std::runtime_error When Metal refuses the embedded library, the kernel does not exist, or its
+         *         pipeline cannot be created. Each says why.
          */
-        [[nodiscard]] MTL::ComputePipelineState* pipeline( const std::string& kernel_name )
-        {
-            std::lock_guard lock( mutex_ );
-
-            const auto found = pipelines_.find( kernel_name );
-
-            if ( found != pipelines_.end() )
-            {
-                return found->second;
-            }
-
-            MTL::Library* const library = compiled();
-            NS::AutoreleasePool* const pool = NS::AutoreleasePool::alloc()->init();
-
-            MTL::Function* const function = library->newFunction( NS::String::string( kernel_name.c_str(), NS::UTF8StringEncoding ) );
-
-            if ( !function )
-            {
-                pool->release();
-
-                throw std::runtime_error( std::format( "Mila has no Metal kernel named '{}'", kernel_name ) );
-            }
-
-            NS::Error* error = nullptr;
-            MTL::ComputePipelineState* const created = device_->newComputePipelineState( function, &error );
-            function->release();
-
-            const std::string reason = created ? std::string{} : describe( error );
-            pool->release();
-
-            if ( !created )
-            {
-                throw std::runtime_error( std::format( "The Metal kernel '{}' could not be prepared: {}", kernel_name, reason ) );
-            }
-
-            pipelines_.emplace( kernel_name, created );
-
-            return created;
-        }
+        [[nodiscard]] MetalPipeline pipeline( const std::string& kernel_name );
 
         /// The name of every kernel Mila ships.
-        [[nodiscard]] std::vector<std::string> kernelNames()
-        {
-            std::lock_guard lock( mutex_ );
-
-            MTL::Library* const library = compiled();
-            NS::AutoreleasePool* const pool = NS::AutoreleasePool::alloc()->init();
-            const NS::Array* const names = library->functionNames();
-
-            std::vector<std::string> result;
-            result.reserve( names->count() );
-
-            for ( NS::UInteger i = 0; i < names->count(); ++i )
-            {
-                result.emplace_back( names->object<NS::String>( i )->utf8String() );
-            }
-
-            pool->release();
-            std::ranges::sort( result );
-
-            return result;
-        }
+        [[nodiscard]] std::vector<std::string> kernelNames();
 
         /// The kernel a pipeline of this library runs, for a profile's labels; empty for one it did not make.
-        [[nodiscard]] std::string nameOf( const MTL::ComputePipelineState* state )
-        {
-            std::lock_guard lock( mutex_ );
+        [[nodiscard]] std::string nameOf( const MTL::ComputePipelineState* state );
 
-            const auto found = std::ranges::find_if( pipelines_, [&]( const auto& entry ) { return entry.second == state; } );
-
-            return found != pipelines_.end() ? found->first : std::string{};
-        }
-
-        [[nodiscard]] MetalKernelLimits limits( const std::string& kernel_name )
-        {
-            const MTL::ComputePipelineState* const state = pipeline( kernel_name );
-
-            return MetalKernelLimits{ state->threadExecutionWidth(), state->maxTotalThreadsPerThreadgroup() };
-        }
+        [[nodiscard]] MetalKernelLimits limits( const std::string& kernel_name );
 
     private:
 
-        /// The compiled library, compiling it on the first call. Called with the lock held.
-        MTL::Library* compiled()
-        {
-            if ( library_ )
-            {
-                return library_;
-            }
-
-            std::string source;
-
-            for ( const char* const kernel_source : kKernelSources )
-            {
-                source += kernel_source;
-            }
-
-            NS::AutoreleasePool* const pool = NS::AutoreleasePool::alloc()->init();
-            NS::Error* error = nullptr;
-
-            MTL::CompileOptions* const options = MTL::CompileOptions::alloc()->init();
-            options->setLanguageVersion( MTL::LanguageVersion4_1 );
-            library_ = device_->newLibrary( NS::String::string( source.c_str(), NS::UTF8StringEncoding ), options, &error );
-            options->release();
-
-            const std::string reason = library_ ? std::string{} : describe( error );
-            pool->release();
-
-            if ( !library_ )
-            {
-                throw std::runtime_error( std::format( "Mila's Metal kernels did not compile: {}", reason ) );
-            }
-
-            return library_;
-        }
+        /// The kernels' library, loaded from the embedded bytes on the first call. Called with the lock held.
+        MTL::Library* loaded();
 
         MTL::Device* device_;
         MTL::Library* library_{ nullptr };

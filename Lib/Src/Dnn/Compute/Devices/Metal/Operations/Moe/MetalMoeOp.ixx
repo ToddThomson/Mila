@@ -69,7 +69,9 @@ namespace Mila::Dnn::Compute::Metal::Moe
 
         MetalMoeOp( IExecutionContext* context, const MixtureOfExpertsConfig& config )
             : context_( validateExecutionContext_<DeviceType::Metal>( context, "MetalMoeOp" ) ),
-              config_( config )
+              config_( config ),
+              gated_pipeline_( context_->device().kernels().pipeline( gatedKernelName() ) ),
+              combine_pipeline_( context_->device().kernels().pipeline( combineKernelName() ) )
         {
             config_.validate();
         }
@@ -176,7 +178,6 @@ namespace Mila::Dnn::Compute::Metal::Moe
                 static_cast<std::uint32_t>( narrowToKernelIndex( top_k ) ), group };
 
             const auto constants = std::as_bytes( std::span( &shape, 1 ) );
-            const std::string_view type = MetalTensorDataTypeMap<TPrecision>::kernel_type;
             const std::size_t token_rows = static_cast<std::size_t>( tokens );
             const std::size_t gated_groups = groupsOf( top_k * intermediate );
             const std::size_t combine_groups = groupsOf( hidden );
@@ -187,28 +188,24 @@ namespace Mila::Dnn::Compute::Metal::Moe
                     input.rawData(), gate_up_projection_->rawData(), gate_up_scales_->rawData(), indices.rawData(), gated.rawData() };
 
                 context_->dispatchThreadgroups(
-                    context_->device().kernels().pipeline( std::format( "moe_gated_{}_{}_{}", kFormatName, kGateName, type ) ),
-                    gated_buffers, constants, gated_groups, token_rows, kSimdgroups );
+                    gated_pipeline_, gated_buffers, constants, gated_groups, token_rows, kSimdgroups );
 
                 const std::array<const void*, 6> combine_buffers{
                     gated.rawData(), down_projection_->rawData(), down_scales_->rawData(), weights.rawData(), indices.rawData(), output.rawData() };
 
                 context_->dispatchThreadgroups(
-                    context_->device().kernels().pipeline( std::format( "moe_combine_{}_{}", kFormatName, type ) ),
-                    combine_buffers, constants, combine_groups, token_rows, kSimdgroups );
+                    combine_pipeline_, combine_buffers, constants, combine_groups, token_rows, kSimdgroups );
             } else {
                 const std::array<const void*, 4> gated_buffers{ input.rawData(), gate_up_projection_->rawData(), indices.rawData(), gated.rawData() };
 
                 context_->dispatchThreadgroups(
-                    context_->device().kernels().pipeline( std::format( "moe_gated_{}_{}", kGateName, type ) ),
-                    gated_buffers, constants, gated_groups, token_rows, kSimdgroups );
+                    gated_pipeline_, gated_buffers, constants, gated_groups, token_rows, kSimdgroups );
 
                 const std::array<const void*, 5> combine_buffers{
                     gated.rawData(), down_projection_->rawData(), weights.rawData(), indices.rawData(), output.rawData() };
 
                 context_->dispatchThreadgroups(
-                    context_->device().kernels().pipeline( std::format( "moe_combine_{}", type ) ),
-                    combine_buffers, constants, combine_groups, token_rows, kSimdgroups );
+                    combine_pipeline_, combine_buffers, constants, combine_groups, token_rows, kSimdgroups );
             }
         }
 
@@ -259,6 +256,20 @@ namespace Mila::Dnn::Compute::Metal::Moe
 
         static constexpr std::string_view kFormatName = kIsInt4 ? "int4" : "fp4";
         static constexpr std::string_view kGateName = std::is_same_v<TFunctor, Activations::GeluTanh> ? "gelu" : "silu";
+
+        [[nodiscard]] static std::string gatedKernelName()
+        {
+            const std::string_view type = MetalTensorDataTypeMap<TPrecision>::kernel_type;
+
+            return kIsPacked ? std::format( "moe_gated_{}_{}_{}", kFormatName, kGateName, type ) : std::format( "moe_gated_{}_{}", kGateName, type );
+        }
+
+        [[nodiscard]] static std::string combineKernelName()
+        {
+            const std::string_view type = MetalTensorDataTypeMap<TPrecision>::kernel_type;
+
+            return kIsPacked ? std::format( "moe_combine_{}_{}", kFormatName, type ) : std::format( "moe_combine_{}", type );
+        }
 
         static std::size_t groupsOf( dim_t cells )
         {
@@ -327,6 +338,8 @@ namespace Mila::Dnn::Compute::Metal::Moe
 
         MetalExecutionContext* context_;
         MixtureOfExpertsConfig config_;
+        MetalPipeline gated_pipeline_;
+        MetalPipeline combine_pipeline_;
 
         ITensor* gate_up_projection_{ nullptr };
         ITensor* down_projection_{ nullptr };

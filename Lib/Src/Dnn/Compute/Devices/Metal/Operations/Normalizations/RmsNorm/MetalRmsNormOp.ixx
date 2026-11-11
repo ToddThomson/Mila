@@ -125,12 +125,9 @@ namespace Mila::Dnn::Compute::Metal::RmsNorm
         // RmsNorm.metal's threadgroup: eight SIMD-groups to a slice.
         static constexpr std::size_t kSimdgroups = 8;
 
-        // Metal's pipeline type, named through the library that hands it out, since this module does not include Metal's headers.
-        using Pipeline = decltype( std::declval<MetalKernelLibrary&>().pipeline( std::string{} ) );
-
         MetalExecutionContext* context_;
         RmsNormConfig config_;
-        Pipeline pipeline_;
+        MetalPipeline pipeline_;
         ITensor* weight_{ nullptr };
         ITensor* bias_{ nullptr };
         dim_t width_{ 0 };

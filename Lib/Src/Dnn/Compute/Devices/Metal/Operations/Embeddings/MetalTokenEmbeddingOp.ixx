@@ -46,7 +46,9 @@ namespace Mila::Dnn::Compute::Metal::TokenEmbedding
 
         MetalTokenEmbeddingOp( IExecutionContext* context, const TokenEmbeddingConfig& config )
             : context_( validateExecutionContext_<DeviceType::Metal>( context, "MetalTokenEmbeddingOp" ) ),
-              config_( config )
+              config_( config ),
+              pipeline_( context_->device().kernels().pipeline(
+                  std::format( "token_embedding_{}{}", kIsQuantized ? "int6_" : "", MetalTensorDataTypeMap<TPrecision>::kernel_type ) ) )
         {
             config_.validate();
         }
@@ -98,19 +100,16 @@ namespace Mila::Dnn::Compute::Metal::TokenEmbedding
         {
             const std::uint32_t embedding_dim = static_cast<std::uint32_t>( narrowToKernelIndex( config_.getEmbeddingDim() ) );
             const std::size_t elements = static_cast<std::size_t>( narrowToKernelIndex( input.size() * config_.getEmbeddingDim() ) );
-            const auto type = MetalTensorDataTypeMap<TPrecision>::kernel_type;
 
             if constexpr ( kIsQuantized )
             {
                 const std::array<const void*, 4> buffers{ input.rawData(), table_->rawData(), table_scales_->rawData(), output.rawData() };
 
-                context_->dispatch( context_->device().kernels().pipeline( std::format( "token_embedding_int6_{}", type ) ),
-                    buffers, std::as_bytes( std::span( &embedding_dim, 1 ) ), elements );
+                context_->dispatch( pipeline_, buffers, std::as_bytes( std::span( &embedding_dim, 1 ) ), elements );
             } else {
                 const std::array<const void*, 3> buffers{ input.rawData(), table_->rawData(), output.rawData() };
 
-                context_->dispatch( context_->device().kernels().pipeline( std::format( "token_embedding_{}", type ) ),
-                    buffers, std::as_bytes( std::span( &embedding_dim, 1 ) ), elements );
+                context_->dispatch( pipeline_, buffers, std::as_bytes( std::span( &embedding_dim, 1 ) ), elements );
             }
         }
 
@@ -128,6 +127,7 @@ namespace Mila::Dnn::Compute::Metal::TokenEmbedding
 
         MetalExecutionContext* context_;
         TokenEmbeddingConfig config_;
+        MetalPipeline pipeline_;
         ITensor* table_{ nullptr };
         ITensor* table_scales_{ nullptr };
     };

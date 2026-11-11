@@ -37,7 +37,8 @@ namespace Mila::Dnn::Compute::Metal::Routing
         /// @throws std::invalid_argument For a top_k past kMaximumTopK.
         MetalRouterOp( IExecutionContext* context, const RouterConfig& config )
             : context_( validateExecutionContext_<DeviceType::Metal>( context, "MetalRouterOp" ) ),
-              config_( config )
+              config_( config ),
+              pipeline_( context_->device().kernels().pipeline( std::format( "router_select_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type ) ) )
         {
             config_.validate();
 
@@ -111,8 +112,7 @@ namespace Mila::Dnn::Compute::Metal::Routing
                 logits.rawData(), static_cast<const ITensor*>( per_expert_scale_ )->rawData(), weights.rawData(), indices.rawData() };
 
             context_->dispatchThreadgroups(
-                context_->device().kernels().pipeline( std::format( "router_select_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type ) ),
-                buffers, std::as_bytes( std::span( &shape, 1 ) ), static_cast<std::size_t>( rows ), 1 );
+                pipeline_, buffers, std::as_bytes( std::span( &shape, 1 ) ), static_cast<std::size_t>( rows ), 1 );
         }
 
         [[nodiscard]] OperationType getOperationType() const override
@@ -137,6 +137,7 @@ namespace Mila::Dnn::Compute::Metal::Routing
 
         MetalExecutionContext* context_;
         RouterConfig config_;
+        MetalPipeline pipeline_;
         ITensor* per_expert_scale_{ nullptr };
     };
 }

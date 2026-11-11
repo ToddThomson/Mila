@@ -10,6 +10,24 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Nobody has measured what the first load of a model on a Mac pays to prepare its kernels
+
+`Lib/Src/Dnn/Compute/Devices/Metal/Implementation/MetalKernelLibrary.cpp` (`pipeline`) @ 0.21.0-dev+134
+
+Found 2026-11-11 moving the kernels' compile into the build (`MetalBackend.md` 4.3). The first time the Mac saw the new library, preparing all 217 pipelines took 12.4 s; every run after took 7 ms, and after one kernel changed, 72 ms. A model prepares only its own kernels, when its operations are constructed, and that first load was not timed: every kernel was already prepared by the time a model ran. Not known either: whether a Mac that compiled the same kernels from source at run time paid the same, since those readings may all have found pipelines already prepared.
+
+## Sampling's Metal kernel draws two compiler warnings in every build
+
+`Lib/Src/Dnn/Compute/Devices/Metal/Operations/Sampling/Kernels/Sampling.metal`:703 (`shared_base`, `shared_start`) @ 0.21.0-dev+134
+
+Found 2026-11-11, once the build compiled the kernels and printed what the run-time compile had kept to itself. Both are threadgroup variables written by thread 0 and read by every thread after a barrier, reported as used uninitialized whenever the `if` is false (`-Wsometimes-uninitialized`). Not looked into: whether the read is always after the write, and how to say so to the compiler. With them gone the kernels could build with warnings as errors.
+
+## Metal's kernel files share one scope, and all but one leave their macros defined
+
+`Lib/Src/Dnn/Compute/Devices/Metal/Operations/Linear/Kernels/LinearQuantized.metal` (`MILA_QUANTIZED_LANES` and 12 more across the kernel files) @ 0.21.0-dev+134
+
+Found 2026-11-11 reviewing the kernel library. The 23 kernel files compile as one source (`MetalBackend.md` 4.3), each repeating `#include <metal_stdlib>` and `using namespace metal;` as if it were alone. Every struct, constant and helper is in one global scope, kept apart only by an operation's prefix; no collision exists today. Only `Moe.metal` undefines its macros; the other 13 `MILA_` macros stay defined for every file after. A collision stops a Mac build.
+
 ## On a 16 GB Mac, Gemma 4 12B planned at 98.5% of the working set loads and then fails its first prompt for want of GPU memory
 
 `Lib/Src/Deployment/Planning/PrefillScoreRowsRule.ixx` (`choosePrefillScoreRows`) @ 0.21.0-dev+133

@@ -145,7 +145,7 @@ global layer after 16K, for a 33.5 MB cache).
   (~7.5 min a run). Template with alternation: `D:\Claude\metal\prefill2\unsplit.sh`. Baseline binary of HEAD:
   `~/mila-work/rows4/TA`.
 - **Thread-limit probe (headless, ~20 s, no build):** `D:\Claude\metal\prefill2\limits.mm`, built at
-  `~/mila-work/capture/limits <tree> <kernel>...`; compiles Mila's kernel source as `MetalKernelLibrary` does. Scratch
+  `~/mila-work/capture/limits <tree> <kernel>...`; compiles Mila's kernel source at run time, as `MetalKernelLibrary` did until `+134`. Scratch
   tree `~/mila-work/probe-tree`; probe kernels `probe_kernels.metal`, extra instantiations `inst*.metal`.
 - **Registers and spills:** capture with `D:\Claude\metal\prefill2\capture.mm` + `capture.sh <name>` (dylib injected into
   `MilaTests --gtest_filter=GqaMetalFused/Fp16.GemmasGlobalLayers`), then Todd opens the `.gputrace` in Xcode (Replay,

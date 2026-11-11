@@ -46,6 +46,8 @@ namespace
     template<TensorDataType TPrecision>
     double millisecondsPerProduct( MetalExecutionContext& context, const MatrixProduct& product, int products, int rounds )
     {
+        const MatrixProductPipelines pipelines = matrixProductPipelines<TPrecision>( context.device().kernels() );
+
         std::vector<double> times;
         times.reserve( static_cast<std::size_t>( rounds ) );
 
@@ -55,7 +57,7 @@ namespace
 
             for ( int i = 0; i < products; ++i )
             {
-                encodeMatrixProduct<TPrecision>( context, product );
+                encodeMatrixProduct<TPrecision>( context, pipelines, product );
             }
 
             context.synchronize();

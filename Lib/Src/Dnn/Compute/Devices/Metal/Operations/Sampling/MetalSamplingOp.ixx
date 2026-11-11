@@ -205,23 +205,20 @@ namespace Mila::Dnn::Compute::Metal::Sampling
             std::int32_t chunk_count;
         };
 
-        // Metal's pipeline type, named through the library that hands it out, since this module does not include Metal's headers.
-        using Pipeline = decltype( std::declval<MetalKernelLibrary&>().pipeline( std::string{} ) );
-
         // Every kernel this op dispatches, resolved once when it is built: a dispatch names none.
         struct Pipelines
         {
-            Pipeline greedy;
-            Pipeline scale;
-            Pipeline prepare;
-            Pipeline top_k_count;
-            Pipeline top_k_select;
-            Pipeline top_p_mass;
-            Pipeline top_p_select;
-            Pipeline probability;
-            Pipeline draw;
-            Pipeline mark_produced;
-            Pipeline accept;
+            MetalPipeline greedy;
+            MetalPipeline scale;
+            MetalPipeline prepare;
+            MetalPipeline top_k_count;
+            MetalPipeline top_k_select;
+            MetalPipeline top_p_mass;
+            MetalPipeline top_p_select;
+            MetalPipeline probability;
+            MetalPipeline draw;
+            MetalPipeline mark_produced;
+            MetalPipeline accept;
         };
 
         [[nodiscard]] static Pipelines resolvePipelines( MetalKernelLibrary& kernels )
@@ -384,7 +381,7 @@ namespace Mila::Dnn::Compute::Metal::Sampling
                 first_row, tokens_out.rawData(), scratch, reduction_scratch_.rawData(), count_scratch_.rawData(), suppressed, flags, round };
 
             // Each stage is told its radix round; the rest of the parameters are the call's.
-            auto stage = [&]( Pipeline pipeline, dim_t width, std::int32_t radix_round )
+            auto stage = [&]( MetalPipeline pipeline, dim_t width, std::int32_t radix_round )
                 {
                     Parameters staged = parameters;
                     staged.round = radix_round;

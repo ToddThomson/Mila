@@ -94,7 +94,7 @@ namespace Mila::Dnn::Compute::Metal::Linear
         MetalLinearOp( IExecutionContext* context, const LinearConfig& config )
             : context_( validateExecutionContext_<DeviceType::Metal>( context, "MetalLinearOp" ) ),
               config_( config ),
-              row_pipeline_( rowPipelineFor( *context_ ) )
+              pipelines_( resolvePipelines( context_->device().kernels(), config_.hasBias() ) )
         {
         }
 
@@ -217,12 +217,10 @@ namespace Mila::Dnn::Compute::Metal::Linear
 
                 if constexpr ( kIsFp8Weight )
                 {
-                    context_->dispatchThreadgroups( context_->device().kernels().pipeline( "linear_quantize_fp8_per_channel" ),
-                        buffers, std::as_bytes( std::span( &shape, 1 ) ), rows, 1, kFp8QuantizationSimdgroups );
+                    context_->dispatchThreadgroups( pipelines_.quantize, buffers, std::as_bytes( std::span( &shape, 1 ) ), rows, 1, kFp8QuantizationSimdgroups );
                 } else {
                     context_->dispatchThreadgroups(
-                        context_->device().kernels().pipeline( std::format( "linear_quantize_fp4_per_group_{}", kGroup ) ),
-                        buffers, std::as_bytes( std::span( &shape, 1 ) ), inputs / kGroup, rows, kGroup / kSimdgroupWidth );
+                        pipelines_.quantize, buffers, std::as_bytes( std::span( &shape, 1 ) ), inputs / kGroup, rows, kGroup / kSimdgroupWidth );
                 }
             }
 
@@ -299,7 +297,7 @@ namespace Mila::Dnn::Compute::Metal::Linear
             {
                 encodeQuantized( input_address, output_address, rows );
             } else {
-                encodeMatrixProduct<TComputePrecision>( *context_, MatrixProduct{
+                encodeMatrixProduct<TComputePrecision>( *context_, pipelines_.product, MatrixProduct{
                     input_address, static_cast<const ITensor*>( weight_ )->rawData(), output_address,
                     rows, inputs_, outputs_, outputs_, kFewestMultipliesToPad } );
             }
@@ -336,7 +334,7 @@ namespace Mila::Dnn::Compute::Metal::Linear
             {
                 encodeLanes( input_address, output_address, 0, rows, 0, outputs_ );
             } else {
-                encodeMatrixProduct<TComputePrecision>( *context_, MatrixProduct{
+                encodeMatrixProduct<TComputePrecision>( *context_, pipelines_.product, MatrixProduct{
                     input_address, static_cast<const ITensor*>( weight_ )->rawData(), output_address,
                     rows, inputs_, outputs_, outputs_, kFewestMultipliesToPad } );
             }
@@ -378,6 +376,7 @@ namespace Mila::Dnn::Compute::Metal::Linear
 
         static constexpr int kChunk = 8;
         static constexpr int kTileRows = 8;
+        static constexpr int kLargeTileRows = 128;
         static constexpr int kTileColumns = 16;
         static constexpr int kSimdgroupWidth = 32;
         static constexpr int kFp8QuantizationSimdgroups = 8;
@@ -443,18 +442,76 @@ namespace Mila::Dnn::Compute::Metal::Linear
 
         static_assert( !kTakesRowKernel || kGroup % 16 == 0, "linear_quantized_row reads sixteen inputs under one scale" );
 
-        // Metal's pipeline type, named through the library that hands it out, since this module does not include Metal's headers.
-        using Pipeline = decltype( std::declval<MetalKernelLibrary&>().pipeline( std::string{} ) );
-
-        static Pipeline rowPipelineFor( MetalExecutionContext& context )
+        // Every kernel this op may dispatch, resolved once when it is constructed: a dispatch names none. One this format, precision
+        // or configuration never reaches stays null.
+        struct Pipelines
         {
-            if constexpr ( kTakesRowKernel )
+            /// Unquantized weights multiply through these, and so do quantized ones once expanded.
+            MatrixProductPipelines product;
+
+            MetalPipeline bias{ nullptr };
+
+            /// One row of Q4_0, and the own lanes: one row four outputs across, and up to eight rows together.
+            MetalPipeline row{ nullptr };
+            MetalPipeline one_row_lanes{ nullptr };
+            MetalPipeline rows_lanes{ nullptr };
+
+            MetalPipeline expand{ nullptr };
+
+            /// FP8's bare codes through TensorOps, in tiles of 128 rows and of 8, and each output's scale after.
+            MetalPipeline large_fp8_tiles{ nullptr };
+            MetalPipeline small_fp8_tiles{ nullptr };
+            MetalPipeline output_scales{ nullptr };
+
+            /// A load's full-precision weights into this format.
+            MetalPipeline quantize{ nullptr };
+        };
+
+        [[nodiscard]] static Pipelines resolvePipelines( MetalKernelLibrary& kernels, bool has_bias )
+        {
+            const std::string_view type = MetalTensorDataTypeMap<TComputePrecision>::kernel_type;
+
+            Pipelines pipelines;
+            pipelines.product = matrixProductPipelines<TComputePrecision>( kernels );
+
+            if ( has_bias )
             {
-                return context.device().kernels().pipeline( std::format( "linear_quantized_row_{}_{}", kFormatName,
-                    MetalTensorDataTypeMap<TComputePrecision>::kernel_type ) );
-            } else {
-                return nullptr;
+                pipelines.bias = kernels.pipeline( std::format( "linear_add_bias_{}", type ) );
             }
+
+            if constexpr ( kIsQuantized )
+            {
+                const std::string_view family = kIsCodebookWeight ? "codebook" : "quantized";
+
+                // One row of a format with a row kernel never reaches the lanes, which have no one-row instance for it.
+                if constexpr ( kTakesRowKernel )
+                {
+                    pipelines.row = kernels.pipeline( std::format( "linear_quantized_row_{}_{}", kFormatName, type ) );
+                } else {
+                    pipelines.one_row_lanes = kernels.pipeline( std::format( "linear_{}_lanes_{}_{}_4_1", family, kFormatName, type ) );
+                }
+
+                pipelines.rows_lanes = kernels.pipeline( std::format( "linear_{}_lanes_{}_{}_1_8", family, kFormatName, type ) );
+                pipelines.expand = kernels.pipeline( std::format( "linear_{}_expand_{}_{}", family, kFormatName, type ) );
+            }
+
+            if constexpr ( kMultipliesBareCodes )
+            {
+                pipelines.large_fp8_tiles = kernels.pipeline( std::format( "linear_fp8_tiles_{}_{}_{}_{}", type, kLargeTileRows, kTileColumns, 4 ) );
+                pipelines.small_fp8_tiles = kernels.pipeline( std::format( "linear_fp8_tiles_{}_{}_{}_{}", type, kTileRows, kTileColumns, 2 ) );
+                pipelines.output_scales = kernels.pipeline( std::format( "linear_apply_output_scales_{}", type ) );
+            }
+
+            if constexpr ( kIsFp8Weight )
+            {
+                pipelines.quantize = kernels.pipeline( "linear_quantize_fp8_per_channel" );
+            }
+            else if constexpr ( kIsFp4Weight )
+            {
+                pipelines.quantize = kernels.pipeline( std::format( "linear_quantize_fp4_per_group_{}", kGroup ) );
+            }
+
+            return pipelines;
         }
 
         [[nodiscard]] static constexpr int outputsInTiles( int outputs ) noexcept
@@ -538,7 +595,7 @@ namespace Mila::Dnn::Compute::Metal::Linear
                     const std::array<const void*, 4> buffers{ input, weight, scales, output };
                     const std::size_t width = static_cast<std::size_t>( ( last_output - first_output + kRowKernelOutputs - 1 ) / kRowKernelOutputs );
 
-                    context_->dispatchThreadgroups( row_pipeline_, buffers, std::as_bytes( std::span( &shape, 1 ) ), width, 1, 2 );
+                    context_->dispatchThreadgroups( pipelines_.row, buffers, std::as_bytes( std::span( &shape, 1 ) ), width, 1, 2 );
 
                     return;
                 }
@@ -546,9 +603,7 @@ namespace Mila::Dnn::Compute::Metal::Linear
 
             const int across = rows == 1 ? 4 : 1;
             const int rows_together = rows == 1 ? 1 : 8;
-
-            const std::string kernel = std::format( "linear_{}_lanes_{}_{}_{}_{}", kIsCodebookWeight ? "codebook" : "quantized",
-                kFormatName, MetalTensorDataTypeMap<TComputePrecision>::kernel_type, across, rows_together );
+            const MetalPipeline pipeline = rows == 1 ? pipelines_.one_row_lanes : pipelines_.rows_lanes;
             const std::size_t width = static_cast<std::size_t>( ( last_output - first_output + across - 1 ) / across );
             const std::size_t height = static_cast<std::size_t>( ( rows + rows_together - 1 ) / rows_together );
 
@@ -556,11 +611,11 @@ namespace Mila::Dnn::Compute::Metal::Linear
             {
                 const std::array<const void*, 6> buffers{ input, weight, scales, output, codebookAddress(), highPlaneAddress() };
 
-                context_->dispatchThreadgroups( context_->device().kernels().pipeline( kernel ), buffers, std::as_bytes( std::span( &shape, 1 ) ), width, height );
+                context_->dispatchThreadgroups( pipeline, buffers, std::as_bytes( std::span( &shape, 1 ) ), width, height );
             } else {
                 const std::array<const void*, 4> buffers{ input, weight, scales, output };
 
-                context_->dispatchThreadgroups( context_->device().kernels().pipeline( kernel ), buffers, std::as_bytes( std::span( &shape, 1 ) ), width, height );
+                context_->dispatchThreadgroups( pipeline, buffers, std::as_bytes( std::span( &shape, 1 ) ), width, height );
             }
         }
 
@@ -575,16 +630,14 @@ namespace Mila::Dnn::Compute::Metal::Linear
                 auto* const sums = static_cast<float*>( context_->getDeviceScratchBuffer(
                     sizeof( float ) * static_cast<std::size_t>( rows_in_tiles ) * static_cast<std::size_t>( columns ) ) );
 
-                int next_row = encodeFp8Tiles<128, 4>( input, sums, 0, rows_in_tiles, columns );
-                next_row = encodeFp8Tiles<8, 2>( input, sums, next_row, rows_in_tiles, columns );
+                int next_row = encodeFp8Tiles<kLargeTileRows, 4>( pipelines_.large_fp8_tiles, input, sums, 0, rows_in_tiles, columns );
+                next_row = encodeFp8Tiles<kTileRows, 2>( pipelines_.small_fp8_tiles, input, sums, next_row, rows_in_tiles, columns );
 
                 const OutputScaleShape shape{ static_cast<std::uint32_t>( columns ), static_cast<std::uint32_t>( outputs_ ) };
                 const std::array<const void*, 3> buffers{ sums, static_cast<const ITensor*>( weight_scales_ )->rawData(), output };
 
                 context_->dispatch(
-                    context_->device().kernels().pipeline( std::format(
-                        "linear_apply_output_scales_{}", MetalTensorDataTypeMap<TComputePrecision>::kernel_type ) ),
-                    buffers, std::as_bytes( std::span( &shape, 1 ) ),
+                    pipelines_.output_scales, buffers, std::as_bytes( std::span( &shape, 1 ) ),
                     static_cast<std::size_t>( rows_in_tiles ) * static_cast<std::size_t>( columns ) );
             }
 
@@ -594,7 +647,7 @@ namespace Mila::Dnn::Compute::Metal::Linear
 
         /// Tiles of TTileRows from `first_row` up to `last_row`, returning the first row they leave.
         template<int TTileRows, int TSimdgroups>
-        int encodeFp8Tiles( const void* input, float* sums, int first_row, int last_row, int columns ) const
+        int encodeFp8Tiles( MetalPipeline pipeline, const void* input, float* sums, int first_row, int last_row, int columns ) const
         {
             const int tiles_down = ( last_row - first_row ) / TTileRows;
 
@@ -614,9 +667,7 @@ namespace Mila::Dnn::Compute::Metal::Linear
                     rows_taken, columns, columns } };
 
             context_->dispatchMatrices(
-                context_->device().kernels().pipeline( std::format( "linear_fp8_tiles_{}_{}_{}_{}",
-                    MetalTensorDataTypeMap<TComputePrecision>::kernel_type, TTileRows, kTileColumns, TSimdgroups ) ),
-                matrices, static_cast<std::size_t>( columns / kTileColumns ), static_cast<std::size_t>( tiles_down ), TSimdgroups );
+                pipeline, matrices, static_cast<std::size_t>( columns / kTileColumns ), static_cast<std::size_t>( tiles_down ), TSimdgroups );
 
             return first_row + rows_taken;
         }
@@ -628,8 +679,6 @@ namespace Mila::Dnn::Compute::Metal::Linear
             void* const expanded = context_->getDeviceScratchBuffer(
                 metalElementBytes<TComputePrecision>( static_cast<dim_t>( block ) * inputs_ ) );
 
-            const std::string kernel = std::format( "linear_{}_expand_{}_{}", kIsCodebookWeight ? "codebook" : "quantized",
-                kFormatName, MetalTensorDataTypeMap<TComputePrecision>::kernel_type );
             const void* const weight = static_cast<const ITensor*>( weight_ )->rawData();
             const void* const scales = static_cast<const ITensor*>( weight_scales_ )->rawData();
 
@@ -643,16 +692,16 @@ namespace Mila::Dnn::Compute::Metal::Linear
                 {
                     const std::array<const void*, 5> buffers{ weight, scales, expanded, codebookAddress(), highPlaneAddress() };
 
-                    context_->dispatch( context_->device().kernels().pipeline( kernel ), buffers, std::as_bytes( std::span( &shape, 1 ) ), threads );
+                    context_->dispatch( pipelines_.expand, buffers, std::as_bytes( std::span( &shape, 1 ) ), threads );
                 } else {
                     const std::array<const void*, 3> buffers{ weight, scales, expanded };
 
-                    context_->dispatch( context_->device().kernels().pipeline( kernel ), buffers, std::as_bytes( std::span( &shape, 1 ) ), threads );
+                    context_->dispatch( pipelines_.expand, buffers, std::as_bytes( std::span( &shape, 1 ) ), threads );
                 }
 
                 const auto* const block_output = static_cast<const std::byte*>( output ) + metalElementBytes<TComputePrecision>( first );
 
-                encodeMatrixProduct<TComputePrecision>( *context_, MatrixProduct{
+                encodeMatrixProduct<TComputePrecision>( *context_, pipelines_.product, MatrixProduct{
                     input, expanded, block_output, rows, inputs_, count, outputs_, kNeverPad } );
             }
         }
@@ -674,14 +723,13 @@ namespace Mila::Dnn::Compute::Metal::Linear
             const std::uint32_t outputs = static_cast<std::uint32_t>( outputs_ );
 
             context_->dispatch(
-                context_->device().kernels().pipeline( std::format( "linear_add_bias_{}", MetalTensorDataTypeMap<TComputePrecision>::kernel_type ) ),
-                buffers, std::as_bytes( std::span( &outputs, 1 ) ),
+                pipelines_.bias, buffers, std::as_bytes( std::span( &outputs, 1 ) ),
                 static_cast<std::size_t>( rows ) * static_cast<std::size_t>( outputs_ ) );
         }
 
         MetalExecutionContext* context_;
         LinearConfig config_;
-        Pipeline row_pipeline_;
+        Pipelines pipelines_;
         ITensor* weight_{ nullptr };
         ITensor* bias_{ nullptr };
         ITensor* weight_scales_{ nullptr };

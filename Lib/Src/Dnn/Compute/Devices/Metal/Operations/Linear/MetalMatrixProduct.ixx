@@ -8,6 +8,7 @@ export module Compute.MetalMatrixProduct;
 import std;
 import Compute.MetalExecutionContext;
 import Compute.MetalKernelLibrary;
+export import Compute.MetalMatrixProductPipelines;
 import Compute.MetalMatrixView;
 import Compute.MetalTensorDataTypeMap;
 import Dnn.TensorDataType;
@@ -56,7 +57,7 @@ namespace Mila::Dnn::Compute::Metal
         }
 
         template<TensorDataType TPrecision, int TTileRows, int TSimdgroups>
-        int encodeTiles( MetalExecutionContext& context, const MatrixProduct& product, int first_row, int columns )
+        int encodeTiles( MetalExecutionContext& context, MetalPipeline pipeline, const MatrixProduct& product, int first_row, int columns )
         {
             const int tiles_down = ( product.rows - first_row ) / TTileRows;
 
@@ -76,11 +77,8 @@ namespace Mila::Dnn::Compute::Metal
                 MetalMatrixView{ product.weight, TPrecision, product.outputs, product.inputs, product.inputs },
                 MetalMatrixView{ first_output, TPrecision, rows_taken, product.outputs, product.output_stride } };
 
-            const std::string kernel = std::format(
-                "linear_tiles_{}_{}_{}_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type, TTileRows, kTileColumns, TSimdgroups );
-
             context.dispatchMatrices(
-                context.device().kernels().pipeline( kernel ), matrices,
+                pipeline, matrices,
                 static_cast<std::size_t>( columns / kTileColumns ), static_cast<std::size_t>( tiles_down ), TSimdgroups );
 
             return first_row + rows_taken;
@@ -91,7 +89,8 @@ namespace Mila::Dnn::Compute::Metal
          * product's own memory need not have. The rows that pad it are zero, so that what they hold depends on nothing that ran earlier.
          */
         template<TensorDataType TPrecision>
-        void encodePaddedRows( MetalExecutionContext& context, const MatrixProduct& product, int first_row, int columns )
+        void encodePaddedRows( MetalExecutionContext& context, const MatrixProductPipelines& pipelines, const MatrixProduct& product,
+            int first_row, int columns )
         {
             const std::size_t element_bytes = metalElementBytes<TPrecision>( 1 );
             const std::size_t rows = static_cast<std::size_t>( product.rows - first_row );
@@ -109,7 +108,7 @@ namespace Mila::Dnn::Compute::Metal
 
             const MatrixProduct tile{ scratch_input, product.weight, scratch_output, kSmallTileRows, product.inputs, columns, columns };
 
-            encodeTiles<TPrecision, kSmallTileRows, kSmallTileSimdgroups>( context, tile, 0, columns );
+            encodeTiles<TPrecision, kSmallTileRows, kSmallTileSimdgroups>( context, pipelines.small_tiles, tile, 0, columns );
 
             // A product names its output by a const address, as every kernel binding does.
             auto* const output = static_cast<std::byte*>( const_cast<void*>( product.output ) ) + output_stride_bytes * first_row;
@@ -122,7 +121,8 @@ namespace Mila::Dnn::Compute::Metal
 
         /// The own kernel over [first_row, last_row) by [first_output, every output).
         template<TensorDataType TPrecision>
-        void encodeOwn( MetalExecutionContext& context, const MatrixProduct& product, int first_row, int last_row, int first_output )
+        void encodeOwn( MetalExecutionContext& context, const MatrixProductPipelines& pipelines, const MatrixProduct& product,
+            int first_row, int last_row, int first_output )
         {
             const int rows = last_row - first_row;
             const int outputs = product.outputs - first_output;
@@ -133,7 +133,6 @@ namespace Mila::Dnn::Compute::Metal
             }
 
             const std::array<const void*, 3> buffers{ product.input, product.weight, product.output };
-            const std::string_view type = MetalTensorDataTypeMap<TPrecision>::kernel_type;
             const bool vectors = product.inputs % 4 == 0;
 
             const std::array<std::uint32_t, 5> rectangle{
@@ -144,7 +143,7 @@ namespace Mila::Dnn::Compute::Metal
             if ( vectors )
             {
                 context.dispatchThreadgroups(
-                    context.device().kernels().pipeline( std::format( "linear_lanes_{}", type ) ),
+                    pipelines.lanes,
                     buffers, std::as_bytes( std::span( rectangle ) ),
                     static_cast<std::size_t>( ( outputs + kLaneOutputs - 1 ) / kLaneOutputs ), static_cast<std::size_t>( rows ) );
 
@@ -152,7 +151,7 @@ namespace Mila::Dnn::Compute::Metal
             }
 
             context.dispatch(
-                context.device().kernels().pipeline( std::format( "linear_elements_{}", type ) ),
+                pipelines.elements,
                 buffers, std::as_bytes( std::span( rectangle ) ),
                 static_cast<std::size_t>( rows ) * static_cast<std::size_t>( outputs ) );
         }
@@ -173,14 +172,33 @@ namespace Mila::Dnn::Compute::Metal
     }
 
     /**
-     * @brief Encode one product.
+     * @brief The kernels a product in `TPrecision` may dispatch, for the operation that encodes products to resolve when it is constructed.
+     *
+     * @throws std::runtime_error When Mila has no such kernel, or Metal cannot prepare one.
+     */
+    export template<TensorDataType TPrecision>
+    [[nodiscard]] MatrixProductPipelines matrixProductPipelines( MetalKernelLibrary& kernels )
+    {
+        using namespace MatrixProductDetail;
+
+        const std::string_view type = MetalTensorDataTypeMap<TPrecision>::kernel_type;
+
+        return MatrixProductPipelines{
+            kernels.pipeline( std::format( "linear_tiles_{}_{}_{}_{}", type, kLargeTileRows, kTileColumns, kLargeTileSimdgroups ) ),
+            kernels.pipeline( std::format( "linear_tiles_{}_{}_{}_{}", type, kSmallTileRows, kTileColumns, kSmallTileSimdgroups ) ),
+            kernels.pipeline( std::format( "linear_lanes_{}", type ) ),
+            kernels.pipeline( std::format( "linear_elements_{}", type ) ) };
+    }
+
+    /**
+     * @brief Encode one product through `pipelines`, which are `matrixProductPipelines<TPrecision>`'s.
      *
      * Whole tiles of 128 rows and of 8 rows go through TensorOps, 16 outputs to a tile, and so do 2 to 7 rows left over when the product
      * is large enough to pad them. Everything else, which includes a decode's one row and the outputs a tile leaves over, goes through the own kernel.
      * See `MetalBackend.md` section 4.2.
      */
     export template<TensorDataType TPrecision>
-    void encodeMatrixProduct( MetalExecutionContext& context, const MatrixProduct& product )
+    void encodeMatrixProduct( MetalExecutionContext& context, const MatrixProductPipelines& pipelines, const MatrixProduct& product )
     {
         using namespace MatrixProductDetail;
 
@@ -191,18 +209,18 @@ namespace Mila::Dnn::Compute::Metal
 
         if ( columns_in_tiles > 0 )
         {
-            next_row = encodeTiles<TPrecision, kLargeTileRows, kLargeTileSimdgroups>( context, product, next_row, columns_in_tiles );
-            next_row = encodeTiles<TPrecision, kSmallTileRows, kSmallTileSimdgroups>( context, product, next_row, columns_in_tiles );
+            next_row = encodeTiles<TPrecision, kLargeTileRows, kLargeTileSimdgroups>( context, pipelines.large_tiles, product, next_row, columns_in_tiles );
+            next_row = encodeTiles<TPrecision, kSmallTileRows, kSmallTileSimdgroups>( context, pipelines.small_tiles, product, next_row, columns_in_tiles );
         }
 
         if ( pads )
         {
-            encodePaddedRows<TPrecision>( context, product, next_row, columns_in_tiles );
+            encodePaddedRows<TPrecision>( context, pipelines, product, next_row, columns_in_tiles );
             next_row = product.rows;
         }
 
         // The rows no tile took, across every output, then the outputs no tile took on the rows tiles did.
-        encodeOwn<TPrecision>( context, product, next_row, product.rows, 0 );
-        encodeOwn<TPrecision>( context, product, 0, next_row, columns_in_tiles );
+        encodeOwn<TPrecision>( context, pipelines, product, next_row, product.rows, 0 );
+        encodeOwn<TPrecision>( context, pipelines, product, 0, next_row, columns_in_tiles );
     }
 }

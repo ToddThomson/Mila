@@ -114,7 +114,7 @@ namespace Mila::Tests::Dnn::Compute
         }
     }
 
-    TEST( MetalKernelLibrary, EveryKernelCompilesAndHasAPipeline )
+    TEST( MetalKernelLibrary, EveryKernelHasAPipeline )
     {
         MetalKernelLibrary& kernels = MetalDevice::at( 0 )->kernels();
         const std::vector<std::string> names = kernels.kernelNames();

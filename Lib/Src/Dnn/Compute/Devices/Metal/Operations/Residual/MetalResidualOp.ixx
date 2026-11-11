@@ -29,7 +29,8 @@ namespace Mila::Dnn::Compute::Metal::Residual
 
         // ResidualConfig::validate has already refused a scaling factor other than 1.
         MetalResidualOp( IExecutionContext* context, const ResidualConfig& )
-            : context_( validateExecutionContext_<DeviceType::Metal>( context, "MetalResidualOp" ) )
+            : context_( validateExecutionContext_<DeviceType::Metal>( context, "MetalResidualOp" ) ),
+              pipeline_( context_->device().kernels().pipeline( std::format( "residual_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type ) ) )
         {
         }
 
@@ -43,9 +44,7 @@ namespace Mila::Dnn::Compute::Metal::Residual
 
             const std::array<const void*, 3> buffers{ a.rawData(), b.rawData(), output.rawData() };
 
-            context_->dispatch(
-                context_->device().kernels().pipeline( std::format( "residual_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type ) ),
-                buffers, {}, static_cast<std::size_t>( narrowToKernelIndex( a.size() ) ) );
+            context_->dispatch( pipeline_, buffers, {}, static_cast<std::size_t>( narrowToKernelIndex( a.size() ) ) );
         }
 
         [[nodiscard]] OperationType getOperationType() const override
@@ -61,5 +60,6 @@ namespace Mila::Dnn::Compute::Metal::Residual
     private:
 
         MetalExecutionContext* context_;
+        MetalPipeline pipeline_;
     };
 }

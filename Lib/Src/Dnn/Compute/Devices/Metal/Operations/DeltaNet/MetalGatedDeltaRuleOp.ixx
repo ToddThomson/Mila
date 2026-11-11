@@ -61,7 +61,8 @@ namespace Mila::Dnn::Compute::Metal::DeltaNet
             const dim_t slots_needed = ( config_.getHeadKeyDim() + kKeySplit - 1 ) / kKeySplit;
             const int slots = slots_needed <= 8 ? 8 : slots_needed <= 32 ? 32 : 64;
 
-            kernel_ = std::format( "gated_delta_rule_{}_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type, slots );
+            pipeline_ = context_->device().kernels().pipeline(
+                std::format( "gated_delta_rule_{}_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type, slots ) );
         }
 
         /// A_log and dt_bias, both [num_value_heads]. The rule derives g and beta from them.
@@ -132,7 +133,7 @@ namespace Mila::Dnn::Compute::Metal::DeltaNet
 
             const std::size_t column_groups = static_cast<std::size_t>( ( config_.getHeadValueDim() + kColumnsPerGroup - 1 ) / kColumnsPerGroup );
 
-            context_->dispatchThreadgroups( context_->device().kernels().pipeline( kernel_ ), buffers, std::as_bytes( std::span( &shape, 1 ) ),
+            context_->dispatchThreadgroups( pipeline_, buffers, std::as_bytes( std::span( &shape, 1 ) ),
                 static_cast<std::size_t>( shape.batch ) * shape.value_heads, column_groups,
                 static_cast<std::size_t>( kColumnsPerGroup * kKeySplit ) / kSimdgroupWidth );
         }
@@ -161,7 +162,7 @@ namespace Mila::Dnn::Compute::Metal::DeltaNet
 
         MetalExecutionContext* context_;
         GatedDeltaRuleConfig config_;
-        std::string kernel_;
+        MetalPipeline pipeline_{ nullptr };
         ITensor* a_log_{ nullptr };
         ITensor* dt_bias_{ nullptr };
     };

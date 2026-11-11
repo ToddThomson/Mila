@@ -82,6 +82,8 @@ namespace Mila::Dnn::Compute::Metal::Gqa
               config_( config )
         {
             config_.validate();
+
+            pipelines_ = resolvePipelines( context_->device().kernels(), config_.getHeadDim() );
         }
 
         /// Wire the stack's shared workspace. Only non-null slots replace what was wired. With no `att` the softmax runs in place.
@@ -123,7 +125,8 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             }
 
             // A decode threadgroup holds a SIMD-group for each query head of one KV head, and the kernel says how many threads it takes.
-            const MetalKernelLimits limits = context_->device().kernels().limits( decodeKernelName( kFp8Cache ? "gqa_decode_partial_fp8" : "gqa_decode_partial" ) );
+            const MetalKernelLimits limits = context_->device().kernels().limits(
+                decodeKernelName( kFp8Cache ? "gqa_decode_partial_fp8" : "gqa_decode_partial", head_size_ ) );
             const std::size_t decode_threads = static_cast<std::size_t>( heads_ / kv_heads_ ) * limits.thread_execution_width;
 
             if ( decode_threads > limits.max_total_threads_per_threadgroup )
@@ -265,12 +268,12 @@ namespace Mila::Dnn::Compute::Metal::Gqa
 
             if constexpr ( kFp8Cache )
             {
-                context_->dispatchThreadgroups( context_->device().kernels().pipeline( kernelName( "gqa_write_fp8_prefill" ) ),
+                context_->dispatchThreadgroups( pipelines_.write_prefill,
                     std::array<const void*, 6>{ k.rawData(), v.rawData(), key_cache_->rawData(), value_cache_->rawData(), key_scales_->rawData(),
                         value_scales_->rawData() },
                     std::as_bytes( std::span( &geometry, 1 ) ), count * kv_heads_, 1 );
             } else {
-                encode( "gqa_write_prefill", std::array<const void*, 4>{ k.rawData(), v.rawData(), key_cache_->rawData(), value_cache_->rawData() },
+                encode( pipelines_.write_prefill, std::array<const void*, 4>{ k.rawData(), v.rawData(), key_cache_->rawData(), value_cache_->rawData() },
                     geometry, count * kv_heads_ * head_size_ );
             }
 
@@ -304,7 +307,7 @@ namespace Mila::Dnn::Compute::Metal::Gqa
                 {
                     const std::size_t first_position = static_cast<std::size_t>( b ) * tokens + first;
 
-                    encode( "gqa_permute_query",
+                    encode( pipelines_.permute_query,
                         std::array<const void*, 2>{ bytesOf( &q ) + position_bytes * first_position, q_permute_->rawData() },
                         block_geometry, block_elements );
 
@@ -316,7 +319,7 @@ namespace Mila::Dnn::Compute::Metal::Gqa
                         const auto* const keys = cachedRows( key_cache_.get(), key_scales_.get(), b * kv_heads_ + group, block_columns, block_geometry );
                         const auto* const scores = bytesOf( preatt_ ) + element_bytes * first_head * block_tokens * capacity_;
 
-                        encodeMatrixProduct<TPrecision>( *context_, MatrixProduct{
+                        encodeMatrixProduct<TPrecision>( *context_, pipelines_.product, MatrixProduct{
                             query, keys, scores, group_size * block_tokens, head_size_, block_columns, capacity_ } );
                     }
 
@@ -333,7 +336,7 @@ namespace Mila::Dnn::Compute::Metal::Gqa
                             group_size * block_tokens, block_columns );
                     }
 
-                    encode( "gqa_unpermute_output",
+                    encode( pipelines_.unpermute_output,
                         std::array<const void*, 2>{ v_out_->rawData(), bytesOf( &output ) + position_bytes * first_position },
                         block_geometry, block_elements );
                 }
@@ -358,12 +361,12 @@ namespace Mila::Dnn::Compute::Metal::Gqa
 
             if constexpr ( kFp8Cache )
             {
-                context_->dispatchThreadgroups( context_->device().kernels().pipeline( kernelName( "gqa_write_fp8_decode" ) ),
+                context_->dispatchThreadgroups( pipelines_.write_decode,
                     std::array<const void*, 7>{ k.rawData(), v.rawData(), key_cache_->rawData(), value_cache_->rawData(), key_scales_->rawData(),
                         value_scales_->rawData(), decode_position },
                     std::as_bytes( std::span( &geometry, 1 ) ), rows, 1 );
             } else {
-                encode( "gqa_write_decode", std::array<const void*, 5>{ k.rawData(), v.rawData(), key_cache_->rawData(), value_cache_->rawData(), decode_position },
+                encode( pipelines_.write_decode, std::array<const void*, 5>{ k.rawData(), v.rawData(), key_cache_->rawData(), value_cache_->rawData(), decode_position },
                     geometry, rows * static_cast<std::size_t>( head_size_ ) );
             }
 
@@ -627,24 +630,23 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             float* const partial_largest = partial_output + slots * static_cast<std::size_t>( head_size_ );
             float* const partial_sum = partial_largest + slots;
 
-            auto& pipelines = context_->device().kernels();
             const std::size_t query_heads = static_cast<std::size_t>( heads_ / kv_heads_ );
             const std::size_t kv_heads_of_tokens = static_cast<std::size_t>( batches_ * tokens * kv_heads_ );
 
             if constexpr ( kFp8Cache )
             {
-                context_->dispatchThreadgroups( pipelines.pipeline( decodeKernelName( "gqa_decode_partial_fp8" ) ),
+                context_->dispatchThreadgroups( pipelines_.decode_partial,
                     std::array<const void*, 9>{ q.rawData(), key_cache_->rawData(), value_cache_->rawData(), key_scales_->rawData(),
                         value_scales_->rawData(), partial_output, partial_largest, partial_sum, decode_position },
                     std::as_bytes( std::span( &geometry, 1 ) ), kDecodeBlocks, kv_heads_of_tokens, query_heads );
             } else {
-                context_->dispatchThreadgroups( pipelines.pipeline( decodeKernelName( "gqa_decode_partial" ) ),
+                context_->dispatchThreadgroups( pipelines_.decode_partial,
                     std::array<const void*, 7>{ q.rawData(), key_cache_->rawData(), value_cache_->rawData(), partial_output, partial_largest, partial_sum,
                         decode_position },
                     std::as_bytes( std::span( &geometry, 1 ) ), kDecodeBlocks, kv_heads_of_tokens, query_heads );
             }
 
-            context_->dispatchThreadgroups( pipelines.pipeline( decodeKernelName( "gqa_decode_merge" ) ),
+            context_->dispatchThreadgroups( pipelines_.decode_merge,
                 std::array<const void*, 4>{ partial_output, partial_largest, partial_sum, output.rawData() },
                 std::as_bytes( std::span( &geometry, 1 ) ), static_cast<std::size_t>( batches_ * tokens * heads_ ), 1 );
         }
@@ -707,7 +709,7 @@ namespace Mila::Dnn::Compute::Metal::Gqa
                 void* const expanded = context_->getDeviceScratchBuffer( metalElementBytes<TPrecision>( static_cast<dim_t>( rows ) * head_size_ ) );
                 const auto* const row_scales = static_cast<const float*>( static_cast<const ITensor*>( scales )->rawData() ) + first_row;
 
-                encode( "gqa_expand_fp8_rows", std::array<const void*, 3>{ codes, row_scales, expanded }, geometry,
+                encode( pipelines_.expand_fp8_rows, std::array<const void*, 3>{ codes, row_scales, expanded }, geometry,
                     static_cast<std::size_t>( rows ) * static_cast<std::size_t>( head_size_ ) );
 
                 return static_cast<const std::byte*>( expanded );
@@ -715,13 +717,80 @@ namespace Mila::Dnn::Compute::Metal::Gqa
         }
 
         /// The head sizes the models use have their own kernels; any other runs the interleaved one.
-        [[nodiscard]] std::string decodeKernelName( std::string_view family ) const
+        [[nodiscard]] static std::string decodeKernelName( std::string_view family, dim_t head_size )
         {
-            const bool own = head_size_ == 64 || head_size_ == 128 || head_size_ == 256 || head_size_ == 512;
+            const bool own = head_size == 64 || head_size == 128 || head_size == 256 || head_size == 512;
 
             return own
-                ? std::format( "{}_{}_{}", family, MetalTensorDataTypeMap<TPrecision>::kernel_type, head_size_ )
+                ? std::format( "{}_{}_{}", family, MetalTensorDataTypeMap<TPrecision>::kernel_type, head_size )
                 : std::format( "{}_{}_any", family, MetalTensorDataTypeMap<TPrecision>::kernel_type );
+        }
+
+        [[nodiscard]] static std::string flashKernelName( dim_t head_size )
+        {
+            return std::format( "gqa_flash_prefill_{}_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type, head_size );
+        }
+
+        // Every kernel this op may dispatch, resolved once when it is constructed: a dispatch names none. One this cache format or
+        // head size never reaches stays null.
+        struct Pipelines
+        {
+            /// The cache write of a prefill chunk and of a decode step, for this op's cache format.
+            MetalPipeline write_prefill{ nullptr };
+            MetalPipeline write_decode{ nullptr };
+
+            /// A decode step's two passes, for this op's cache format and head size.
+            MetalPipeline decode_partial{ nullptr };
+            MetalPipeline decode_merge{ nullptr };
+
+            /// The unfused prefill: Q x K^T through `product`, attention x V in tiles of 128 rows and of 8 and by elements.
+            MatrixProductPipelines product;
+            MetalPipeline permute_query{ nullptr };
+            MetalPipeline unpermute_output{ nullptr };
+            MetalPipeline prefill_softmax{ nullptr };
+            MetalPipeline large_value_tiles{ nullptr };
+            MetalPipeline small_value_tiles{ nullptr };
+            MetalPipeline value_elements{ nullptr };
+
+            /// An FP8 cache's rows widened for either prefill.
+            MetalPipeline expand_fp8_rows{ nullptr };
+
+            /// The fused prefill and what its kernel reports, at the head sizes that have one.
+            MetalPipeline flash_prefill{ nullptr };
+            MetalKernelLimits flash_limits;
+        };
+
+        [[nodiscard]] static Pipelines resolvePipelines( MetalKernelLibrary& kernels, dim_t head_size )
+        {
+            Pipelines pipelines;
+
+            pipelines.write_prefill = kernels.pipeline( kernelName( kFp8Cache ? "gqa_write_fp8_prefill" : "gqa_write_prefill" ) );
+            pipelines.write_decode = kernels.pipeline( kernelName( kFp8Cache ? "gqa_write_fp8_decode" : "gqa_write_decode" ) );
+            pipelines.decode_partial = kernels.pipeline( decodeKernelName( kFp8Cache ? "gqa_decode_partial_fp8" : "gqa_decode_partial", head_size ) );
+            pipelines.decode_merge = kernels.pipeline( decodeKernelName( "gqa_decode_merge", head_size ) );
+
+            pipelines.product = matrixProductPipelines<TPrecision>( kernels );
+            pipelines.permute_query = kernels.pipeline( kernelName( "gqa_permute_query" ) );
+            pipelines.unpermute_output = kernels.pipeline( kernelName( "gqa_unpermute_output" ) );
+            pipelines.prefill_softmax = kernels.pipeline( kernelName( "gqa_prefill_softmax" ) );
+            pipelines.large_value_tiles = kernels.pipeline( std::format(
+                "gqa_value_tiles_{}_{}_{}_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type, kLargeTileRows, kTileColumns, 4 ) );
+            pipelines.small_value_tiles = kernels.pipeline( std::format(
+                "gqa_value_tiles_{}_{}_{}_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type, kSmallTileRows, kTileColumns, 2 ) );
+            pipelines.value_elements = kernels.pipeline( kernelName( "gqa_value_elements" ) );
+
+            if constexpr ( kFp8Cache )
+            {
+                pipelines.expand_fp8_rows = kernels.pipeline( kernelName( "gqa_expand_fp8_rows" ) );
+            }
+
+            if ( supportsFlashPrefill( head_size ) )
+            {
+                pipelines.flash_prefill = kernels.pipeline( flashKernelName( head_size ) );
+                pipelines.flash_limits = kernels.limits( flashKernelName( head_size ) );
+            }
+
+            return pipelines;
         }
 
         [[nodiscard]] static const std::byte* bytesOf( const ITensor* tensor )
@@ -735,9 +804,9 @@ namespace Mila::Dnn::Compute::Metal::Gqa
         }
 
         template<std::size_t TBuffers>
-        void encode( std::string_view family, const std::array<const void*, TBuffers>& buffers, const Geometry& geometry, std::size_t elements ) const
+        void encode( MetalPipeline pipeline, const std::array<const void*, TBuffers>& buffers, const Geometry& geometry, std::size_t elements ) const
         {
-            context_->dispatch( context_->device().kernels().pipeline( kernelName( family ) ), buffers, std::as_bytes( std::span( &geometry, 1 ) ), elements );
+            context_->dispatch( pipeline, buffers, std::as_bytes( std::span( &geometry, 1 ) ), elements );
         }
 
         void encodeSoftmax( const Geometry& geometry, int attended, std::size_t rows ) const
@@ -747,7 +816,7 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             const struct { Geometry geometry; std::uint32_t attended; } constants{ geometry, static_cast<std::uint32_t>( attended ) };
 
             context_->dispatchThreadgroupsWithTwoConstants(
-                context_->device().kernels().pipeline( kernelName( "gqa_prefill_softmax" ) ), buffers,
+                pipelines_.prefill_softmax, buffers,
                 std::as_bytes( std::span( &constants.geometry, 1 ) ), std::as_bytes( std::span( &constants.attended, 1 ) ), rows, 1 );
         }
 
@@ -774,9 +843,7 @@ namespace Mila::Dnn::Compute::Metal::Gqa
                     MetalMatrixView{ output + element_bytes * next_row * head_size_, TPrecision, rows_taken, head_size_, head_size_ } };
 
                 context_->dispatchMatrices(
-                    context_->device().kernels().pipeline( std::format(
-                        "gqa_value_tiles_{}_{}_{}_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type, TTileRows, kTileColumns, TSimdgroups ) ),
-                    matrices, static_cast<std::size_t>( columns_in_tiles / kTileColumns ), static_cast<std::size_t>( tiles_down ), TSimdgroups );
+                    TTileRows == kLargeTileRows ? pipelines_.large_value_tiles : pipelines_.small_value_tiles, matrices, static_cast<std::size_t>( columns_in_tiles / kTileColumns ), static_cast<std::size_t>( tiles_down ), TSimdgroups );
 
                 next_row += rows_taken;
             };
@@ -804,7 +871,7 @@ namespace Mila::Dnn::Compute::Metal::Gqa
                 static_cast<std::uint32_t>( first_row ), static_cast<std::uint32_t>( first_column ), static_cast<std::uint32_t>( columns ) };
 
             context_->dispatch(
-                context_->device().kernels().pipeline( kernelName( "gqa_value_elements" ) ), buffers,
+                pipelines_.value_elements, buffers,
                 std::as_bytes( std::span( rectangle ) ), static_cast<std::size_t>( rows ) * static_cast<std::size_t>( columns ) );
         }
 
@@ -868,8 +935,7 @@ namespace Mila::Dnn::Compute::Metal::Gqa
 
             const int group_size = heads_ / kv_heads_;
 
-            const std::string kernel = std::format( "gqa_flash_prefill_{}_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type, head_size_ );
-            const MetalKernelLimits limits = context_->device().kernels().limits( kernel );
+            const MetalKernelLimits& limits = pipelines_.flash_limits;
             const std::size_t most_simdgroups = std::min<std::size_t>( static_cast<std::size_t>( tile.most_simdgroups ),
                 limits.max_total_threads_per_threadgroup / limits.thread_execution_width );
 
@@ -885,7 +951,7 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             {
                 throw std::invalid_argument( std::format(
                     "MetalGqaOp: the fused prefill cannot split {} query heads to a KV head into threadgroups of {} SIMD-groups, the most "
-                    "this device gives {}", group_size, most_simdgroups, kernel ) );
+                    "this device gives {}", group_size, most_simdgroups, flashKernelName( head_size_ ) ) );
             }
 
             const int head_splits = group_size / heads_per_threadgroup;
@@ -895,7 +961,7 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             const std::size_t simdgroups = static_cast<std::size_t>( heads_per_threadgroup * blocks );
             const std::size_t position_groups = static_cast<std::size_t>( ( geometry.tokens + positions - 1 ) / positions ) * head_splits;
 
-            auto* const pipeline = context_->device().kernels().pipeline( kernel );
+            const MetalPipeline pipeline = pipelines_.flash_prefill;
 
             FlashConstants constants{ geometry, 0, 0, static_cast<std::uint32_t>( positions ),
                 static_cast<std::uint32_t>( heads_per_threadgroup ), static_cast<std::uint32_t>( head_splits ) };
@@ -935,12 +1001,13 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             const auto* const codes = bytesOf( cache ) + storageBytes<kCacheType>( static_cast<dim_t>( first_row * head_size_ ) );
             const auto* const row_scales = static_cast<const float*>( static_cast<const ITensor*>( scales )->rawData() ) + first_row;
 
-            encode( "gqa_expand_fp8_rows", std::array<const void*, 3>{ codes, row_scales, destination }, geometry,
+            encode( pipelines_.expand_fp8_rows, std::array<const void*, 3>{ codes, row_scales, destination }, geometry,
                 static_cast<std::size_t>( rows ) * static_cast<std::size_t>( head_size_ ) );
         }
 
         MetalExecutionContext* context_;
         GqaConfig config_;
+        Pipelines pipelines_;
 
         bool use_flash_prefill_{ false };
 

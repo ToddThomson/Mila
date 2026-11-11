@@ -48,7 +48,11 @@ namespace Mila::Dnn::Compute::Metal::Convolution
 
         MetalCausalConv1dOp( IExecutionContext* context, const CausalConv1dConfig& config )
             : context_( validateExecutionContext_<DeviceType::Metal>( context, "MetalCausalConv1dOp" ) ),
-              config_( config )
+              config_( config ),
+              forward_pipeline_( context_->device().kernels().pipeline(
+                  std::format( "causal_convolution_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type ) ) ),
+              update_state_pipeline_( context_->device().kernels().pipeline(
+                  std::format( "causal_convolution_update_state_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type ) ) )
         {
             config_.validate();
         }
@@ -86,8 +90,7 @@ namespace Mila::Dnn::Compute::Metal::Convolution
                 bias_ ? bias_->rawData() : input.rawData(), output.rawData() };
 
             context_->dispatch(
-                context_->device().kernels().pipeline( std::format( "causal_convolution_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type ) ),
-                buffers, std::as_bytes( std::span( &shape, 1 ) ), static_cast<std::size_t>( narrowToKernelIndex( input.size() ) ) );
+                forward_pipeline_, buffers, std::as_bytes( std::span( &shape, 1 ) ), static_cast<std::size_t>( narrowToKernelIndex( input.size() ) ) );
         }
 
         /// Refresh `state` to the last (K - 1) * D rows of [state ; input]. Runs after `forward` on the same chunk, whose rows it replaces.
@@ -97,9 +100,7 @@ namespace Mila::Dnn::Compute::Metal::Convolution
             const std::array<const void*, 2> buffers{ state.rawData(), input.rawData() };
 
             context_->dispatch(
-                context_->device().kernels().pipeline(
-                    std::format( "causal_convolution_update_state_{}", MetalTensorDataTypeMap<TPrecision>::kernel_type ) ),
-                buffers, std::as_bytes( std::span( &shape, 1 ) ),
+                update_state_pipeline_, buffers, std::as_bytes( std::span( &shape, 1 ) ),
                 static_cast<std::size_t>( shape.batch ) * static_cast<std::size_t>( shape.channels ) );
         }
 
@@ -141,6 +142,8 @@ namespace Mila::Dnn::Compute::Metal::Convolution
 
         MetalExecutionContext* context_;
         CausalConv1dConfig config_;
+        MetalPipeline forward_pipeline_;
+        MetalPipeline update_state_pipeline_;
         ITensor* weight_{ nullptr };
         ITensor* bias_{ nullptr };
     };

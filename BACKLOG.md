@@ -748,32 +748,21 @@ before that on Llama 3.2 3B alone (`Notebooks/MetalFirstModel.md` section 5). Th
 predate its section 4's decode changes. Not yet: a script in the tree that reruns all three, and a page that shows
 them. Absent: no published surface shows a Mac number.
 
-#### Every Metal kernel launch finds its kernel by name and its buffers by address, where a CUDA launch is resolved when it is compiled
+#### Every Metal kernel launch finds its buffers by address, and a kernel Mila lacks is refused at load, where a CUDA launch is resolved when it is compiled
 
-`open` · `architecture` · `perf` · `mila-src`
+`in progress` · `architecture` · `perf` · `mila-src`
 
-The operation is chosen at compile time on both backends (`OperationTraits.Metal.ixx`); the launch below it is not. Each
-Metal `forward` formats its kernel's name (`std::format( "moe_gated_{}_{}_{}", ... )`), and
-`MetalKernelLibrary::pipeline` looks it up in an `unordered_map` under a mutex. `MetalExecutionContext::dispatch` then
-turns every bound address back into a buffer and offset (`MetalDevice::locate`, a `std::map::upper_bound` under a shared
-mutex), inside an autorelease pool of its own. A CUDA launch calls a template the compiler instantiated, with the pointer
-as it is. Decode replay is off on Metal, so all of it runs again every token. By arithmetic, not measured: Gemma 4 12B
-decodes about 700 dispatches a token, at 1 to 3 microseconds each 1 to 2 ms. The design is to be changed (Todd,
-2026-11-06); what it becomes is the next session's. Considered so far: names fixed at compile time from each op's template
-arguments, the pipeline resolved once at `build()` and held by the op, a Metal tensor carrying its buffer and offset, and
-one pool a pass. Measured apart since: a Metal System Trace of Gemma 4 12B's decode shows the GPU busy about 97% of each
-token and about 2 ms idle between its command buffers, which bounds the host's share. The sampler, RMSNorm and Q4_0's
-one-row Linear already resolve their pipelines once when built. `Specifications/Metal/MetalBackend.md` section 4.
-
-#### Metal's kernels are compiled when a model first loads, so a kernel that does not compile is found only when it runs
-
-`open` · `architecture` · `build` · `mila-src`
-
-`MetalKernelLibrary` compiles every kernel's source, embedded in the library, on the first pipeline asked for:
-`MetalBackend.md` 4.3 chose it because an offline `metallib` needed full Xcode, which the development Mac lacked. Full Xcode
-and its Metal toolchain have been there since 2026-11-05, and `xcrun metal` compiles a kernel file in about 3 s. A first
-load cost 578 ms with 79 kernels (`Notebooks/MetalDecodeAttention.md` 7), and there are more now. A kernel error stops a
-test, not the build. To be decided with the launch's design above (Todd, 2026-11-06).
+The operation is chosen at compile time on both backends (`OperationTraits.Metal.ixx`); the launch below it is not. An
+operation now resolves every kernel it may dispatch when it is constructed and holds the pipelines
+(`MetalBackend.md` 4.3), so no `forward` formats a name or takes the library's lock. What is left:
+`MetalExecutionContext::dispatch` still turns every bound address back into a buffer and offset
+(`MetalDevice::locate`, a `std::map::upper_bound` under a shared mutex), inside an autorelease pool of its own, and
+decode replay is off on Metal, so that runs again every token. A kernel's name is still a string formatted from
+template arguments, so a missing instance is refused when a model loads, not when Mila compiles. TensorOps' stateless
+functions still look their kernel up by name at each call. Considered for the rest: names fixed at compile time from
+each op's template arguments, a Metal tensor carrying its buffer and offset, and one pool a pass. A Metal System Trace
+of Gemma 4 12B's decode shows the GPU busy about 97% of each token and about 2 ms idle between its command buffers,
+which bounds the host's share. `Specifications/Metal/MetalBackend.md` section 4.
 
 ### Model fixes and parity
 

@@ -57,7 +57,8 @@ namespace Mila::Dnn::Compute::Metal::Activation
 
         MetalElementwiseActivationOp( IExecutionContext* context, const ActivationConfig& config )
             : context_( validateExecutionContext_<DeviceType::Metal>( context, "MetalElementwiseActivationOp" ) ),
-              kernel_( std::format( "activation_{}_{}", kernelNameOf<TFunctor>(), MetalTensorDataTypeMap<TPrecision>::kernel_type ) )
+              pipeline_( context_->device().kernels().pipeline(
+                  std::format( "activation_{}_{}", kernelNameOf<TFunctor>(), MetalTensorDataTypeMap<TPrecision>::kernel_type ) ) )
         {
             if constexpr ( std::is_same_v<TFunctor, Mila::Dnn::Activations::LeakyRelu> )
             {
@@ -80,7 +81,7 @@ namespace Mila::Dnn::Compute::Metal::Activation
 
             const std::array<const void*, 2> buffers{ input.rawData(), output.rawData() };
 
-            context_->dispatch( context_->device().kernels().pipeline( kernel_ ), buffers, std::as_bytes( std::span( &alpha_, 1 ) ),
+            context_->dispatch( pipeline_, buffers, std::as_bytes( std::span( &alpha_, 1 ) ),
                 static_cast<std::size_t>( narrowToKernelIndex( input.size() ) ) );
         }
 
@@ -97,7 +98,7 @@ namespace Mila::Dnn::Compute::Metal::Activation
     private:
 
         MetalExecutionContext* context_;
-        std::string kernel_;
+        MetalPipeline pipeline_;
         float alpha_{ 0.0f };
     };
 }

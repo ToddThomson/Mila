@@ -1,6 +1,6 @@
 /**
  * @file main.cpp
- * @brief What this Mac's GPU reports, and whether every kernel Mila ships compiles and prepares on it.
+ * @brief What this Mac's GPU reports, and how long Mila's kernels take to load and prepare on it.
  *
  * MetalBackend.md sections 2.1 and 2.2. Run it on any chip Mila has not seen, for section 3.3's table and Phase 7.
  */
@@ -69,9 +69,9 @@ int main()
 
     MetalKernelLibrary& kernels = device->kernels();
 
-    const Clock::time_point compile_start = Clock::now();
+    const Clock::time_point load_start = Clock::now();
     const std::vector<std::string> names = kernels.kernelNames();
-    const double compile_milliseconds = millisecondsSince( compile_start );
+    const double load_milliseconds = millisecondsSince( load_start );
 
     const Clock::time_point prepare_start = Clock::now();
 
@@ -84,7 +84,7 @@ int main()
 
     std::println( "" );
     std::println( "Kernels                {}", names.size() );
-    std::println( "Compiling them         {:.1f} ms", compile_milliseconds );
+    std::println( "Loading them           {:.1f} ms", load_milliseconds );
     std::println( "Preparing them all     {:.1f} ms", prepare_milliseconds );
     std::println( "" );
 

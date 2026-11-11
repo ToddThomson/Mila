@@ -994,6 +994,7 @@ if(MILA_HAS_METAL)
                 "Src/Dnn/Compute/Devices/Metal/Operations/Encodings/Rope/MetalRopeOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/Linear/MetalLinearOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/Linear/MetalMatrixProduct.ixx"
+                "Src/Dnn/Compute/Devices/Metal/Operations/Linear/MetalMatrixProductPipelines.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/LogLikelihood/MetalNextTokenLogProbabilityOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/Moe/MetalMoeOp.ixx"
                 "Src/Dnn/Compute/Devices/Metal/Operations/Routing/MetalRouterOp.ixx"
@@ -1014,18 +1015,37 @@ if(MILA_HAS_METAL)
                 "Src/Dnn/Compute/Devices/Metal/Tensors/Operations/MetalTensorOps.Zero.ixx"
     )
 
-    # metal-cpp's README asks for one file to hold its implementation, and this is that file.
+    # metal-cpp's README asks for one file to hold its implementation, and this is that file. The kernel
+    # library's bodies and the compiled kernels are in the other: a kernel edit rebuilds it alone.
     target_sources(Mila
         PRIVATE
             "Src/Dnn/Compute/Devices/Metal/MetalCppImplementation.cpp"
+            "Src/Dnn/Compute/Devices/Metal/Implementation/MetalKernelLibrary.cpp"
     )
 
     target_include_directories(Mila PRIVATE "${metal_cpp_SOURCE_DIR}")
 
-    # Kernels are compiled at run time from source carried in the library (MetalBackend.md section 4.3).
-    # Each lives in Kernels/ beside the operation that launches it, as on CUDA, and becomes one raw string,
-    # named by its file alone and rewritten only when it changes.
+    # Kernels are compiled when Mila is built, by Xcode's Metal compiler as CUDA's are by nvcc, into one Metal
+    # library that Implementation/MetalKernelLibrary.cpp embeds (MetalBackend.md section 4.3). Each lives in
+    # Kernels/ beside the operation that launches it. This list is the only one: the files are included in
+    # this order by one generated source, so a file may use what an earlier one declares, and
+    # QuantizedCodes.metal, which the others read, is first.
+    execute_process(
+        COMMAND xcrun -sdk macosx -f metal
+        RESULT_VARIABLE metal_compiler_result
+        OUTPUT_QUIET ERROR_QUIET)
+
+    if(NOT metal_compiler_result EQUAL 0)
+        message(FATAL_ERROR
+            "Mila compiles its Metal kernels when it is built, and found no Metal compiler. "
+            "Install Xcode, then its Metal Toolchain: xcodebuild -downloadComponent metaltoolchain")
+    endif()
+
+    set(metal_source_directory "${CMAKE_CURRENT_SOURCE_DIR}/Src/Dnn/Compute/Devices/Metal")
     set(metal_kernel_directory "${CMAKE_CURRENT_BINARY_DIR}/MetalKernels")
+    set(metal_kernel_library "${metal_kernel_directory}/MilaKernels.metallib")
+    set(metal_kernel_includes "")
+    set(metal_kernel_paths "")
 
     foreach(kernel_file
         "Kernels/QuantizedCodes.metal"
@@ -1033,6 +1053,10 @@ if(MILA_HAS_METAL)
         "Tensors/Operations/Kernels/TensorOps.Math.metal"
         "Tensors/Operations/Kernels/TensorOps.Scale.metal"
         "Tensors/Operations/Kernels/TensorOps.Structural.metal"
+        "Operations/Attention/GQA/Kernels/GroupedQueryAttention.metal"
+        "Operations/Attention/GQA/Kernels/GroupedQueryAttention.Flash.metal"
+        "Operations/Sampling/Kernels/Sampling.metal"
+        "Operations/LogLikelihood/Kernels/NextTokenLogProbability.metal"
         "Operations/Linear/Kernels/Linear.metal"
         "Operations/Linear/Kernels/LinearQuantized.metal"
         "Operations/Linear/Kernels/Quantization/WeightQuantization.metal"
@@ -1045,21 +1069,36 @@ if(MILA_HAS_METAL)
         "Operations/Convolutions/Kernels/CausalConv1d.metal"
         "Operations/DeltaNet/Kernels/GatedDeltaRule.metal"
         "Operations/Residual/Kernels/Residual.metal"
-        "Operations/Attention/GQA/Kernels/GroupedQueryAttention.metal"
-        "Operations/Attention/GQA/Kernels/GroupedQueryAttention.Flash.metal"
-        "Operations/Sampling/Kernels/Sampling.metal"
-        "Operations/LogLikelihood/Kernels/NextTokenLogProbability.metal"
         "Operations/Routing/Kernels/Router.metal"
         "Operations/Moe/Kernels/Moe.metal")
-        set(kernel_path "${CMAKE_CURRENT_SOURCE_DIR}/Src/Dnn/Compute/Devices/Metal/${kernel_file}")
-        get_filename_component(kernel_name "${kernel_file}" NAME)
-        file(READ "${kernel_path}" kernel_source)
-        file(CONFIGURE OUTPUT "${metal_kernel_directory}/${kernel_name}.inc"
-            CONTENT "R\"metal(${kernel_source})metal\"\n" @ONLY)
-        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${kernel_path}")
+        string(APPEND metal_kernel_includes "#include \"${kernel_file}\"\n")
+        list(APPEND metal_kernel_paths "${metal_source_directory}/${kernel_file}")
     endforeach()
 
-    target_include_directories(Mila PRIVATE "${metal_kernel_directory}")
+    file(CONFIGURE OUTPUT "${metal_kernel_directory}/MilaKernels.metal" CONTENT "${metal_kernel_includes}" @ONLY)
+
+    # The options are stated, not left to the compiler's defaults: the kernels are written for fast math, and one
+    # that needs exact arithmetic or a precise function says so itself.
+    add_custom_command(
+        OUTPUT "${metal_kernel_library}"
+        COMMAND xcrun -sdk macosx metal
+            -std=metal4.1 -mmacosx-version-min=27.0
+            -fmetal-math-mode=fast -fmetal-math-fp32-functions=fast
+            -I "${metal_source_directory}"
+            -o "${metal_kernel_library}" "${metal_kernel_directory}/MilaKernels.metal"
+        DEPENDS "${metal_kernel_directory}/MilaKernels.metal" ${metal_kernel_paths}
+        COMMENT "Compiling Mila's Metal kernels"
+        VERBATIM)
+
+    # The target orders the library ahead of every step of Mila, the module scan that reads the #embed included;
+    # the source properties rebuild the one file that embeds it when a kernel changes, and tell #embed where it
+    # is, which an include directory does not.
+    add_custom_target(MilaMetalKernels DEPENDS "${metal_kernel_library}")
+    add_dependencies(Mila MilaMetalKernels)
+    set_source_files_properties("Src/Dnn/Compute/Devices/Metal/Implementation/MetalKernelLibrary.cpp"
+        PROPERTIES
+            OBJECT_DEPENDS "${metal_kernel_library}"
+            COMPILE_OPTIONS "--embed-dir=${metal_kernel_directory}")
 
     target_link_libraries(Mila PUBLIC
         ${METAL_FRAMEWORK}

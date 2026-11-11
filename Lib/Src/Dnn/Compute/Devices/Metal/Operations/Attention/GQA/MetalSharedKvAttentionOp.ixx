@@ -51,6 +51,13 @@ namespace Mila::Dnn::Compute::Metal::Gqa
               config_( config )
         {
             config_.validate();
+
+            // The cache, and so whether it is FP8, is seen only at decode(): both partial passes are resolved.
+            MetalKernelLibrary& kernels = context_->device().kernels();
+
+            partial_pipeline_ = kernels.pipeline( decodeKernelName( "gqa_decode_partial" ) );
+            partial_fp8_pipeline_ = kernels.pipeline( decodeKernelName( "gqa_decode_partial_fp8" ) );
+            merge_pipeline_ = kernels.pipeline( decodeKernelName( "gqa_decode_merge" ) );
         }
 
         /**
@@ -122,22 +129,21 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             const auto constants = std::as_bytes( std::span( &geometry, 1 ) );
             const std::size_t kv_heads_of_batches = static_cast<std::size_t>( batches_ * kv_heads );
             const std::size_t query_heads = static_cast<std::size_t>( queryHeadsPerKvHead() );
-            auto& pipelines = context_->device().kernels();
 
             if ( cache.fp8 )
             {
-                context_->dispatchThreadgroups( pipelines.pipeline( decodeKernelName( "gqa_decode_partial_fp8" ) ),
+                context_->dispatchThreadgroups( partial_fp8_pipeline_,
                     std::array<const void*, 9>{ q.rawData(), cache.keys, cache.values, cache.key_scales, cache.value_scales, partial_output,
                         partial_largest, partial_sum, decode_position },
                     constants, kDecodeBlocks, kv_heads_of_batches, query_heads );
             } else {
-                context_->dispatchThreadgroups( pipelines.pipeline( decodeKernelName( "gqa_decode_partial" ) ),
+                context_->dispatchThreadgroups( partial_pipeline_,
                     std::array<const void*, 7>{ q.rawData(), cache.keys, cache.values, partial_output, partial_largest, partial_sum,
                         decode_position },
                     constants, kDecodeBlocks, kv_heads_of_batches, query_heads );
             }
 
-            context_->dispatchThreadgroups( pipelines.pipeline( decodeKernelName( "gqa_decode_merge" ) ),
+            context_->dispatchThreadgroups( merge_pipeline_,
                 std::array<const void*, 4>{ partial_output, partial_largest, partial_sum, output.rawData() },
                 constants, static_cast<std::size_t>( batches_ * heads ), 1 );
         }
@@ -207,6 +213,9 @@ namespace Mila::Dnn::Compute::Metal::Gqa
 
         MetalExecutionContext* context_{ nullptr };
         GqaConfig config_;
+        MetalPipeline partial_pipeline_{ nullptr };
+        MetalPipeline partial_fp8_pipeline_{ nullptr };
+        MetalPipeline merge_pipeline_{ nullptr };
 
         int batches_{ 0 };
 
