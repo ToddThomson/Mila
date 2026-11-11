@@ -240,6 +240,10 @@ namespace Mila::Dnn
         /// used in spite of it rather than one that fits.
         bool fits_available_memory{ true };
 
+        /// Query positions a layer that prefills unfused scores at a time, chosen after the chunk against the memory
+        /// it left. Zero when no layer wants a block or none fits: every layer with a fused prefill then runs it.
+        dim_t score_rows{ 0 };
+
         /// True when the free memory forced a smaller chunk than the context permits.
         [[nodiscard]] bool isMemoryConstrained() const noexcept
         {

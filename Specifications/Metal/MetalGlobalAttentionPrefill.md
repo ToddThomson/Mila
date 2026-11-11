@@ -5,9 +5,10 @@ piece of work starts from the evidence. Everything below is measured unless mark
 evidence itself is in `Notebooks/MetalRates.md` section 7.3; read it in full first. A design this plan arrives at is
 carried to `MetalBackend.md` 4.5, which owns the fused prefill.
 
-**Status, 2026-11-10: the design is reached and agreed (sections 7 and 8) and nothing is built.** The decision is
-carried to `MetalBackend.md` 4.5 and `Deployment.md` 5. The next work is building section 8 in its order, then its
-gates. Sections 1 to 6 are the road here; facts 8 to 13 and sections 7 and 8 are where it stands.
+**Status, 2026-11-10: built at `0.21.0-dev+133`, as sections 7 and 8 say, with the three differences section 9
+records.** The decision is carried to `MetalBackend.md` 4.5 and `Deployment.md` 5. Sections 1 to 6 are the road here;
+facts 8 to 14 and sections 7 to 9 are where it stands. Not run: the rates beside llama.cpp with the built change (the
+arm's are in fact 13's session and section 2).
 
 ## 1. The task, and only this task
 
@@ -115,6 +116,12 @@ global layer after 16K, for a 33.5 MB cache).
     1008 at 32, 1239 at 8. After 4096, against 307: 219, 257, 270, 342. So 32 positions is still 15% and 12% ahead of
     the fused kernel and 8 is behind it. The loss at small blocks is in attention x V and the softmax, whose dispatches
     are then a few dozen threadgroups each. The attention tests pass with the unfused reference in blocks of 8 and 24.
+
+14. **A block that takes the last of the memory does not run** (2026-11-10, the built change, `--planner-only`, two
+    runs with the +131 binary before, between and after). At a context of 262,144 the plan without a block is 11.408 GiB,
+    96.4% of the 11.840 GiB working set, and runs. Given a block of 32 rows it is 11.658 GiB, 98.5%, loads, and its first
+    prefill of 512 fails: `kIOGPUCommandBufferCallbackErrorOutOfMemory`. What the run needs beyond the plan is not found
+    (`Issues/Untriaged.md`).
 
 ## 4. Options not yet tried (inference; none designed)
 
@@ -250,3 +257,33 @@ session, before and after; the context a 16 GB Mac plans, before and after, whic
 
 **Specs it edits when built:** `MetalBackend.md` 4.5 (the decision and what replaced it at 512), `Deployment.md` (the
 rule and the plan's new value), and this plan's status.
+
+## 9. As built (`0.21.0-dev+133`, 2026-11-10)
+
+Section 8's seven steps, in its order. Where the build differs from what section 8 says:
+
+1. **A request that fixes its context is given a block too.** Section 8 item 3 said `load(path, config, device)` names
+   no block and stays fused. That load is a planned request like any other, given its chunk by the planner, and it is
+   given its block the same way. Section 8's own figure for what a user sees is such a load.
+2. **A block is taken only where it fits twice over** (`choosePrefillScoreRows`). Fact 14: the block that fitted once at
+   the full context did not run. So the full context on a 16 GB Mac stays fused, as section 7 agreed it would for now,
+   and the softmax in place halves what a block costs without yet buying that plan a block. The margin stands in for a
+   cost nobody has found; when it is found and priced, the rule goes back to fitting once.
+3. **An FP8 cache stays fused.** `prefersUnfusedPrefill` is true for a head of 512 over an uncompressed cache only: no
+   FP8 cache was measured unfused, and its rows would be widened again for every block.
+
+**The block is the score buffers' rows.** `MetalGqaOp` takes no block size: it runs as many query positions at a time as
+the buffers it was wired hold, one batch at a time, so the transformer's sizing and the operation's loop cannot disagree.
+It refuses buffers narrower than the context it strides them by.
+
+**Measured, M1 Pro 16 GB, Gemma 4 12B Q4_0, FP16, a fixed context of 20,480, the +131 binary then this one in one
+session, tokens a second for 512 added:** 156.6 and 156.4 from empty, 132.9 and 136.2 after 4096 held, 107.7 and 118.7
+after 16,384 held. The plan grows from 7.706 to 8.331 GiB: one score buffer of a 1024-row chunk, where the arm's two were
+1.25 GiB. The plan at the full context is unchanged: 262,144, 11.408 GiB, fused.
+
+**Gates run:** the attention tests in blocks at the floor, at a whole chunk, off a divisor, on the ring and with more
+than one batch; seven ways of breaking the block loop, each caught; the softmax in place against two buffers, equal to
+the bit; a small Gemma network built with a block against the same weights fused, 2.3e-3 of the logits' RMS apart at
+every block size; the rule's tests, model-free; Gemma 4 12B's HuggingFace gate on Metal, FP16 and BF16, 12 of 12. Its
+BF16 window-edge check reads 2.36e-2 against a bar of 2.54e-2, where the fused build read 2.14e-2
+(`BACKLOG.md`, the window-edge item).

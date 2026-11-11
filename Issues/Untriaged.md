@@ -10,6 +10,24 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## On a 16 GB Mac, Gemma 4 12B planned at 98.5% of the working set loads and then fails its first prompt for want of GPU memory
+
+`Lib/Src/Deployment/Planning/PrefillScoreRowsRule.ixx` (`choosePrefillScoreRows`) @ 0.21.0-dev+133
+
+Found 2026-11-10 checking the plan of the build with prefill score rows (`Specifications/Metal/MetalGlobalAttentionPrefill.md` fact 14). Q4_0, FP16, context 262,144: 11.408 GiB of an 11.840 GiB working set (96.4%) runs; with a 32-row score block, 11.658 GiB (98.5%), the load succeeds, device allocation equals the plan, and the first prefill of 512 fails with `kIOGPUCommandBufferCallbackErrorOutOfMemory`. Reproduced twice with the +131 binary run before, between and after. Not found: what the run needs beyond the plan, and whether a fused plan at 98.5% fails the same way (BACKLOG's Mac item says the planner takes a context at 99% of the working set and the model runs, measured on Llama). Worked around in the rule, which takes a block only where it fits twice over; that margin goes when the cost is priced.
+
+## A small Gemma network's weights are priced 9,216 bytes under what it allocates on a Mac
+
+`Lib/Tests/Dnn/Components/Transformers/Gemma/Gemma.PrefillScoreRows.Metal.cpp` @ 0.21.0-dev+133
+
+Found 2026-11-10 writing the test of a build with a block of prefill score rows. The tiny Gemma network of `Lib/Tests/Common/TinyDecodeNetworks.h` (FP16, unquantized, context 256, chunk 64), priced by `getRequiredMemory` at the device's allocation granularity, reports 6,029,312 parameter bytes and allocates 6,038,528, with or without a block; its state and scratch match to the byte. Not looked into: which parameter, and whether a published model's plan carries the same gap. The test compares state and scratch only and says so.
+
+## On a Mac, a sliding layer that prefilled unfused would be given score buffers narrower than the op strides them by
+
+`Lib/Src/Dnn/Components/Transformers/Gemma/Gemma.ixx` (`prefillScoreWidth`) @ 0.21.0-dev+133
+
+Found 2026-11-10 reading the unfused prefill for the block loop. `prefillScoreWidth` sizes the score buffers to the ring (window + chunk - 1) when only the sliding layers miss the fused kernel, which is what CUDA's op reads; `MetalGqaOp` strides its score rows by the context whatever the cache holds. No model reaches it: Metal fuses a head of 256 at every precision it runs. Since +133 the op refuses score buffers narrower than the context (`scoreBlockRows`) where it would have written past them, so the gap is a refusal and not a wrong answer.
+
 ## On a Mac under memory pressure, the first prompt timed after a held one reads up to a fifth slow, and the kernels' time does not
 
 `Lib/Tools/MetalModelTiming/ModelTiming.cpp` (`depthRates`) @ 0.21.0-dev+131

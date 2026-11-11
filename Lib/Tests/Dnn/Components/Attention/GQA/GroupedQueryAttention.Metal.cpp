@@ -9,6 +9,7 @@
 
 import Mila;
 import std;
+import Compute.GqaState;
 import Compute.GqaWorkspace;
 import Compute.MetalSharedKvAttentionOp;
 import Dnn.Components.Gqa;
@@ -48,6 +49,9 @@ namespace Mila::Tests::Dnn::Components
 
             // The most tokens one decode call takes, a speculative round's verify.
             dim_t decode_tokens{ 1 };
+
+            // Query positions the score buffers hold, the block an unfused prefill runs at a time; zero for the chunk's.
+            dim_t score_rows{ 0 };
         };
 
         /// A row of the cache as an FP8 cache stores it: E4M3 codes of x * (1 / scale), saturating, with scale max |x| / 448.
@@ -99,7 +103,8 @@ namespace Mila::Tests::Dnn::Components
                     .withPrefillSize( geometry.chunk ).withDecodeTokens( geometry.decode_tokens ) );
 
                 workspace = makeGqaWorkspace<DeviceType::Metal, TPrecision>( Device::Metal( 0 ), geometry.batches, geometry.heads,
-                    geometry.head_size, geometry.context, geometry.chunk, fused ? dim_t{ 0 } : geometry.context, "workspace." );
+                    geometry.head_size, geometry.context, geometry.chunk, geometry.score_rows > 0 ? geometry.score_rows : geometry.chunk,
+                    fused ? dim_t{ 0 } : geometry.context, "workspace." );
 
                 attention.setState( workspace.state() );
                 attention.setUseFlashPrefill( fused );
@@ -787,6 +792,188 @@ namespace Mila::Tests::Dnn::Components
 
         expectChunksThenDecodes<TypeParam::value, SlidingWindowKvCache>(
             Geometry{ .heads = 4, .kv_heads = 2, .head_size = 256, .context = 32, .chunk = 8, .window = 12 }, 3, 8, true );
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // The unfused prefill a block of query positions at a time (Metal/MetalGlobalAttentionPrefill.md section 7): score buffers
+    // that hold fewer rows than the chunk, held to the same reference and bars. A block that reads another block's rows of Q, writes
+    // another's rows of the output, or attends from another's offset misses them.
+    // -----------------------------------------------------------------------------------------------------------------
+
+    template<typename TPrecisionConstant>
+    class GqaMetalBlocks : public ::testing::Test
+    {
+    };
+
+    TYPED_TEST_SUITE( GqaMetalBlocks, Precisions, PrecisionNames );
+
+    TYPED_TEST( GqaMetalBlocks, GemmasGlobalLayersAtTheFloorAndAWholeChunk )
+    {
+        // Two blocks of 32 a chunk, the floor a plan gives, then one block that is the chunk.
+        expectChunksThenDecodes<TypeParam::value>(
+            Geometry{ .heads = 16, .kv_heads = 1, .head_size = 512, .context = 256, .chunk = 64, .score_rows = 32 }, 3, 2 );
+        expectChunksThenDecodes<TypeParam::value>(
+            Geometry{ .heads = 16, .kv_heads = 1, .head_size = 512, .context = 256, .chunk = 64, .score_rows = 64 }, 3, 2 );
+    }
+
+    TYPED_TEST( GqaMetalBlocks, ABlockThatDoesNotDivideTheChunk )
+    {
+        // 67 positions in blocks of 24 leave a last block of 19; in blocks of 5, rows off every tile.
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .context = 256, .chunk = 67, .score_rows = 24 }, 3, 1 );
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .head_size = 128, .context = 256, .chunk = 67, .score_rows = 5 }, 3, 1 );
+    }
+
+    TYPED_TEST( GqaMetalBlocks, MoreThanOneBatchAndMoreThanOneKvHead )
+    {
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .batches = 3, .chunk = 16, .score_rows = 8 }, 3, 2 );
+        expectChunksThenDecodes<TypeParam::value>(
+            Geometry{ .batches = 2, .heads = 16, .kv_heads = 1, .head_size = 512, .context = 128, .chunk = 32, .score_rows = 8 }, 3, 1 );
+        expectChunksThenDecodes<TypeParam::value>(
+            Geometry{ .batches = 2, .heads = 6, .kv_heads = 2, .head_size = 128, .context = 128, .chunk = 32, .score_rows = 12 }, 3, 1 );
+    }
+
+    TYPED_TEST( GqaMetalBlocks, AChunkShorterThanABlockAndOneLonger )
+    {
+        constexpr TensorDataType kPrecision = TypeParam::value;
+
+        Stack<kPrecision> stack( Geometry{ .heads = 8, .kv_heads = 2, .head_size = 128, .context = 128, .chunk = 32, .score_rows = 8 } );
+
+        EXPECT_LE( stack.errorOfStep( 5, 0, false ), kAttentionBar<kPrecision> );
+        EXPECT_LE( stack.errorOfStep( 8, 5, false ), kAttentionBar<kPrecision> );
+        EXPECT_LE( stack.errorOfStep( 9, 13, false ), kAttentionBar<kPrecision> );
+        EXPECT_LE( stack.errorOfStep( 32, 22, false ), kAttentionBar<kPrecision> );
+        EXPECT_LE( stack.errorOfStep( 1, 54, true ), kAttentionBar<kPrecision> );
+    }
+
+    TYPED_TEST( GqaMetalBlocks, AWindowAndTheRing )
+    {
+        // The whole chunk is in the ring before its first block attends: a block must not take a row a later block's position holds.
+        expectChunksThenDecodes<TypeParam::value>( Geometry{ .context = 160, .chunk = 32, .window = 37, .score_rows = 8 }, 4, 3 );
+        expectChunksThenDecodes<TypeParam::value, SlidingWindowKvCache>(
+            Geometry{ .context = 256, .chunk = 32, .window = 16, .score_rows = 8 }, 6, 8 );
+        expectChunksThenDecodes<TypeParam::value, SlidingWindowKvCache>(
+            Geometry{ .heads = 4, .kv_heads = 2, .head_size = 256, .context = 192, .chunk = 32, .window = 40, .score_rows = 12 }, 5, 4 );
+    }
+
+    TYPED_TEST( GqaMetalBlocks, AnFp8Cache )
+    {
+        expectChunksThenDecodes<TypeParam::value, PerTokenKvFp8<>>(
+            Geometry{ .batches = 2, .heads = 8, .kv_heads = 2, .head_size = 128, .context = 128, .chunk = 32, .score_rows = 8 }, 3, 2 );
+    }
+
+    TYPED_TEST( GqaMetalBlocks, PrefersUnfusedOnlyAtAHeadOf512OverAnUncompressedCache )
+    {
+        constexpr TensorDataType kPrecision = TypeParam::value;
+
+        EXPECT_TRUE( ( GroupedQueryAttention<DeviceType::Metal, kPrecision>::prefersUnfusedPrefill( 512 ) ) );
+        EXPECT_FALSE( ( GroupedQueryAttention<DeviceType::Metal, kPrecision>::prefersUnfusedPrefill( 256 ) ) );
+        EXPECT_FALSE( ( GroupedQueryAttention<DeviceType::Metal, kPrecision>::prefersUnfusedPrefill( 128 ) ) );
+        EXPECT_FALSE( ( GroupedQueryAttention<DeviceType::Metal, kPrecision, PerTokenKvFp8<>>::prefersUnfusedPrefill( 512 ) ) );
+        EXPECT_TRUE( ( GroupedQueryAttention<DeviceType::Metal, kPrecision>::supportsFlashPrefill( 512 ) ) );
+    }
+
+    TYPED_TEST( GqaMetalBlocks, RefusesScoreBuffersNarrowerThanTheContext )
+    {
+        constexpr TensorDataType kPrecision = TypeParam::value;
+        using TensorType = Tensor<kPrecision, MetalMemoryResource>;
+
+        const Geometry geometry{};
+        Stack<kPrecision> stack( geometry );
+
+        // The same stack over score buffers half the context wide, whose rows the op would stride past.
+        auto narrow = makeGqaWorkspace<DeviceType::Metal, kPrecision>( Device::Metal( 0 ), geometry.batches, geometry.heads,
+            geometry.head_size, geometry.context, geometry.chunk, geometry.chunk, geometry.context / 2, "narrow." );
+
+        stack.attention.setState( narrow.state() );
+
+        TensorType q( Device::Metal( 0 ), shape_t{ 1, 4, 64 } );
+        TensorType k( Device::Metal( 0 ), shape_t{ 1, 4, 32 } );
+        TensorType v( Device::Metal( 0 ), shape_t{ 1, 4, 32 } );
+
+        EXPECT_THROW( stack.attention.prefill( q, k, v, 0 ), std::logic_error );
+    }
+
+    TYPED_TEST( GqaMetalBlocks, TheSoftmaxInPlaceGivesTheValuesOfTwoBuffersToTheBit )
+    {
+        constexpr TensorDataType kPrecision = TypeParam::value;
+        using TensorType = Tensor<kPrecision, MetalMemoryResource>;
+
+        for ( const Geometry& geometry : {
+            Geometry{ .batches = 2, .context = 128, .chunk = 36, .window = 0, .score_rows = 12 },
+            Geometry{ .heads = 16, .kv_heads = 1, .head_size = 512, .context = 256, .chunk = 64, .score_rows = 32 },
+            Geometry{ .context = 160, .chunk = 32, .window = 37 } } )
+        {
+            SCOPED_TRACE( std::format( "head of {}, chunk of {}", geometry.head_size, geometry.chunk ) );
+
+            Stack<kPrecision> in_place( geometry );
+            Stack<kPrecision> two_buffers( geometry );
+
+            ASSERT_EQ( in_place.workspace.att, nullptr );
+
+            // A second buffer of the scores' shape for the attention, as before the softmax ran in place.
+            TensorType attention( Device::Metal( 0 ), in_place.workspace.preatt->shape(), "attention" );
+            GqaState second;
+            second.att = &attention;
+            two_buffers.attention.setState( second );
+
+            const dim_t tokens = geometry.chunk;
+            const auto q_count = static_cast<std::size_t>( geometry.batches * tokens * geometry.heads * geometry.head_size );
+            const auto kv_count = static_cast<std::size_t>( geometry.batches * tokens * geometry.kv_heads * geometry.head_size );
+
+            for ( dim_t chunk = 0; chunk < 3; ++chunk )
+            {
+                const std::vector<float> q_values = randomValues( q_count, 901 + 3 * static_cast<std::uint32_t>( chunk ), 0.5f );
+                const std::vector<float> k_values = randomValues( kv_count, 902 + 3 * static_cast<std::uint32_t>( chunk ), 0.5f );
+                const std::vector<float> v_values = randomValues( kv_count, 903 + 3 * static_cast<std::uint32_t>( chunk ), 0.5f );
+
+                std::array<std::vector<float>, 2> outputs;
+                std::size_t which = 0;
+
+                for ( Stack<kPrecision>* const stack : { &in_place, &two_buffers } )
+                {
+                    TensorType q = metalTensor<kPrecision>( q_values, shape_t{ geometry.batches, tokens, geometry.heads * geometry.head_size } );
+                    TensorType k = metalTensor<kPrecision>( k_values, shape_t{ geometry.batches, tokens, geometry.kv_heads * geometry.head_size } );
+                    TensorType v = metalTensor<kPrecision>( v_values, shape_t{ geometry.batches, tokens, geometry.kv_heads * geometry.head_size } );
+
+                    auto& output = stack->attention.prefill( q, k, v, chunk * tokens );
+
+                    stack->attention.synchronize();
+                    outputs[which++] = readFloats<kPrecision>( output );
+                }
+
+                ASSERT_EQ( outputs[0].size(), outputs[1].size() );
+
+                std::size_t differing = 0;
+                double magnitude = 0.0;
+
+                for ( std::size_t i = 0; i < outputs[0].size(); ++i )
+                {
+                    differing += outputs[0][i] != outputs[1][i] ? 1 : 0;
+                    magnitude += std::fabs( static_cast<double>( outputs[0][i] ) );
+                }
+
+                EXPECT_EQ( differing, 0u ) << "of " << outputs[0].size() << " outputs, chunk " << chunk;
+                EXPECT_GT( magnitude, 0.0 ) << "chunk " << chunk << " wrote nothing";
+            }
+        }
+    }
+
+    TEST( GqaMetalBlocksWorkspace, HoldsTheBlocksRowsAndRefusesABlockThatIsNotOneOfTheChunk )
+    {
+        const auto workspace = makeGqaWorkspace<DeviceType::Metal, TensorDataType::FP16>( Device::Metal( 0 ), 1, 4, 16, 64, 16, 8, 64, "blocks." );
+
+        EXPECT_EQ( workspace.preatt->shape(), ( shape_t{ 1, 4, 8, 64 } ) );
+        EXPECT_EQ( workspace.q_permute->shape(), ( shape_t{ 1, 4, 16, 16 } ) );
+        EXPECT_EQ( workspace.deviceStorageBytes(),
+            ( gqaWorkspaceDeviceBytes<DeviceType::Metal, TensorDataType::FP16>( allocationGranularity( Device::Metal( 0 ) ), 1, 4, 16, 64, 16, 8, 64 ) ) );
+
+        // One score buffer: the softmax runs in place.
+        EXPECT_EQ( workspace.att, nullptr );
+
+        EXPECT_THROW( ( makeGqaWorkspace<DeviceType::Metal, TensorDataType::FP16>( Device::Metal( 0 ), 1, 4, 16, 64, 16, 17, 64, "long." ) ),
+            std::invalid_argument );
+        EXPECT_THROW( ( makeGqaWorkspace<DeviceType::Metal, TensorDataType::FP16>( Device::Metal( 0 ), 1, 4, 16, 64, 16, 0, 64, "none." ) ),
+            std::invalid_argument );
     }
 
     TEST( GqaMetalRingRows, TheRingExistsAtFp16AndBf16Only )

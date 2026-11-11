@@ -483,6 +483,12 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
          * BF16 only, and the unbounded and ring kernels serve different head sizes. A caller that sizes the shared
          * score buffer for flash must ask first: flash switched on at an unsupported head size throws at prefill.
          */
+        /// Whether the unfused pipeline is the faster prefill at `head_size` given a block of score rows: at none on CUDA.
+        static bool prefersUnfusedPrefill( dim_t )
+        {
+            return false;
+        }
+
         static bool supportsFlashPrefill( dim_t head_size )
         {
             if constexpr ( std::is_same_v<NativeType, nv_bfloat16> )

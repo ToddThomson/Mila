@@ -696,6 +696,16 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Whether any layer prefills unfused where the planner gives it a block of score rows
+         *        (choosePrefillScoreRows): the global layers on Metal, at a head of 512.
+         */
+        bool wantsPrefillScoreRows() const noexcept
+        {
+            return GlobalBlockType::AttentionType::prefersUnfusedPrefill( config_.getGlobalHeadDim() )
+                || LocalBlockType::AttentionType::prefersUnfusedPrefill( config_.getHeadDim() );
+        }
+
+        /**
          * @brief The chunk rungs choosePrefillChunk() walks for this family, largest first.
          *
          * Below 64 rows the GEMM M dimension is tensor-core-hostile on top of the weight re-read,
@@ -778,7 +788,8 @@ namespace Mila::Dnn
             {
                 stats.device_state_bytes +=
                     GemmaBlockWorkspace<TDeviceType, TPrecision>::requiredBytes( config_, B, prefill_chunk, granularity );
-                stats.device_state_bytes += gqaWorkspaceBytes( B, T, prefill_chunk, granularity );
+                stats.device_state_bytes += gqaWorkspaceBytes(
+                    B, T, prefill_chunk, resolveScoreBlock( context.getPrefillScoreRows(), prefill_chunk ), granularity );
             }
 
             // Weight tying. The head reports the shared table (Linear reports an installed weight
@@ -885,6 +896,9 @@ namespace Mila::Dnn
             // block_context. The build never chooses one (Deployment.md section 7).
             prefill_chunk_size_ = context.getResolvedPrefillSize();
 
+            // The block of score rows the caller resolved, or none: MUST be read as requiredMemoryAtChunk() reads it.
+            prefill_score_block_ = resolveScoreBlock( context.getPrefillScoreRows(), prefill_chunk_size_ );
+
             // Blocks need full context length so GQA can size the KV cache; the block
             // handles the prefill/decode split internally.
             shape_t block_shape = { B, T, config_.getModelDim() };
@@ -935,7 +949,7 @@ namespace Mila::Dnn
                     // block_context above, so its scratch is part of the reservation.
                     if ( context.isInferenceMode() )
                     {
-                        block->setUseFlashPrefill( usesFlashPrefillOnGlobalLayers() );
+                        block->setUseFlashPrefill( usesFlashPrefillOnGlobalLayers( prefill_score_block_ ) );
                     }
 
                     blocks_.push_back( static_cast<TransformerBlockType*>( block.get() ) );
@@ -954,7 +968,7 @@ namespace Mila::Dnn
                     // once every layer flashes.
                     if ( context.isInferenceMode() )
                     {
-                        block->setUseFlashPrefill( usesFlashPrefillOnLocalLayers() );
+                        block->setUseFlashPrefill( usesFlashPrefillOnLocalLayers( prefill_score_block_ ) );
                     }
 
                     blocks_.push_back( static_cast<TransformerBlockType*>( block.get() ) );
@@ -1033,6 +1047,10 @@ namespace Mila::Dnn
         // The prefill chunk the caller resolved, taken from the BuildContext in onBuilding and
         // threaded to child components via BuildContext::withPrefillSize().
         std::int64_t prefill_chunk_size_{ 0 };
+
+        // Query positions an unfused prefill scores at a time, from the BuildContext in onBuilding; zero when it gave
+        // none or no layer wants one, and every layer with a fused prefill then runs it.
+        dim_t prefill_score_block_{ 0 };
 
         std::shared_ptr<TokenEmbeddingType> token_embedding_{ nullptr };
         // Non-owning, polymorphic view of the heterogeneous block list; the concrete
@@ -1168,20 +1186,48 @@ namespace Mila::Dnn
          *
          * No context threshold: on CUDA the kernel is 1.4x to 3.7x faster than the cuBLASLt pipeline at the global
          * layers' geometry from a 512-token prompt up (GqaFlashAttention.md 5.7), and has none in FP32. Metal fuses on
-         * parity (MetalBackend.md 4.5).
+         * parity (MetalBackend.md 4.5), except where the operation prefers its unfused pipeline and the build has a
+         * block of score rows for it (Metal/MetalGlobalAttentionPrefill.md section 8).
+         *
+         * @param score_block resolveScoreBlock()'s answer for the build asked about.
          */
-        bool usesFlashPrefillOnGlobalLayers() const
+        bool usesFlashPrefillOnGlobalLayers( dim_t score_block ) const
         {
-            return GlobalBlockType::AttentionType::supportsFlashPrefill( config_.getGlobalHeadDim() );
+            const dim_t head_size = config_.getGlobalHeadDim();
+
+            return GlobalBlockType::AttentionType::supportsFlashPrefill( head_size )
+                && !( score_block > 0 && GlobalBlockType::AttentionType::prefersUnfusedPrefill( head_size ) );
         }
 
         /**
          * @brief Whether the sliding layers prefill through the bounded-ring flash kernel, on CUDA 2.0x to 3.5x faster
-         *        than their cuBLASLt pipeline: every build whose attention operation has one at the sliding head size.
+         *        than their cuBLASLt pipeline: every build whose attention operation has one at the sliding head size,
+         *        with the global layers' exception.
          */
-        bool usesFlashPrefillOnLocalLayers() const
+        bool usesFlashPrefillOnLocalLayers( dim_t score_block ) const
         {
-            return LocalBlockType::AttentionType::supportsFlashPrefill( config_.getHeadDim() );
+            const dim_t head_size = config_.getHeadDim();
+
+            return LocalBlockType::AttentionType::supportsFlashPrefill( head_size )
+                && !( score_block > 0 && LocalBlockType::AttentionType::prefersUnfusedPrefill( head_size ) );
+        }
+
+        /**
+         * @brief The block of score rows a build context's value comes to: its rows where a layer wants a block,
+         *        and zero -- no block, every layer fused where it can be -- where it carries none or no layer does.
+         *
+         * @throws std::invalid_argument when the block is longer than the chunk it is a block of.
+         */
+        dim_t resolveScoreBlock( dim_t score_rows, dim_t prefill_chunk ) const
+        {
+            if ( score_rows > prefill_chunk )
+            {
+                throw std::invalid_argument( std::format(
+                    "GemmaTransformer: a block of {} prefill score rows is longer than the prefill chunk {}",
+                    score_rows, prefill_chunk ) );
+            }
+
+            return wantsPrefillScoreRows() ? score_rows : 0;
         }
 
         /**
@@ -1192,12 +1238,14 @@ namespace Mila::Dnn
          * once the global layers flash, and to nothing once every layer does, so this must
          * use the same prefillScoreWidth().
          */
-        std::size_t gqaWorkspaceBytes( dim_t B, std::int64_t T_ctx, std::int64_t prefill_chunk, std::size_t granularity ) const
+        std::size_t gqaWorkspaceBytes(
+            dim_t B, std::int64_t T_ctx, std::int64_t prefill_chunk, dim_t score_block, std::size_t granularity ) const
         {
             const dim_t HS_max = std::max( config_.getHeadDim(), config_.getGlobalHeadDim() );
 
-            return gqaWorkspaceDeviceBytes<TPrecision>( granularity, B, config_.getNumHeads(), HS_max, T_ctx,
-                prefill_chunk, prefillScoreWidth( T_ctx, prefill_chunk ) );
+            return gqaWorkspaceDeviceBytes<TDeviceType, TPrecision>( granularity, B, config_.getNumHeads(), HS_max, T_ctx,
+                prefill_chunk, score_block > 0 ? score_block : prefill_chunk,
+                prefillScoreWidth( T_ctx, prefill_chunk, score_block ) );
         }
 
         /// The context the draft model is built and priced at: the network's context, at the draft model's width.
@@ -1225,7 +1273,7 @@ namespace Mila::Dnn
 
         std::int64_t prefillScoreWidth( std::int64_t T_ctx ) const
         {
-            return prefillScoreWidth( T_ctx, prefill_chunk_size_ );
+            return prefillScoreWidth( T_ctx, prefill_chunk_size_, prefill_score_block_ );
         }
 
         /**
@@ -1236,18 +1284,18 @@ namespace Mila::Dnn
          * kBounded) for a ring one. So it is the whole context when any layer of the first two kinds misses flash,
          * the ring capacity when only ring layers miss it, and zero -- no buffer -- when every layer flashes.
          */
-        std::int64_t prefillScoreWidth( std::int64_t T_ctx, std::int64_t prefill_chunk ) const
+        std::int64_t prefillScoreWidth( std::int64_t T_ctx, std::int64_t prefill_chunk, dim_t score_block ) const
         {
             constexpr bool kLocalLayersRing =
                 std::is_same_v<TKvCachePolicy, SlidingWindowKvCache> || std::is_same_v<TKvCachePolicy, SlidingWindowKvFp8>;
 
-            const bool needs_whole_context = !usesFlashPrefillOnGlobalLayers()
-                || ( !kLocalLayersRing && !usesFlashPrefillOnLocalLayers() );
+            const bool needs_whole_context = !usesFlashPrefillOnGlobalLayers( score_block )
+                || ( !kLocalLayersRing && !usesFlashPrefillOnLocalLayers( score_block ) );
 
             if ( needs_whole_context )
                 return T_ctx;
 
-            if ( !usesFlashPrefillOnLocalLayers() )
+            if ( !usesFlashPrefillOnLocalLayers( score_block ) )
                 return std::min<std::int64_t>( T_ctx, config_.getWindow() + prefill_chunk - 1 );
 
             return 0;
@@ -1268,7 +1316,8 @@ namespace Mila::Dnn
             gqa_workspace_ = makeGqaWorkspace<TDeviceType, TPrecision>(
                 this->getExecutionContext()->getDeviceId(), B, config_.getNumHeads(),
                 std::max( config_.getHeadDim(), config_.getGlobalHeadDim() ),
-                T_ctx, prefill_chunk_size_, prefillScoreWidth( T_ctx ), this->getName() + ".gqa_ws." );
+                T_ctx, prefill_chunk_size_, prefill_score_block_ > 0 ? prefill_score_block_ : prefill_chunk_size_,
+                prefillScoreWidth( T_ctx ), this->getName() + ".gqa_ws." );
 
             const GqaState gqa_state = gqa_workspace_.state();
 

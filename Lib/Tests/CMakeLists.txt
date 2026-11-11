@@ -176,6 +176,8 @@ target_sources( MilaTests PRIVATE
     "Deployment/InstalledModel.Cpu.cpp"
     # The devices a request allows and the planner's choice among them (Deployment.md 12.8), on described devices.
     "Deployment/AllowedDevices.Cpu.cpp"
+    # The block of prefill score rows a plan takes from the memory its context and chunk left (Deployment.md 5).
+    "Deployment/PrefillScoreRowsRule.Cpu.cpp"
 )
 
 # Mila::Agents. The gate every tool call passes and the grant it gives (ToolCalling.md 3.1 to 3.4), and what a
@@ -255,6 +257,7 @@ if(MILA_HAS_METAL)
         "Dnn/Models/LlaMa/LlamaModel.HuggingFaceReference.Metal.cpp"
         "Dnn/Models/LlaMa/LlamaModel.CudaReference.Metal.cpp"
         "Dnn/Models/Gemma/Gemma.DraftModel.Metal.cpp"
+        "Dnn/Components/Transformers/Gemma/Gemma.PrefillScoreRows.Metal.cpp"
         "Dnn/Models/Gemma/GemmaModel.HuggingFaceReference.Metal.cpp"
         "Dnn/Models/Qwen/QwenModel.HuggingFaceReference.Metal.cpp"
         "Dnn/Models/Qwen/QwenModel.Load.Metal.cpp"

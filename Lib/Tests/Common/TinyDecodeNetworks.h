@@ -74,9 +74,10 @@ namespace Mila::Tests::Common
     }
 
     /// Build `TNetwork` on `device` with its parameters initialized from kTinyDecodeSeed; the global seed is restored after.
+    /// `prefill_score_rows` is the block an unfused prefill scores at a time, zero for none (BuildContext::withPrefillScoreRows).
     template<typename TNetwork, typename TConfig>
     std::unique_ptr<TNetwork> buildTinyNetwork( const TConfig& config, Mila::Dnn::dim_t context_length,
-        Mila::Dnn::Compute::DeviceId device = Mila::Dnn::Compute::Device::Cuda( 0 ) )
+        Mila::Dnn::Compute::DeviceId device = Mila::Dnn::Compute::Device::Cuda( 0 ), Mila::Dnn::dim_t prefill_score_rows = 0 )
     {
         using namespace Mila::Dnn;
 
@@ -86,7 +87,7 @@ namespace Mila::Tests::Common
 
         auto network = std::make_unique<TNetwork>( "tiny", config, device );
         network->build( BuildContext( shape_t{ 1, context_length }, RuntimeMode::Inference, true )
-            .withPrefillSize( kTinyPrefillRows ) );
+            .withPrefillSize( kTinyPrefillRows ).withPrefillScoreRows( prefill_score_rows ) );
         network->synchronize();
 
         generator.setSeed( previous );

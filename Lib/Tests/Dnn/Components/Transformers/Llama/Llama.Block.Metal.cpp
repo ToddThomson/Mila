@@ -61,7 +61,7 @@ namespace Mila::Tests::Dnn::Components
                 block.build( BuildContext( shape_t{ 1, kContext, kModelDim }, RuntimeMode::Inference, true ).withPrefillSize( kChunk ) );
 
                 workspace = makeGqaWorkspace<DeviceType::Metal, TPrecision>(
-                    Device::Metal( 0 ), 1, kHeads, kHeadSize, kContext, kChunk, kContext, "workspace." );
+                    Device::Metal( 0 ), 1, kHeads, kHeadSize, kContext, kChunk, kChunk, kContext, "workspace." );
 
                 block.setState( workspace.state() );
             }

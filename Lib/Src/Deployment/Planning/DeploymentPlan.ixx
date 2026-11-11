@@ -117,7 +117,13 @@ namespace Mila::Deployment
                 : PrefillChunkLimit::LargestTheContextPermits;
         }
 
-        /// The chunk, and the largest rung the context admits memory aside.
+        /// Query positions a layer that prefills unfused scores at a time; zero when every layer prefills fused.
+        [[nodiscard]] dim_t prefillScoreRows() const noexcept
+        {
+            return prefill_.score_rows;
+        }
+
+        /// The chunk, the largest rung the context admits memory aside, and the block of score rows.
         [[nodiscard]] const PrefillChunking& prefillChunking() const noexcept
         {
             return prefill_;
@@ -171,14 +177,15 @@ namespace Mila::Deployment
         }
 
         /**
-         * @brief The build context this plan builds with: its context length, chunk and the granularity it
-         *        was priced at.
+         * @brief The build context this plan builds with: its context length, chunk, block of score rows and
+         *        the granularity it was priced at.
          */
         [[nodiscard]] BuildContext buildContext() const
         {
             return BuildContext( shape_t{ 1, context_length_ }, RuntimeMode::Inference, false )
                 .withAllocationGranularity( reading_.allocation_granularity )
-                .withPrefillSize( prefill_.chunk_rows );
+                .withPrefillSize( prefill_.chunk_rows )
+                .withPrefillScoreRows( prefill_.score_rows );
         }
 
         /**

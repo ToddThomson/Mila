@@ -378,6 +378,20 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Whether the unfused pipeline is the faster prefill at `head_size` where it has a block of score rows.
+         *
+         * The transformer runs a layer unfused when this holds and its build context carries a block
+         * (BuildContext::getPrefillScoreRows), and fused otherwise.
+         */
+        static bool prefersUnfusedPrefill( dim_t head_size )
+        {
+            if constexpr ( TDeviceType == DeviceType::Cuda || TDeviceType == DeviceType::Metal )
+                return OpType::prefersUnfusedPrefill( head_size );
+            else
+                return false;
+        }
+
+        /**
          * @brief Route the BF16 decode through the fused decode-attention kernel.
          *
          * Only the CUDA BF16 ops honor this; other backends, FP32, and unsupported

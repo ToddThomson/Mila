@@ -303,6 +303,7 @@ export import Dnn.Components.QwenTransformer;
 // every family's planDeployment makes. The prefill chunk rule is the part of that decision a
 // transformer's build executes.
 export import Deployment.PrefillChunkRule;
+export import Deployment.PrefillScoreRowsRule;
 export import Deployment.DeviceReading;
 export import Deployment.SpeculativeDecode;
 export import Deployment.AllowedDevices;

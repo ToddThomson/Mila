@@ -22,6 +22,13 @@ import Compute.GqaState;
 namespace Mila::Dnn::Compute
 {
     /**
+     * @brief The prefill score buffers a device's unfused attention reads: scores and the attention beside them, or
+     *        on Metal one buffer, whose softmax runs in place (Metal/MetalGlobalAttentionPrefill.md section 8).
+     */
+    export template<DeviceType TDeviceType>
+    inline constexpr int kPrefillScoreBuffers = TDeviceType == DeviceType::Metal ? 1 : 2;
+
+    /**
      * @brief The GQA transient the attention layers of one stack share, owned as one unit.
      *
      * Owned together rather than as seven loose tensors so a caller cannot allocate half of it:
@@ -80,9 +87,12 @@ namespace Mila::Dnn::Compute
      * @param num_heads Query heads.
      * @param head_dim The widest head any layer of the stack uses; narrower layers view a prefix.
      * @param T_ctx Context length; sizes the decode score buffers.
-     * @param prefill_chunk Tokens per prefill chunk; sizes the prefill buffers.
+     * @param prefill_chunk Tokens per prefill chunk; sizes the permuted Q and the output beside the scores.
+     * @param score_rows Query positions the score buffers hold: the chunk, or a block of it for a stack whose unfused
+     *     prefill runs a block at a time (BuildContext::getPrefillScoreRows).
      * @param score_width The caller's flash decision made concrete: the flash path reads no score
-     *     buffer, while the cuBLASLt path needs the full context and would overflow a narrow one.
+     *     buffer, while the cuBLASLt path needs the full context and would overflow a narrow one. `att` is left
+     *     null on a device whose softmax runs in place (kPrefillScoreBuffers).
      *     Taken explicitly so a caller cannot allocate for one path and then run the other. Zero for a
      *     stack whose every layer prefills through flash: then the prefill score buffers are not
      *     allocated at all, and a cuBLASLt prefill refuses.
@@ -92,8 +102,14 @@ namespace Mila::Dnn::Compute
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     GqaWorkspace<TDeviceType, TPrecision> makeGqaWorkspace(
         DeviceId device, dim_t B, dim_t num_heads, dim_t head_dim, dim_t T_ctx,
-        dim_t prefill_chunk, dim_t score_width, const std::string& name_prefix )
+        dim_t prefill_chunk, dim_t score_rows, dim_t score_width, const std::string& name_prefix )
     {
+        if ( score_rows < 1 || score_rows > prefill_chunk )
+        {
+            throw std::invalid_argument( std::format(
+                "makeGqaWorkspace: {} score rows are not a block of a {}-token prefill chunk", score_rows, prefill_chunk ) );
+        }
+
         using TensorType = typename GqaWorkspace<TDeviceType, TPrecision>::TensorType;
 
         GqaWorkspace<TDeviceType, TPrecision> workspace;
@@ -103,9 +119,13 @@ namespace Mila::Dnn::Compute
         if ( score_width > 0 )
         {
             workspace.preatt = std::make_unique<TensorType>(
-                device, shape_t{ B, num_heads, prefill_chunk, score_width }, name_prefix + "preatt" );
-            workspace.att = std::make_unique<TensorType>(
-                device, shape_t{ B, num_heads, prefill_chunk, score_width }, name_prefix + "att" );
+                device, shape_t{ B, num_heads, score_rows, score_width }, name_prefix + "preatt" );
+
+            if constexpr ( kPrefillScoreBuffers<TDeviceType> == 2 )
+            {
+                workspace.att = std::make_unique<TensorType>(
+                    device, shape_t{ B, num_heads, score_rows, score_width }, name_prefix + "att" );
+            }
         }
         workspace.v_out = std::make_unique<TensorType>(
             device, shape_t{ B, num_heads, prefill_chunk, head_dim }, name_prefix + "v_out" );
@@ -124,11 +144,11 @@ namespace Mila::Dnn::Compute
      * @brief Device bytes makeGqaWorkspace would allocate with the same arguments, without allocating.
      *
      * @param granularity The allocation granularity of the device the workspace would live on.
-     * @param B,num_heads,head_dim,T_ctx,prefill_chunk,score_width As for makeGqaWorkspace.
+     * @param B,num_heads,head_dim,T_ctx,prefill_chunk,score_rows,score_width As for makeGqaWorkspace.
      */
-    export template<TensorDataType TPrecision>
+    export template<DeviceType TDeviceType, TensorDataType TPrecision>
     std::size_t gqaWorkspaceDeviceBytes( std::size_t granularity, dim_t B, dim_t num_heads, dim_t head_dim,
-        dim_t T_ctx, dim_t prefill_chunk, dim_t score_width )
+        dim_t T_ctx, dim_t prefill_chunk, dim_t score_rows, dim_t score_width )
     {
         const auto occupied = [&]( dim_t elements )
         {
@@ -136,9 +156,9 @@ namespace Mila::Dnn::Compute
                 static_cast<std::size_t>( elements ) * TensorDataTypeTraits<TPrecision>::size_in_bytes, granularity );
         };
 
-        // q_permute and v_out; preatt and att, unless every layer flashes; preatt_decode and att_decode; v_out_decode.
+        // q_permute and v_out; the score buffers, unless every layer flashes; preatt_decode and att_decode; v_out_decode.
         return 2 * occupied( B * num_heads * prefill_chunk * head_dim )
-            + ( score_width > 0 ? 2 * occupied( B * num_heads * prefill_chunk * score_width ) : 0 )
+            + ( score_width > 0 ? kPrefillScoreBuffers<TDeviceType> * occupied( B * num_heads * score_rows * score_width ) : 0 )
             + 2 * occupied( B * num_heads * T_ctx )
             + occupied( B * num_heads * head_dim );
     }

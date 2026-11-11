@@ -310,8 +310,10 @@ accelerators (`scaled_dot_product_attention.cpp`, `use_fallback`): head size 256
 512 runs blocked and unfused, scores in blocks of 256 rows. If the fused kernel is slower than Phase 3's pipeline at a
 head size on the M1, the numbers go to Todd before anything else is decided; the unfused pipeline is not kept on quietly.
 
-**Decided 2026-11-10 (Todd), not yet built: a head of 512 prefills unfused, a block of query rows at a time, where the
-plan has memory for a block of 32 positions or more; under that the fused kernel runs.** The numbers the paragraph above
+**A head of 512 prefills unfused, a block of query rows at a time, where the plan has memory for a block of 32
+positions or more; under that the fused kernel runs** (decided 2026-11-10, Todd; built at `0.21.0-dev+133`, over an
+uncompressed cache: an FP8 cache was not measured unfused and stays fused). The softmax runs in place, so a block
+costs one score buffer. The numbers the paragraph above
 asked for, one session on the M1 Pro: Gemma 4 12B's global layers take 1190 ms a prompt of 512 fused after 16,384 held
 and 756 unfused in one block, 1008 in blocks of 32 and 1239 in blocks of 8; beside llama.cpp the prompt goes from 0.88 to
 0.97. The fused kernel is held to 384 threads a threadgroup by the output it carries in registers, where the matrix

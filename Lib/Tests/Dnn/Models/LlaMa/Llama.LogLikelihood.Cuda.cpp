@@ -418,7 +418,7 @@ namespace Mila::Tests::Dnn::Models
 
             CublasLtWorkspace workspace = makeGqaWorkspace<DeviceType::Cuda, TensorDataType::BF16>(
                 DeviceId{ DeviceType::Cuda, 0 }, 1, heads, config.getModelDim() / heads, context_length, prefill_chunk,
-                context_length, "cublaslt_arm.gqa_ws." );
+                prefill_chunk, context_length, "cublaslt_arm.gqa_ws." );
 
             for ( dim_t layer = 0; layer < config.getNumLayers(); ++layer )
             {

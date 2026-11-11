@@ -17,6 +17,7 @@ import Dnn.PromptPrefixReuse;
 import Dnn.LanguageModelNetwork;
 import Dnn.Models.QuantizationDispatch;
 import Deployment.PrefillChunkRule;
+import Deployment.PrefillScoreRowsRule;
 import Deployment.DeviceReading;
 import Deployment.DeploymentRequest;
 import Deployment.DeploymentPlan;
@@ -679,10 +680,15 @@ namespace Mila::Dnn
             const BuildContext priced =
                 BuildContext( shape_t{ 1, context_length }, RuntimeMode::Inference, false )
                 .withAllocationGranularity( allocationGranularity( device_id ) );
-            const PrefillChunking prefill = choosePrefillChunk( *network, priced, readFreeDeviceBytes( device_id ) );
+            const std::size_t free_bytes = readFreeDeviceBytes( device_id );
+            PrefillChunking prefill = choosePrefillChunk( *network, priced, free_bytes );
+
+            // After the chunk, from what it left: a block of score rows for the layers that prefill unfused.
+            const BuildContext chunked = priced.withPrefillSize( prefill.chunk_rows );
+            prefill.score_rows = choosePrefillScoreRows( *network, chunked, free_bytes );
 
             return DeploymentFootprint{
-                network->getRequiredMemory( priced.withPrefillSize( prefill.chunk_rows ) ), prefill };
+                network->getRequiredMemory( chunked.withPrefillScoreRows( prefill.score_rows ) ), prefill };
         }
 
         LlamaConfig config_;

@@ -22,6 +22,7 @@ import Deployment.DeploymentPlan;
 import Deployment.DeploymentPlans;
 import Deployment.DeploymentRefusal;
 import Deployment.PrefillChunkRule;
+import Deployment.PrefillScoreRowsRule;
 import Serialization.WeightsReader;
 
 namespace Mila::Deployment
@@ -39,6 +40,9 @@ namespace Mila::Deployment
      * steps of DeploymentRequest::kContextStep -- not by bisection, because a footprint need not rise with
      * context -- and the search ends as soon as the weights alone exceed the budget, since no context length
      * shrinks them.
+     *
+     * A plan then takes a block of prefill score rows from the memory its context length and chunk left
+     * (choosePrefillScoreRows), which changes neither.
      *
      * @param network            The constructed graph; nothing is allocated.
      * @param request            What the caller asked for.
@@ -90,8 +94,19 @@ namespace Mila::Deployment
             return priced.prefill.fits_available_memory && priced.footprint.totalDeviceBytes() <= budget;
         };
 
-        auto planOf = [&]( const Priced& priced, DeploymentPlan::ContextLimit limit )
+        // The block of score rows is chosen here, for the one context length and chunk the search settled on, so
+        // that it can cost no plan either of them.
+        auto planOf = [&]( Priced priced, DeploymentPlan::ContextLimit limit )
         {
+            const BuildContext chunked = BuildContext( shape_t{ 1, priced.context_length }, RuntimeMode::Inference, false )
+                .withAllocationGranularity( reading.allocation_granularity )
+                .withPrefillSize( priced.prefill.chunk_rows );
+
+            priced.prefill.score_rows = choosePrefillScoreRows( network, chunked, reports_memory ? std::max<std::size_t>( budget, 1 ) : 0 );
+
+            if ( priced.prefill.score_rows > 0 )
+                priced.footprint = network.getRequiredMemory( chunked.withPrefillScoreRows( priced.prefill.score_rows ) );
+
             return DeploymentPlan(
                 reading, priced.context_length, limit, priced.prefill, priced.footprint,
                 request.getWeightQuantization(), request.getKvCacheCompression(),

@@ -296,12 +296,19 @@ budget.
 The budget on each device is its free memory at the reading, less the requested headroom. A caller who
 wants a different trade fixes that knob.
 
-**Decided 2026-11-10 (Todd), not yet built: memory a plan has left may buy prefill speed, and never costs
-context or chunk.** Once rules 1 to 4 have fixed the context and the chunk, a second rule of the chunk's
-kind picks the prefill score rows: the largest rung, no larger than the chunk, whose whole footprint still
-fits, or none. It runs last, so no plan's context or chunk changes, and the plan records what it chose.
-Its first use is Gemma's global layers on Metal. Design and evidence:
-`Metal/MetalGlobalAttentionPrefill.md` sections 7 and 8.
+**Memory a plan has left may buy prefill speed, and never costs context or chunk** (decided 2026-11-10,
+Todd; built at `0.21.0-dev+133`). Once rules 1 to 4 have fixed the context and the chunk, a second rule of
+the chunk's kind picks the prefill score rows (`choosePrefillScoreRows`,
+`Deployment/Planning/PrefillScoreRowsRule.ixx`): the largest rung of 1024 down to 32, no larger than the
+chunk, that the same budget holds with as much again left over, or none: a block that took the last of a
+Mac's memory did not run (`Metal/MetalGlobalAttentionPrefill.md` fact 14), and until what that run needs is
+priced a block must fit twice. A network says whether any of its layers
+wants a block (`wantsPrefillScoreRows`), and one that wants none is given none. The planner runs the rule
+once, for the plan it returns, so no plan's context or chunk changes; a request that fixes its context is
+given a block from what that context leaves, as it is given its chunk. The plan records the rows
+(`DeploymentPlan::prefillScoreRows`) and its build context carries them
+(`BuildContext::getPrefillScoreRows`), so a load builds what was priced. Its first use is Gemma's global
+layers on Metal. Design and evidence: `Metal/MetalGlobalAttentionPrefill.md` sections 7 and 8.
 
 ---
 

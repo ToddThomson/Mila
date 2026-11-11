@@ -41,7 +41,8 @@ namespace Mila::Dnn::Compute::Metal::Gqa
      * @brief Attention with its own [B, NKV, capacity, HS] cache and the shared workspace of the stack it belongs to.
      *
      * Prefill writes the cache, then runs the fused kernel (`MetalBackend.md` section 4.5) when the transformer switches it on, or else
-     * CUDA's non-flash pipeline: permute Q, Q * K^T, a causal softmax, attention * V, unpermute. The fused prefill reads no score
+     * CUDA's non-flash pipeline: permute Q, Q * K^T, a causal softmax, attention * V, unpermute, a block of query positions at a time,
+     * the block being the rows the score buffers it was wired hold. The fused prefill reads no score
      * buffer, which is why the transformer, which sizes those, is the one that chooses. A decode
      * writes the cache, then splits the keys over a fixed number of blocks and merges them, reading the position from the execution
      * context (`MetalBackend.md` section 4.4, `Notebooks/MetalDecodeAttention.md`); a decode of a few tokens in a row runs each at its
@@ -83,7 +84,7 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             config_.validate();
         }
 
-        /// Wire the stack's shared workspace. Only non-null slots replace what was wired.
+        /// Wire the stack's shared workspace. Only non-null slots replace what was wired. With no `att` the softmax runs in place.
         void setState( const GqaState& state )
         {
             const auto wire = []( const ITensor*& slot, const ITensor* tensor )
@@ -221,12 +222,23 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             return head_size == 128 || head_size == 256 || head_size == 512;
         }
 
+        /**
+         * @brief Whether the unfused pipeline is the faster prefill at `head_size` where it is given a block of score rows.
+         *
+         * A head of 512 over an uncompressed cache, measured on an M1 Pro from 32 query positions a block up
+         * (`Metal/MetalGlobalAttentionPrefill.md` fact 13). An FP8 cache is not measured unfused, and stays fused.
+         */
+        static bool prefersUnfusedPrefill( dim_t head_size )
+        {
+            return !kFp8Cache && head_size == 512;
+        }
+
         /// @throws std::invalid_argument Past the cache. @throws std::logic_error When no cache or workspace is in place.
         void prefill( const ITensor& q, const ITensor& k, const ITensor& v, ITensor& output, dim_t position_offset ) override
         {
             requireReady();
 
-            if ( !use_flash_prefill_ && ( q_permute_ == nullptr || preatt_ == nullptr || att_ == nullptr || v_out_ == nullptr ) )
+            if ( !use_flash_prefill_ && ( q_permute_ == nullptr || preatt_ == nullptr || v_out_ == nullptr ) )
             {
                 throw std::logic_error( "MetalGqaOp::prefill needs setState() first, with score buffers when the fused prefill is off" );
             }
@@ -251,10 +263,6 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             const std::size_t count = static_cast<std::size_t>( tokens ) * batches_;
             const int group_size = heads_ / kv_heads_;
 
-            // The positions the chunk's queries see, and the cache rows that hold them: all of them, or the whole ring once it has wrapped.
-            const int attended = offset + tokens;
-            const int columns = std::min( attended, cache_rows_ );
-
             if constexpr ( kFp8Cache )
             {
                 context_->dispatchThreadgroups( context_->device().kernels().pipeline( kernelName( "gqa_write_fp8_prefill" ) ),
@@ -268,49 +276,68 @@ namespace Mila::Dnn::Compute::Metal::Gqa
 
             if ( use_flash_prefill_ )
             {
-                flashPrefill( q, output, geometry, columns );
+                // The cache rows that hold the positions the chunk's queries see: all of them, or the whole ring once it has wrapped.
+                flashPrefill( q, output, geometry, std::min( offset + tokens, cache_rows_ ) );
 
                 return;
             }
 
-            encode( "gqa_permute_query", std::array<const void*, 2>{ q.rawData(), q_permute_->rawData() },
-                geometry, count * heads_ * head_size_ );
-
+            // A block of query positions at a time, each a prefill of its own rows at its own offset: every row's softmax is whole, so
+            // nothing is carried between blocks (`Metal/MetalGlobalAttentionPrefill.md` section 7). The shape is MLX's
+            // sdpa_full_self_attention_blocked (ml-explore/mlx v0.32.4, scaled_dot_product_attention.cpp). One batch at a time, since
+            // a block's rows of Q and of the output are contiguous only within a batch.
+            const int block = scoreBlockRows( tokens );
             const std::size_t element_bytes = metalElementBytes<TPrecision>( 1 );
+            const std::size_t position_bytes = element_bytes * static_cast<std::size_t>( heads_ ) * static_cast<std::size_t>( head_size_ );
 
-            for ( int b = 0; b < batches_; ++b )
+            for ( int first = 0; first < tokens; first += block )
             {
-                for ( int group = 0; group < kv_heads_; ++group )
+                const int block_tokens = std::min( block, tokens - first );
+                const int block_attended = offset + first + block_tokens;
+                const int block_columns = std::min( block_attended, cache_rows_ );
+                const std::size_t block_elements = static_cast<std::size_t>( block_tokens ) * heads_ * head_size_;
+
+                Geometry block_geometry = geometryFor( block_tokens, offset + first );
+                block_geometry.batches = 1;
+
+                for ( int b = 0; b < batches_; ++b )
                 {
-                    const std::size_t first_head = static_cast<std::size_t>( b * heads_ + group * group_size );
+                    const std::size_t first_position = static_cast<std::size_t>( b ) * tokens + first;
 
-                    const auto* const query = bytesOf( q_permute_ ) + element_bytes * first_head * tokens * head_size_;
-                    const auto* const keys = cachedRows( key_cache_.get(), key_scales_.get(), b * kv_heads_ + group, columns, geometry );
-                    const auto* const scores = bytesOf( preatt_ ) + element_bytes * first_head * tokens * capacity_;
+                    encode( "gqa_permute_query",
+                        std::array<const void*, 2>{ bytesOf( &q ) + position_bytes * first_position, q_permute_->rawData() },
+                        block_geometry, block_elements );
 
-                    encodeMatrixProduct<TPrecision>( *context_, MatrixProduct{
-                        query, keys, scores, group_size * tokens, head_size_, columns, capacity_ } );
+                    for ( int group = 0; group < kv_heads_; ++group )
+                    {
+                        const std::size_t first_head = static_cast<std::size_t>( group * group_size );
+
+                        const auto* const query = bytesOf( q_permute_ ) + element_bytes * first_head * block_tokens * head_size_;
+                        const auto* const keys = cachedRows( key_cache_.get(), key_scales_.get(), b * kv_heads_ + group, block_columns, block_geometry );
+                        const auto* const scores = bytesOf( preatt_ ) + element_bytes * first_head * block_tokens * capacity_;
+
+                        encodeMatrixProduct<TPrecision>( *context_, MatrixProduct{
+                            query, keys, scores, group_size * block_tokens, head_size_, block_columns, capacity_ } );
+                    }
+
+                    encodeSoftmax( block_geometry, block_attended, static_cast<std::size_t>( block_tokens ) * heads_ );
+
+                    for ( int group = 0; group < kv_heads_; ++group )
+                    {
+                        const std::size_t first_head = static_cast<std::size_t>( group * group_size );
+
+                        encodeValues(
+                            bytesOf( attentionBuffer() ) + element_bytes * first_head * block_tokens * capacity_,
+                            cachedRows( value_cache_.get(), value_scales_.get(), b * kv_heads_ + group, block_columns, block_geometry ),
+                            bytesOf( v_out_ ) + element_bytes * first_head * block_tokens * head_size_,
+                            group_size * block_tokens, block_columns );
+                    }
+
+                    encode( "gqa_unpermute_output",
+                        std::array<const void*, 2>{ v_out_->rawData(), bytesOf( &output ) + position_bytes * first_position },
+                        block_geometry, block_elements );
                 }
             }
-
-            encodeSoftmax( geometry, attended, count * heads_ );
-
-            for ( int b = 0; b < batches_; ++b )
-            {
-                for ( int group = 0; group < kv_heads_; ++group )
-                {
-                    const std::size_t first_head = static_cast<std::size_t>( b * heads_ + group * group_size );
-
-                    encodeValues(
-                        bytesOf( att_ ) + element_bytes * first_head * tokens * capacity_,
-                        cachedRows( value_cache_.get(), value_scales_.get(), b * kv_heads_ + group, columns, geometry ),
-                        bytesOf( v_out_ ) + element_bytes * first_head * tokens * head_size_,
-                        group_size * tokens, columns );
-                }
-            }
-
-            encode( "gqa_unpermute_output", std::array<const void*, 2>{ v_out_->rawData(), output.rawData() },
-                geometry, count * heads_ * head_size_ );
         }
 
         /**
@@ -496,6 +523,43 @@ namespace Mila::Dnn::Compute::Metal::Gqa
             return narrowToKernelIndex( prefill > 0 ? prefill : context.inputShape()[1] );
         }
 
+        /**
+         * The query positions one block of the unfused prefill takes: what the wired score buffers hold rows for, and never more than
+         * the permuted Q and the output beside them do.
+         *
+         * @throws std::logic_error When the score buffers are narrower than the context their rows are strided by.
+         */
+        [[nodiscard]] int scoreBlockRows( int tokens ) const
+        {
+            dim_t rows = tokens;
+
+            const ITensor* const attention = attentionBuffer();
+
+            for ( const ITensor* const tensor : { q_permute_, preatt_, attention, v_out_ } )
+            {
+                rows = std::min( rows, tensor->shape()[2] );
+            }
+
+            if ( preatt_->shape()[3] < capacity_ || attention->shape()[3] < capacity_ )
+            {
+                throw std::logic_error( std::format(
+                    "MetalGqaOp::prefill: the score buffers are {} wide, and the unfused prefill strides them by the {} positions of the context",
+                    std::min( preatt_->shape()[3], attention->shape()[3] ), capacity_ ) );
+            }
+
+            return narrowToKernelIndex( rows );
+        }
+
+        /**
+         * Where the softmax writes and attention * V reads: the scores' own buffer, in place, unless a second was wired. Each score
+         * is read and written by the one thread that owns its column, after every thread of its row has its sum, so one buffer
+         * serves as both.
+         */
+        [[nodiscard]] const ITensor* attentionBuffer() const noexcept
+        {
+            return att_ != nullptr ? att_ : preatt_;
+        }
+
         void validateInputShape( const shape_t& shape ) const
         {
             const dim_t packed = ( config_.getNumHeads() + 2 * config_.getNumKvHeads() ) * config_.getHeadDim();
@@ -679,7 +743,7 @@ namespace Mila::Dnn::Compute::Metal::Gqa
         void encodeSoftmax( const Geometry& geometry, int attended, std::size_t rows ) const
         {
             // Two sets of constants: the geometry at one index and the attended width at the next.
-            const std::array<const void*, 2> buffers{ preatt_->rawData(), att_->rawData() };
+            const std::array<const void*, 2> buffers{ preatt_->rawData(), attentionBuffer()->rawData() };
             const struct { Geometry geometry; std::uint32_t attended; } constants{ geometry, static_cast<std::uint32_t>( attended ) };
 
             context_->dispatchThreadgroupsWithTwoConstants(

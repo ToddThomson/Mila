@@ -57,6 +57,10 @@ namespace Mila::Dnn
      *                                   stamps it onto the contexts of its children. No
      *                                   component reads free memory to choose one.
      *
+     *                                   Beside it, the block of query positions a layer that
+     *                                   prefills unfused scores at a time; zero when the caller
+     *                                   gave none.
+     *
      * 6. **Parameter arena**         -- whether parameters are placed in one allocation of
      *                                   the block that owns them (MemoryFootprint.md 11.8.1):
      *                                   priced at their placed size, and built into the arena
@@ -175,12 +179,43 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Return a copy of this context with a block of prefill score rows.
+         *
+         * The query positions a layer that prefills unfused scores at a time, which the planner chose against the
+         * memory the context and the chunk left (Deployment.md section 5). Zero, the default, carries no block:
+         * every layer with a fused prefill then runs it.
+         *
+         * @throws std::invalid_argument when the rows are negative.
+         */
+        [[nodiscard]] BuildContext withPrefillScoreRows( dim_t rows ) const
+        {
+            if ( rows < 0 )
+            {
+                throw std::invalid_argument( std::format(
+                    "BuildContext::withPrefillScoreRows: a block of score rows cannot be negative, got {}", rows ) );
+            }
+
+            BuildContext copy( *this );
+            copy.prefill_score_rows_ = rows;
+
+            return copy;
+        }
+
+        /**
+         * @brief The query positions an unfused prefill scores at a time, or zero when the caller gave no block.
+         */
+        dim_t getPrefillScoreRows() const noexcept
+        {
+            return prefill_score_rows_;
+        }
+
+        /**
          * @brief A context for a child component with a different input shape.
          *
          * Carries the runtime mode, parameter initialization, the allocation granularity and the parameter
-         * arena, and none of the per-component declarations -- prefill size, installed output, fused decode,
-         * decode tokens -- which the composite states for each child itself. withShape() is the call that keeps
-         * those.
+         * arena, and none of the per-component declarations -- prefill size, prefill score rows, installed output,
+         * fused decode, decode tokens -- which the composite states for each child itself. withShape() is the call
+         * that keeps those.
          */
         [[nodiscard]] BuildContext forChild( shape_t input_shape ) const
         {
@@ -481,6 +516,7 @@ namespace Mila::Dnn
         shape_t                  input_shape_;
         RuntimeMode              runtime_mode_;
         std::int64_t                  prefill_size_{ 0 };
+        dim_t prefill_score_rows_{ 0 };
         bool                     initialize_parameters_{ true };
         bool                     installed_output_{ false };
         bool                     fused_decode_{ false };

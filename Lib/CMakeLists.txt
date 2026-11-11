@@ -490,6 +490,7 @@ PUBLIC
         # How a model runs on the hardware in front of it, decided before it loads (Deployment.md).
         # Not a model: the families below import it.
         "Src/Deployment/Planning/PrefillChunkRule.ixx"
+        "Src/Deployment/Planning/PrefillScoreRowsRule.ixx"
         "Src/Deployment/Planning/DeviceReading.ixx"
         "Src/Deployment/Planning/SpeculativeDecode.ixx"
         "Src/Deployment/Planning/AllowedDevices.ixx"

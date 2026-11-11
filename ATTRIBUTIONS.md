@@ -75,6 +75,9 @@ file names the MLX file it follows (ml-explore/mlx v0.32.4).
   blocks and merged, as Flash-Decoding does above.
 - **Prefill attention** (`GroupedQueryAttention.Flash.metal`): the online softmax in base 2 with the scale carrying
   log2(e), and the starting tile sizes, from `steel_attention.h`.
+- **Unfused prefill in blocks of query rows** (`MetalGqaOp.ixx`, at a head of 512): the shape of
+  `sdpa_full_self_attention_blocked` in `scaled_dot_product_attention.cpp`, each block's softmax whole and in place, so
+  that blocks are never merged.
 - **One-row Q4_0 product** (`LinearQuantized.metal`, `linear_quantized_row`): the shape of `qmv_fast_impl` in
   `quantized.h`, with the codes masked in place against prescaled activations.
 

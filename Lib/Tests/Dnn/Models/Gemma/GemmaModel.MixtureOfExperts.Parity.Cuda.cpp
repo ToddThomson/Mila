@@ -233,7 +233,7 @@ namespace Mila::Tests::Dnn::Models
         // score_width = T because flash prefill is off below; the two must agree.
         auto gqa_workspace = makeGqaWorkspace<DeviceType::Cuda, kPrecision>(
             device, B, config.getNumHeads(), std::max( config.getHeadDim(), config.getGlobalHeadDim() ),
-            T, T, T, "parity.gqa_ws." );
+            T, T, T, T, "parity.gqa_ws." );
 
         std::vector<float> hidden;
 

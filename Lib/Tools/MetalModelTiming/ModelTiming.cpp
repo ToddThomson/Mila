@@ -397,8 +397,8 @@ namespace
         const double load = seconds( start, Clock::now() );
 
         samples.load_seconds.push_back( load );
-        std::cout << std::format( "[ load ] {} {}: {:.2f} s, context {}, prefill chunk {}, weights {}\n", label, precisionName( TPrecision ), load,
-            model->getDeploymentPlan().contextLength(), model->getDeploymentPlan().prefillChunkRows(),
+        std::cout << std::format( "[ load ] {} {}: {:.2f} s, context {}, prefill chunk {}, score rows {}, weights {}\n", label, precisionName( TPrecision ), load,
+            model->getDeploymentPlan().contextLength(), model->getDeploymentPlan().prefillChunkRows(), model->getDeploymentPlan().prefillScoreRows(),
             weightQuantizationName( model->getDeploymentPlan().weightQuantization() ) );
         printMemory( std::format( "{} {} after load", label, precisionName( TPrecision ) ), model->getDeploymentPlan() );
 
@@ -470,9 +470,9 @@ namespace
 
         const DeploymentPlan& plan = planned->best();
 
-        std::cout << std::format( "[ planner ] {}: context {}, limited by {}, prefill chunk {}, plan {:.3f} GiB of a working set of {:.3f} GiB "
+        std::cout << std::format( "[ planner ] {}: context {}, limited by {}, prefill chunk {}, score rows {}, plan {:.3f} GiB of a working set of {:.3f} GiB "
             "({:.1f}%), free at the reading {:.3f} GiB\n",
-            precisionName( TPrecision ), plan.contextLength(), contextLimitName( plan.contextLimitedBy() ), plan.prefillChunkRows(),
+            precisionName( TPrecision ), plan.contextLength(), contextLimitName( plan.contextLimitedBy() ), plan.prefillChunkRows(), plan.prefillScoreRows(),
             gib( plan.footprint().totalDeviceBytes() ), gib( plan.reading().total_bytes ),
             100.0 * static_cast<double>( plan.footprint().totalDeviceBytes() ) / static_cast<double>( plan.reading().total_bytes ),
             gib( plan.reading().free_bytes ) );

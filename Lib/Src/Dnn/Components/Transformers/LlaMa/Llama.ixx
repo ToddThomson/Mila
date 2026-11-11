@@ -476,6 +476,15 @@ namespace Mila::Dnn
          */
         static constexpr dim_t kPrefillChunkRungs[] = { 1024, 512, 256, 128 };
 
+        /**
+         * @brief Whether any layer prefills unfused where the planner gives it a block of score rows
+         *        (choosePrefillScoreRows): none of this family's does.
+         */
+        bool wantsPrefillScoreRows() const noexcept
+        {
+            return false;
+        }
+
     private:
 
         /**
@@ -582,7 +591,7 @@ namespace Mila::Dnn
                 }
 
                 stats.device_state_bytes +=
-                    gqaWorkspaceDeviceBytes<TPrecision>( granularity, B, NH, HS, T, prefill_chunk, prefillScoreWidth( T ) );
+                    gqaWorkspaceDeviceBytes<TDeviceType, TPrecision>( granularity, B, NH, HS, T, prefill_chunk, prefill_chunk, prefillScoreWidth( T ) );
             }
 
             return stats;
@@ -720,7 +729,7 @@ namespace Mila::Dnn
                 const dim_t T_ctx = input_shape[ 1 ];
 
                 gqa_workspace_ = makeGqaWorkspace<TDeviceType, TPrecision>(
-                    this->getExecutionContext()->getDeviceId(), B, NH, HS, T_ctx, prefill_chunk_size_,
+                    this->getExecutionContext()->getDeviceId(), B, NH, HS, T_ctx, prefill_chunk_size_, prefill_chunk_size_,
                     prefillScoreWidth( T_ctx ), this->getName() + ".gqa_ws." );
 
                 const GqaState gqa_state = gqa_workspace_.state();
