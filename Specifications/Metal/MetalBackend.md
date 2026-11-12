@@ -482,13 +482,69 @@ would be about 950 MB here (arithmetic).
 **Limits.** `maxBufferLength` is below the working set on this machine (9.5 GB against 12.7 GB, both measured), so a tensor
 above it is refused by the planner with the number, not split. `dim_t` and `narrowToKernelIndex()` carry over.
 
-**The planner** (`Deployment.md`) budgets from `recommendedMaxWorkingSetSize`. Apple calls this an approximation, and unified
-memory is shared with everything else the Mac is doing, so Phase 4 measures how near it a model can really run. **Measured:** at 99% of it Llama 3.2 3B runs within 3% of its rate, and macOS swaps the rest of the Mac out to make room (`Notebooks/MetalFirstModel.md` 5).
+**Wired memory.** What holds a model's memory in place on a Mac, and what lets it go. Facts as of 2026-11-12, on the
+development Mac (M1 Pro, 16 GB, macOS 27.2.1); probes and logs in `D:\Claude\metal\first-prompt`.
 
-**Weights.** A file whose stored form is the run form (FP4, FP8) is mapped and wrapped without a copy, which is the question
-`Issues/Future.md` *Compute backends beyond CUDA* raises, if `newBufferWithBytesNoCopy` accepts a file mapping of this size;
-Phase 4 tries it. **It does:** the whole 7.2 GB file, mapped read-only and wrapped in 0.22 ms, read right by a kernel, and counted by the device as allocated though not by the process (`Notebooks/MetalFirstModel.md` 5). A cold first read from the SSD is not measured. **No published Mila model stores FP16 weights** (Todd, 2026-11-05), so an FP16 parameter always reads BF16 weights, converted once at load, and that conversion is part of Phase 3 rather than of the first model. Published packages do not change:
-`ModelDistribution.md` *Compatibility* holds.
+- **W1. Wired memory is never paged out.** Apple's memory guide: a wired region "cannot be paged out", and wired pages are
+  on none of the lists the pager takes pages from (*About the Virtual Memory System*, Memory Usage Performance
+  Guidelines). While a page is wired it is neither compressed nor swapped.
+- **W2. Mila asks for no wiring.** Every allocation is one shared buffer (`MetalDevice::allocate`), bound on each encoder;
+  there is no heap, no residency set and no purgeable state. A buffer is wired when a command buffer that binds it runs,
+  all of it, however little the kernel reads (`KvCache/KvCacheGrowth.md` fact M3). Before its first GPU use it is
+  ordinary memory, which macOS may compress.
+- **W3. macOS unwires idle GPU memory.** The wired collector (`iogpu.disable_wired_collector`, 0 on this Mac) took the
+  system's wired memory from 7.6 GB and from 12.6 GB down to 1.1 GB between 1 and 2 s of GPU idle, with or without a
+  residency set holding one standing request (M2, M4). It unwires; it does not swap. What it unwires is ordinary memory
+  again: left alone it stays in RAM and is wired again in 0.11 s (7.6 GB) to 0.24 s (12.6 GB); when something else needs
+  memory it is what macOS compresses and swaps, and the next GPU use waits for it (M1).
+  Apple documents none of this. Reported elsewhere: llama.cpp saw no unwiring on macOS 15.5 and unwiring about 1 s after
+  use on 26.1 (ggml-org/llama.cpp#17766, its description only); MLX's maintainers call it "a bug in macOS" to be fixed
+  in a later update, and their interim fix renews the residency request on an interval,
+  `MLX_METAL_RESIDENCY_REFRESH_INTERVAL_MS` (ml-explore/mlx#4633, 2026-10-06); on one 16 GB M4 with macOS 26.7,
+  disabling the collector changed nothing (ml-explore/mlx#4609). **Renewing the request has not been tried on Mila or on
+  the M1 Pro.** A design must hold whether or not macOS changes this.
+- **W4. Apple promises neither residency nor a free figure.** `requestResidency` does "as much preparatory work as it
+  can, with the system's current conditions" (Apple, `MTLResidencySet`); `recommendedMaxWorkingSetSize` is "an
+  approximation of how much memory this device can use with good performance" (`MTLDevice.h`, Xcode 27.2). It is a
+  limit, not a reading of what is free. Residency sets do not take sparse heaps (Apple, `MTLResidencySet`).
+- **W5. This Mac's limits** (`sysctl`): `hw.memsize` 17,179,869,184; `iogpu.wired_limit_mb` 0, the system's default;
+  `vm.global_user_wire_limit` 13,056,700,579, which is the memory less `vm.global_no_user_wire_amount` (4,123,168,605);
+  `kern.memorystatus.wired_max_proc_pct` 25, which GPU wiring does not obey (*inference*: one process had 12.8 GB wired,
+  M1). `iogpu.dynamic_lwm` 1 and `iogpu.wired_lwm_mb` 0 are undocumented. Idle, with no Mila process: 7.2 GB free, 0.8
+  GB speculative, 3.0 GB inactive, 1.3 GB wired, 676 MB of 2 GB swap in use, and macOS's own "free percentage" 90%.
+- **Mila changes no system setting.** The collector's switch and the wired limit are the machine owner's.
+
+**The planner** (`Deployment.md`) budgets from `recommendedMaxWorkingSetSize` less what Mila has allocated
+(`MetalDevice::getMemoryInfo`), which is a limit and not what is free (W4), and the whole of a plan is wired when used.
+Phase 4 measured how near it a model can run: at 99% of it Llama 3.2 3B runs within 3% of its rate, and macOS swaps the
+rest of the Mac out to make room (`Notebooks/MetalFirstModel.md` 5). On a 16 GB Mac that makes Gemma 4 12B's first
+prompt wait 1 to 8 s (`Issues/Untriaged.md`). How a Mac's memory is budgeted, on a machine shared with the user's work or
+one given to the model, is `Deployment.md` 12.10: a direction, not decided.
+
+**Weights.** The load copies. `WeightsReader` maps the file and each tensor is copied from the mapping into a shared buffer
+(`streamTensorBlobsDirect`), so during a load the weights are held twice, in the file cache and in the buffers, which on a
+Mac are the same memory (`Issues/Untriaged.md`, 2026-11-12). On a 6.95 GB file that left 0.06 GB free, compressed 0.5 to
+1.9 GB during the load, and the GPU's first use decompressed as much. Two other ways were probed:
+
+- **Read straight into each buffer with the file cache off** (`F_NOCACHE`): 0.85 to 1.05 s, nothing compressed, only for
+  reads on the page grid; an arm off it compressed 9.8 GB. A safetensors file's tensors do not start on the grid.
+- **Wrap the mapping without a copy**, the question `Issues/Future.md` *Compute backends beyond CUDA* raises, for a file
+  whose stored form is the run form: accepted, the 7.2 GB file wrapped in 0.22 ms, read right by a kernel, and counted by
+  the device as allocated though not by the process (`Notebooks/MetalFirstModel.md` 5). Not built. In the load probe
+  the wrapped pages were wired at first GPU use like a copy, after the GPU read what the file cache lacked, 1.2 to 1.5 s.
+
+**A fix exists, on the development Mac only, and is not in the tree** (2026-11-11). Its third trial reads, on a
+descriptor of its own with the file cache off, the whole 16 KiB pages that hold each tensor into one page-aligned staging
+buffer the size of the largest tensor, and hands the consumer a view at the tensor's offset in it; the consumer's copy
+into the Metal buffer is unchanged. It took Chat's load of Gemma 4 12B from about 10 s to about 2 s and left the first
+prompt to the planner's budget. It was applied to the Mac's copy of `WeightsReader.ixx` by
+`D:\Claude\metal\first-prompt\arm3.py`, built at `0.21.0-dev+135` into `~/mila-work/first-prompt/chatDirect`, and the
+source restored; the binary and the script are kept. It is guarded by `__APPLE__`, as a trial; the change keys it on a
+device fact. A first trial that read each tensor uncached at its own unaligned offset (`arm.py`) made the first prompt
+slower. Fixing the load is the next change (Todd, 2026-11-12), before the planner's budget. **No published Mila model stores FP16
+weights** (Todd, 2026-11-05), so an FP16 parameter always reads BF16 weights, converted once at load, and that conversion
+is part of Phase 3 rather than of the first model. Published packages do not change: `ModelDistribution.md`
+*Compatibility* holds.
 
 ## 6. Tests and measurement
 

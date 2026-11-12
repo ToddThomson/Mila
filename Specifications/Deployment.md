@@ -294,7 +294,8 @@ keep Chat's step of 1024 (`Chat.Footprint.ixx:368`) and its early stop once the 
 budget.
 
 The budget on each device is its free memory at the reading, less the requested headroom. A caller who
-wants a different trade fixes that knob.
+wants a different trade fixes that knob. Where a device's memory is the machine's, as on a Mac, this objective and
+this budget are in question: 12.10, a direction, not decided.
 
 **Memory a plan has left may buy prefill speed, and never costs context or chunk** (decided 2026-11-10,
 Todd; built at `0.21.0-dev+133`). Once rules 1 to 4 have fixed the context and the chunk, a second rule of
@@ -650,6 +651,45 @@ new dimension of the planner, not beside it. *The allowed devices are built (12.
    beside free memory, so a plan records them. Section 5's objective is unchanged. A rule that orders devices by
    speed is measured before it is written (`LayerSplit.md` 12.2, `Direction.md` 6.6); the score
    `getBestDeviceId` computed was never measured, and it is deleted with `getBestDevice` and `findCudaDevice`.
+10. **How the machine's memory is shared. *Direction 2026-11-12 (Todd); not decided, not built.*** Section 5's
+    objective was written for a card that is the model's, where memory a plan leaves unused is wasted. On a Mac the
+    GPU's memory is the machine's (`Metal/MetalBackend.md` 5, W1 to W5): what a plan holds is wired whenever it is
+    used, taken from the user's other work, and the figure the planner reads, `recommendedMaxWorkingSetSize` less
+    what Mila holds, is a limit and not what is free. Gemma 4 12B at an automatic context on a 16 GB Mac plans 262,144
+    and 12.8 GB, and its first prompt waits 1 to 8 s while macOS compresses and swaps (`Issues/Untriaged.md`).
+
+    - **The planner makes the decision** (Todd). An application states how the machine is used, as an input of the
+      request, and holds no budget of its own: **desktop**, the machine is the user's and shared with their work
+      (Chat, Mila Desktop), or **dedicated**, the machine is the model's (MIS by default). The names are not decided.
+      The input is every backend's: a CUDA card that drives the display is shared in the same sense.
+    - **Desktop, proposed.** The budget is the memory macOS can hand over without writing anything (free, speculative,
+      purgeable, perhaps clean file cache), less Mila's own memory outside the GPU (the process; in Mila Desktop the
+      window and the session), less a headroom for the user's work. The objective is what the use needs, not the most
+      that fits: a context floor in the request, the agentic bar's 64K being the candidate for Mila Desktop's agent and
+      Chat's floor open. Without a cache that grows, every position planned is wired for as long as the model is used.
+      When the floor does not fit, trades in an order still to be set (proposed: the drafter off, then a smaller chunk,
+      then a refusal that names the memory); the weight format stays the caller's (decision 1). Between turns the
+      memory is kept wired by a residency set whose request is renewed while a session is active and stops after a
+      quiet spell, MLX's interim fix (ml-explore/mlx#4633), only once the budget is one the machine can give.
+    - **The headroom is a policy**, a default chosen by Todd that measurement informs and cannot settle. A
+      desktop budget in the library reopens decision 3 (headroom zero in the library, the adaptors choose).
+    - **Dedicated, proposed.** The recommended working set less what Mila holds, section 5's objective unchanged, the
+      request renewed while the model is loaded. Mila changes no system setting; the collector's switch and the wired
+      limit are the owner's.
+    - **The consequence to face first** (*arithmetic*): Gemma 4 12B held 8.8 GB wired at 8192 (`KvCache/KvCacheGrowth.md`
+      M1), 64K adds about 0.9 GiB of global cache, about 9.7 GB in all, and the development Mac idles with about 8 GB
+      free and speculative (W5). Desktop may not reach the agentic floor there. Whether the planner then refuses,
+      offers less, or says so is decided before the probes, since it shapes what probe A must answer.
+    - **Probes**, outside the tree, on the Mac, each tied to the decision it settles: **A**, which reading of free
+      memory predicts no compression with the user's usual applications open (the budget); **B**, whether renewing
+      the request keeps buffers of a model's size wired on the M1 Pro and macOS 27.2.1, and what renewing costs (keeping
+      memory wired); **C**, whether the collector also unwires under pressure while the GPU is busy, dropped unless a
+      decision needs it. About 30 to 45 minutes of machine time (estimate, not timed).
+    - **Folded in:** the first prompt that fails at 98.5% of the working set (`Issues/Untriaged.md`), the prefill
+      score rows rule's margin of a block that fits twice (section 5), and `getMemoryInfo`'s entry.
+    - **Before it:** the weights' load, which holds the weights twice (`Metal/MetalBackend.md` 5, *Weights*), so that a
+      reading taken after a load is not the file cache's copy. A cache that grows (`KvCache/KvCacheGrowth.md`) is
+      parked behind both.
 
 ---
 

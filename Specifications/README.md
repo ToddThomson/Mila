@@ -93,6 +93,7 @@ means a status line or target is out of date and the rest has not been re-read.
 | [SlidingWindowKvCache.md](SlidingWindowKvCache.md) | Design | The bounded KV ring for sliding-window layers | |
 | [PromptCaching.md](PromptCaching.md) | Design | KV prefix reuse across calls | |
 | [RopeInAttention.md](RopeInAttention.md) | Design | RoPE fused into attention, and what the cache would store | Draft; no code. Two measurements (its section 5) decide whether it becomes a design |
+| [KvCache/KvCacheGrowth.md](KvCache/KvCacheGrowth.md) | Design | A KV cache on any backend that reserves its address range at the plan's context and commits memory as the conversation fills it: the contract (no kernel reads a row nobody wrote, the network asks for rows before the work, the plan stays the ceiling), the device's reserve, commit and release, and each backend's way of providing them | Parked, 2026-11-12 (Todd); nothing built. Growth defers a plan's demand and does not make it fit the machine: the weights' load is fixed first, then the planner's budget where memory is shared (`Deployment.md` 12.10), and this comes back only if a measurement after both asks for it. Its section 4.2 (no read of an unwritten row) stands on its own |
 | [TieredKvCache.md](TieredKvCache.md) | Design | One KV cache over device memory and pinned host memory, for a context the device alone cannot hold | Preliminary, 2026-10-18; no code. Its section 7 lists what must be measured before it is a design |
 
 ### Memory, deployment and devices
@@ -100,7 +101,7 @@ means a status line or target is out of date and the rest has not been re-read.
 | Document | Role | Decides or records | Notes |
 |---|---|---|---|
 | [MemoryFootprint.md](MemoryFootprint.md) | Design | Predicting what a load allocates, without allocating it | |
-| [Deployment.md](Deployment.md) | Design | The deployment planner: context length, prefill chunk, devices | |
+| [Deployment.md](Deployment.md) | Design | The deployment planner: context length, prefill chunk, devices | 12.10: how the machine's memory is shared (desktop or dedicated), a direction of 2026-11-12, not decided |
 | [LayerSplit.md](LayerSplit.md) | Design | One model's blocks across several devices | Draft; `Deployment.md` Phase 5, after v0.21.0 |
 | [WeightTying.md](WeightTying.md) | Design | One table for a tied embedding and output head | |
 | [Notebooks/DeviceAssumptions.md](Notebooks/DeviceAssumptions.md) | Notebook | Where the library, the applications and the bindings assume the device is CUDA, each site sorted correct, wrong or stale, 2026-11-07 | Evidence for `Deployment.md` 12.8 and for where device and precision are chosen; ahead of `Metal/MetalBackend.md` Phase 8 |
