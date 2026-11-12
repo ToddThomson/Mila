@@ -2,10 +2,11 @@
 
 **Role: Design. Status: parked, 2026-11-12 (Todd); nothing built.** Growth commits a plan's memory later; it does not make
 the plan fit the machine, and on a Mac that is what makes the first prompt wait: the planner budgets from a limit, not
-from what is free, takes the most context that limit holds, and a load holds the weights twice (`Metal/MetalBackend.md`
-5). The load is fixed first, then the planner's budget where memory is shared (`Deployment.md` 12.10), with probes. This
-design comes back only if, after both, a measurement shows a prompt still waiting for cache memory. Section 4.2, no read
-of an unwritten row, stands on its own and is not parked. Draft of 2026-11-11 follows, corrected where a fact was wrong.
+from what is free, takes the most context that limit holds, and a load held the weights twice (`Metal/MetalBackend.md`
+5). The load is fixed first (`0.21.0-dev+137`), then the planner's budget where memory is shared (`Deployment.md`
+12.10), with probes. This design comes back only if, after both, a measurement shows a prompt still waiting for cache
+memory. Section 4.2, no read of an unwritten row, stands on its own and is not parked. Draft of 2026-11-11 follows,
+corrected where a fact was wrong.
 
 How a layer's KV cache holds memory on any compute backend:
 its address range reserved at the plan's full context, memory committed as the conversation fills it, and no kernel
@@ -254,8 +255,8 @@ keeps regardless. The host device has no compute operations (`CpuDeviceTypeTrait
   it comes before any growth (`Deployment.md` 12.10).
 - **The weights' load on Metal.** Reading each tensor from the file into its buffer without the file cache took Chat's
   load from about 10 s to about 2 s (2026-11-11, an arm on the Mac's copy). Its own change, MLX's way of loading
-  (`mlx/io/load.cpp`, `ParallelFileReader`). *2026-11-12:* the load holds the weights twice, and fixing it is the next
-  change (`Metal/MetalBackend.md` 5, *Weights*).
+  (`mlx/io/load.cpp`, `ParallelFileReader`). *2026-11-12:* the load held the weights twice; built at `0.21.0-dev+137`,
+  11 s to 1.7 s with nothing compressed (`Metal/MetalBackend.md` 5, *Weights*).
 - **A prompt after the model has sat idle.** M2 suggests it pays the pinning again; not measured.
 - **Shrinking as a conversation goes.** Rows are given back only by release (section 2.4), never by reset or rewind.
 

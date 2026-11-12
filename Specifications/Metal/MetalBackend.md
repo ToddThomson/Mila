@@ -521,27 +521,40 @@ rest of the Mac out to make room (`Notebooks/MetalFirstModel.md` 5). On a 16 GB 
 prompt wait 1 to 8 s (`Issues/Untriaged.md`). How a Mac's memory is budgeted, on a machine shared with the user's work or
 one given to the model, is `Deployment.md` 12.10: a direction, not decided.
 
-**Weights.** The load copies. `WeightsReader` maps the file and each tensor is copied from the mapping into a shared buffer
-(`streamTensorBlobsDirect`), so during a load the weights are held twice, in the file cache and in the buffers, which on a
-Mac are the same memory (`Issues/Untriaged.md`, 2026-11-12). On a 6.95 GB file that left 0.06 GB free, compressed 0.5 to
-1.9 GB during the load, and the GPU's first use decompressed as much. Two other ways were probed:
+**Weights.** Read past the file cache, built at `0.21.0-dev+137`. On a Mac, `WeightsReader` reads each tensor with the
+file cache off (`F_NOCACHE`, on a descriptor of its own) as the whole pages that hold it, into one page-aligned staging
+buffer as large as the largest tensor's pages, and hands the consumer a view of the tensor in it; the consumer's copy into
+the shared buffer is unchanged (`streamTensorBlobsUncached`). The read follows the device: CUDA stages through pinned
+memory, and a device whose memory is the host's (the CPU, Metal) takes this read on macOS and the mapped view elsewhere.
+Before it the load copied each tensor from a mapping of the whole file, so during a load the weights were held twice, in
+the file cache and in the buffers, which on a Mac are the same memory.
 
-- **Read straight into each buffer with the file cache off** (`F_NOCACHE`): 0.85 to 1.05 s, nothing compressed, only for
-  reads on the page grid; an arm off it compressed 9.8 GB. A safetensors file's tensors do not start on the grid.
+Measured on the M1 Pro, Gemma 4 12B Q4_0 (6.95 GB) at a context of 8192, three fresh processes of each alternated
+(`mila-metal-model-timing`, 2026-11-12): the load took 10.74 to 11.23 s before and 1.69 to 1.72 s after. Before, the copy
+compressed 4.5 to 7.2 GB of the weights it had just written (the compressor peaking at 4.5 to 5.9 GB) and the GPU's first
+use decompressed them; after, nothing is compressed, the compressor stays at 0.5 GB and the file cache does not grow. The
+staging buffer is the cost: the process's peak rises from 7.24 to 7.94 GiB during the load. Free memory after the load
+is about 0.1 GB either way; the first prompt is the planner's budget (`Deployment.md` 12.10). Apple's `fcntl` page says
+only that `F_NOCACHE` turns data caching off. That only reads on the page grid stay out of the cache is measured, not
+documented: in the load probe, reads off the grid compressed 4.2 to 9.8 GB and filled the cache, and a first trial on the
+real load that read each tensor at its own offset (`arm.py`) made the first prompt slower. MLX's loader reads in 32 MB
+pieces on several threads (`mlx/io/load.cpp`, `ParallelFileReader`); one thread reading on the page grid reached 6 to 8
+GB/s in the probe, so the reads are not split. Two ways further were probed:
+
+- **Read straight into each buffer with the file cache off**: 0.85 to 1.05 s in the probe, with no staging buffer and no
+  copy, but only for reads on the page grid, and a safetensors file's tensors do not start on it (none of the 12B's 771
+  do). **Page-aligned tensors in the export format are agreed as the change after this one** (Todd, 2026-11-12). The
+  format allows no gaps in the data ("cannot contain holes", the safetensors README), so the padding is tensors of its
+  own, which an older Mila refuses: a republish raises `minimum_mila_version` (`ModelDistribution.md` *Compatibility*).
+  The staged read stays for every file not aligned: older packages, full-precision weights quantized at load. Its case is
+  memory, the staging buffer and the copy, not the second it saves.
 - **Wrap the mapping without a copy**, the question `Issues/Future.md` *Compute backends beyond CUDA* raises, for a file
   whose stored form is the run form: accepted, the 7.2 GB file wrapped in 0.22 ms, read right by a kernel, and counted by
   the device as allocated though not by the process (`Notebooks/MetalFirstModel.md` 5). Not built. In the load probe
   the wrapped pages were wired at first GPU use like a copy, after the GPU read what the file cache lacked, 1.2 to 1.5 s.
+  It also needs tensors on the page grid.
 
-**A fix exists, on the development Mac only, and is not in the tree** (2026-11-11). Its third trial reads, on a
-descriptor of its own with the file cache off, the whole 16 KiB pages that hold each tensor into one page-aligned staging
-buffer the size of the largest tensor, and hands the consumer a view at the tensor's offset in it; the consumer's copy
-into the Metal buffer is unchanged. It took Chat's load of Gemma 4 12B from about 10 s to about 2 s and left the first
-prompt to the planner's budget. It was applied to the Mac's copy of `WeightsReader.ixx` by
-`D:\Claude\metal\first-prompt\arm3.py`, built at `0.21.0-dev+135` into `~/mila-work/first-prompt/chatDirect`, and the
-source restored; the binary and the script are kept. It is guarded by `__APPLE__`, as a trial; the change keys it on a
-device fact. A first trial that read each tensor uncached at its own unaligned offset (`arm.py`) made the first prompt
-slower. Fixing the load is the next change (Todd, 2026-11-12), before the planner's budget. **No published Mila model stores FP16
+**No published Mila model stores FP16
 weights** (Todd, 2026-11-05), so an FP16 parameter always reads BF16 weights, converted once at load, and that conversion
 is part of Phase 3 rather than of the first model. Published packages do not change: `ModelDistribution.md`
 *Compatibility* holds.

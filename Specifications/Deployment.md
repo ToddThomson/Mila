@@ -687,9 +687,9 @@ new dimension of the planner, not beside it. *The allowed devices are built (12.
       decision needs it. About 30 to 45 minutes of machine time (estimate, not timed).
     - **Folded in:** the first prompt that fails at 98.5% of the working set (`Issues/Untriaged.md`), the prefill
       score rows rule's margin of a block that fits twice (section 5), and `getMemoryInfo`'s entry.
-    - **Before it:** the weights' load, which holds the weights twice (`Metal/MetalBackend.md` 5, *Weights*), so that a
-      reading taken after a load is not the file cache's copy. A cache that grows (`KvCache/KvCacheGrowth.md`) is
-      parked behind both.
+    - **Before it:** the weights' load, which held the weights twice, read past the file cache since `0.21.0-dev+137`
+      (`Metal/MetalBackend.md` 5, *Weights*), so that a reading taken after a load is not the file cache's copy. A
+      cache that grows (`KvCache/KvCacheGrowth.md`) is parked behind both.
 
 ---
 

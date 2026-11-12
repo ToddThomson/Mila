@@ -25,6 +25,7 @@
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 import Mila;
@@ -182,6 +183,82 @@ namespace Mila::Tests::Dnn::Serialization
         EXPECT_EQ( counts_blob.getMetadata().dtype, TensorDataType::INT32 );
         ASSERT_EQ( counts_blob.sizeBytes(), counts.size() * sizeof( int32_t ) );
         EXPECT_EQ( std::memcmp( counts_blob.data(), counts.data(), counts_blob.sizeBytes() ), 0 );
+    }
+
+    // Sizes chosen against 4 KiB and 16 KiB pages: tensors that share a page, one that crosses two boundaries, one
+    // larger than every other, and a last one that ends the file part way through a page. On a Mac the stream reads
+    // whole pages into a staging buffer, so each must still come out as exactly its own bytes.
+    TEST( SafeTensors, StreamsEveryTensorAsWrittenInFileOrder )
+    {
+        ScratchFile scratch( "stream" );
+
+        const std::vector<std::pair<std::string, std::size_t>> layout{
+            { "a.one_byte", 1 },
+            { "b.across_pages", 2 * 16384 + 3 },
+            { "c.small", 5 },
+            { "d.largest", 5 * 16384 + 4097 },
+            { "e.page_exactly", 16384 },
+            { "f.ends_the_file", 7001 } };
+
+        std::vector<std::vector<std::uint8_t>> contents;
+
+        for ( std::size_t t = 0; t < layout.size(); ++t )
+        {
+            std::vector<std::uint8_t> bytes( layout[ t ].second );
+
+            for ( std::size_t i = 0; i < bytes.size(); ++i )
+            {
+                bytes[ i ] = static_cast<std::uint8_t>( ( i * 131 + t * 17 + ( i >> 8 ) ) & 0xFF );
+            }
+
+            contents.push_back( std::move( bytes ) );
+        }
+
+        {
+            SafeTensorsWriter writer( scratch.path() );
+
+            for ( const auto& [name, bytes] : layout )
+            {
+                writer.declareTensor( name, TensorDataType::UINT8, shape_t{ static_cast<std::int64_t>( bytes ) } );
+            }
+
+            writer.beginData();
+
+            for ( std::size_t t = 0; t < layout.size(); ++t )
+            {
+                writer.writeTensorData( layout[ t ].first, contents[ t ].data(), contents[ t ].size() );
+            }
+
+            writer.close();
+        }
+
+        WeightsReader reader( scratch.path() );
+
+        std::vector<std::string> names;
+        std::vector<std::vector<std::uint8_t>> streamed;
+
+        reader.streamTensorBlobs<Compute::CpuMemoryResource>(
+            [&]( const std::string& name, const ITensorBlob& blob )
+            {
+                // The blob is valid only until this returns, so its bytes are kept here.
+                const auto* first = static_cast<const std::uint8_t*>( blob.data() );
+
+                names.push_back( name );
+                streamed.emplace_back( first, first + blob.sizeBytes() );
+            } );
+
+        ASSERT_EQ( names.size(), layout.size() );
+
+        for ( std::size_t t = 0; t < layout.size(); ++t )
+        {
+            EXPECT_EQ( names[ t ], layout[ t ].first );
+            EXPECT_EQ( streamed[ t ], contents[ t ] ) << layout[ t ].first;
+
+            auto read = reader.readTensorBlob<Compute::CpuMemoryResource>( layout[ t ].first );
+            const auto* first = static_cast<const std::uint8_t*>( read.data() );
+
+            EXPECT_EQ( std::vector<std::uint8_t>( first, first + read.sizeBytes() ), contents[ t ] ) << layout[ t ].first;
+        }
     }
 
     TEST( SafeTensors, CarriesMilaConfigThroughMetadata )

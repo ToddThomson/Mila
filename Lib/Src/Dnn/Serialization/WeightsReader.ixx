@@ -1,21 +1,9 @@
 /**
  * @file WeightsReader.ixx
- * @brief Reader for a Mila weights file.
+ * @brief Reader for a Mila weights file, in either container, used by the models' load() factories.
  *
- * Provides direct access to model weights stored in either Mila container.
- * Used by the models' load() factories.
- *
- * The whole file is memory-mapped at construction (CreateFileMapping/MapViewOfFile
- * on Windows, mmap on POSIX). streamTensorBlobs() consumes blobs in ascending file
- * offset order, turning the former 224+ random per-tensor reads into a single
- * sequential scan. On the CUDA path a background producer thread stages each blob
- * into a pinned host buffer (double-buffered) so disk I/O overlaps the H2D copy; all
- * CUDA work stays on the consuming thread. Staging reads each blob directly from the
- * file handle (positioned ReadFile/pread), not by faulting through the mapped view --
- * the map's 4 KB on-demand faults throttle a large model well below disk bandwidth
- * once the file no longer fits resident alongside the model's own GPU staging. The
- * mapping is kept for oversized blobs (consumed straight from the view) and the
- * legacy random-access readTensorBlob<MR>() fallback.
+ * streamTensorBlobs() hands every tensor to a consumer in file order: staged through pinned memory for CUDA, read
+ * with the file cache off on a Mac, and as a view of the mapped file otherwise.
  */
 
 module;
@@ -384,9 +372,13 @@ namespace Mila::Dnn::Serialization
          * execution context after loadParameter. The producer's next memcpy overlaps that
          * synchronize, preserving the disk/H2D overlap.
          *
+         * Any other staging resource is a device whose memory is the host's (the CPU, Metal).
+         * On macOS each blob is then read uncached into one page-aligned staging buffer that
+         * every blob reuses, so the same contract holds; elsewhere the consumer is handed the
+         * mapped view.
+         *
          * @tparam TStagingMemoryResource Staging resource. CudaPinnedMemoryResource selects
-         *         the threaded pinned path; CpuMemoryResource consumes mapped views directly
-         *         with no staging and no producer thread.
+         *         the threaded pinned path; any other runs on the calling thread alone.
          * @param consume Callable invoked as consume(const std::string& name, const ITensorBlob&).
          * @param device_id Device index for the pinned staging buffers (CUDA path only).
          */
@@ -402,7 +394,11 @@ namespace Mila::Dnn::Serialization
 #endif
             {
                 (void)device_id;
+#ifdef __APPLE__
+                streamTensorBlobsUncached( std::forward<TConsumer>( consume ) );
+#else
                 streamTensorBlobsDirect( std::forward<TConsumer>( consume ) );
+#endif
             }
         }
 
@@ -464,13 +460,14 @@ namespace Mila::Dnn::Serialization
         // ~5x below disk bandwidth.
         void readAt( std::uint64_t offset, void* dst, std::size_t nbytes ) const
         {
+#ifdef _WIN32
             auto* out = static_cast<std::uint8_t*>( dst );
             std::size_t done = 0;
 
             while ( done < nbytes )
             {
                 const std::size_t remaining = nbytes - done;
-#ifdef _WIN32
+
                 // A synchronous handle honors OVERLAPPED.Offset as the read position and
                 // completes synchronously; only the single producer thread touches the
                 // handle, so there is no shared-file-pointer race.
@@ -491,9 +488,24 @@ namespace Mila::Dnn::Serialization
                 }
 
                 done += got;
+            }
 #else
-                const ssize_t got = ::pread(
-                    fd_, out + done, remaining, static_cast<off_t>( offset + done ) );
+            readFromDescriptor( fd_, offset, dst, nbytes );
+#endif
+        }
+
+#ifndef _WIN32
+        // Positioned read of nbytes at file offset from the given descriptor. 1 GiB per call, as the Windows branch
+        // of readAt; the loop needs no larger call.
+        void readFromDescriptor( int descriptor, std::uint64_t offset, void* dst, std::size_t nbytes ) const
+        {
+            auto* out = static_cast<std::uint8_t*>( dst );
+            std::size_t done = 0;
+
+            while ( done < nbytes )
+            {
+                const std::size_t to_read = std::min<std::size_t>( nbytes - done, 0x40000000ull );
+                const ssize_t got = ::pread( descriptor, out + done, to_read, static_cast<off_t>( offset + done ) );
 
                 if ( got <= 0 )
                 {
@@ -503,9 +515,9 @@ namespace Mila::Dnn::Serialization
                 }
 
                 done += static_cast<std::size_t>( got );
-#endif
             }
         }
+#endif
 
         const TensorBlobMetadata& getTensorBlobMetadata( const std::string& name ) const
         {
@@ -680,6 +692,104 @@ namespace Mila::Dnn::Serialization
                 consume( meta->name, view );
             }
         }
+
+#ifdef __APPLE__
+        // On a Mac the device's memory is the host's, so a mapped view would leave each tensor in memory twice: once in
+        // the file cache, once in the buffer the consumer copies it into, and macOS compresses the weights just written
+        // to make room (Metal/MetalBackend.md section 5). So each tensor is read with the file cache off, as the whole
+        // pages that hold it. Measured on an M1 Pro, not documented: a read off the page grid still fills the cache.
+        template<typename TConsumer>
+        void streamTensorBlobsUncached( TConsumer&& consume )
+        {
+            const std::size_t page = static_cast<std::size_t>( ::getpagesize() );
+
+            const auto firstPage = [page]( const TensorBlobMetadata& meta )
+            {
+                return ( static_cast<std::size_t>( meta.offset ) / page ) * page;
+            };
+
+            // The file's last page is partial, so a tensor's span stops at the end of the file.
+            const auto endOfLastPage = [this, page]( const TensorBlobMetadata& meta )
+            {
+                const std::size_t end = static_cast<std::size_t>( meta.offset + meta.nbytes );
+
+                return std::min( map_size_, ( ( end + page - 1 ) / page ) * page );
+            };
+
+            std::size_t staging_bytes = 0;
+
+            for ( const TensorBlobMetadata* meta : sorted_by_offset_ )
+            {
+                staging_bytes = std::max( staging_bytes, endOfLastPage( *meta ) - firstPage( *meta ) );
+            }
+
+            if ( staging_bytes == 0 )
+            {
+                streamTensorBlobsDirect( std::forward<TConsumer>( consume ) );
+
+                return;
+            }
+
+            // A descriptor of its own: the cache setting belongs to the descriptor, and fd_ also serves the mapping.
+            const int descriptor = ::open( filepath_.c_str(), O_RDONLY );
+
+            if ( descriptor < 0 )
+            {
+                throw std::runtime_error( "Cannot open weights file: " + filepath_.string() );
+            }
+
+            if ( ::fcntl( descriptor, F_NOCACHE, 1 ) == -1 )
+            {
+                ::close( descriptor );
+                throw std::runtime_error( "Cannot turn off the file cache for: " + filepath_.string() );
+            }
+
+            void* const staging = ::mmap( nullptr, staging_bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0 );
+
+            if ( staging == MAP_FAILED )
+            {
+                ::close( descriptor );
+                throw std::runtime_error( std::format(
+                    "WeightsReader: cannot allocate {} bytes to stage {}", staging_bytes, filepath_.string() ) );
+            }
+
+            const auto release = [&]() noexcept
+            {
+                ::munmap( staging, staging_bytes );
+                ::close( descriptor );
+            };
+
+            try
+            {
+                for ( const TensorBlobMetadata* meta : sorted_by_offset_ )
+                {
+                    const std::size_t first = firstPage( *meta );
+
+                    readFromDescriptor( descriptor, first, staging, endOfLastPage( *meta ) - first );
+
+                    TensorMetadata tensor_meta{
+                        .dtype = dtypeToTensorDataType( meta->dtype ),
+                        .shape = meta->shape,
+                        .total_bytes = meta->nbytes
+                    };
+
+                    TensorBlobView view(
+                        tensor_meta,
+                        static_cast<const std::uint8_t*>( staging ) + ( static_cast<std::size_t>( meta->offset ) - first ),
+                        static_cast<std::size_t>( meta->nbytes ) );
+
+                    consume( meta->name, view );
+                }
+            }
+            catch ( ... )
+            {
+                release();
+                throw;
+            }
+
+            release();
+        }
+#endif
 
 #ifdef MILA_HAS_CUDA
         template<typename TConsumer>
