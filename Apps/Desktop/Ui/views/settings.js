@@ -1,43 +1,94 @@
-// The settings panel. Every control shows what the last session.state said, and a change sends
-// one settings.set; the control then follows the reply, not the edit.
+// The Settings window, over the main window: a search and the areas beside one area's settings, or every
+// setting a search names. What each setting is comes from settings-table.js; its control shows what the last
+// session.state said, and a change sends one settings.set, so the control follows the reply, not the edit.
 
 import { element, button, iconButton, clear } from '../dom.js';
+import { areas, leads, areaOf, settingOf, isReady, searchSettings, settingsInArea } from './settings-table.js';
 
-const samplingLabels = {
-    temperature: 'Temperature',
-    top_k: 'Top-k',
-    top_p: 'Top-p',
-    presence_penalty: 'Presence penalty'
+const waitingNotices = {
+    model: 'These apply to a loaded model. Load one to change them.',
+    session: 'Mila is starting.'
 };
-
-const detailChoices = [
-    { value: 'off', label: 'Answer only' },
-    { value: 'thoughts', label: 'With thinking' },
-    { value: 'all', label: 'Everything, with logs' }
-];
 
 export function createSettingsView( root, actions )
 {
+    const navigation = element( 'nav', 'settings-nav' );
+    const search = element( 'input', 'settings-search' );
+    const areaList = element( 'div', 'settings-areas' );
+    const main = element( 'div', 'settings-main' );
     const panelHeader = element( 'div', 'panel-header' );
-    const title = element( 'h2', 'panel-title', 'Settings' );
+    const title = element( 'h2', 'panel-title' );
     const close = iconButton( 'quiet-icon', 'close', 'Close settings', 'close-settings' );
-    const body = element( 'div', 'panel-body' );
-    let lastSession = null;
-    let lastInstalled = null;
-    let lastOpen = false;
+    const body = element( 'div', 'settings-body' );
+    const local = { query: '', confirmingRemove: null };
+    let area = areas[ 0 ].id;
+    let lastInputs = null;
+    let open = false;
 
-    panelHeader.append( title, close );
-    root.append( panelHeader, body );
+    search.type = 'search';
+    search.placeholder = 'Search settings';
+    search.spellcheck = false;
+    search.setAttribute( 'aria-label', 'Search settings' );
+    navigation.setAttribute( 'aria-label', 'Settings areas' );
 
-    function sendSetting( change )
+    for ( const shown of areas )
     {
-        const message = { type: 'settings.set', ...change };
+        const choice = button( 'settings-area', shown.label, 'settings-area' );
+        choice.dataset.area = shown.id;
+        areaList.append( choice );
+    }
 
-        actions.send( message );
+    navigation.append( search, areaList );
+    panelHeader.append( title, close );
+    main.append( panelHeader, body );
+    root.append( navigation, main );
+
+    /** What a setting in the table is given: the person's change, a message, and the window's own state. */
+    const view = {
+        local,
+        set( change )
+        {
+            const message = { type: 'settings.set', ...change };
+            actions.send( message );
+        },
+        transmit( message )
+        {
+            actions.send( message );
+        },
+        changeLocal( change )
+        {
+            Object.assign( local, change );
+            refresh();
+        }
+    };
+
+    function searching()
+    {
+        return local.query.trim().length > 0;
+    }
+
+    function refresh()
+    {
+        lastInputs = null;
+        update( actions.getState() );
+    }
+
+    function showArea( identifier )
+    {
+        local.query = '';
+        search.value = '';
+        actions.openSettings( identifier );
     }
 
     function onClick( event )
     {
+        if ( event.target === root )
+        {
+            actions.closeSettings();
+
+            return;
+        }
+
         const target = event.target.closest( '[data-action]' );
 
         if ( target === null )
@@ -46,366 +97,306 @@ export function createSettingsView( root, actions )
         const action = target.dataset.action;
 
         if ( action === 'close-settings' )
-        {
-            const closed = { settingsOpen: false };
-            actions.changeSurface( closed );
-        }
+            actions.closeSettings();
 
-        // Settings stays open beside the models view, so closing the view comes back here.
-        if ( action === 'manage-models' )
-        {
-            const opened = { modelsOpen: true };
-            actions.changeSurface( opened );
-        }
+        if ( action === 'settings-area' )
+            showArea( target.dataset.area );
 
-        if ( action === 'thinking' )
-        {
-            const change = { thinking: target.getAttribute( 'aria-checked' ) !== 'true' };
-            sendSetting( change );
-        }
+        if ( action === 'go-models' )
+            showArea( 'models' );
 
-        if ( action === 'run-commands' )
-        {
-            const change = { run_commands: target.getAttribute( 'aria-checked' ) !== 'true' };
-            sendSetting( change );
-        }
+        const holder = target.closest( '[data-setting]' );
 
-        if ( action === 'effort' )
-        {
-            const change = { effort: target.dataset.value };
-            sendSetting( change );
-        }
-
-        if ( action === 'context-auto' )
-        {
-            const change = { context: 'auto' };
-            sendSetting( change );
-        }
-
-        if ( action === 'sampling-default' )
-        {
-            const sampling = { key: target.dataset.key, value: 'model' };
-            const change = { sampling };
-            sendSetting( change );
-        }
-
-        if ( action === 'seed' )
-            sendSeed();
-
-        if ( action === 'search-key-save' )
-            sendSearchKey();
-
-        if ( action === 'search-key-remove' )
-        {
-            const change = { search_key: null };
-            sendSetting( change );
-        }
-    }
-
-    function sendSeed()
-    {
-        const field = body.querySelector( '.seed-input' );
-        const value = Number( field.value );
-        const change = { seed: value };
-
-        if ( field.value.trim().length === 0 )
+        if ( holder === null )
             return;
 
-        sendSetting( change );
+        const setting = settingOf( holder.dataset.setting );
+
+        if ( setting.onAction !== undefined )
+            setting.onAction( action, target, view );
     }
 
     function onChange( event )
     {
-        const target = event.target;
+        const holder = event.target.closest( '[data-setting]' );
 
-        if ( target.classList.contains( 'context-input' ) )
-        {
-            const change = { context: Number( target.value ) };
-            sendSetting( change );
-        }
+        if ( holder === null )
+            return;
 
-        if ( target.classList.contains( 'sampling-input' ) )
-        {
-            const sampling = { key: target.dataset.key, value: Number( target.value ) };
-            const change = { sampling };
-            sendSetting( change );
-        }
+        const setting = settingOf( holder.dataset.setting );
 
-        if ( target.classList.contains( 'detail-select' ) )
-        {
-            const change = { detail: target.value };
-            sendSetting( change );
-        }
+        if ( setting.onChange !== undefined )
+            setting.onChange( event.target, view );
+    }
+
+    function onSearch()
+    {
+        local.query = search.value;
+        refresh();
+    }
+
+    // Esc in a search with words in it clears them; the next one closes the window.
+    function onSearchKey( event )
+    {
+        if ( event.key !== 'Escape' || search.value.length === 0 )
+            return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        search.value = '';
+        onSearch();
+    }
+
+    function onCancel( event )
+    {
+        event.preventDefault();
+        actions.closeSettings();
     }
 
     root.addEventListener( 'click', onClick );
     root.addEventListener( 'change', onChange );
+    root.addEventListener( 'cancel', onCancel );
+    search.addEventListener( 'input', onSearch );
+    search.addEventListener( 'keydown', onSearchKey );
 
-    function section( label, note )
+    function shownGroups( state )
     {
-        const container = element( 'section', 'setting' );
-        const heading = element( 'h3', 'setting-label', label );
-        container.append( heading );
+        if ( !searching() )
+        {
+            const group = { area: areaOf( area ), settings: settingsInArea( area, state ) };
+
+            return [ group ];
+        }
+
+        const found = searchSettings( local.query, state );
+        const groups = [];
+
+        for ( const shown of areas )
+        {
+            const inArea = found.filter( ( setting ) => setting.area === shown.id );
+
+            if ( inArea.length === 0 )
+                continue;
+
+            const group = { area: shown, settings: inArea };
+            groups.push( group );
+        }
+
+        return groups;
+    }
+
+    /** The parts of the state the shown settings read: a change anywhere else leaves a half-typed field alone. */
+    function inputsOf( state, groups )
+    {
+        const names = new Set();
+
+        for ( const group of groups )
+        {
+            const lead = leads[ group.area.id ];
+
+            for ( const setting of group.settings )
+                setting.reads.forEach( ( name ) => names.add( name ) );
+
+            if ( lead !== undefined )
+                lead.reads.forEach( ( name ) => names.add( name ) );
+        }
+
+        const read = [ ...names ].sort().map( ( name ) => state[ name ] );
+
+        return [ area, local.query, local.confirmingRemove, groups.length, ...read ];
+    }
+
+    function sameInputs( inputs )
+    {
+        if ( lastInputs === null || lastInputs.length !== inputs.length )
+            return false;
+
+        return inputs.every( ( input, index ) => input === lastInputs[ index ] );
+    }
+
+    /** What goes under a setting's group: its note, then what it shows besides its control. */
+    function footersOf( setting, state )
+    {
+        const note = setting.note( state );
+        const shown = [];
 
         if ( note !== null )
+            shown.push( element( 'p', 'setting-footer', note ) );
+
+        if ( isReady( setting, state ) && setting.details !== undefined )
+            shown.push( ...setting.details( state ) );
+
+        return shown;
+    }
+
+    /** One line: the setting's name on the left, its control on the right. */
+    function buildLine( setting, state )
+    {
+        const line = element( 'div', 'setting-line' );
+        const label = element( 'span', 'setting-line-label', setting.label );
+        const control = element( 'div', 'setting-line-control' );
+
+        line.dataset.setting = setting.id;
+
+        if ( isReady( setting, state ) )
+            control.append( setting.build( state, view ) );
+
+        line.append( label, control );
+
+        return line;
+    }
+
+    /** A list setting, the installed models say: its name above its own group of rows. */
+    function buildList( setting, state )
+    {
+        const header = element( 'h3', 'settings-list-header', setting.label );
+        const shown = [ header ];
+        const content = isReady( setting, state ) ? setting.build( state, view ) : null;
+
+        if ( content !== null )
         {
-            const text = element( 'p', 'setting-note', note );
-            container.append( text );
+            const card = element( 'div', 'settings-card' );
+            card.dataset.setting = setting.id;
+            card.append( content );
+            shown.push( card );
         }
 
-        body.append( container );
+        shown.push( ...footersOf( setting, state ) );
 
-        return container;
+        return shown;
     }
 
-    function buildThinking( session )
+    function buildGroup( group, state )
     {
-        const container = section( 'Thinking', 'The model reasons before it answers. Turning it off does not reload the model.' );
-        const toggle = button( 'switch', null, 'thinking' );
-        const on = session.thinking !== 'off';
+        const lead = leads[ group.area.id ];
+        const waiting = group.settings.find( ( setting ) => !isReady( setting, state ) );
 
-        toggle.setAttribute( 'role', 'switch' );
-        toggle.setAttribute( 'aria-checked', on ? 'true' : 'false' );
-        toggle.setAttribute( 'aria-label', 'Thinking' );
-        container.append( toggle );
-    }
+        if ( searching() )
+            body.append( element( 'h3', 'settings-group', group.area.label ) );
+        else if ( group.area.note !== null )
+            body.append( element( 'p', 'setting-note settings-area-note', group.area.note ) );
 
-    function buildEffort( session )
-    {
-        const container = section( 'Effort', 'How long the model may think.' );
-        const group = element( 'div', 'segmented' );
+        if ( lead !== undefined )
+            body.append( ...lead.build( state ) );
 
-        for ( const level of session.effort_levels )
+        if ( waiting !== undefined )
         {
-            const choice = button( 'segment', level, 'effort' );
-            choice.dataset.value = level;
-            choice.classList.toggle( 'selected', session.effort === level );
-            group.append( choice );
+            const notice = element( 'div', 'settings-waiting' );
+            notice.append( element( 'p', 'setting-note', waitingNotices[ waiting.needs ] ) );
+
+            if ( waiting.needs === 'model' )
+                notice.append( button( 'chip-button', 'Models', 'go-models' ) );
+
+            body.append( notice );
         }
 
-        container.append( group );
-    }
+        // Lines share a group until one has words under it, as on an iPad.
+        let card = null;
 
-    function buildContext( session )
-    {
-        const note = session.context_automatic ? 'Auto: the largest that fits this card.' : 'A number you give is used exactly. Changing it keeps the conversation.';
-        const container = section( 'Context window', note );
-        const row = element( 'div', 'setting-row' );
-        const field = element( 'input', 'context-input number-input' );
-        const automatic = button( 'chip-button', 'Auto', 'context-auto' );
-
-        field.type = 'number';
-        field.min = '1';
-        field.step = '1024';
-        field.value = String( session.context_length );
-        field.setAttribute( 'aria-label', 'Context window in tokens' );
-        automatic.classList.toggle( 'selected', session.context_automatic );
-        row.append( field, automatic );
-        container.append( row );
-    }
-
-    function buildSampling( session )
-    {
-        const container = section( 'Sampling', 'Each model opens at its publisher\'s recommended values.' );
-
-        for ( const key of Object.keys( session.sampling ) )
+        for ( const setting of group.settings )
         {
-            const entry = session.sampling[ key ];
-            const row = element( 'div', 'setting-row sampling-row' );
-            const label = element( 'label', 'sampling-label', samplingLabels[ key ] );
-            const field = element( 'input', 'sampling-input number-input' );
-            const reset = button( 'chip-button', 'Model default', 'sampling-default' );
-            const identifier = 'sampling-' + key;
+            if ( setting.layout === 'list' )
+            {
+                body.append( ...buildList( setting, state ) );
+                card = null;
 
-            label.htmlFor = identifier;
-            field.id = identifier;
-            field.type = 'number';
-            field.step = key === 'top_k' ? '1' : '0.05';
-            field.value = String( entry.value );
-            field.dataset.key = key;
-            reset.dataset.key = key;
-            reset.classList.toggle( 'selected', entry.is_model_default );
-            row.append( label, field, reset );
-            container.append( row );
+                continue;
+            }
+
+            if ( card === null )
+            {
+                card = element( 'div', 'settings-card' );
+                body.append( card );
+            }
+
+            card.append( buildLine( setting, state ) );
+
+            const footers = footersOf( setting, state );
+
+            if ( footers.length > 0 )
+            {
+                body.append( ...footers );
+                card = null;
+            }
         }
     }
 
-    function buildDetail( session )
-    {
-        const container = section( 'Detail', 'What a reply shows besides its answer.' );
-        const select = element( 'select', 'detail-select' );
-
-        for ( const choice of detailChoices )
-        {
-            const option = element( 'option', null, choice.label );
-            option.value = choice.value;
-            option.selected = choice.value === session.detail;
-            select.append( option );
-        }
-
-        select.setAttribute( 'aria-label', 'Detail' );
-        container.append( select );
-    }
-
-    function buildSeed()
-    {
-        const container = section( 'Seed', 'The same seed, message and conversation give the same reply.' );
-        const row = element( 'div', 'setting-row' );
-        const field = element( 'input', 'seed-input number-input' );
-        const apply = button( 'chip-button', 'Set', 'seed' );
-
-        field.type = 'number';
-        field.min = '0';
-        field.step = '1';
-        field.setAttribute( 'aria-label', 'Seed' );
-        row.append( field, apply );
-        container.append( row );
-    }
-
-    /**
-     * The person's own search key. The page never holds it after Save: the field is cleared, and the session
-     * says only whether a key is set.
-     */
-    /** First, since every setting below applies to a loaded model: the one in use, and the way to the rest. */
-    function buildModels( session, installed )
-    {
-        const inUse = session !== null && session.model !== null ? session.model + ' is in use. ' : 'No model is loaded. ';
-        const count = installed.length === 1 ? '1 model installed.' : installed.length + ' models installed.';
-        const container = section( 'Models', inUse + count );
-        const row = element( 'div', 'setting-row' );
-
-        row.append( button( 'chip-button', 'Manage models', 'manage-models' ) );
-        container.append( row );
-    }
-
-    function buildWebSearch( session )
-    {
-        const enabled = session.web_search === true;
-        const note = enabled
-            ? 'Research & Analyze and Get Things Done can search the web with your Tavily key. Each search asks first, and its words go to Tavily.'
-            : 'Add a Tavily key to let Research & Analyze and Get Things Done search the web. tavily.com gives 1,000 searches a month free.';
-        const container = section( 'Web search', note );
-        const row = element( 'div', 'setting-row' );
-
-        if ( enabled )
-        {
-            const remove = button( 'chip-button', 'Remove key', 'search-key-remove' );
-            row.append( remove );
-        }
-        else
-        {
-            const field = element( 'input', 'search-key-input number-input' );
-            const save = button( 'chip-button', 'Save', 'search-key-save' );
-
-            field.type = 'password';
-            field.autocomplete = 'off';
-            field.spellcheck = false;
-            field.placeholder = 'tvly-…';
-            field.setAttribute( 'aria-label', 'Tavily key' );
-            row.append( field, save );
-        }
-
-        container.append( row );
-    }
-
-    /**
-     * What the setting does and does not, and its known gaps, beside it (ContainedPrograms.md 6).
-     */
-    function buildCommands( session )
-    {
-        const container = section( 'Run commands (experimental)',
-            'Build & Code can run commands such as builds, tests and git in a Windows container limited to the ' +
-            'project folder and the program folders below, on a desktop of their own. Each command asks first. A ' +
-            'command has no internet unless it asks and you allow it; one that has it can send what it reads. ' +
-            'Needs Windows 11 26H2 or later.' );
-        const toggle = button( 'switch', null, 'run-commands' );
-        const on = session.run_commands === true;
-
-        toggle.setAttribute( 'role', 'switch' );
-        toggle.setAttribute( 'aria-checked', on ? 'true' : 'false' );
-        toggle.setAttribute( 'aria-label', 'Run commands' );
-        container.append( toggle );
-
-        if ( on && session.run_commands_problem !== null )
-            container.append( element( 'p', 'setting-note setting-problem', 'Commands cannot run here: ' + session.run_commands_problem ) );
-
-        if ( on && session.program_folders.length > 0 )
-        {
-            const folders = element( 'ul', 'setting-folders' );
-
-            for ( const folder of session.program_folders )
-                folders.append( element( 'li', null, folder ) );
-
-            container.append( element( 'p', 'setting-note', 'Program folders commands can read:' ), folders );
-        }
-
-        container.append( element( 'p', 'setting-note',
-            'Known gaps: a file given a second name outside the folder while a command runs can be read through ' +
-            'it, and a command can read the settings programs keep for you in the registry.' ) );
-    }
-
-    function sendSearchKey()
-    {
-        const field = body.querySelector( '.search-key-input' );
-        const key = field.value.trim();
-        field.value = '';
-
-        if ( key.length === 0 )
-            return;
-
-        const change = { search_key: key };
-        sendSetting( change );
-    }
-
-    function build( session, installed )
+    function build( state, groups )
     {
         clear( body );
-        buildModels( session, installed );
+        title.textContent = searching() ? 'Search' : areaOf( area ).label;
 
-        if ( session !== null )
+        if ( groups.length === 0 )
         {
-            buildWebSearch( session );
-            buildCommands( session );
-        }
-
-        if ( session === null || session.model === null )
-        {
-            const empty = element( 'p', 'setting-note', 'Settings apply to a loaded model. Load one to change them.' );
+            const empty = element( 'p', 'setting-note settings-empty', 'No setting matches "' + local.query.trim() + '".' );
             body.append( empty );
 
             return;
         }
 
-        if ( session.thinking_capable )
-            buildThinking( session );
+        for ( const group of groups )
+            buildGroup( group, state );
+    }
 
-        if ( session.effort_levels )
-            buildEffort( session );
+    function markArea()
+    {
+        for ( const choice of areaList.children )
+        {
+            const current = !searching() && choice.dataset.area === area;
 
-        buildContext( session );
-        buildSampling( session );
-        buildDetail( session );
-        buildSeed();
+            choice.classList.toggle( 'selected', current );
+
+            if ( current )
+                choice.setAttribute( 'aria-current', 'page' );
+            else
+                choice.removeAttribute( 'aria-current' );
+        }
+    }
+
+    function update( state )
+    {
+        const groups = shownGroups( state );
+        const inputs = inputsOf( state, groups );
+
+        markArea();
+
+        if ( sameInputs( inputs ) )
+            return;
+
+        lastInputs = inputs;
+        build( state, groups );
+    }
+
+    function opened()
+    {
+        const reset = { query: '', confirmingRemove: null };
+
+        Object.assign( local, reset );
+        search.value = '';
+        lastInputs = null;
+        open = true;
+        root.showModal();
+        search.focus();
     }
 
     function render( state, surface )
     {
-        root.hidden = !surface.settingsOpen;
-
         if ( !surface.settingsOpen )
         {
-            lastOpen = false;
+            if ( open )
+                root.close();
+
+            open = false;
 
             return;
         }
 
-        if ( state.session === lastSession && state.installedModels === lastInstalled && lastOpen )
-            return;
+        area = surface.settingsArea;
 
-        lastSession = state.session;
-        lastInstalled = state.installedModels;
-        lastOpen = true;
-        build( state.session, state.installedModels );
+        if ( !open )
+            opened();
+
+        update( state );
     }
 
     return { render };

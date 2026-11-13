@@ -9,7 +9,6 @@ export function createSidebarView( root, actions )
 {
     const list = root.querySelector( '.conversation-list' );
     const local = { menuFor: null, renaming: null, confirming: null };
-    const settingsPanel = { settingsOpen: true };
     const noConfirmation = { confirming: null };
     const noRename = { renaming: null };
     const noMenu = { menuFor: null };
@@ -43,7 +42,7 @@ export function createSidebarView( root, actions )
             actions.toggleSidebar();
 
         if ( action === 'open-settings' )
-            openPanel( settingsPanel );
+            actions.openSettings( null );
 
         if ( action === 'open-conversation' )
             openConversation( identifier );
@@ -64,17 +63,10 @@ export function createSidebarView( root, actions )
             changeLocal( noConfirmation );
     }
 
-    function openPanel( change )
-    {
-        const closed = { ...change, sidebarOverlay: false };
-
-        actions.changeSurface( closed );
-    }
-
     function openConversation( identifier )
     {
         const message = { type: 'conversation.open', id: identifier };
-        const closed = { sidebarOverlay: false, modelsOpen: false };
+        const closed = { sidebarOverlay: false };
 
         actions.send( message );
         actions.changeSurface( closed );

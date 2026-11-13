@@ -34,7 +34,7 @@ export function reduce( state, message )
             return { ...state, installedModels: message.installed, publishedModels: message.published };
 
         case 'progress':
-            // The model's memory coming back is the transcript's to show, not the models view's.
+            // The model's memory coming back is the transcript's to show, not Settings'.
             if ( message.task === 'restore' )
                 return { ...state, restore: message.done < message.total ? message : null };
 
@@ -549,6 +549,25 @@ export function appStatus( state )
 
     // The model a load opens is already the picker's name.
     return progress.task === 'load' || progress.task === 'rebuild' ? 'Loading' : progress.label;
+}
+
+/**
+ * What an empty conversation shows: nothing before the session's first state, the no-model words only when no
+ * model is loaded or loading, else the conversation's activity or the home screen. A model being loaded is
+ * shown as the screen it is about to have, since the header already says it is loading.
+ */
+export function emptyScreen( session )
+{
+    if ( session === null )
+        return null;
+
+    if ( session.model === null && !session.loading )
+        return 'no-model';
+
+    if ( session.activity !== undefined && session.activity !== 'ask' )
+        return 'activity';
+
+    return 'home';
 }
 
 export function isBusy( state )

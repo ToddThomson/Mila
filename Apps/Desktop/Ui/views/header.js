@@ -49,13 +49,6 @@ export function createHeaderView( root, actions )
         actions.send( message );
     }
 
-    function openModels()
-    {
-        const change = { modelsOpen: true, settingsOpen: false };
-
-        actions.changeSurface( change );
-    }
-
     function onClick( event )
     {
         const target = event.target.closest( '[data-action]' );
@@ -80,7 +73,7 @@ export function createHeaderView( root, actions )
         if ( action === 'manage-models' )
         {
             setOpen( false );
-            openModels();
+            actions.openSettings( 'models' );
         }
     }
 

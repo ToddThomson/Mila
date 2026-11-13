@@ -9,13 +9,17 @@ import { createHeaderView } from './views/header.js';
 import { createTranscriptView } from './views/transcript.js';
 import { createComposerView } from './views/composer.js';
 import { createSettingsView } from './views/settings.js';
-import { createModelsView } from './views/models.js';
 import { createDevelopmentView } from './views/development.js';
 import { createLogView } from './views/log.js';
 import { createPlanView } from './views/plan.js';
 import { createRailView } from './views/rail.js';
 
 const narrowQuery = window.matchMedia( '(max-width: 899.98px)' );
+
+// A Mac's shortcuts are on Command; everywhere else they are on Ctrl.
+const onMac = /Mac/.test( navigator.platform );
+const commandKey = onMac ? 'metaKey' : 'ctrlKey';
+const otherKey = onMac ? 'ctrlKey' : 'metaKey';
 
 const transport = await createTransport( window.location );
 
@@ -28,7 +32,7 @@ const surface = {
     sidebarCollapsed: false,
     sidebarOverlay: false,
     settingsOpen: false,
-    modelsOpen: false,
+    settingsArea: 'models',
     logOpen: false,
     expanded: new Set()
 };
@@ -95,11 +99,27 @@ function newConversation()
 {
     const message = { type: 'conversation.new', activity: 'ask' };
 
-    const closed = { sidebarOverlay: false, modelsOpen: false };
+    const closed = { sidebarOverlay: false, settingsOpen: false };
 
     send( message );
     changeSurface( closed );
     composer.focus();
+}
+
+/** Opens Settings at an area, or with none named at the one last shown. */
+function openSettings( area )
+{
+    const settingsArea = area === undefined || area === null ? surface.settingsArea : area;
+    const opened = { settingsOpen: true, settingsArea, sidebarOverlay: false };
+
+    changeSurface( opened );
+}
+
+function closeSettings()
+{
+    const closed = { settingsOpen: false };
+
+    changeSurface( closed );
 }
 
 /**
@@ -178,6 +198,8 @@ const actions = {
     toggleExpanded,
     closeOverlay,
     newConversation,
+    openSettings,
+    closeSettings,
     startActivity,
     decideTool,
     openLink,
@@ -194,7 +216,6 @@ const transcriptElement = document.getElementById( 'transcript' );
 const composerElement = document.getElementById( 'composer-area' );
 const mainElement = document.getElementById( 'main' );
 const settingsElement = document.getElementById( 'settings' );
-const modelsElement = document.getElementById( 'models' );
 const developmentElement = document.getElementById( 'development' );
 const logElement = document.getElementById( 'log-drawer' );
 const planElement = document.getElementById( 'plan' );
@@ -205,7 +226,6 @@ const header = createHeaderView( headerElement, actions );
 const transcript = createTranscriptView( transcriptScroller, transcriptElement, actions );
 const composer = createComposerView( composerElement, mainElement, actions );
 const settings = createSettingsView( settingsElement, actions );
-const models = createModelsView( modelsElement, actions );
 const development = createDevelopmentView( developmentElement, transport.development, composer );
 const log = createLogView( logElement, actions );
 const plan = createPlanView( planElement );
@@ -226,7 +246,6 @@ function render()
     transcript.render( state, surface );
     composer.render( state, surface );
     settings.render( state, surface );
-    models.render( state, surface );
     log.render( state, surface );
     plan.render( state );
 }
@@ -238,9 +257,14 @@ function onNarrowChange( event )
     changeSurface( change );
 }
 
+function isShortcut( event, key )
+{
+    return event[ commandKey ] && !event[ otherKey ] && !event.shiftKey && !event.altKey && event.key.toLowerCase() === key;
+}
+
 function onKeyDown( event )
 {
-    if ( event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'n' )
+    if ( isShortcut( event, 'n' ) )
     {
         event.preventDefault();
         newConversation();
@@ -248,8 +272,25 @@ function onKeyDown( event )
         return;
     }
 
+    if ( isShortcut( event, ',' ) )
+    {
+        event.preventDefault();
+        openSettings( null );
+
+        return;
+    }
+
     if ( event.key !== 'Escape' )
         return;
+
+    // Settings is over everything, so Esc closes it before it stops a reply.
+    if ( surface.settingsOpen )
+    {
+        event.preventDefault();
+        closeSettings();
+
+        return;
+    }
 
     if ( isBusy( state ) )
     {
@@ -259,8 +300,23 @@ function onKeyDown( event )
         return;
     }
 
-    const closed = { sidebarOverlay: false, settingsOpen: false, modelsOpen: false };
+    const closed = { sidebarOverlay: false };
     changeSurface( closed );
+}
+
+/** The shortcuts' names, in the keys of the computer the window runs on. */
+function fillShortcuts()
+{
+    const prefix = onMac ? '⌘ ' : 'Ctrl ';
+
+    for ( const holder of document.querySelectorAll( '[data-shortcut]' ) )
+        holder.textContent = prefix + holder.dataset.shortcut;
+
+    for ( const holder of document.querySelectorAll( '[data-shortcut-title]' ) )
+    {
+        const [ label, key ] = holder.dataset.shortcutTitle.split( '|' );
+        holder.title = label + ' (' + prefix + key + ')';
+    }
 }
 
 /**
@@ -289,6 +345,7 @@ function fillIcons()
 const scrim = document.querySelector( '.scrim' );
 
 fillIcons();
+fillShortcuts();
 scrim.addEventListener( 'click', closeOverlay );
 narrowQuery.addEventListener( 'change', onNarrowChange );
 document.addEventListener( 'keydown', onKeyDown );

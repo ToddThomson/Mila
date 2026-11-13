@@ -33,6 +33,7 @@ export function createMockSession( options )
     const session = {
         model: startModel,
         noModelReason: null,
+        loading: null,
         contextLength: startModel === null ? 0 : startModel.context_length,
         contextAutomatic: true,
         thinking: true,
@@ -105,6 +106,7 @@ export function createMockSession( options )
         const state = {
             type: 'session.state',
             model: model === null ? null : model.name,
+            loading: session.loading,
             no_model_reason: session.noModelReason,
             context_length: session.contextLength,
             context_automatic: session.contextAutomatic,
@@ -761,6 +763,7 @@ export function createMockSession( options )
         }
 
         session.busy = true;
+        session.loading = model.name;
         emitState();
         scheduleLoadStep( model, 0 );
     }
@@ -788,6 +791,7 @@ export function createMockSession( options )
         }
 
         session.model = model;
+        session.loading = null;
         session.contextLength = model.context_length;
         session.contextAutomatic = true;
         session.sampling = {};

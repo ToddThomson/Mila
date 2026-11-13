@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createInitialState, reduce, summarizeTurn, groupConversations, appStatus } from '../state.js';
+import { createInitialState, reduce, summarizeTurn, groupConversations, appStatus, emptyScreen } from '../state.js';
 import { statsLine, thoughtLabel, contextFact, thinkingFact, finishNotice, activityCard, folderName, planProgress, composerPrompt } from '../format.js';
 
 function apply( messages )
@@ -341,3 +341,17 @@ function theHeaderSaysWhatTheAppIsDoingAndNothingWhenItIsDone()
 }
 
 test( 'the header says what the app is doing, and nothing when it is done', theHeaderSaysWhatTheAppIsDoingAndNothingWhenItIsDone );
+
+function aModelBeingLoadedIsNotSaidToBeMissing()
+{
+    const missing = { model: null, loading: null };
+    const loading = { model: null, loading: 'gemma-4-12b-it-q4_0' };
+    const building = { model: 'gemma-4-12b-it-q4_0', loading: null, activity: 'build' };
+
+    assert.equal( emptyScreen( null ), null );
+    assert.equal( emptyScreen( missing ), 'no-model' );
+    assert.equal( emptyScreen( loading ), 'home' );
+    assert.equal( emptyScreen( building ), 'activity' );
+}
+
+test( 'a model being loaded is not said to be missing', aModelBeingLoadedIsNotSaidToBeMissing );

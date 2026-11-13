@@ -142,12 +142,12 @@ its progress, not a catalogue.
 
 ### 3.3 Sidebar
 
-- *New* at the top (Ctrl+N): the home screen.
+- *New* at the top (Ctrl+N, Command+N on a Mac): the home screen.
 - Conversations, newest first, grouped *Today*, *Yesterday*, *Previous 7 days*, *Older*. Each row shows
   its title and its activity; hover shows the model it was held with. Rename and delete from a row's menu;
   delete asks first.
-- At the foot: *Settings*. The models view is reached from Settings, off the main path: its first section names
-  the model in use and how many are installed, with one *Manage models* (Todd, 2026-11-13).
+- At the foot: *Settings* (Ctrl+, or Command+,), the window of 3.7, where models are managed too, off the main
+  path (Todd, 2026-11-13).
 - Collapsible; collapsed below 900 px of window width. Collapsed in a wide window it is a rail of three: show the
   sidebar, *New*, and *Settings* at the foot; a narrow window's opens over the conversation from the header instead
   (Todd, 2026-11-13).
@@ -158,13 +158,15 @@ its progress, not a catalogue.
 - The cards of 3.1 that can be shown, each its name and one line of what it is for.
 - Nothing else: no model, no settings. With no model installed, the first-run recommendation of 3.2 takes the
   cards' place until a model is installed.
+- While a model loads, the start's included, the home screen is already shown and the header says it is loading;
+  "No model is loaded" is only for when none is loaded or loading (Todd, 2026-11-13).
 
 ### 3.5 Main pane
 
 - *Header:* the conversation's activity, and as quiet text what Mila chose for it -- the model, the context window
   -- which opens on request to the detail: the model and its package, context (with "auto" when it was
   measured, not chosen), thinking, the tools the activity gives the agent and their rules. Read-only there; a
-  change is made under the limits (below) or, for the model, in the models view. With no model loaded, the
+  change is made under the limits (below) or, for the model, in Settings' *Models*. With no model loaded, the
   header says so and the way out. Between the model and those facts: the app's status while it has one (4.1
   `progress`), and the conversation's title, shown whether or not the sidebar is (Todd, 2026-11-13).
 - *Transcript:*
@@ -197,9 +199,20 @@ cap is a hard bound, not a preference: a reply that meets one stops and says so,
 
 There is no cap on agents in parallel: `Mila::Agents` runs one.
 
-### 3.7 Settings and the models view
+### 3.7 Settings
 
-Off the main path, for the person who wants them.
+Off the main path, for the person who wants them: one window over the whole of Mila's, models included (Todd,
+2026-11-13, `+140`).
+
+**The window:** opened from the sidebar's foot or the rail, by Ctrl+, (Command+, on a Mac) at the area last shown,
+and by the header's *Manage models…* at *Models*; Esc or its close button closes it, and Esc in a search with words
+in it clears them first. On the left a search and the areas -- *Models*, *Responses* (thinking, effort, context),
+*Sampling* (temperature, top_k, top_p, presence_penalty, seed), *Web search*, *Build & Code* (run commands),
+*Display* (detail) -- and on the right one area's settings, or every setting the search names, grouped by area. A
+window under 700 px wide gives Settings all of it, the areas in a row above. Every setting is declared once, in
+`Ui/views/settings-table.js`: its area, label, note, the words a search finds it by, what it needs (the session, or
+a loaded model) and its control. A setting the loaded model does not have (thinking, effort) is left out; with no
+model, the model's settings are listed without controls, with the way to *Models*.
 
 **Web search** (in Settings, 2026-10-26): the person's own Tavily key, pasted once and shown only as set, with
 *Remove key*. The session keeps it in `search.json` beside the conversations folder (`%LOCALAPPDATA%\Mila` on Windows), in plain text until the
@@ -209,22 +222,21 @@ and every search is asked about with its words shown, since they leave the machi
 offered. Tavily's search is a POST, which Mila's HTTP transport sends since that day (`HttpClient.md` 4.1). Not yet
 read: Tavily's terms on keeping results, which a saved conversation does.
 
-**Settings** (a side panel): the limits' defaults for new conversations, and under *Advanced* the session's
-knobs -- sampling (temperature, top_k, top_p, presence_penalty, each with *model default*), thinking on/off,
-context (a number or *auto*), detail (off, thoughts, all), seed. Each reflects `session.state`; changing one
-sends `settings.set`. The defaults are the publisher's (CLAUDE.md, *Measurement*), so a person who never opens
-*Advanced* runs the model as it was measured. Effort is offered in the model's own levels, as its template names
+**The session's settings:** sampling (temperature, top_k, top_p, presence_penalty, each with *model default*),
+thinking on/off, context (a number or *auto*), detail (off, thoughts, all), seed. Each reflects `session.state`;
+changing one sends `settings.set`. The defaults are the publisher's (CLAUDE.md, *Measurement*), so a person who
+never opens Settings runs the model as it was measured. The limits' defaults for new conversations (3.6) become an
+area of their own when the limits exist. Effort is offered in the model's own levels, as its template names
 them (Qwen 3.8: xhigh, medium, low), and starts at the template's default. The session keeps each change, and the
 model last loaded, in `settings.json` beside the conversations folder, in `%LOCALAPPDATA%\Mila` on Windows
 (`Desktop.SettingsFile.ixx`, since `+105`);
 Chat's configuration files are Chat's alone. A setting the file holds that cannot be read is said once and left at
 its default; the rest still apply.
 
-**Models view** (a pane over the main pane, from Settings): installed models with size and quantization, *Load*
-(with the quantization choice for unquantized weights: none, fp8, fp4, q4_0), *Remove* (asks first);
-*Available to install* from the published list, *Install* with progress. A load or install that is refused
-shows the refusal's own text at the top of the view, which covers the transcript, until the next load,
-install or remove. Once the selection of 3.2 exists, *Load* here is an override of Mila's choice, and says so.
+**Models** (Settings' first area, which absorbed the models view at `+140`): installed models with size and
+quantization, *Load* (with the quantization choice for unquantized weights: none, fp8, fp4, q4_0), *Remove* (asks
+first); *Available to install* from the published list, *Install* with progress. A load or install that is refused
+shows the refusal's own text at the top of the area until the next load, install or remove. Once the selection of 3.2 exists, *Load* here is an override of Mila's choice, and says so.
 
 **The schema** (section 4) carries the activity and its folder: `session.state` lists the activities the session
 can start, `conversation.new` names one, and `conversations.list`, `conversation.loaded` and the stored conversation
@@ -233,7 +245,7 @@ keep it. The folder is chosen in the window's own picker (`folder.choose`), neve
 **Look:** light and dark follow the system. The palette and type follow the website
 (`Web/layouts/_default/baseof.html`), quieter. No animation beyond one turning ring wherever Mila is at work,
 always leading its words -- "Reading" before a reply's first token and after a call's result, "Thinking" and its
-count, the header's status -- and the models view's progress bar. Streaming text carries no ring (Todd, 2026-11-13).
+count, the header's status -- and an install's progress bar in Settings. Streaming text carries no ring (Todd, 2026-11-13).
 
 ## 4. Message schema
 

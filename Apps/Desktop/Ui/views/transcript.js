@@ -4,7 +4,7 @@
 
 import { element, button, iconButton, setIcon, clear, previewOrIcon } from '../dom.js';
 import { renderMarkdown } from '../markdown.js';
-import { summarizeTurn, isBusy } from '../state.js';
+import { summarizeTurn, isBusy, emptyScreen } from '../state.js';
 import { thoughtLabel, statsLine, finishNotice, readableJson, activityCard } from '../format.js';
 
 const stickDistance = 80;
@@ -109,10 +109,12 @@ export function createTranscriptView( scroller, container, actions )
     {
         clear( emptyState );
 
-        if ( state.session === null )
+        const screen = emptyScreen( state.session );
+
+        if ( screen === null )
             return;
 
-        if ( state.session.model === null )
+        if ( screen === 'no-model' )
         {
             const heading = element( 'p', 'empty-heading', 'No model is loaded' );
             const reason = state.session.no_model_reason === null ? 'Choose one from the model menu above to start.' : state.session.no_model_reason;
@@ -124,7 +126,7 @@ export function createTranscriptView( scroller, container, actions )
 
         const activity = state.session.activity;
 
-        if ( activity !== undefined && activity !== 'ask' )
+        if ( screen === 'activity' )
         {
             const card = activityCard( activity );
             const detailText = state.session.folder ? 'Working in ' + state.session.folder : card.line;

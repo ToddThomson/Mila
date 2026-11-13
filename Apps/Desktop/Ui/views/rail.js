@@ -19,10 +19,7 @@ export function createRailView( root, actions )
             actions.newConversation();
 
         if ( action === 'open-settings' )
-        {
-            const opened = { settingsOpen: true };
-            actions.changeSurface( opened );
-        }
+            actions.openSettings( null );
     }
 
     root.addEventListener( 'click', onClick );
