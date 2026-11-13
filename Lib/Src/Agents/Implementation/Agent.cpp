@@ -243,6 +243,24 @@ namespace Mila::Agents
 
     Response Agent::respond( std::string_view message, const EventSink& on_event, std::stop_token stop )
     {
+        const auto conversation = session_.conversation();
+        std::vector<Conversation::Turn> before( conversation.begin(), conversation.end() );
+
+        try
+        {
+            return respondToMessage( message, on_event, stop );
+        }
+        catch ( ... )
+        {
+            session_.turns() = std::move( before );
+            continued_.reset();
+
+            throw;
+        }
+    }
+
+    Response Agent::respondToMessage( std::string_view message, const EventSink& on_event, std::stop_token stop )
+    {
         const auto emit = [&]( const AgentEvent& event )
             {
                 if ( on_event )

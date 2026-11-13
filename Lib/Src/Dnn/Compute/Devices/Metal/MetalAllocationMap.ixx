@@ -88,6 +88,18 @@ namespace Mila::Dnn::Compute
             return ranges_.size();
         }
 
+        /// Call `visit( base, bytes, buffer )` for each live allocation. No allocation is added or removed meanwhile.
+        template<typename TVisit>
+        void forEach( TVisit&& visit ) const
+        {
+            std::shared_lock lock( mutex_ );
+
+            for ( const auto& [base, range] : ranges_ )
+            {
+                visit( reinterpret_cast<void*>( base ), range.bytes, range.buffer );
+            }
+        }
+
     private:
 
         struct Range

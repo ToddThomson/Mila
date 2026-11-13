@@ -669,13 +669,51 @@ new dimension of the planner, not beside it. *The allowed devices are built (12.
       Chat's floor open. Without a cache that grows, every position planned is wired for as long as the model is used.
       When the floor does not fit, trades in an order still to be set (proposed: the drafter off, then a smaller chunk,
       then a refusal that names the memory); the weight format stays the caller's (decision 1). Between turns the
-      memory is kept wired by a residency set whose request is renewed while a session is active and stops after a
-      quiet spell, MLX's interim fix (ml-explore/mlx#4633), only once the budget is one the machine can give.
+      memory is held as *Holding memory* below decides, only once the budget is one the machine can give.
     - **The headroom is a policy**, a default chosen by Todd that measurement informs and cannot settle. A
       desktop budget in the library reopens decision 3 (headroom zero in the library, the adaptors choose).
-    - **Dedicated, proposed.** The recommended working set less what Mila holds, section 5's objective unchanged, the
-      request renewed while the model is loaded. Mila changes no system setting; the collector's switch and the wired
-      limit are the owner's.
+    - **Dedicated, proposed.** The recommended working set less what Mila holds, section 5's objective unchanged, its
+      memory locked and requested while the model is loaded (*Holding memory* below). Mila changes no system setting;
+      the collector's switch and the wired limit are the owner's.
+    - **Probe B answered (2026-11-12):** on the M1 Pro with macOS 27.2.1, renewing every 1000 ms keeps 8.7 GB wired
+      through 120 s of idle and through another process filling 5 GiB, at 0.02 to 0.04 ms a renewal; unrenewed, the same
+      pressure cost the next use 2.2 to 3.0 s (`Metal/MetalBackend.md` 5, W3a). It also answers probe C for this size:
+      the collector does not unwire a renewed set under pressure.
+    - **Holding memory, decided (Todd, 2026-11-12 and 2026-11-13).** Desktop cooperates, dedicated is greedy, and the
+      evidence is `Metal/MetalBackend.md` 5, W3a to W3d.
+      - **Desktop, active:** Mila locks its memory (`mlock`) and makes no residency request. Another application's GPU
+        work still runs beside it, Mila's pages cannot be compressed or paged out, and a prompt after idle pays about
+        0.1 s for the GPU's own setup (W3d). A prompt under way when the user switches away completes.
+      - **Desktop, background:** Mila holds nothing; the lock is released. Coming back, Mila restores its memory by
+        the fastest path measured (W3b: eight threads read every page, about 1 s for 7.5 GiB when compressed), within
+        the second or few Todd allows.
+      - **What releases the lock:** the application leaving the foreground, the screens sleeping, the user's session
+        going inactive, the Mac going to sleep, and a backstop after the last use: **30 minutes in Mila Desktop, 5
+        minutes in Chat.** macOS tells the application (AppKit `NSApplicationDidBecomeActiveNotification`,
+        `...DidResignActiveNotification`, `NSWorkspaceScreensDidSleepNotification`,
+        `NSWorkspaceSessionDidResignActiveNotification`, `NSWorkspaceWillSleepNotification`; Electron's
+        `did-become-active` and `did-resign-active`), and the library takes active or background as an input,
+        watching nothing itself. A program in a terminal is not the active application, its terminal is, so Chat has
+        the backstop alone. The backstop guards the user's other work, not the GPU: releasing costs Mila 0.1 s, or 2
+        to 6 s if macOS compressed its memory meanwhile (W3c).
+      - **Dedicated:** the lock with the request renewed every second, for as long as the model is loaded. Every
+        prompt starts in about 5 ms, and another application's GPU work beside it fails (W3d): the machine is the
+        model's.
+      - **Built at `0.21.0-dev+138`.** The hold is a state over the memory Mila already has, `MemoryHold` (`None`,
+        `Locked`, `LockedAndRequested`), set through `Device::setMemoryHold` or `ModelHandle::setMemoryHold` and
+        changed while running, not a memory resource of its own: the device's allocation map holds every buffer Mila
+        has, so the hold is an operation over it (`Metal/MetalBackend.md` 5, *Binding by pointer*, W2). Locking
+        7.47 GiB takes 0.25 s and releasing it 0.12 s (W3d). The applications own the timers: Chat locks for a turn
+        and after a load, and lets go five minutes after; Mila Desktop's window sends `app.active` and
+        `app.background` (`MilaDesktop.md` 4.2.1), and the session locks while active and lets go in the background
+        or thirty minutes after the last turn. MIS sets nothing yet: the Python binding has no Metal path, and on CUDA
+        every hold is the same. It takes `LockedAndRequested` from its load once it runs on a Mac.
+      - **In both modes** Mila does not stop on the GPU's out-of-memory error (`DeviceOutOfMemoryError`): the turn
+        ends, the conversation is as it was before it, the model forgets its cached prompt and stays loaded, and the
+        person can send the message again. The planner subtracts what the GPU driver holds for other applications
+        (`MetalDevice::getMemoryInfo`, W3d). What a desktop budget reads of free memory is still probe A's.
+      - LM Studio's window, at its defaults, locks its weights for as long as the model is loaded and lets the rest go
+        about four minutes after use (W3c); the decision does not follow it.
     - **The consequence to face first** (*arithmetic*): Gemma 4 12B held 8.8 GB wired at 8192 (`KvCache/KvCacheGrowth.md`
       M1), 64K adds about 0.9 GiB of global cache, about 9.7 GB in all, and the development Mac idles with about 8 GB
       free and speculative (W5). Desktop may not reach the agentic floor there. Whether the planner then refuses,

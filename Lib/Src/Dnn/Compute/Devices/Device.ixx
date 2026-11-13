@@ -10,6 +10,7 @@ import Compute.DeviceType;
 import Compute.DeviceId;
 export import Compute.DeviceMemoryInfo;
 export import Compute.DevicePerformance;
+export import Compute.MemoryHold;
 
 namespace Mila::Dnn::Compute
 {
@@ -102,6 +103,23 @@ namespace Mila::Dnn::Compute
         virtual std::size_t getAllocationGranularity() const
         {
             return 0;
+        }
+
+        /**
+         * @brief Keep Mila's memory on this device as firmly as `hold` says, now and for what it allocates later.
+         *
+         * Changed while running: an application holds firmly while it is in use and lets go when it is not
+         * (Specifications/Deployment.md 12.10). Nothing to do for a device whose memory is never paged, which is the
+         * default.
+         */
+        virtual void setMemoryHold( [[maybe_unused]] MemoryHold hold )
+        {
+        }
+
+        /// The hold last set, `MemoryHold::None` until one is.
+        virtual MemoryHold getMemoryHold() const
+        {
+            return MemoryHold::None;
         }
 
         // ====================================================================

@@ -14,7 +14,11 @@ import Compute.MetalDevice;
 namespace Mila::Dnn::Compute
 {
     /**
-     * @brief Shared Metal buffers, one per allocation.
+     * @brief Shared Metal buffers, one per allocation, made by the device.
+     *
+     * Unlike CUDA's resources, this one does not allocate itself. A Metal kernel binds a buffer and an offset, not a
+     * pointer, so every allocation has to be in the device's map (`MetalDevice::locate`); making a buffer and recording it
+     * are one call on the device, so that no allocation can be missing from it (MetalBackend.md section 5).
      *
      * The host can reach this memory, and `is_host_accessible` is still false (MetalBackend.md section 5). A host read
      * has to wait for the GPU first, and `Tensor`'s host accessors neither wait nor know FP16 and BF16 elements, so they

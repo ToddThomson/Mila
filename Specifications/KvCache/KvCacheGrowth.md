@@ -149,8 +149,8 @@ M3. **An untouched buffer costs nothing until the GPU first uses it, then all of
     So a cache that is to grow cannot be one ordinary buffer.
 M4. **A residency set pins at load and does not keep it** (same probe): every buffer and a 5 GB cache in one set with a
     standing request pinned 12.8 GB at once, 4.46 s with the memory full; 2 s idle later they were unpinned anyway (M2).
-    *Corrected 2026-11-12:* the probe made one request and never renewed it. Renewing it on an interval is MLX's interim
-    fix and has not been tried here (W3).
+    *Corrected 2026-11-12:* the probe made one request and never renewed it. Renewing it on an interval, MLX's interim
+    fix, keeps it wired through idle and pressure (W3a).
 M5. **Metal's fused prefill reads unwritten rows in one case, and the cache is cleared for it.** The kernel
     (`GroupedQueryAttention.Flash.metal`) reads whole tiles of `TKeys` rows. When the last tile of a range would pass the
     rows held, it starts earlier so that it ends on the last held row and masks the overlap (line 196). Only when fewer

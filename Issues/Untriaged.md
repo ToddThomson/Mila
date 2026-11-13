@@ -10,11 +10,23 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Three Gemma 4 26B tests fail on the PC because their BF16 weights file is 32 KB
+
+`Data/models/gemma/gemma4_26b_a4b_it_qat_bf16.bin` (test data, gitignored) @ 0.21.0-dev+138
+
+Found 2026-11-13 running the full suite in `x64-claude-verify`: `GemmaMixtureOfExpertsLoadCudaTests` (both loads) and `GemmaMixtureOfExpertsParityCudaTests.LayerStream_MatchesHuggingFaceReference` throw "Failed to read rank of 'tf_layer_24.ffn.mlp.fc_down.weight'". The file is 32,734 bytes, dated 2026-10-19; the worklog noted it absent at +76. Who wrote the stub is not known.
+
+## Mila's prompt on a Mac is about 250 ms slower after 30 s of idle, its memory wired or not
+
+`Lib/Src/Dnn/Compute/Devices/Metal/MetalExecutionContext.ixx` @ 0.21.0-dev+137
+
+Found 2026-11-12 measuring residency (`Metal/MetalBackend.md` 5, W3a). Gemma 4 12B Q4_0 at 32K, Safari and Xcode open: a prompt at once after the first took 637 to 669 ms, and after 30 s of idle 885 to 1012 ms, with the weights and cache held wired by a renewed residency set or not. Not known: where the time goes (host encoding, GPU clocks, a lazily rebuilt object, the console path). LM Studio's time to first token stayed at 261 to 284 ms on the same schedule, but through its server with a different request, template and reply cap, against mila-chat driven through pipes: not a comparison. Like for like is MIS against LM Studio's server, the same request, one streaming client. Logs `D:\Claude\metal\sweep\switch` and `lmstudio`.
+
 ## On a 16 GB Mac, Gemma 4 12B's first prompt at automatic context waits 1 to 8 seconds for macOS to free memory
 
 `Lib/Src/Dnn/Compute/Devices/Metal/MetalDevice.ixx` (`getMemoryInfo`) @ 0.21.0-dev+135
 
-Found 2026-11-11 timing mila-chat's first reply. Automatic context takes 262,144, the model then holds 12.8 GB, and `getMemoryInfo` offers the planner the whole of `recommendedMaxWorkingSetSize` (12.71 GB) as though nothing else on the Mac needed memory. Metal stops holding idle buffers in place about 2 s after their last use, so between the load and the first prompt the weights become ordinary memory; the first prompt then pins 12.8 GB with almost nothing free, and macOS compresses 2 to 9 GB (part of it the weights) and swaps up to 0.9 GB before it can. First prefill of "Hello": 948 to 8423 ms at 262,144, 652 to 1154 ms at 8192. Since `0.21.0-dev+137` the load leaves no copy of the weights in the file cache (11 s to 1.7 s), and a trial of that read at +135 left this unchanged. Not measured: a prompt after the model has sat idle, and what context the Mac's real free memory would allow. Scripts and logs `D:\Claude\metal\first-prompt`.
+Found 2026-11-11 timing mila-chat's first reply. Automatic context takes 262,144, the model then holds 12.8 GB, and `getMemoryInfo` offers the planner the whole of `recommendedMaxWorkingSetSize` (12.71 GB) as though nothing else on the Mac needed memory. Metal stops holding idle buffers in place about 2 s after their last use, so between the load and the first prompt the weights become ordinary memory; the first prompt then pins 12.8 GB with almost nothing free, and macOS compresses 2 to 9 GB (part of it the weights) and swaps up to 0.9 GB before it can. First prefill of "Hello": 948 to 8423 ms at 262,144, 652 to 1154 ms at 8192. Since `0.21.0-dev+137` the load leaves no copy of the weights in the file cache (11 s to 1.7 s), and a trial of that read at +135 left this unchanged. Not measured: a prompt after the model has sat idle, and what context the Mac's real free memory would allow. Scripts and logs `D:\Claude\metal\first-prompt`. Measured since, 2026-11-12: idle, other applications, a renewed residency set and coming back after another app (`Metal/MetalBackend.md` 5, W3a and W3b; `D:\Claude\metal\sweep`).
 
 ## Nobody has measured what the first load of a model on a Mac pays to prepare its kernels
 

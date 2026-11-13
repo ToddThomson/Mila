@@ -167,6 +167,9 @@ namespace Mila::Agents
          * rounds, and before a result would be cut, reported by events. A summary counts against the response's time
          * and not its reply tokens. After one fails, the response does not try again.
          *
+         * A response that throws -- the GPU's memory taken by another application, say -- leaves the conversation as it
+         * was before it, so the message can be sent again. Calls it already ran are not undone.
+         *
          * @param message  What the user says.
          * @param on_event Every event in order; may be empty.
          * @param stop     Stops the reply; a call waiting for the person's answer does not run, and a call running is
@@ -230,6 +233,9 @@ namespace Mila::Agents
         void setTemplateVariable( std::string name, std::string value );
 
         void setTemplateVariables( std::map<std::string, std::string> variables );
+
+        /// The response respond gives, without its guarantee for a response that throws.
+        Response respondToMessage( std::string_view message, const EventSink& on_event, std::stop_token stop );
 
         /// Each variable the session asks for is checked alone, so one the template refuses takes no other with it.
         void dropUnacceptedTemplateVariables();

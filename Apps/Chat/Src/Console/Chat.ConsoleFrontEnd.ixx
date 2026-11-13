@@ -468,6 +468,9 @@ namespace Mila::ChatApp
          */
         void turnEnded( const ParsedResponse& display, std::string_view raw ) override
         {
+            // A turn the GPU cut short ends inside its round, which never ended to stop the round's spinner.
+            renderer_.stopSpinner();
+
             if ( display_ )
             {
                 display_->finish();

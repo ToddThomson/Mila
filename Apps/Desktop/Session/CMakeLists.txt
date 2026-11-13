@@ -20,6 +20,7 @@ PUBLIC
         "Src/Tools/Desktop.PromptFile.ixx"
         "Src/Desktop.Models.ixx"
         "Src/Desktop.RoundTimer.ixx"
+        "Src/Desktop.MemoryHolder.ixx"
         "Src/Desktop.ConversationStore.ixx"
         "Src/Tools/Desktop.CommandTool.ixx"
         "Src/Tools/Desktop.TaskPlan.ixx"

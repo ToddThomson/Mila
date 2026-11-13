@@ -10,6 +10,7 @@ import std;
 import nlohmann.json;
 import Desktop.CommandTool;
 import Desktop.ConversationStore;
+import Desktop.MemoryHolder;
 import Desktop.Models;
 import Desktop.PromptFile;
 import Desktop.ProgramSetup;
@@ -29,6 +30,7 @@ namespace Mila::Desktop
     using Mila::Dnn::dim_t;
     using Mila::Dnn::GenerateStatus;
     using Mila::Dnn::WeightQuantization;
+    using Mila::Dnn::Compute::DeviceOutOfMemoryError;
     using Mila::Dnn::Conversation::Role;
     using Mila::Dnn::Conversation::ToolCall;
     using Mila::Dnn::Conversation::Turn;
@@ -288,6 +290,15 @@ namespace Mila::Desktop
                 {
                     stopReply();
                 }
+                else if ( type == "app.active" )
+                {
+                    // Here rather than in the queue, so that a reply being written does not delay it.
+                    memory_holder_.activate();
+                }
+                else if ( type == "app.background" )
+                {
+                    memory_holder_.deactivate();
+                }
                 else if ( type == "turn.tool_decision" )
                 {
                     decideToolCall( request );
@@ -498,8 +509,35 @@ namespace Mila::Desktop
             Mila::Agents::Agent& agent = model_.agent();
             RoundTimer timer;
 
-            const Mila::Agents::Response answered = agent.respond( text,
-                [&]( const AgentEvent& event ) { onAgentEvent( event, timer, stop ); }, stop );
+            memory_holder_.use( agent.model().model().getDeviceId() );
+
+            std::optional<Mila::Agents::Response> responded;
+
+            try
+            {
+                responded = agent.respond( text,
+                    [&]( const AgentEvent& event ) { onAgentEvent( event, timer, stop ); }, stop );
+            }
+            catch ( const DeviceOutOfMemoryError& )
+            {
+                // The agent left the conversation as it was and the model loaded, so the turn is not recorded and the
+                // person can send the message again.
+                memory_holder_.idle();
+                send( "turn.end", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "finish", "error" },
+                    { "answer", turn_.answer } } );
+                sendError( "Another application is using the GPU's memory, so Mila could not answer. Your message "
+                    "was not added to the conversation; send it again once that application is done.", "turn" );
+
+                work_ = Work::None;
+                busy_ = false;
+                sendState();
+
+                return;
+            }
+
+            memory_holder_.idle();
+
+            const Mila::Agents::Response& answered = *responded;
 
             if ( answered.rounds == 0 && answered.status == GenerateStatus::ContextOverflow )
             {
@@ -1341,6 +1379,10 @@ namespace Mila::Desktop
                 send( "log", { { "level", "info" }, { "text", model_.agent().model().model().toString() } } );
                 send( "log", { { "level", "info" }, { "text", model_.agent().model().model().getMemoryStats().toString() } } );
             }
+
+            // A model just loaded is about to be used: held from now, so the first prompt starts at once.
+            memory_holder_.use( model_.agent().model().model().getDeviceId() );
+            memory_holder_.idle();
 
             return true;
         }
@@ -2262,6 +2304,9 @@ namespace Mila::Desktop
         std::mutex output_mutex_;
 
         RequestQueue queue_;
+
+        // Locks the model's memory while Mila is in use and lets it go when it is not (Deployment.md 12.10).
+        MemoryHolder memory_holder_;
 
         // Set by the reading thread when it accepts a turn, cleared by this thread when the turn is done.
         std::atomic<bool> busy_{ false };

@@ -367,6 +367,11 @@ namespace Mila::Dnn
         // LanguageModel overrides
         // ====================================================================
 
+        void forgetCachedPrompt() noexcept override
+        {
+            kv_token_history_.clear();
+        }
+
         /**
          * @brief Prefill + KV-cache decode loop with per-token streaming.
          *

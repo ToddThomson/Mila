@@ -12,6 +12,7 @@ export module Compute.MetalExecutionContext;
 
 import std;
 import Compute.DeviceId;
+import Compute.DeviceOutOfMemoryError;
 import Compute.DeviceType;
 import Compute.DispatchTime;
 import Compute.IExecutionContext;
@@ -84,6 +85,9 @@ namespace Mila::Dnn::Compute
             {
                 throw std::runtime_error( "The GPU could not make a Metal command queue." );
             }
+
+            // Empty unless the device's hold requests residency; then it holds every allocation (MemoryHold).
+            queue_->addResidencySet( device_->residencySet() );
         }
 
         ~MetalExecutionContext() override
@@ -155,7 +159,11 @@ namespace Mila::Dnn::Compute
             return result;
         }
 
-        /// @throws std::runtime_error When the GPU reports that the work failed, saying why.
+        /**
+         * @throws DeviceOutOfMemoryError When the GPU could not hold the work's memory, which on a Mac is another
+         *         application holding the GPU's (MetalBackend.md section 5, W3c).
+         * @throws std::runtime_error When the GPU reports that the work failed for another reason, saying why.
+         */
         void synchronize() override
         {
             if ( !commands_ )
@@ -170,6 +178,8 @@ namespace Mila::Dnn::Compute
             commands_->waitUntilCompleted();
 
             const bool failed = commands_->status() == MTL::CommandBufferStatusError;
+            const bool out_of_memory = failed && commands_->error()
+                && static_cast<NS::UInteger>( commands_->error()->code() ) == MTL::CommandBufferErrorOutOfMemory;
             const std::string reason = failed && commands_->error()
                 ? commands_->error()->localizedDescription()->utf8String() : "no reason given";
 
@@ -183,6 +193,12 @@ namespace Mila::Dnn::Compute
             }
 
             tensors_in_flight_.clear();
+
+            if ( out_of_memory )
+            {
+                throw DeviceOutOfMemoryError( std::format(
+                    "The GPU had no memory free to run Mila's work, which happens when another application holds it: {}", reason ) );
+            }
 
             if ( failed )
             {

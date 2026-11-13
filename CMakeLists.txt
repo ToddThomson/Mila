@@ -141,8 +141,11 @@ if(MILA_ENABLE_METAL)
     else()
         find_library(METAL_FRAMEWORK Metal)
         find_library(FOUNDATION_FRAMEWORK Foundation)
+        # What the GPU driver holds for every process is read from IORegistry (MetalBackend.md section 5, W3d).
+        find_library(IOKIT_FRAMEWORK IOKit)
+        find_library(COREFOUNDATION_FRAMEWORK CoreFoundation)
 
-        if(METAL_FRAMEWORK AND FOUNDATION_FRAMEWORK)
+        if(METAL_FRAMEWORK AND FOUNDATION_FRAMEWORK AND IOKIT_FRAMEWORK AND COREFOUNDATION_FRAMEWORK)
             set(MILA_HAS_METAL TRUE)
             message(STATUS "Metal backend: enabled")
         else()

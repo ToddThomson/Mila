@@ -17,6 +17,7 @@ export import Chat.SessionEvents;
 export import Chat.SystemPrompt;
 import Chat.ConfigError;
 import Chat.Footprint;
+import Chat.MemoryHolder;
 import Chat.ModelCatalog;
 import Chat.ParsedResponse;
 import Chat.Settings;
@@ -170,14 +171,30 @@ namespace Mila::ChatApp
                 stop_src_ = std::stop_source{};
             }
 
+            memory_holder_.hold( agent_->model().model().getDeviceId() );
+
             // Every reply streams: the template's reader routes each piece to its channel as it arrives.
             events_.turnBegan( true );
 
             std::string response;
             response.reserve( 4096 );
 
-            generateResponse( text, response );
+            try
+            {
+                generateResponse( text, response );
+            }
+            catch ( const DeviceOutOfMemoryError& )
+            {
+                // The agent left the conversation as it was and the model loaded, so the person can simply send it again.
+                memory_holder_.releaseAfterBackstop();
+                events_.turnEnded( turn_display_.value_or( ParsedResponse{} ), response );
+                events_.error( "Another application is using the GPU's memory, so Mila could not answer. "
+                    "Your message was not added to the conversation; send it again once that application is done." );
 
+                return true;
+            }
+
+            memory_holder_.releaseAfterBackstop();
             events_.turnEnded( turn_display_.value_or( ParsedResponse{} ), response );
 
             return true;
@@ -1529,6 +1546,10 @@ namespace Mila::ChatApp
 
             events_.loadEnded();
             reportUnlistedEffort();
+
+            // A model just loaded is about to be used: held from now, so the first prompt starts at once.
+            memory_holder_.hold( agent_->model().model().getDeviceId() );
+            memory_holder_.releaseAfterBackstop();
         }
 
         /**
@@ -1732,5 +1753,8 @@ namespace Mila::ChatApp
         std::optional<ParsedResponse> turn_display_;
 
         std::vector<RoundStats> last_turn_rounds_;
+
+        // Locks the model's memory for a turn and lets it go five minutes after (Deployment.md 12.10).
+        MemoryHolder memory_holder_;
     };
 }

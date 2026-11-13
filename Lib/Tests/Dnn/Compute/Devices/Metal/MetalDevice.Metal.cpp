@@ -4,6 +4,8 @@
  */
 
 #include <gtest/gtest.h>
+#include <mach/mach.h>
+#include <mach/mach_vm.h>
 
 import Mila;
 import std;
@@ -17,6 +19,56 @@ namespace Mila::Tests::Dnn::Compute
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
+
+    namespace
+    {
+        // How many locks this process holds on the page at `address`, as macOS keeps the count.
+        unsigned userWiredCount( const void* address )
+        {
+            mach_vm_address_t region = reinterpret_cast<mach_vm_address_t>( address );
+            mach_vm_size_t size = 0;
+            natural_t depth = 0;
+
+            for ( ;; )
+            {
+                vm_region_submap_info_data_64_t info{};
+                mach_msg_type_number_t count = VM_REGION_SUBMAP_INFO_COUNT_64;
+
+                if ( mach_vm_region_recurse( mach_task_self(), &region, &size, &depth,
+                    reinterpret_cast<vm_region_recurse_info_t>( &info ), &count ) != KERN_SUCCESS )
+                {
+                    return 0;
+                }
+
+                if ( !info.is_submap )
+                {
+                    return info.user_wired_count;
+                }
+
+                ++depth;
+            }
+        }
+
+        // The device is shared by every test, so each that changes its hold puts it back.
+        class HoldRestored
+        {
+        public:
+
+            explicit HoldRestored( MetalDevice& device )
+                : device_( device )
+            {
+            }
+
+            ~HoldRestored()
+            {
+                device_.setMemoryHold( MemoryHold::None );
+            }
+
+        private:
+
+            MetalDevice& device_;
+        };
+    }
 
     TEST( MetalDevice, IsRegisteredAndPassesItsOwnChecks )
     {
@@ -66,7 +118,8 @@ namespace Mila::Tests::Dnn::Compute
         constexpr std::size_t bytes = std::size_t{ 64 } * 1024 * 1024;
         void* const contents = device->allocate( bytes );
 
-        EXPECT_LE( device->getMemoryInfo().free_bytes + bytes, before.free_bytes );
+        // Not against the reading before: what the GPU driver holds for other work moves between two readings.
+        EXPECT_LE( device->getMemoryInfo().free_bytes + bytes, before.total_bytes );
 
         device->deallocate( contents );
     }
@@ -112,6 +165,68 @@ namespace Mila::Tests::Dnn::Compute
             EXPECT_NE( message.find( std::to_string( limit ) ), std::string::npos ) << message;
             EXPECT_NE( message.find( std::to_string( limit + 1 ) ), std::string::npos ) << message;
         }
+    }
+
+    TEST( MetalDevice, ALockedHoldLocksWhatWasAllocatedAndWhatIsAllocatedAfter )
+    {
+        const std::shared_ptr<MetalDevice> device = MetalDevice::at( 0 );
+        const HoldRestored restored( *device );
+        constexpr std::size_t bytes = std::size_t{ 4 } * 1024 * 1024;
+
+        void* const before = device->allocate( bytes );
+        EXPECT_EQ( userWiredCount( before ), 0u );
+
+        device->setMemoryHold( MemoryHold::Locked );
+        EXPECT_EQ( device->getMemoryHold(), MemoryHold::Locked );
+
+        void* const after = device->allocate( bytes );
+
+        EXPECT_GT( userWiredCount( before ), 0u );
+        EXPECT_GT( userWiredCount( after ), 0u );
+
+        device->setMemoryHold( MemoryHold::None );
+
+        EXPECT_EQ( userWiredCount( before ), 0u );
+        EXPECT_EQ( userWiredCount( after ), 0u );
+
+        device->deallocate( before );
+        device->deallocate( after );
+    }
+
+    TEST( MetalDevice, AHoldWithTheRequestStillLocksAndComesBackToNothing )
+    {
+        const std::shared_ptr<MetalDevice> device = MetalDevice::at( 0 );
+        const HoldRestored restored( *device );
+        constexpr std::size_t bytes = std::size_t{ 4 } * 1024 * 1024;
+
+        void* const contents = device->allocate( bytes );
+
+        device->setMemoryHold( MemoryHold::LockedAndRequested );
+        EXPECT_GT( userWiredCount( contents ), 0u );
+
+        // Down one step, the lock stays and the request ends; down another, nothing is held.
+        device->setMemoryHold( MemoryHold::Locked );
+        EXPECT_GT( userWiredCount( contents ), 0u );
+
+        device->setMemoryHold( MemoryHold::None );
+        EXPECT_EQ( userWiredCount( contents ), 0u );
+
+        device->deallocate( contents );
+    }
+
+    TEST( MetalDevice, FreeingHeldMemoryLeavesNothingLocked )
+    {
+        const std::shared_ptr<MetalDevice> device = MetalDevice::at( 0 );
+        const HoldRestored restored( *device );
+
+        device->setMemoryHold( MemoryHold::LockedAndRequested );
+
+        void* const contents = device->allocate( std::size_t{ 1 } * 1024 * 1024 );
+        EXPECT_GT( userWiredCount( contents ), 0u );
+
+        device->deallocate( contents );
+
+        EXPECT_THROW( (void)device->locate( contents ), std::invalid_argument );
     }
 
     TEST( MetalKernelLibrary, EveryKernelHasAPipeline )

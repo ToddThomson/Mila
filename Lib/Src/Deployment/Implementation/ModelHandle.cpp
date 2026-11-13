@@ -7,8 +7,11 @@
 module Deployment.ModelHandle;
 
 import std;
+import Compute.Device;
+import Compute.DeviceRegistry;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
+import Compute.MemoryHold;
 #ifdef MILA_HAS_CUDA
 import Compute.DeviceTypeTraits.Cuda;
 #endif
@@ -372,6 +375,11 @@ namespace Mila::Deployment
     const std::string& ModelHandle::name() const noexcept
     {
         return installed_.name();
+    }
+
+    void ModelHandle::setMemoryHold( MemoryHold hold )
+    {
+        DeviceRegistry::instance().getDevice( model_->getDeviceId() )->setMemoryHold( hold );
     }
 
     ModelHandle::ModelHandle(

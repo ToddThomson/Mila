@@ -30,6 +30,26 @@ namespace Mila::Tests::Dnn::Compute
                 elements );
         }
 
+        // The free figure subtracts what the GPU driver holds for other work, which for a second or more after a use
+        // includes this process's own (MetalDevice::getMemoryInfo). Read once it has not moved for two seconds, which is
+        // past the driver's release after the tests before, at most ten seconds.
+        std::size_t settledFree( const MetalDevice& device )
+        {
+            std::size_t last = device.getMemoryInfo().free_bytes;
+            int unchanged = 0;
+
+            for ( int reading = 0; reading < 40 && unchanged < 8; ++reading )
+            {
+                std::this_thread::sleep_for( std::chrono::milliseconds( 250 ) );
+                const std::size_t now = device.getMemoryInfo().free_bytes;
+
+                unchanged = now == last ? unchanged + 1 : 0;
+                last = now;
+            }
+
+            return last;
+        }
+
         class Allocation
         {
         public:
@@ -143,8 +163,9 @@ namespace Mila::Tests::Dnn::Compute
     {
         constexpr std::size_t kBytes = std::size_t{ 64 } * 1024 * 1024;
 
+        // Nothing here uses the GPU, so once the figure has settled only these allocations move it.
         const std::shared_ptr<MetalDevice> device = MetalDevice::at( 0 );
-        const std::size_t free_before = device->getMemoryInfo().free_bytes;
+        const std::size_t free_before = settledFree( *device );
 
         {
             MetalExecutionContext context( Device::Metal( 0 ) );

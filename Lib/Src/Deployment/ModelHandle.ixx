@@ -10,6 +10,7 @@ export module Deployment.ModelHandle;
 
 import std;
 import Compute.DeviceType;
+import Compute.MemoryHold;
 import Dnn.TensorTypes;
 import Dnn.WeightQuantization;
 import Dnn.ILanguageModel;
@@ -132,6 +133,14 @@ namespace Mila::Deployment
 
         /// The name as the store spells it.
         [[nodiscard]] const std::string& name() const noexcept;
+
+        /**
+         * @brief Keep the model's memory on its device as firmly as `hold` says, from now on.
+         *
+         * The application decides when: firmly while the model is in use, nothing while it is not
+         * (Specifications/Deployment.md 12.10). The hold is the device's, so it covers every model open on that device.
+         */
+        void setMemoryHold( MemoryHold hold );
 
     private:
 

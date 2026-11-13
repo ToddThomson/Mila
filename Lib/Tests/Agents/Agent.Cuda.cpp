@@ -844,6 +844,43 @@ namespace Mila::Tests::AI
         EXPECT_TRUE( agent_->session().conversation().empty() );
     }
 
+    TEST_F( AgentOnGemmaCuda, AResponseThatThrowsLeavesTheConversationAsItWasAndTheNextIsAnswered )
+    {
+        respond( "Say hello in one word." );
+
+        const std::vector<Conversation::Turn> before( agent_->session().conversation().begin(),
+            agent_->session().conversation().end() );
+
+        ASSERT_FALSE( before.empty() );
+
+        // A front end that fails while the reply streams stands in for the GPU failing under it: either throws out of
+        // the model's generate in the middle of the reply.
+        EXPECT_THROW( (void)agent_->respond( "Now say goodbye in one word.",
+            []( const AgentEvent& event )
+            {
+                if ( event.kind == AgentEvent::Kind::Token )
+                {
+                    throw std::runtime_error( "the front end failed" );
+                }
+            } ), std::runtime_error );
+
+        const auto after = agent_->session().conversation();
+
+        ASSERT_EQ( after.size(), before.size() );
+
+        for ( std::size_t index = 0; index < before.size(); ++index )
+        {
+            EXPECT_EQ( after[ index ].role, before[ index ].role ) << index;
+            EXPECT_EQ( after[ index ].content, before[ index ].content ) << index;
+        }
+
+        respond( "Now say goodbye in one word." );
+
+        EXPECT_EQ( last_.status, GenerateStatus::Success );
+        EXPECT_EQ( agent_->session().conversation().size(), before.size() + 2 );
+        EXPECT_FALSE( last_.text.empty() );
+    }
+
     TEST_F( AgentOnGemmaCuda, RefusesAToolOrSettingItCannotUse )
     {
         const auto run = []( std::string_view, const ToolGrant&, std::stop_token ) { return std::string(); };

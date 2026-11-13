@@ -344,6 +344,12 @@ namespace Mila::Dnn
 
     protected:
 
+        void forgetCachedPrompt() noexcept override
+        {
+            live_tokens_.clear();
+            saved_prompt_.clear();
+        }
+
         GenerateStatus onGenerating(
             std::span<const std::int32_t> prompt_tokens,
             const std::function<void( std::int32_t )>& on_token,

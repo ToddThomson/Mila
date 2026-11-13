@@ -303,7 +303,9 @@ PUBLIC
         "Src/Dnn/Compute/Devices/DeviceType.ixx"
         "Src/Dnn/Compute/Devices/DeviceId.ixx"
         "Src/Dnn/Compute/Devices/DeviceMemoryInfo.ixx"
+        "Src/Dnn/Compute/Devices/DeviceOutOfMemoryError.ixx"
         "Src/Dnn/Compute/Devices/DevicePerformance.ixx"
+        "Src/Dnn/Compute/Devices/MemoryHold.ixx"
 
         "Src/Dnn/Compute/ExecutionContext/ExecutionContext.Traits.ixx"
         "Src/Dnn/Compute/Observation.ixx"
@@ -1020,6 +1022,8 @@ if(MILA_HAS_METAL)
     target_sources(Mila
         PRIVATE
             "Src/Dnn/Compute/Devices/Metal/MetalCppImplementation.cpp"
+            "Src/Dnn/Compute/Devices/Metal/Implementation/MetalDevice.cpp"
+            "Src/Dnn/Compute/Devices/Metal/Implementation/MetalGpuDriverMemory.cpp"
             "Src/Dnn/Compute/Devices/Metal/Implementation/MetalKernelLibrary.cpp"
     )
 
@@ -1103,6 +1107,8 @@ if(MILA_HAS_METAL)
     target_link_libraries(Mila PUBLIC
         ${METAL_FRAMEWORK}
         ${FOUNDATION_FRAMEWORK}
+        ${IOKIT_FRAMEWORK}
+        ${COREFOUNDATION_FRAMEWORK}
     )
 
     target_compile_definitions(Mila PUBLIC MILA_HAS_METAL )

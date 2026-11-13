@@ -25,6 +25,7 @@ PUBLIC
         "Src/Settings/Chat.Settings.ixx"
         "Src/Models/Chat.Footprint.ixx"
         "Src/Models/Chat.FootprintVerdict.ixx"
+        "Src/Models/Chat.MemoryHolder.ixx"
         "Src/Console/Chat.ScopedLogSuppression.ixx"
         "Src/Models/Chat.ModelCatalog.ixx"
         "Src/Models/Chat.ResolvedModel.ixx"

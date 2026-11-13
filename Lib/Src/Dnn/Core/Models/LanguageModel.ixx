@@ -91,7 +91,18 @@ namespace Mila::Dnn
                 token_sampler_->beginReply( params.sampling );
             }
 
-            return onGenerating( prompt_tokens, on_token, params, stop );
+            try
+            {
+                return onGenerating( prompt_tokens, on_token, params, stop );
+            }
+            catch ( ... )
+            {
+                // Work that failed left the caches as far as it got, which no record of the prompt describes, so the
+                // next call prefills in full rather than reuse a prefix it cannot trust.
+                forgetCachedPrompt();
+
+                throw;
+            }
         }
 
         // ====================================================================
@@ -496,6 +507,16 @@ namespace Mila::Dnn
             const std::function<void( std::int32_t )>& on_token,
             const GenerateParams& params,
             std::stop_token stop ) = 0;
+
+        /**
+         * @brief Forget which tokens the caches hold, after a generation that threw.
+         *
+         * A model that reuses a cached prompt prefix overrides this to drop its record of it; one that reuses nothing
+         * has nothing to forget.
+         */
+        virtual void forgetCachedPrompt() noexcept
+        {
+        }
 
         // ====================================================================
         // Pure virtual accessors

@@ -2,7 +2,7 @@
 // unchanged, except link.open and folder.choose, which it handles itself (MilaDesktop.md 6.2). The
 // page reaches nothing else: no Node, no navigation, no new windows, no permissions but the clipboard.
 
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, powerMonitor, session, shell } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { registerPageScheme, servePage, isPageUrl, pageUrl } from './page-protocol.js';
@@ -272,6 +272,38 @@ function stopSession()
     sessionProcess = null;
 }
 
+// ---- In use or not ---------------------------------------------------------------------------
+
+/**
+ * The session holds the model's memory while Mila is the application in use and lets it go when it is not
+ * (Deployment.md 12.10); macOS says which. The screen locking, the user's session going inactive and the Mac
+ * going to sleep all count as not in use.
+ */
+function tellSession( type )
+{
+    if ( sessionProcess !== null )
+        sessionProcess.send( { v: 1, type } );
+}
+
+function onActive()
+{
+    tellSession( 'app.active' );
+}
+
+function onBackground()
+{
+    tellSession( 'app.background' );
+}
+
+function watchUse()
+{
+    app.on( 'did-become-active', onActive );
+    app.on( 'did-resign-active', onBackground );
+    powerMonitor.on( 'lock-screen', onBackground );
+    powerMonitor.on( 'user-did-resign-active', onBackground );
+    powerMonitor.on( 'suspend', onBackground );
+}
+
 function onReady()
 {
     session.defaultSession.setPermissionRequestHandler( onPermissionRequest );
@@ -280,6 +312,7 @@ function onReady()
     buildMenu();
     ipcMain.on( 'mila:send', onPageMessage );
     startSession();
+    watchUse();
     createWindow();
 }
 

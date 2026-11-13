@@ -468,15 +468,19 @@ writes this memory, inside Metal's tensor operations.
 
 **Binding by pointer.** A Mila tensor holds a pointer; Metal binds a buffer and an offset, or a GPU address. The
 device keeps the map from address range to buffer, since a `TensorBuffer` makes a memory resource of its own and a kernel
-binds buffers from many, and every operation binds through it. Measured at 300 allocations: the map costs nothing visible,
+binds buffers from many, and every operation binds through it. The device also makes the buffers, so making one and
+recording it are one call and none can be missing from the map; the memory resource and the execution context ask the
+device, where CUDA's resources allocate for themselves (Todd, 2026-11-13, kept after review). The map is then the whole of
+Mila's GPU memory, which a hold over it needs (`Deployment.md` 12.10). Measured at 300 allocations: the map costs nothing visible,
 and one residency set with `gpuAddress` saves 4% of the overhead of 200 dispatches. So each buffer is bound on the encoder,
 which also lets Metal order dependent dispatches. Phase 4 can reopen this on a real decode step.
 
-**Three modules include metal-cpp:** `MetalDevice`, `MetalKernelLibrary` and `MetalExecutionContext`, in the global module
-fragment, with their code in the `.ixx` like the rest of the library. Every other module names its types by forward
-declaration, or goes through `MetalExecutionContext::dispatch` and needs none. The count is what matters: each adds about
-14 MB of Clang's 2048 MB of source locations to every importer of Mila, and these three take a file that imports Mila from
-3.1% to 5.1% (`Notebooks/MetalDeviceAndMemory.md` section 4). Mila's own count on CUDA, 68 files with its runtime header,
+**One module interface includes metal-cpp:** `MetalExecutionContext`, in its global module fragment. `MetalDevice` and
+`MetalKernelLibrary` include it only in their implementation units (`Implementation/`), whose includes reach no importer;
+every other module names its types by forward declaration, or goes through `MetalExecutionContext::dispatch` and needs
+none. The count is what matters: each interface that includes it adds about 14 MB of Clang's 2048 MB of source
+locations to every importer of Mila, and three took a file that imports Mila from 3.1% to 5.1%
+(`Notebooks/MetalDeviceAndMemory.md` section 4). Mila's own count on CUDA, 68 files with its runtime header,
 would be about 950 MB here (arithmetic).
 
 **Limits.** `maxBufferLength` is below the working set on this machine (9.5 GB against 12.7 GB, both measured), so a tensor
@@ -488,10 +492,13 @@ development Mac (M1 Pro, 16 GB, macOS 27.2.1); probes and logs in `D:\Claude\met
 - **W1. Wired memory is never paged out.** Apple's memory guide: a wired region "cannot be paged out", and wired pages are
   on none of the lists the pager takes pages from (*About the Virtual Memory System*, Memory Usage Performance
   Guidelines). While a page is wired it is neither compressed nor swapped.
-- **W2. Mila asks for no wiring.** Every allocation is one shared buffer (`MetalDevice::allocate`), bound on each encoder;
-  there is no heap, no residency set and no purgeable state. A buffer is wired when a command buffer that binds it runs,
-  all of it, however little the kernel reads (`KvCache/KvCacheGrowth.md` fact M3). Before its first GPU use it is
-  ordinary memory, which macOS may compress.
+- **W2. Mila wires what its hold says, and nothing else.** Every allocation is one shared buffer (`MetalDevice::allocate`),
+  bound on each encoder; there is no heap and no purgeable state. A buffer is wired when a command buffer that binds it
+  runs, all of it, however little the kernel reads (`KvCache/KvCacheGrowth.md` fact M3). Before its first GPU use, and
+  under `MemoryHold::None`, it is ordinary memory, which macOS may compress. Since `0.21.0-dev+138` the application sets
+  a hold (`Device::setMemoryHold`, `Deployment.md` 12.10): `Locked` reads every page on eight threads and `mlock`s every
+  buffer, and every one allocated after; `LockedAndRequested` also puts every buffer in one residency set, which each
+  command queue attaches, and renews its request every second.
 - **W3. macOS unwires idle GPU memory.** The wired collector (`iogpu.disable_wired_collector`, 0 on this Mac) took the
   system's wired memory from 7.6 GB and from 12.6 GB down to 1.1 GB between 1 and 2 s of GPU idle, with or without a
   residency set holding one standing request (M2, M4). It unwires; it does not swap. What it unwires is ordinary memory
@@ -501,8 +508,129 @@ development Mac (M1 Pro, 16 GB, macOS 27.2.1); probes and logs in `D:\Claude\met
   use on 26.1 (ggml-org/llama.cpp#17766, its description only); MLX's maintainers call it "a bug in macOS" to be fixed
   in a later update, and their interim fix renews the residency request on an interval,
   `MLX_METAL_RESIDENCY_REFRESH_INTERVAL_MS` (ml-explore/mlx#4633, 2026-10-06); on one 16 GB M4 with macOS 26.7,
-  disabling the collector changed nothing (ml-explore/mlx#4609). **Renewing the request has not been tried on Mila or on
-  the M1 Pro.** A design must hold whether or not macOS changes this.
+  disabling the collector changed nothing (ml-explore/mlx#4609). A design must hold whether or not macOS changes this.
+- **W3a. Renewing the request keeps memory wired, through idle and through pressure** (probe B, 2026-11-12, standalone,
+  `D:\Claude\metal\sweep\probeb`): the weights of Gemma 4 12B Q4_0 read past the file cache into 256 MB shared buffers
+  plus a 1 GiB buffer of data the compressor cannot shrink, 7.5 GiB in one residency set, attached to the queue.
+  - *Idle.* Never renewed, the system's wired memory fell from 8.7 to 1.3 GB within 5 s, and a use after 5, 30 or 120 s
+    of idle took 125 to 131 ms to wire it again. Renewed every 1000 ms or every 250 ms it stayed at 8.7 GB through 120 s,
+    and the same use took 5 ms. A renewal took 0.02 to 0.04 ms (max 0.08) and left the process's CPU time unchanged.
+  - *Pressure.* Another process filled 5 GiB of incompressible memory after 10 s of idle, more than was free. Never
+    renewed (two runs), macOS compressed the probe's unwired buffers: the next use decompressed 5.2 to 7.1 GB and took
+    2.2 to 3.0 s, with the hog gone or still held. Renewed every 1000 ms (two runs), the 8.7 GB stayed wired, the uses
+    took 3 to 8 ms, and the hog's own fill compressed 1.9 to 5.1 GB and swapped up to 0.5 GB, filling in 1.2 to 1.3 s
+    against 1.9 to 2.5 s unrenewed. Wired memory is never taken back under this pressure; the rest of the Mac pays.
+  - *In Mila* (a probe build outside the tree, `D:\Claude\metal\pin`: every allocation in one set, renewed every 1000
+    ms; Gemma 4 12B Q4_0, `resident.py`, one session per arm, `D:\Claude\metal\sweep\run6`): the system held 9.0 GB
+    wired at 8K and 10.1 GB at 32K before every prompt. With 3 GiB held by another process during the prompt at 32K the
+    prompt took 703 ms (idle Mac) and 785 ms (Safari and Xcode open) with the request renewed, against 3302 and 3752 ms
+    without a request, which decompressed 5.3 and 6.3 GB. A short prompt after 5 to 120 s of idle took about 100 to 250
+    ms less renewed, and still rose with the idle time (663 to 870 ms at 32K), so re-wiring is not the whole of that rise.
+    A one-shot first prompt took 557 to 562 ms renewed at 8K to 64K, against 637 to 688 without: the request wires at
+    load. The peak footprint `time -l` reports was 0.55 to 0.7 GiB higher renewed, not explained.
+  - The request is asynchronous: the wired figure read straight after `requestResidency` sometimes had not moved yet.
+  - In every arm here the GPU driver holds the wiring, at Mila's request, and releases it when it decides (W3c). Mila
+    holding the wiring of its own pages was not tried.
+  - *In Mila, weights only against everything* (`D:\Claude\metal\sweep\switch`, `mila3.sh`, 32K, Safari and Xcode
+    relaunched before each session, two sessions per arm): the weights' set held 6.47 GiB, everything 8.90 GiB. With 3
+    GiB held by another process during the prompt: everything 668 and 751 ms, weights only 837 and 882, nothing 3741 and
+    3903. A prompt at once after the first took 637 to 669 ms in every arm, and 30 s of idle added about 250 ms in every
+    arm, requested or not.
+  - Not measured: a set the size of a 256K plan (12.8 GB) under pressure, and what the user's applications pay.
+- **W3b. Coming back after another application took the memory** (switch probe, 2026-11-12, standalone,
+  `D:\Claude\metal\sweep\switch`, one run per cell): weights as in W3a plus a 1.5 GiB buffer of incompressible data,
+  in two sets renewed every 1000 ms while "active". Away: renewal stops, or the weights' set is still renewed; 10 s
+  later another process fills 5 GiB and quits or stays. Back: the time until both sets are wired again and a use runs.
+
+  | Away, kept wired | Other process | GPU use only | `requestResidency` | 8 CPU threads, then request | Both at once |
+  |---|---|---|---|---|---|
+  | nothing | quit | 1.84 s | 3.18 s | **1.05 s** | 3.27 s |
+  | nothing | stays | 2.18 s | 4.04 s | **1.09 s** | 4.09 s |
+  | weights | quit | 1.76 s | 1.84 s | 1.95 s | 1.74 s |
+  | weights | stays | 1.73 s | 1.99 s | 2.52 s | 2.09 s |
+
+  With nothing kept, 6.7 to 7.5 GB came back from the compressor, and eight threads each reading a byte of every page,
+  then the request, brought it back fastest: about 7 GB a second (*arithmetic*). The request alone, or with the reads
+  under way, was the slowest path. With the weights kept wired, only the 1.5 GiB buffer went, but 0.5 to 0.76 GB of it to
+  swap, since 7.6 GB wired left the compressor too little room; reading it back from swap took 1.7 to 2.5 s by every
+  path. Keeping the weights wired also left the other process 7.6 GB less to take. The buffer here is the worst case for
+  the compressor; a cache in use may compress better (not measured).
+- **W3c. Another app on the GPU** (LM Studio 0.4.28-2, its llama.cpp engine 2.73.0, the same Gemma 4 12B Q4_0 weights
+  at 32K, its other settings at their defaults, 2026-11-12, `D:\Claude\metal\sweep\lmstudio`; observed from outside
+  only). Loaded, it holds about 9 GB wired whether idle or not: 10.29 GB system wired through a minute of idle. Its
+  time to first token stayed at 261 to 284 ms after 0 to 120 s of idle and with 3 GiB held by another process (two
+  sessions, Safari and Xcode open). With it loaded, mila-chat failed every time with the GPU's out-of-memory error
+  (`kIOGPUCommandBufferCallbackErrorOutOfMemory`): at 8192 in the first prompt, and in the load at 8192 with a renewed
+  request and at automatic context. With Mila loaded first and its request renewed (7.77 GiB in one set), LM Studio's
+  load failed too, though it reported the model loaded after 7.7 s: its own log shows `mlock` of an 841,596,928-byte
+  buffer refused ("Resource temporarily unavailable", nothing locked before it), then three of its command buffers
+  failed with the same out-of-memory error, and two more at its unload five minutes later. Mila's next prompt failed
+  with that error and the process exited. Both apps failed. The system's wired memory rose only to 10.9 GB during LM
+  Studio's load while the compressor went from 0.1 to 2.6 GB. These loads were made with `lms` and driven through its
+  server. *Inference:* the GPU's wired memory has one limit across processes, about the recommended working set (the
+  system's wired memory did not pass 12.9 GB that day, 1.2 GB of it the system's own); W3d narrows it to what the GPU
+  driver holds, locked pages apart.
+  - *Loaded from its window* (2026-11-13, its defaults: context 8192, "Keep Model in Memory" on, "Try mmap()" on; Todd
+    at the Mac, wired memory read every 3 s): its engine process maps the model file (6.5 GiB present) and holds 1.5
+    GiB of shared memory beside it. System wired rose from 1.37 to 9.6 GiB at the load. With Keep on, 1.85 GiB of it was
+    released 3 min 50 s after the load and again 3 min 50 s after a reply, and came back at the next prompt; the 6.5 GiB
+    of weights stayed wired throughout. With Keep off, all of it was released 3 min 49 s after the reply. So Keep, the
+    default, holds the weights wired for as long as the model is loaded, and the `mlock` warning above is that lock
+    failing. Who holds the rest for the four minutes is *inference*: the GPU driver, at a request LM Studio renews, since
+    unrenewed it releases within 1 to 2 s (W3a).
+  - Its prompt eval at these lengths ran at 10 to 14 ms a token warm. The first prompt after the 1.85 GiB went took
+    about 85 ms more than the same length warm (28 tokens, 488 against 404 ms); the first after everything went took
+    486 ms for 13 tokens, about 300 ms more than 14 ms a token (*arithmetic*). One run each. The release came 3 min 49 s
+    to 3 min 52 s after last use, four times.
+  - *Beside mila-chat* (same day, Keep off, mila-chat +137 at 8192, which holds nothing wired between prompts; Mila
+    driven through a pipe, LM Studio through its window, one run): with LM Studio's memory released, Mila loaded and
+    answered, its prefill 2610 ms, since its load had the compressor take 7.65 GiB that the prompt then brought back.
+    LM Studio's next prompt, beside an idle Mila, answered with 5620 ms of prompt eval for 20 tokens, its memory brought
+    back the same way. Mila's prompt inside LM Studio's four minutes failed with the GPU's out-of-memory error and the
+    process exited (system wired 9.66 to 12.62 GiB, then 9.65); LM Studio's log shows nothing. Started again after LM
+    Studio's release, Mila answered (prefill 2219 ms), and LM Studio's prompt after it answered too (3587 ms for 31
+    tokens). So two applications that hold nothing between uses take turns, each paying 2 to 6 s to bring its memory
+    back; an application that asks while the other holds its four minutes fails.
+- **W3d. The process holding its own wiring** (probe D, 2026-11-13, standalone, `D:\Claude\metal\sweep\lockd`,
+  `lockprobe.mm`, one run per arm, the lock arm twice): the weights of W3a plus a 1 GiB cache, 7.47 GiB in 256 MB shared
+  buffers. Arms: `mlock` on the buffers' contents; that plus a residency set renewed every 1000 ms; nothing (the
+  control). `RLIMIT_MEMLOCK` is unlimited, and `mlock` of all 7.47 GiB took 0.23 to 0.29 s, `munlock` 0.11 to 0.12 s.
+  The competitor is another process that fills 5 GiB of its own buffers and uses them on the GPU every second for 30 s,
+  while this one makes two uses.
+
+  | | Use after 5 to 120 s idle | Our uses, competitor holding | Competitor's uses | Peak system wired |
+  |---|---|---|---|---|
+  | nothing | 123 to 127 ms | 4.86 and 4.92 s | 0 of 26 failed, slowest 3.08 s; 4.3 GiB swapped out and in | 13.42 GiB |
+  | lock | 101 to 151 ms | 0.12 s | 0 of 30 failed, slowest 0.06 s | 13.76 GiB |
+  | lock, renewed request | 5 ms | 5 ms | **26 of 28 failed** with the GPU's out-of-memory error | 13.69 GiB |
+
+  - A lock keeps the pages wired through idle and CPU pressure (5 GiB filled and held: 0.07 to 0.17 s a use), but the
+    GPU's own setup is still dropped on idle: the use after it costs nearly what it does with nothing held. The renewed
+    request is what makes it 5 ms.
+  - Locked memory did not make the competitor fail; the renewed request did. *Inference:* the GPU's limit, about the
+    recommended working set, counts the memory the GPU driver itself holds wired, and pages a process has locked are
+    not part of it. System wired passed 13.7 GiB in both arms that held, past the 12.9 GB W3c saw.
+  - With nothing held, the competitor's fill compressed this process's memory (8.5 GiB) and both thrashed, but neither
+    failed.
+  - The GPU driver publishes what it holds: `"In use system memory"` in the `PerformanceStatistics` of the
+    `IOAccelerator` service (IORegistry, not documented by Apple). Another process's 3 GiB in use read 3.02 GiB, and
+    0.01 when it quit; this process's 7.47 GiB, locked, read 0.03 GiB unused, 7.50 GiB just after a use and 0.01 GiB
+    four seconds later, still locked (`ioreg_check.sh`, `ioreg_lock.sh`). It counts what the GPU driver holds, across
+    processes, which is what the GPU's limit counts (*inference*, as above), and not locked pages.
+- **W3e. Mila beside another process, with the hold built** (`0.21.0-dev+138`, 2026-11-13, mila-chat at 8192 driven
+  through a pipe, run in a window on the Mac; `D:\Claude\mac\oom138`, logs `~/mila-work/sweep/oom138`; one run each).
+  - *Mila locked, another process takes 5 GiB and uses it every second:* both ran. Mila answered with a 1060 ms
+    prefill; the other made 44 uses and none failed, its first two taking 10.0 and 4.9 s while 2.4 GiB of other
+    memory went to swap. System wired 13.66 GiB. One buffer Mila allocated during the prompt, 1 MiB, macOS refused to
+    lock ("Resource temporarily unavailable"); it ran unheld.
+  - *Mila's lock refused (`ulimit -l 64` for that shell), another process takes 7 GiB, neither requests:* no error.
+    The GPU driver held 11.84 GiB, the recommended working set, and the two took turns: Mila's prefill took 27,034
+    ms with one 28 s stall, the other process made 8 uses in 50 s, its slowest 50.1 s. With it gone, 710 ms.
+  - *Mila's lock refused, a greedy process holds 7.47 GiB locked and requested:* Mila's prompt failed with the GPU's
+    out-of-memory error, Chat said so in words and kept running, and the same prompt after the process ended was
+    answered (prefill 8415 ms, its memory brought back from the compressor).
+  - So the out-of-memory error comes from a requested hold on the other side; without one the driver makes the two
+    wait for each other instead (*inference* from these runs).
 - **W4. Apple promises neither residency nor a free figure.** `requestResidency` does "as much preparatory work as it
   can, with the system's current conditions" (Apple, `MTLResidencySet`); `recommendedMaxWorkingSetSize` is "an
   approximation of how much memory this device can use with good performance" (`MTLDevice.h`, Xcode 27.2). It is a

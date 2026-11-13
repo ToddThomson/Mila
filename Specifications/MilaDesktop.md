@@ -301,6 +301,13 @@ The window relays every message unchanged in both directions, except the three i
 | `attachment.remove` | `attachment_id` | |
 | `link.open` | `url` | Handled by the window, which opens it in the system browser. The page never navigates. |
 
+### 4.2.1 Window to session
+
+| type | fields | meaning |
+|---|---|---|
+| `app.active` | -- | Mila became the application in use (macOS's `did-become-active`). The session locks the model's memory, and lets it go 30 minutes after the last turn if nothing else does (`Deployment.md` 12.10). |
+| `app.background` | -- | Mila is no longer in use: another application came to the front (`did-resign-active`), the screen locked, the user's session went inactive, or the Mac is going to sleep. The session lets the model's memory go; a reply under way completes. |
+
 ### 4.3 Conversation messages
 
 `[{ "role": "user" | "assistant" | "tool", "content": string, "thought": string | null,
@@ -438,7 +445,7 @@ section 9.1) (`Desktop.SessionProcess.ixx`, `Desktop.ConversationStore.ixx`):
   folder, read a file, fixed a bug with one exact edit, and answered a declined write as declined; in Research &
   Analyze it read a Wikipedia article and answered from it, and read a missing page's 404 as one.
 - **Two threads.** The one that started the process does all session work, model loads included; a second
-  reads requests. It answers `turn.stop` and `turn.tool_decision` itself, since the session's thread is inside the
+  reads requests. It answers `turn.stop`, `turn.tool_decision`, `app.active` and `app.background` itself, since the session's thread is inside the
   reply they are about, and refuses a `turn.send` while a turn is queued or running, so the refusal does not
   wait for it. Every other request is queued and answered in order. End of input stops a reply in flight and
   ends the process.
