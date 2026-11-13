@@ -122,6 +122,17 @@ namespace Mila::Dnn::Compute
             return MemoryHold::None;
         }
 
+        /**
+         * @brief How much of Mila's memory on this device is out of RAM now: compressed or swapped by the system.
+         *
+         * What a hold brings back before Mila's next use is at full speed, so an application can say it is getting
+         * ready and for how long. Zero for a device whose memory is never paged, which is the default.
+         */
+        virtual std::size_t getPagedOutBytes() const
+        {
+            return 0;
+        }
+
         // ====================================================================
         // Static Factory Methods - Primary API for Device Identification
         // ====================================================================

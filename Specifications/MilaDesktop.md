@@ -146,8 +146,11 @@ its progress, not a catalogue.
 - Conversations, newest first, grouped *Today*, *Yesterday*, *Previous 7 days*, *Older*. Each row shows
   its title and its activity; hover shows the model it was held with. Rename and delete from a row's menu;
   delete asks first.
-- At the foot: *Settings*. The models view is reached from Settings, off the main path.
-- Collapsible; collapsed below 900 px of window width.
+- At the foot: *Settings*. The models view is reached from Settings, off the main path: its first section names
+  the model in use and how many are installed, with one *Manage models* (Todd, 2026-11-13).
+- Collapsible; collapsed below 900 px of window width. Collapsed in a wide window it is a rail of three: show the
+  sidebar, *New*, and *Settings* at the foot; a narrow window's opens over the conversation from the header instead
+  (Todd, 2026-11-13).
 
 ### 3.4 Home screen
 
@@ -162,7 +165,8 @@ its progress, not a catalogue.
   -- which opens on request to the detail: the model and its package, context (with "auto" when it was
   measured, not chosen), thinking, the tools the activity gives the agent and their rules. Read-only there; a
   change is made under the limits (below) or, for the model, in the models view. With no model loaded, the
-  header says so and the way out.
+  header says so and the way out. Between the model and those facts: the app's status while it has one (4.1
+  `progress`), and the conversation's title, shown whether or not the sidebar is (Todd, 2026-11-13).
 - *Transcript:*
   - User turns, right-aligned, with their attachments as thumbnails (image) or a small player (audio).
   - Assistant turns, full width. The reasoning channel is a collapsed block above the answer ("Thought
@@ -227,8 +231,9 @@ can start, `conversation.new` names one, and `conversations.list`, `conversation
 keep it. The folder is chosen in the window's own picker (`folder.choose`), never typed.
 
 **Look:** light and dark follow the system. The palette and type follow the website
-(`Web/layouts/_default/baseof.html`), quieter. No animation beyond the streaming caret and a progress
-bar.
+(`Web/layouts/_default/baseof.html`), quieter. No animation beyond one turning ring wherever Mila is at work,
+always leading its words -- "Reading" before a reply's first token and after a call's result, "Thinking" and its
+count, the header's status -- and the models view's progress bar. Streaming text carries no ring (Todd, 2026-11-13).
 
 ## 4. Message schema
 
@@ -259,11 +264,11 @@ The window relays every message unchanged in both directions, except the three i
 
 | type | fields | meaning |
 |---|---|---|
-| `session.state` | `model` (name or null), `no_model_reason` (string or null), `context_length`, `context_automatic`, `thinking_capable`, `thinking` (`"off"`, `"on"` or the effort in effect), `effort` (the effort in effect, one of `effort_levels`, or null), `effort_levels` (the model's template's own effort values, in its order, or null where it has none), `detail` (`"off"`, `"thoughts"`, `"all"`), `sampling` ({`temperature`, `top_k`, `top_p`, `presence_penalty`}, each `{value, is_model_default}`), `modalities` (subset of `["image","audio"]`), `activities` (the activities this session can start, in card order, a subset of `["ask","build","research","tasks"]`), `activity` (the conversation's), `folder` (the conversation's project folder, or null), `plan` (Get Things Done's approved plan, [{`text`, `status`: `"pending"`, `"in_progress"`, `"done"` or `"skipped"`}], or null), `web_search` (bool: a search key is set; the key itself is never sent), `run_commands` (bool: the setting), `run_commands_problem` (why commands cannot run here, or null), `program_folders` (the folders commands may read, empty while they are off), `busy` (bool), `streams` ([{`stream_id`, `parent_stream_id` (or null), `conversation_id`, `busy`}]) | The whole session state. Sent after every change, never as a delta. |
+| `session.state` | `model` (name or null), `loading` (the model a load is opening, while it does, or null: the header names it at once), `no_model_reason` (string or null), `context_length`, `context_automatic`, `thinking_capable`, `thinking` (`"off"`, `"on"` or the effort in effect), `effort` (the effort in effect, one of `effort_levels`, or null), `effort_levels` (the model's template's own effort values, in its order, or null where it has none), `detail` (`"off"`, `"thoughts"`, `"all"`), `sampling` ({`temperature`, `top_k`, `top_p`, `presence_penalty`}, each `{value, is_model_default}`), `modalities` (subset of `["image","audio"]`), `activities` (the activities this session can start, in card order, a subset of `["ask","build","research","tasks"]`), `activity` (the conversation's), `folder` (the conversation's project folder, or null), `plan` (Get Things Done's approved plan, [{`text`, `status`: `"pending"`, `"in_progress"`, `"done"` or `"skipped"`}], or null), `web_search` (bool: a search key is set; the key itself is never sent), `run_commands` (bool: the setting), `run_commands_problem` (why commands cannot run here, or null), `program_folders` (the folders commands may read, empty while they are off), `busy` (bool), `streams` ([{`stream_id`, `parent_stream_id` (or null), `conversation_id`, `busy`}]) | The whole session state. Sent after every change, never as a delta. |
 | `models.list` | `installed` ([{`name`, `size_bytes`, `quantization`, `family`}]), `published` ([{`name`, `size_bytes`, `quantization`, `installed`}] or null when not fetched) | Reply to `models.refresh`, and after install or remove. |
-| `progress` | `task` (`"load"`, `"install"`, `"rebuild"`), `label`, `done`, `total` (both null when unknown) | A long task's progress; a final one has `done == total`. |
+| `progress` | `task` (`"load"`, `"install"`, `"rebuild"`, `"restore"`), `label`, `done`, `total` (both null when unknown) | A long task's progress; a final one has `done == total`. `"restore"` is the model's memory coming back from the compressor or swap as Mila is used again, in bytes; a waiting turn's `turn.begin` follows it. The header shows the task in progress beside the model, a ring and its `label`, with no bar: a restore lasts seconds and its total is an estimate (Todd, 2026-11-13). |
 | `turn.begin` | `turn_id`, `conversation_id` | A reply starts. |
-| `turn.text` | `turn_id`, `round`, `channel` (`"thought"` or `"answer"`), `text` | Raw text to append to that channel. Gemma streams many; Llama and Qwen send one per round when it is complete. The page must render both. |
+| `turn.text` | `turn_id`, `round`, `channel` (`"thought"` or `"answer"`), `text`, `tokens` (a thought's only: the round's tokens so far) | Raw text to append to that channel; a thought's label counts `tokens` while it is written (Todd, 2026-11-13). Gemma streams many; Llama and Qwen send one per round when it is complete. The page must render both. |
 | `turn.thought_break` | `turn_id`, `round` | The reasoning channel resumed after a tool call; start a new thought block. |
 | `turn.tool_call` | `turn_id`, `round`, `call_id`, `name`, `summary`, `arguments` (JSON string) | The model called a tool. |
 | `turn.tool_approval` | `turn_id`, `call_id`, `choices` (subset of `["allow_once", "allow_conversation", "deny"]`, in that order; a command's is `["allow_once", "deny"]`), `reaches` ({`folders`: [{`path`, `access`: `"read"` or `"read_write"`}], `program_folders`: [path], `network`: bool, `runs_programs`: bool}) | The call named by `call_id`, already sent as `turn.tool_call`, waits for the person's decision (section 4.5). `reaches` is what the call would reach if allowed, from its grant as narrowed to the tool; a command's `network` is true only when the call asks for it. A `decision` not among `choices` is ignored. |
@@ -429,7 +434,8 @@ section 9.1) (`Desktop.SessionProcess.ixx`, `Desktop.ConversationStore.ixx`):
   context keeps it, refused below what the conversation already takes. The automatic context has no ceiling of the
   app's: the planner caps it at the model's trained maximum (`Notebooks/SessionInventory.md` decision 1).
 - **Activities** (3.1, 2026-10-26). A conversation is Ask & Explore, with the `ask` prompt and no tools, at the
-  limits of a chat (four rounds, a reply of 2,048 tokens), or Build & Code, with the `files` prompt beside the
+  limits of a chat (four rounds; a reply runs to the context, as no publisher's card sets a length -- Todd,
+  2026-11-13), or Build & Code, with the `files` prompt beside the
   program -- the activities' prompts are in `Apps/Desktop/Prompts`, read by `Desktop.PromptFile.ixx`, naming each tool Mila::Agents provides and describing each of the app's own -- and the file tools over the conversation's
   folder (`Agents.FileTools`): `list_folder`, `read_file`, `find_files`, `search_text`, `write_file` and
   `edit_file`, paths relative to the folder; or Research & Analyze, with the `research` prompt and `read_web_page`

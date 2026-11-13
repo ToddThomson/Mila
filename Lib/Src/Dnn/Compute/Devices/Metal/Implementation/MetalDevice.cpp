@@ -328,6 +328,34 @@ namespace Mila::Dnn::Compute
         }
     }
 
+    std::size_t MetalDevice::getPagedOutBytes() const
+    {
+        const std::size_t page = static_cast<std::size_t>( ::getpagesize() );
+        std::vector<char> flags;
+        std::size_t out = 0;
+
+        allocations_.forEach( [&]( void* base, std::size_t bytes, MTL::Buffer* )
+        {
+            flags.resize( ( bytes + page - 1 ) / page );
+
+            if ( ::mincore( static_cast<caddr_t>( base ), bytes, flags.data() ) != 0 )
+            {
+                return;
+            }
+
+            // A page never written is neither in memory nor paged out, and costs nothing to bring in: not counted.
+            for ( const char flag : flags )
+            {
+                if ( ( flag & MINCORE_PAGED_OUT ) != 0 )
+                {
+                    out += page;
+                }
+            }
+        } );
+
+        return out;
+    }
+
     void MetalDevice::unlockAllocations() noexcept
     {
         allocations_.forEach( []( void* base, std::size_t bytes, MTL::Buffer* )

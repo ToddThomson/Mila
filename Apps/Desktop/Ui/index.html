@@ -12,6 +12,11 @@
 </head>
 <body>
 <div class="app" id="app">
+  <nav class="rail" id="rail" aria-label="Mila" hidden>
+    <button class="quiet-icon" type="button" data-action="show-sidebar" aria-label="Show conversations" title="Show conversations"><span class="icon-holder" data-icon="sidebar"></span></button>
+    <button class="quiet-icon" type="button" data-action="new-conversation" aria-label="New conversation" title="New conversation (Ctrl N)"><span class="icon-holder" data-icon="plus"></span></button>
+    <button class="quiet-icon rail-foot" type="button" data-action="open-settings" aria-label="Settings" title="Settings"><span class="icon-holder" data-icon="settings"></span></button>
+  </nav>
   <aside class="sidebar" id="sidebar" aria-label="Conversations">
     <div class="sidebar-top">
       <div class="brand"><img class="brand-mark" src="mila-mark.svg" alt="" width="80" height="62"><span class="brand-name">Mila</span></div>
@@ -20,7 +25,6 @@
     <button class="new-conversation" type="button" data-action="new-conversation"><span class="icon-holder" data-icon="plus"></span><span class="new-conversation-label">New conversation</span><kbd>Ctrl N</kbd></button>
     <nav class="conversation-list" aria-label="Conversation history"></nav>
     <div class="sidebar-foot">
-      <button class="foot-button" type="button" data-action="open-models"><span class="icon-holder" data-icon="models"></span>Models</button>
       <button class="foot-button" type="button" data-action="open-settings"><span class="icon-holder" data-icon="settings"></span>Settings</button>
       <div class="development" id="development" hidden></div>
     </div>

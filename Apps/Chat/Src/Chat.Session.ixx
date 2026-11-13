@@ -246,8 +246,8 @@ namespace Mila::ChatApp
         }
 
         /**
-         * @brief How far each response may run from the next on; with none, Chat's own: its tool rounds and a reply
-         *        of max_new_tokens across them.
+         * @brief How far each response may run from the next on; with none, Chat's own: its tool rounds and, when one
+         *        is set, a reply of max_new_tokens across them.
          */
         void useLimits( std::optional<Mila::Agents::AgentLimits> limits )
         {
@@ -1000,7 +1000,8 @@ namespace Mila::ChatApp
             agent_->session().withSampling(
                 Mila::Agents::SamplingOverride{ config_.temperature, config_.top_k, config_.top_p, config_.presence_penalty } );
             agent_->session().withLimits( limits_.value_or(
-                Mila::Agents::AgentLimits{ .rounds = kToolRounds, .reply_tokens = static_cast<dim_t>( config_.max_new_tokens ) } ) );
+                Mila::Agents::AgentLimits{ .rounds = kToolRounds,
+                    .reply_tokens = config_.max_new_tokens.transform( []( std::size_t tokens ) { return static_cast<dim_t>( tokens ); } ) } ) );
 
             const Mila::Dnn::Conversation::Protocol& protocol = *agent_->model().protocol();
             RoundTimer timer;

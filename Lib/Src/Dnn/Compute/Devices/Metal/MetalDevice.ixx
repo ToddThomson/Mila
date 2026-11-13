@@ -108,6 +108,14 @@ namespace Mila::Dnn::Compute
             return hold_.load();
         }
 
+        /**
+         * @brief The bytes of Mila's buffers that are not in RAM, page by page (`mincore`).
+         *
+         * macOS counts a shared buffer's pages as the process's own, and compresses them like any other memory
+         * (MetalBackend.md section 5, W3f). Cheap enough to read while a hold is bringing them back, as its progress.
+         */
+        [[nodiscard]] std::size_t getPagedOutBytes() const override;
+
         [[nodiscard]] const MetalCapabilities& capabilities() const noexcept
         {
             return capabilities_;

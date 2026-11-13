@@ -631,6 +631,14 @@ development Mac (M1 Pro, 16 GB, macOS 27.2.1); probes and logs in `D:\Claude\met
     answered (prefill 8415 ms, its memory brought back from the compressor).
   - So the out-of-memory error comes from a requested hold on the other side; without one the driver makes the two
     wait for each other instead (*inference* from these runs).
+- **W3f. What macOS says about Mila's memory that it took** (2026-11-13, `D:\Claude\mac\compressprobe`, one run): 6 GiB
+  of shared `MTLBuffer`s and 1 GiB of malloc, filled compressibly, then a 9 GiB incompressible hog. The process's
+  `task_info(TASK_VM_INFO).compressed` read 6.24 GiB: the buffers' 5.23 and the malloc's 1.00, so macOS counts a shared
+  buffer as the process's own memory. `ledger_tag_graphics_footprint_compressed` read the buffers' 5.23 alone, and
+  `mincore` over the buffers' contents flagged the same 5.23 GiB `MINCORE_PAGED_OUT`; a page never written is flagged
+  neither in memory nor paged out. Reading every page on eight threads brought the 5.3 GiB back in 0.64 s (compressible
+  data; Gemma 4 12B's took 2 to 4 s in Mila Desktop). So `MetalDevice::getPagedOutBytes` counts `MINCORE_PAGED_OUT`
+  pages over the allocation map: the device's own buffers, exactly.
 - **W4. Apple promises neither residency nor a free figure.** `requestResidency` does "as much preparatory work as it
   can, with the system's current conditions" (Apple, `MTLResidencySet`); `recommendedMaxWorkingSetSize` is "an
   approximation of how much memory this device can use with good performance" (`MTLDevice.h`, Xcode 27.2). It is a

@@ -13,6 +13,7 @@ import { createModelsView } from './views/models.js';
 import { createDevelopmentView } from './views/development.js';
 import { createLogView } from './views/log.js';
 import { createPlanView } from './views/plan.js';
+import { createRailView } from './views/rail.js';
 
 const narrowQuery = window.matchMedia( '(max-width: 899.98px)' );
 
@@ -198,6 +199,7 @@ const developmentElement = document.getElementById( 'development' );
 const logElement = document.getElementById( 'log-drawer' );
 const planElement = document.getElementById( 'plan' );
 
+const rail = createRailView( document.getElementById( 'rail' ), actions );
 const sidebar = createSidebarView( sidebarElement, actions );
 const header = createHeaderView( headerElement, actions );
 const transcript = createTranscriptView( transcriptScroller, transcriptElement, actions );
@@ -218,6 +220,7 @@ function render()
     const busy = isBusy( state );
     application.classList.toggle( 'busy', busy );
 
+    rail.render( state, surface );
     sidebar.render( state, surface );
     header.render( state, surface );
     transcript.render( state, surface );

@@ -94,7 +94,10 @@ namespace Mila::ChatApp
 
         std::filesystem::path model_path;
         std::filesystem::path tokenizer_path;
-        std::size_t                max_new_tokens{ 2048 };
+
+        /// The most tokens one reply may generate, its thinking included. None by default: no publisher's card sets
+        /// one, so a reply runs to the context or Ctrl+C (Todd, 2026-11-13).
+        std::optional<std::size_t> max_new_tokens;
 
         /// The user's own sampling, from the session file, a flag or /set. A knob left empty takes the model's.
         std::optional<float>  temperature;

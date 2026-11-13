@@ -2,6 +2,7 @@
 
 import { element, button, iconButton, setIcon, clear } from '../dom.js';
 import { contextFact, thinkingFact, activityCard, folderName } from '../format.js';
+import { appStatus } from '../state.js';
 
 export function createHeaderView( root, actions )
 {
@@ -12,6 +13,9 @@ export function createHeaderView( root, actions )
     const pickerChevron = element( 'span', 'chevron' );
     const menu = element( 'div', 'menu model-menu' );
     const facts = element( 'div', 'session-facts' );
+    const conversationTitle = element( 'div', 'conversation-title' );
+    const status = element( 'span', 'app-status' );
+    const statusLabel = element( 'span', 'app-status-label' );
     let open = false;
     let lastKey = '';
 
@@ -19,7 +23,12 @@ export function createHeaderView( root, actions )
     pickerButton.setAttribute( 'aria-haspopup', 'menu' );
     pickerButton.append( pickerLabel, pickerChevron );
     picker.append( pickerButton, menu );
-    root.append( toggle, picker, facts );
+    status.hidden = true;
+    status.setAttribute( 'role', 'status' );
+    const ring = element( 'span', 'caret' );
+    ring.setAttribute( 'aria-hidden', 'true' );
+    status.append( ring, statusLabel );
+    root.append( toggle, picker, status, conversationTitle, facts );
     menu.hidden = true;
 
     function setOpen( value )
@@ -115,8 +124,17 @@ export function createHeaderView( root, actions )
 
     function render( state, surface )
     {
-        const sidebarHidden = surface.narrow ? !surface.sidebarOverlay : surface.sidebarCollapsed;
-        toggle.hidden = !sidebarHidden;
+        // A wide window's collapsed sidebar is a rail, which has the way back itself.
+        toggle.hidden = !surface.narrow || surface.sidebarOverlay;
+
+        // Ahead of the facts' early return: the status and the title change while they do not.
+        const working = appStatus( state );
+        status.hidden = working === null;
+        statusLabel.textContent = working === null ? '' : working;
+
+        const current = state.conversations.find( ( item ) => item.id === state.conversationId );
+        conversationTitle.textContent = current === undefined ? '' : current.title;
+        conversationTitle.title = conversationTitle.textContent;
 
         const key = JSON.stringify( [ state.session, state.installedModels ] );
 
@@ -134,9 +152,11 @@ export function createHeaderView( root, actions )
             return;
         }
 
+        // A model being loaded is named at once: the header's status says it is loading.
         const session = state.session;
-        pickerButton.classList.toggle( 'empty', session.model === null );
-        pickerLabel.textContent = session.model === null ? 'No model loaded' : session.model;
+        const named = session.loading ? session.loading : session.model;
+        pickerButton.classList.toggle( 'empty', !named );
+        pickerLabel.textContent = named ? named : 'No model loaded';
 
         if ( session.model === null )
             return;

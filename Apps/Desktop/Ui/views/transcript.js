@@ -14,10 +14,9 @@ export function createTranscriptView( scroller, container, actions )
     const records = new Map();
     const emptyState = element( 'div', 'empty-state' );
     const waiting = element( 'div', 'turn assistant waiting' );
-    const waitingCaret = element( 'span', 'caret' );
     let lastLength = 0;
 
-    waiting.append( waitingCaret );
+    waiting.append( readingLine() );
 
     function nearBottom()
     {
@@ -284,11 +283,16 @@ function updateAssistant( record, entry, surface )
         children.push( blockRecord.element );
     }
 
-    if ( entry.streaming && entry.blocks.length === 0 )
+    // Before the first token, and after a call's result, the model is reading what it will answer.
+    const last = entry.blocks.length > 0 ? entry.blocks[ entry.blocks.length - 1 ] : null;
+    const reading = last === null || ( last.kind === 'tool' && last.result !== null );
+
+    if ( entry.streaming && reading )
     {
-        const caret = record.pendingCaret !== undefined ? record.pendingCaret : element( 'span', 'caret' );
-        record.pendingCaret = caret;
-        children.push( caret );
+        if ( record.readingLine === undefined )
+            record.readingLine = readingLine();
+
+        children.push( record.readingLine );
     }
 
     placeChildren( record.body, children );
@@ -356,8 +360,22 @@ function updateBlock( built, block, live, expanded )
         return;
     }
 
-    const options = { caret: live };
-    built.element.innerHTML = renderMarkdown( block.text, options );
+    // No ring at the end of streaming text: the text moving is the sign of life.
+    built.element.innerHTML = renderMarkdown( block.text );
+}
+
+// ---- Reading ---------------------------------------------------------------------------------
+
+/** The ring and "Reading": the model taking in the message, or a call's result, before it writes. */
+function readingLine()
+{
+    const line = element( 'div', 'reading' );
+    const ring = element( 'span', 'caret' );
+
+    ring.setAttribute( 'aria-hidden', 'true' );
+    line.append( ring, element( 'span', 'reading-label', 'Reading' ) );
+
+    return line;
 }
 
 // ---- Thought blocks --------------------------------------------------------------------------
@@ -373,10 +391,11 @@ function createThoughtRecord( block )
 
     toggle.dataset.identifier = block.id;
     setIcon( chevron, 'chevronRight' );
-    toggle.append( chevron, label, caret );
+    caret.setAttribute( 'aria-hidden', 'true' );
+    toggle.append( caret, chevron, label );
     container.append( toggle, body );
 
-    return { element: container, toggle, label, caret, body };
+    return { element: container, toggle, chevron, label, caret, body };
 }
 
 function updateThought( built, block, live, expanded )
@@ -385,15 +404,17 @@ function updateThought( built, block, live, expanded )
     built.element.classList.toggle( 'live', live );
     built.toggle.setAttribute( 'aria-expanded', expanded ? 'true' : 'false' );
     built.label.textContent = thoughtLabel( block, live );
-    built.caret.hidden = !live || expanded;
+
+    // While it is written the ring leads, in the chevron's place: ring, "Thinking", the count.
+    built.caret.hidden = !live;
+    built.chevron.hidden = live;
     built.body.hidden = !expanded;
 
     // A closed block is not kept current while it streams: opening it renders it whole.
     if ( !expanded )
         return;
 
-    const options = { caret: live };
-    built.body.innerHTML = renderMarkdown( block.text, options );
+    built.body.innerHTML = renderMarkdown( block.text );
 }
 
 // ---- Tool cards ------------------------------------------------------------------------------

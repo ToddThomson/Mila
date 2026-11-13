@@ -3,6 +3,7 @@
 
 import { element, iconButton, setIcon, clear, previewOrIcon } from '../dom.js';
 import { isBusy, streamIdentifier } from '../state.js';
+import { composerPrompt } from '../format.js';
 
 const maximumRows = 12;
 
@@ -315,7 +316,7 @@ export function createComposerView( root, dropZone, actions )
         attach.title = attachRefusal === null ? 'Attach an image or audio clip' : attachRefusal;
         picker.accept = acceptFor( session );
 
-        input.placeholder = loaded ? 'Message ' + session.model : 'Load a model to start a conversation';
+        input.placeholder = loaded ? composerPrompt( session.activity ) : 'Load a model to start a conversation';
         input.disabled = !loaded;
 
         setIcon( submit, busy ? 'stop' : 'send' );

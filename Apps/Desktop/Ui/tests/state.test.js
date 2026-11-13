@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createInitialState, reduce, summarizeTurn, groupConversations } from '../state.js';
-import { statsLine, thoughtLabel, contextFact, thinkingFact, finishNotice, activityCard, folderName, planProgress } from '../format.js';
+import { createInitialState, reduce, summarizeTurn, groupConversations, appStatus } from '../state.js';
+import { statsLine, thoughtLabel, contextFact, thinkingFact, finishNotice, activityCard, folderName, planProgress, composerPrompt } from '../format.js';
 
 function apply( messages )
 {
@@ -285,3 +285,59 @@ function anActivityIsNamedForItsCardAndAFolderByItsLastPart()
 }
 
 test( 'an activity is named for its card, and a folder by its last part', anActivityIsNamedForItsCardAndAFolderByItsLastPart );
+
+function memoryComingBackIsTheTranscriptsUntilItIsDone()
+{
+    const restoring = { type: 'progress', task: 'restore', label: 'Getting ready', done: 0, total: 4096 };
+    const loading = { type: 'progress', task: 'load', label: 'Loading', done: null, total: null };
+
+    const during = apply( [ loading, restoring ] );
+    assert.deepEqual( during.restore, restoring );
+    assert.deepEqual( during.progress, loading );
+
+    const after = apply( [ loading, restoring, { ...restoring, done: 4096 } ] );
+    assert.equal( after.restore, null );
+    assert.deepEqual( after.progress, loading );
+}
+
+test( 'memory coming back is the transcript\'s to show, until it is done', memoryComingBackIsTheTranscriptsUntilItIsDone );
+
+function aThoughtBeingWrittenCountsItsTokens()
+{
+    const thought = ( tokens ) => ( { type: 'turn.text', turn_id: 't1', round: 1, channel: 'thought', text: 'x', tokens } );
+    const state = apply( [ begin, thought( 3 ), thought( 412 ) ] );
+    const block = state.transcript[ state.transcript.length - 1 ].blocks[ 0 ];
+
+    assert.equal( thoughtLabel( block, true ), 'Thinking · 412 tokens' );
+    assert.equal( thoughtLabel( { ...block, liveTokens: null }, true ), 'Thinking' );
+    assert.equal( thoughtLabel( block, false ), 'Thought' );
+}
+
+test( 'a thought being written counts its tokens', aThoughtBeingWrittenCountsItsTokens );
+
+function theEmptyMessageBoxSpeaksForMilaInTheConversationsActivity()
+{
+    assert.equal( composerPrompt( 'ask' ), 'Ask Mila anything' );
+    assert.equal( composerPrompt( 'build' ), 'What should Mila build or change?' );
+    assert.equal( composerPrompt( 'research' ), 'What should Mila look into?' );
+    assert.equal( composerPrompt( 'tasks' ), 'What should Mila get done?' );
+    assert.equal( composerPrompt( null ), 'Ask Mila anything' );
+}
+
+test( 'the empty message box speaks for Mila, in the activity of the conversation',theEmptyMessageBoxSpeaksForMilaInTheConversationsActivity );
+
+function theHeaderSaysWhatTheAppIsDoingAndNothingWhenItIsDone()
+{
+    const loading = { type: 'progress', task: 'load', label: 'Loading gemma-4-12b-it-q4_0', done: null, total: null };
+    const restoring = { type: 'progress', task: 'restore', label: 'Getting ready', done: 0, total: 4096 };
+    const installing = { type: 'progress', task: 'install', label: 'Installing llama-3.2-3b', done: 10, total: 100 };
+
+    assert.equal( appStatus( apply( [] ) ), null );
+    assert.equal( appStatus( apply( [ loading ] ) ), 'Loading' );
+    assert.equal( appStatus( apply( [ installing ] ) ), 'Installing llama-3.2-3b' );
+    assert.equal( appStatus( apply( [ loading, { ...loading, done: 1, total: 1 } ] ) ), null );
+    assert.equal( appStatus( apply( [ restoring ] ) ), 'Getting ready' );
+    assert.equal( appStatus( apply( [ restoring, { ...restoring, done: 4096 } ] ) ), null );
+}
+
+test( 'the header says what the app is doing, and nothing when it is done', theHeaderSaysWhatTheAppIsDoingAndNothingWhenItIsDone );

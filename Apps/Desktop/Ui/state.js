@@ -15,6 +15,7 @@ export function createInitialState()
         installedModels: [],
         publishedModels: null,
         progress: null,
+        restore: null,
         modelsError: null,
         attachments: [],
         logs: [],
@@ -33,6 +34,10 @@ export function reduce( state, message )
             return { ...state, installedModels: message.installed, publishedModels: message.published };
 
         case 'progress':
+            // The model's memory coming back is the transcript's to show, not the models view's.
+            if ( message.task === 'restore' )
+                return { ...state, restore: message.done < message.total ? message : null };
+
             return { ...state, progress: message };
 
         case 'conversations.list':
@@ -220,9 +225,12 @@ function reduceTurnText( turn, message )
     const kind = message.channel === 'thought' ? 'thought' : 'answer';
     const continues = last !== null && last.kind === kind && !( kind === 'thought' && turn.thoughtBreak );
 
+    // The round's tokens so far, sent with a thought so its label moves while it is written.
+    const liveTokens = message.tokens === undefined ? null : message.tokens;
+
     if ( continues )
     {
-        const extended = { ...last, text: last.text + message.text };
+        const extended = { ...last, text: last.text + message.text, liveTokens };
 
         return { ...turn, blocks: replaceLastBlock( turn, extended ) };
     }
@@ -232,7 +240,8 @@ function reduceTurnText( turn, message )
         id: turn.id + ':' + turn.blocks.length,
         round: message.round,
         text: message.text,
-        tokens: null
+        tokens: null,
+        liveTokens
     };
 
     return { ...turn, blocks: [ ...turn.blocks, block ], thoughtBreak: false };
@@ -522,6 +531,24 @@ export function summarizeTurn( turn )
     const tokensPerSecond = decodeSeconds > 0 ? tokens / decodeSeconds : 0;
 
     return { prefillMs, tokensPerSecond, tokens, rounds: turn.rounds.length };
+}
+
+/**
+ * What the app is doing to the model, in a word for the header, or null when it is doing nothing: its memory coming
+ * back, then a load, a rebuild or an install under way.
+ */
+export function appStatus( state )
+{
+    if ( state.restore !== null )
+        return state.restore.label;
+
+    const progress = state.progress;
+
+    if ( progress === null || ( progress.total !== null && progress.done >= progress.total ) )
+        return null;
+
+    // The model a load opens is already the picker's name.
+    return progress.task === 'load' || progress.task === 'rebuild' ? 'Loading' : progress.label;
 }
 
 export function isBusy( state )

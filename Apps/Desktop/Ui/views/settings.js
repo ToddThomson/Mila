@@ -23,6 +23,7 @@ export function createSettingsView( root, actions )
     const close = iconButton( 'quiet-icon', 'close', 'Close settings', 'close-settings' );
     const body = element( 'div', 'panel-body' );
     let lastSession = null;
+    let lastInstalled = null;
     let lastOpen = false;
 
     panelHeader.append( title, close );
@@ -48,6 +49,13 @@ export function createSettingsView( root, actions )
         {
             const closed = { settingsOpen: false };
             actions.changeSurface( closed );
+        }
+
+        // Settings stays open beside the models view, so closing the view comes back here.
+        if ( action === 'manage-models' )
+        {
+            const opened = { modelsOpen: true };
+            actions.changeSurface( opened );
         }
 
         if ( action === 'thinking' )
@@ -258,6 +266,18 @@ export function createSettingsView( root, actions )
      * The person's own search key. The page never holds it after Save: the field is cleared, and the session
      * says only whether a key is set.
      */
+    /** First, since every setting below applies to a loaded model: the one in use, and the way to the rest. */
+    function buildModels( session, installed )
+    {
+        const inUse = session !== null && session.model !== null ? session.model + ' is in use. ' : 'No model is loaded. ';
+        const count = installed.length === 1 ? '1 model installed.' : installed.length + ' models installed.';
+        const container = section( 'Models', inUse + count );
+        const row = element( 'div', 'setting-row' );
+
+        row.append( button( 'chip-button', 'Manage models', 'manage-models' ) );
+        container.append( row );
+    }
+
     function buildWebSearch( session )
     {
         const enabled = session.web_search === true;
@@ -337,9 +357,10 @@ export function createSettingsView( root, actions )
         sendSetting( change );
     }
 
-    function build( session )
+    function build( session, installed )
     {
         clear( body );
+        buildModels( session, installed );
 
         if ( session !== null )
         {
@@ -378,12 +399,13 @@ export function createSettingsView( root, actions )
             return;
         }
 
-        if ( state.session === lastSession && lastOpen )
+        if ( state.session === lastSession && state.installedModels === lastInstalled && lastOpen )
             return;
 
         lastSession = state.session;
+        lastInstalled = state.installedModels;
         lastOpen = true;
-        build( state.session );
+        build( state.session, state.installedModels );
     }
 
     return { render };

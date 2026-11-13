@@ -186,6 +186,23 @@ kbd {
 
 .app.sidebar-hidden .sidebar { display: none; }
 
+/* The collapsed sidebar in a wide window: its three ways out, Settings at the foot as in the sidebar. */
+.rail {
+  width: 52px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0 8px;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--rule);
+}
+
+.rail[hidden] { display: none; }
+
+.rail-foot { margin-top: auto; }
+
 .sidebar-top {
   display: flex;
   align-items: center;
@@ -369,6 +386,26 @@ kbd {
 
 .model-menu { top: 40px; left: 0; min-width: 260px; }
 
+/* What the app is doing to the model -- loading, installing, getting ready -- in one fixed place. */
+.app-status { display: inline-flex; align-items: center; gap: 8px; margin-left: 6px; font-size: 14px; color: var(--muted); white-space: nowrap; }
+
+.app-status[hidden] { display: none; }
+
+/* Which conversation this is, whether the sidebar shows it or not; cut short before it crowds the facts. */
+.conversation-title {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  font-size: 14px;
+  color: var(--fg);
+}
+
+.app-status .caret { margin-left: 0; }
+
 .session-facts {
   margin-left: auto;
   display: flex;
@@ -479,8 +516,6 @@ kbd {
 
 .thought.open .thought-toggle .chevron svg { transform: rotate(90deg); }
 
-.thought-toggle .caret { height: .95em; vertical-align: -.12em; }
-
 .thought-body {
   margin: 6px 0 4px 6px;
   padding: 2px 0 2px 14px;
@@ -590,22 +625,29 @@ kbd {
 
 .turn.assistant:hover .stats, .turn.assistant:focus-within .stats { visibility: visible; }
 
-/* The streaming caret: the one animation besides the progress bar. */
+/* Mila at work: one ring wherever the app waits -- a reply under way, the header's status. The one animation
+   besides the progress bar. */
 
 .caret {
   display: inline-block;
-  width: .5em;
-  height: 1.05em;
-  margin-left: 1px;
-  vertical-align: -.17em;
-  border-radius: 1px;
-  background: var(--accent);
-  animation: caret-blink 1.06s steps(1) infinite;
+  box-sizing: border-box;
+  width: .85em;
+  height: .85em;
+  margin-left: 4px;
+  vertical-align: -.1em;
+  border: 2px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: caret-spin .8s linear infinite;
 }
 
-.waiting .caret, .turn-body > .caret { margin-left: 0; }
+.reading { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; color: var(--muted); }
 
-@keyframes caret-blink { 50% { opacity: 0; } }
+.reading .caret, .thought-toggle .caret { margin: 0 2px 0 3px; }
+
+.caret[hidden], .chevron[hidden] { display: none; }
+
+@keyframes caret-spin { to { transform: rotate(360deg); } }
 
 /* ---- Rendered markdown ------------------------------------------------------------------- */
 

@@ -1,5 +1,5 @@
-// The sidebar: a new conversation, the stored conversations by date, and the way to the models
-// view and settings. A row's menu renames in place and asks before deleting.
+// The sidebar: a new conversation, the stored conversations by date, and the way to settings, where
+// models are managed. A row's menu renames in place and asks before deleting.
 
 import { element, button, iconButton, clear } from '../dom.js';
 import { groupConversations } from '../state.js';
@@ -9,7 +9,6 @@ export function createSidebarView( root, actions )
 {
     const list = root.querySelector( '.conversation-list' );
     const local = { menuFor: null, renaming: null, confirming: null };
-    const modelsPanel = { modelsOpen: true, settingsOpen: false };
     const settingsPanel = { settingsOpen: true };
     const noConfirmation = { confirming: null };
     const noRename = { renaming: null };
@@ -42,9 +41,6 @@ export function createSidebarView( root, actions )
 
         if ( action === 'collapse-sidebar' )
             actions.toggleSidebar();
-
-        if ( action === 'open-models' )
-            openPanel( modelsPanel );
 
         if ( action === 'open-settings' )
             openPanel( settingsPanel );

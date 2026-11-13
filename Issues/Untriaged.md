@@ -10,6 +10,12 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## The turn after a long thinking reply waits while the reply's answer is read again
+
+`Lib/Src/Dnn/Models/Gemma/GemmaModel.ixx` (prompt prefix reuse) @ 0.21.0-dev+138
+
+Found 2026-11-13 in Mila Desktop on the Mac, Gemma 4 12B Q4_0, thinking on: the turn after a 2,048-token reply took 11.3 s to its first token, every other turn 1.17 to 1.36 s (the conversation's stored stats, timed from the round's start). Gemma 4's template leaves a reply's thinking out of the history, so the cached prompt stops matching where that reply began and its answer, about 1,400 tokens, is read again. Not checked: Qwen 3.8's template, which also drops past thinking, and what llama.cpp does with the same conversation. Logs `D:\Claude\mac\desktop138`.
+
 ## Three Gemma 4 26B tests fail on the PC because their BF16 weights file is 32 KB
 
 `Data/models/gemma/gemma4_26b_a4b_it_qat_bf16.bin` (test data, gitignored) @ 0.21.0-dev+138
@@ -26,7 +32,7 @@ Found 2026-11-12 measuring residency (`Metal/MetalBackend.md` 5, W3a). Gemma 4 1
 
 `Lib/Src/Dnn/Compute/Devices/Metal/MetalDevice.ixx` (`getMemoryInfo`) @ 0.21.0-dev+135
 
-Found 2026-11-11 timing mila-chat's first reply. Automatic context takes 262,144, the model then holds 12.8 GB, and `getMemoryInfo` offers the planner the whole of `recommendedMaxWorkingSetSize` (12.71 GB) as though nothing else on the Mac needed memory. Metal stops holding idle buffers in place about 2 s after their last use, so between the load and the first prompt the weights become ordinary memory; the first prompt then pins 12.8 GB with almost nothing free, and macOS compresses 2 to 9 GB (part of it the weights) and swaps up to 0.9 GB before it can. First prefill of "Hello": 948 to 8423 ms at 262,144, 652 to 1154 ms at 8192. Since `0.21.0-dev+137` the load leaves no copy of the weights in the file cache (11 s to 1.7 s), and a trial of that read at +135 left this unchanged. Not measured: a prompt after the model has sat idle, and what context the Mac's real free memory would allow. Scripts and logs `D:\Claude\metal\first-prompt`. Measured since, 2026-11-12: idle, other applications, a renewed residency set and coming back after another app (`Metal/MetalBackend.md` 5, W3a and W3b; `D:\Claude\metal\sweep`).
+Found 2026-11-11 timing mila-chat's first reply. Automatic context takes 262,144, the model then holds 12.8 GB, and `getMemoryInfo` offers the planner the whole of `recommendedMaxWorkingSetSize` (12.71 GB) as though nothing else on the Mac needed memory. Metal stops holding idle buffers in place about 2 s after their last use, so between the load and the first prompt the weights become ordinary memory; the first prompt then pins 12.8 GB with almost nothing free, and macOS compresses 2 to 9 GB (part of it the weights) and swaps up to 0.9 GB before it can. First prefill of "Hello": 948 to 8423 ms at 262,144, 652 to 1154 ms at 8192. Since `0.21.0-dev+137` the load leaves no copy of the weights in the file cache (11 s to 1.7 s), and a trial of that read at +135 left this unchanged. Not measured: a prompt after the model has sat idle, and what context the Mac's real free memory would allow. Scripts and logs `D:\Claude\metal\first-prompt`. Measured since, 2026-11-12: idle, other applications, a renewed residency set and coming back after another app (`Metal/MetalBackend.md` 5, W3a and W3b; `D:\Claude\metal\sweep`). At `0.21.0-dev+138`, 2026-11-13, in the packaged Mila Desktop (its settings at `auto`): the plan came to 12,250,639,620 bytes, and the lock while Mila is in front held 11.4 to 11.5 GB of it before macOS refused the rest at the system's lock limit, leaving 0.06 GiB free. Each time Safari was in front macOS compressed 3 to 4 GiB of the let-go model, so each return re-read it. Logs `D:\Claude\mac\desktop138`.
 
 ## Nobody has measured what the first load of a model on a Mac pays to prepare its kernels
 

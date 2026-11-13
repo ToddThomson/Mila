@@ -49,7 +49,12 @@ export function thinkingFact( session )
 export function thoughtLabel( block, streaming )
 {
     if ( block.tokens === null )
-        return streaming ? 'Thinking' : 'Thought';
+    {
+        if ( !streaming )
+            return 'Thought';
+
+        return block.liveTokens > 0 ? 'Thinking · ' + formatCount( block.liveTokens ) + ' tokens' : 'Thinking';
+    }
 
     const count = formatCount( block.tokens );
     const unit = block.tokens === 1 ? ' token' : ' tokens';
@@ -126,11 +131,21 @@ export function readableJson( text )
 }
 
 const activities = {
-    ask: { name: 'Ask & Explore', line: 'Questions, explanations, ideas, working a problem through.' },
-    build: { name: 'Build & Code', line: 'Write and improve software in a folder you choose.' },
-    research: { name: 'Research & Analyze', line: 'Investigate a question across web pages, with sources.' },
-    tasks: { name: 'Get Things Done', line: 'Give Mila an outcome: it plans the steps, you approve, it works through them.' }
+    ask: { name: 'Ask & Explore', line: 'Questions, explanations, ideas, working a problem through.', prompt: 'Ask Mila anything' },
+    build: { name: 'Build & Code', line: 'Write and improve software in a folder you choose.', prompt: 'What should Mila build or change?' },
+    research: { name: 'Research & Analyze', line: 'Investigate a question across web pages, with sources.', prompt: 'What should Mila look into?' },
+    tasks: { name: 'Get Things Done', line: 'Give Mila an outcome: it plans the steps, you approve, it works through them.', prompt: 'What should Mila get done?' }
 };
+
+/**
+ * What the empty message box says: the conversation's activity, in Mila's name. The model is not who answers.
+ */
+export function composerPrompt( activity )
+{
+    const known = activities[ activity ];
+
+    return known === undefined ? activities.ask.prompt : known.prompt;
+}
 
 /**
  * How far a plan has come: steps done or skipped of all of them.

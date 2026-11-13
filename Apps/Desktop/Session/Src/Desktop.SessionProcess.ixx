@@ -205,9 +205,9 @@ namespace Mila::Desktop
 
         static constexpr std::string_view kStreamId = "stream-1";
 
-        /// Ask & Explore's limits, numbers no measurement has set.
+        /// Ask & Explore's rounds, a number no measurement has set. Its reply has no limit of the app's: no publisher's
+        /// card sets one, and Qwen 3.8's names its whole context (Todd, 2026-11-13).
         static constexpr int kAskRounds = 4;
-        static constexpr dim_t kAskReplyTokens = 2048;
 
         /// What the session's thread is doing, for an error to say where it happened.
         enum class Work
@@ -478,6 +478,17 @@ namespace Mila::Desktop
                 conversation_messages_ = nlohmann::json::array();
             }
 
+            // Stored at once with the person's message, so the list shows the conversation on send and a quit during
+            // the reply keeps what they wrote; the reply is stored when it ends (Todd, 2026-11-13).
+            conversation_messages_.push_back( { { "role", "user" }, { "content", text }, { "thought", nullptr },
+                { "tool_calls", nullptr }, { "attachments", nullptr }, { "stats", nullptr } } );
+
+            Turn sent;
+            sent.role = Role::User;
+            sent.content = text;
+            saveConversation( &sent );
+            sendConversations();
+
             turn_id_ = std::format( "turn-{}", ++turn_number_ );
             round_ = 0;
             turn_ = TurnRecord{};
@@ -503,13 +514,19 @@ namespace Mila::Desktop
             work_ = Work::Turn;
             sendState();
 
-            send( "turn.begin", { { "stream_id", kStreamId }, { "turn_id", turn_id_ },
-                { "conversation_id", conversation_id_ } } );
-
             Mila::Agents::Agent& agent = model_.agent();
             RoundTimer timer;
 
+            const auto began = std::chrono::steady_clock::now();
             memory_holder_.use( agent.model().model().getDeviceId() );
+
+            // What a person waits for before the round starts, which the round's own prefill time leaves out.
+            Mila::Logging::Logger::info( std::format( "{}: the model's memory held after {:.0f} ms", turn_id_,
+                std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began ).count() ) );
+
+            // After the hold, so the page shows "Getting ready" in the turn's place while memory comes back.
+            send( "turn.begin", { { "stream_id", kStreamId }, { "turn_id", turn_id_ },
+                { "conversation_id", conversation_id_ } } );
 
             std::optional<Mila::Agents::Response> responded;
 
@@ -520,9 +537,22 @@ namespace Mila::Desktop
             }
             catch ( const DeviceOutOfMemoryError& )
             {
-                // The agent left the conversation as it was and the model loaded, so the turn is not recorded and the
-                // person can send the message again.
+                // The agent left the conversation as it was and the model loaded, so the message stored on send is
+                // taken back out -- with the conversation, when it was its first -- and the person can send it again.
                 memory_holder_.idle();
+                conversation_messages_.erase( conversation_messages_.size() - 1 );
+
+                if ( conversation_messages_.empty() )
+                {
+                    store_.remove( conversation_id_ );
+                    forgetConversation();
+                }
+                else
+                {
+                    saveConversation();
+                }
+
+                sendConversations();
                 send( "turn.end", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "finish", "error" },
                     { "answer", turn_.answer } } );
                 sendError( "Another application is using the GPU's memory, so Mila could not answer. Your message "
@@ -551,7 +581,7 @@ namespace Mila::Desktop
 
             work_ = Work::None;
 
-            recordTurn( text );
+            recordTurn();
             busy_ = false;
 
             sendState();
@@ -578,7 +608,10 @@ namespace Mila::Desktop
                     break;
 
                 case Kind::Reasoning:
-                    sendText( "thought", event.text );
+                    // With the round's count so far: the page cannot count tokens from text, and a long thought
+                    // otherwise shows the person nothing moving.
+                    send( "turn.text", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "round", round_ },
+                        { "channel", "thought" }, { "text", event.text }, { "tokens", timer.tokens() } } );
                     break;
 
                 case Kind::Answer:
@@ -649,6 +682,10 @@ namespace Mila::Desktop
                 { "tokens", timer.tokens() },
                 { "thought_tokens", thought_tokens },
                 { "finish", called ? std::string_view( "tool_call" ) : finishName( event.status ) } } );
+
+            Mila::Logging::Logger::info( std::format( "{} round {}: first token after {:.0f} ms, {} tokens at {:.1f} per second, {}",
+                turn_id_, round_, timer.prefillMilliseconds(), timer.tokens(), timer.decodeRate(),
+                called ? std::string_view( "tool_call" ) : finishName( event.status ) ) );
 
             ++turn_.rounds;
             turn_.prefill_ms += timer.prefillMilliseconds();
@@ -822,12 +859,10 @@ namespace Mila::Desktop
             return finishName( turn_.last_status );
         }
 
-        /// The turn joins the stored conversation as the page shows it, and as the model read it.
-        void recordTurn( const std::string& text )
+        /// The reply joins the stored conversation, after the message stored on send, as the page shows it and as
+        /// the model read it.
+        void recordTurn()
         {
-            conversation_messages_.push_back( { { "role", "user" }, { "content", text }, { "thought", nullptr },
-                { "tool_calls", nullptr }, { "attachments", nullptr }, { "stats", nullptr } } );
-
             const double rate = turn_.decode_seconds > 0.0
                 ? std::round( 10.0 * turn_.decoded_tokens / turn_.decode_seconds ) / 10.0 : 0.0;
 
@@ -847,7 +882,8 @@ namespace Mila::Desktop
 
         // ---- Conversations ----------------------------------------------------------------
 
-        void saveConversation()
+        /// Store the conversation as it stands; `sent` is a message the agent has not taken in yet, stored after it.
+        void saveConversation( const Turn* sent = nullptr )
         {
             nlohmann::json turns = nlohmann::json::array();
 
@@ -857,6 +893,11 @@ namespace Mila::Desktop
                 {
                     turns.push_back( turnToJson( turn ) );
                 }
+            }
+
+            if ( sent != nullptr )
+            {
+                turns.push_back( turnToJson( *sent ) );
             }
 
             const nlohmann::json conversation = {
@@ -985,8 +1026,8 @@ namespace Mila::Desktop
         /**
          * @brief Give the session an activity's system prompt, tools, limits, rules and grant (MilaDesktop.md 3.1).
          *
-         * Ask & Explore has no tools, no grant, and limits of rounds and reply tokens. The others run with no round or reply
-         * limit, bounded by the context and the person's Stop: Build & Code with the file tools, granted its folder
+         * Ask & Explore has no tools, no grant, and a limit of rounds. Every activity's reply is bounded by the context
+         * and the person's Stop, and the others have no round limit either: Build & Code with the file tools, granted its folder
          * to read and write, Research & Analyze reading web pages, granted the network, Get Things Done with both and
          * its plan, whose updates run without asking.
          *
@@ -1046,7 +1087,7 @@ namespace Mila::Desktop
             usePrompt( promptFor( activity ) );
 
             session().withLimits( activity == "ask"
-                ? Mila::Agents::AgentLimits{ .rounds = kAskRounds, .reply_tokens = kAskReplyTokens }
+                ? Mila::Agents::AgentLimits{ .rounds = kAskRounds }
                 : Mila::Agents::AgentLimits{} );
 
             Mila::Agents::ToolRules rules;
@@ -1331,6 +1372,7 @@ namespace Mila::Desktop
                 ? std::format( "Loading {} ({})", name, quantizationWord( *quantization ) )
                 : std::format( "Loading {}", name );
 
+            loading_ = name;
             sendState();
             send( "progress", { { "task", loadTask() }, { "label", load_label_ }, { "done", nullptr }, { "total", nullptr } } );
 
@@ -1357,6 +1399,7 @@ namespace Mila::Desktop
                 failure = error.what();
             }
 
+            loading_.clear();
             send( "progress", { { "task", loadTask() }, { "label", load_label_ }, { "done", 1 }, { "total", 1 } } );
 
             if ( !failure.empty() )
@@ -2028,6 +2071,7 @@ namespace Mila::Desktop
 
             send( "session.state", {
                 { "model", resident ? nlohmann::ordered_json( model_.name() ) : nlohmann::ordered_json( nullptr ) },
+                { "loading", loading_.empty() ? nlohmann::ordered_json( nullptr ) : nlohmann::ordered_json( loading_ ) },
                 { "no_model_reason", no_model_reason_.empty() || resident
                     ? nlohmann::ordered_json( nullptr ) : nlohmann::ordered_json( no_model_reason_ ) },
                 { "context_length", context_length },
@@ -2305,8 +2349,12 @@ namespace Mila::Desktop
 
         RequestQueue queue_;
 
-        // Locks the model's memory while Mila is in use and lets it go when it is not (Deployment.md 12.10).
-        MemoryHolder memory_holder_;
+        // Locks the model's memory while Mila is in use and lets it go when it is not (Deployment.md 12.10); what it
+        // brings back first is the page's "Getting ready".
+        MemoryHolder memory_holder_{ [this]( std::size_t done, std::size_t total )
+            {
+                send( "progress", { { "task", "restore" }, { "label", "Getting ready" }, { "done", done }, { "total", total } } );
+            } };
 
         // Set by the reading thread when it accepts a turn, cleared by this thread when the turn is done.
         std::atomic<bool> busy_{ false };
@@ -2322,6 +2370,9 @@ namespace Mila::Desktop
 
         Work work_{ Work::None };
         std::string load_label_;
+
+        // The model a load is opening, while it does, so the page names it before it is resident.
+        std::string loading_;
 
         std::string install_name_;
         std::uint64_t install_total_{ 0 };

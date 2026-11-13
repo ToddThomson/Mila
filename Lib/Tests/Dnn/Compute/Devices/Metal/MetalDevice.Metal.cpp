@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 #include <mach/mach.h>
 #include <mach/mach_vm.h>
+#include <unistd.h>
 
 import Mila;
 import std;
@@ -227,6 +228,26 @@ namespace Mila::Tests::Dnn::Compute
         device->deallocate( contents );
 
         EXPECT_THROW( (void)device->locate( contents ), std::invalid_argument );
+    }
+
+    TEST( MetalDevice, MemoryNeverWrittenOrInRamIsNotPagedOut )
+    {
+        const std::shared_ptr<MetalDevice> device = MetalDevice::at( 0 );
+        constexpr std::size_t bytes = std::size_t{ 64 } * 1024 * 1024;
+        const std::size_t page = static_cast<std::size_t>( ::getpagesize() );
+
+        // Read against what the rest of the suite holds, which the Mac may compress at any time: only a whole
+        // buffer's worth counted out would be this test's buffer.
+        const std::size_t before = device->getPagedOutBytes();
+        auto* const contents = static_cast<std::byte*>( device->allocate( bytes ) );
+        std::memset( contents, 1, bytes / 2 );
+
+        const std::size_t after = device->getPagedOutBytes();
+
+        EXPECT_EQ( after % page, 0u );
+        EXPECT_LT( after, before + bytes / 2 );
+
+        device->deallocate( contents );
     }
 
     TEST( MetalKernelLibrary, EveryKernelHasAPipeline )
