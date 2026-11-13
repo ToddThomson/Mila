@@ -22,10 +22,14 @@ const mockFolder = 'C:\\Users\\you\\Projects\\calc';
 export function createMockSession( options )
 {
     const scenario = findScenario( options.scenario );
-    const startModel = findModel( scenario.model );
+    const startModel = scenario.model === null ? null : findModel( scenario.model );
     const startTime = options.now();
     const seeds = seedConversations( startTime );
     const conversations = new Map();
+    // The models on this computer: every fixture, unless the scenario starts with fewer or none.
+    const everyModel = models.map( ( model ) => model.name );
+    const installed = new Set( scenario.installed === undefined ? everyModel : scenario.installed );
+    let publishedListed = false;
 
     for ( const seed of seeds )
         conversations.set( seed.id, seed );
@@ -155,10 +159,18 @@ export function createMockSession( options )
         return { name: model.name, size_bytes: model.size_bytes, quantization: model.quantization, family: model.family };
     }
 
+    function publishedItem( model )
+    {
+        return { name: model.name, size_bytes: model.size_bytes, quantization: model.quantization, installed: installed.has( model.name ) };
+    }
+
+    /** Every fixture is published; the list is sent once the page has asked for it online, as the session's is. */
     function emitModels()
     {
-        const installed = models.map( installedItem );
-        const message = { type: 'models.list', installed, published: null };
+        const onComputer = models.filter( ( model ) => installed.has( model.name ) );
+        const installedItems = onComputer.map( installedItem );
+        const published = publishedListed ? models.map( publishedItem ) : null;
+        const message = { type: 'models.list', installed: installedItems, published };
 
         emit( message );
     }
@@ -747,7 +759,7 @@ export function createMockSession( options )
     {
         const model = findModel( request.name );
 
-        if ( model === null )
+        if ( model === null || !installed.has( model.name ) )
         {
             const text = 'No installed model is called ' + request.name + '.';
             emitError( text, 'load' );
@@ -790,6 +802,21 @@ export function createMockSession( options )
             return;
         }
 
+        // A refused load leaves nothing resident, as the session's does: the model that was loaded is gone too.
+        const refusals = scenario.refusals === undefined ? {} : scenario.refusals;
+        const refusal = refusals[ model.name ];
+
+        if ( refusal !== undefined )
+        {
+            session.model = null;
+            session.loading = null;
+            session.busy = false;
+            emitError( 'Could not load ' + model.name + ': ' + refusal, 'load' );
+            emitState();
+
+            return;
+        }
+
         session.model = model;
         session.loading = null;
         session.contextLength = model.context_length;
@@ -801,6 +828,82 @@ export function createMockSession( options )
         attachments.clear();
         allowedTools.clear();
         emitState();
+    }
+
+    const installSteps = 10;
+    const installStepMilliseconds = 150;
+
+    function refreshModels( request )
+    {
+        if ( request.online )
+            publishedListed = true;
+
+        emitModels();
+    }
+
+    function installModel( request )
+    {
+        const model = findModel( request.name );
+
+        if ( model === null )
+        {
+            const text = 'Install failed: nothing published is called ' + request.name + '.';
+            emitError( text, 'install' );
+
+            return;
+        }
+
+        if ( installed.has( model.name ) )
+        {
+            const text = 'Install failed: ' + model.name + ' is already installed.';
+            emitError( text, 'install' );
+
+            return;
+        }
+
+        scheduleInstallStep( model, 0 );
+    }
+
+    function scheduleInstallStep( model, step )
+    {
+        const next = () => playInstallStep( model, step );
+
+        options.schedule( next, installStepMilliseconds );
+    }
+
+    /** The install's bytes as they arrive, then the model is on the computer. */
+    function playInstallStep( model, step )
+    {
+        const done = Math.round( model.size_bytes * step / installSteps );
+        const progress = { type: 'progress', task: 'install', label: 'Installing ' + model.name, done, total: model.size_bytes };
+        emit( progress );
+
+        if ( step < installSteps )
+        {
+            scheduleInstallStep( model, step + 1 );
+
+            return;
+        }
+
+        installed.add( model.name );
+        emitModels();
+    }
+
+    /** As the session's: the files go, a loaded model stays loaded, and a failure names no task. */
+    function removeModel( request )
+    {
+        const model = findModel( request.name );
+
+        if ( model === null || !installed.has( model.name ) )
+        {
+            const text = 'Remove failed: no installed model is called ' + request.name + '.';
+            emitError( text, null );
+
+            return;
+        }
+
+        installed.delete( model.name );
+        emitModels();
     }
 
     // ---- Requests ----------------------------------------------------------------------------
@@ -842,7 +945,13 @@ export function createMockSession( options )
                 return deleteConversation( request );
 
             case 'models.refresh':
-                return emitModels();
+                return refreshModels( request );
+
+            case 'model.install':
+                return installModel( request );
+
+            case 'model.remove':
+                return removeModel( request );
 
             case 'settings.set':
                 return changeSetting( request );

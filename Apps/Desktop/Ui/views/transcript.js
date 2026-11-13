@@ -5,7 +5,7 @@
 import { element, button, iconButton, setIcon, clear, previewOrIcon } from '../dom.js';
 import { renderMarkdown } from '../markdown.js';
 import { summarizeTurn, isBusy, emptyScreen } from '../state.js';
-import { thoughtLabel, statsLine, finishNotice, readableJson, activityCard } from '../format.js';
+import { thoughtLabel, statsLine, finishNotice, readableJson, activityCard, formatBytes } from '../format.js';
 
 const stickDistance = 80;
 
@@ -48,6 +48,20 @@ export function createTranscriptView( scroller, container, actions )
 
         if ( action === 'start-activity' )
             actions.startActivity( target.dataset.activity );
+
+        if ( action === 'load-model' )
+        {
+            const message = { type: 'model.load', name: target.dataset.name, quantization: null };
+            actions.send( message );
+        }
+
+        // A first model is chosen from the published list, so it is fetched as Settings opens.
+        if ( action === 'open-models' )
+        {
+            const refresh = { type: 'models.refresh', online: true };
+            actions.send( refresh );
+            actions.openSettings( 'models' );
+        }
     }
 
     function copyReply( target )
@@ -109,17 +123,21 @@ export function createTranscriptView( scroller, container, actions )
     {
         clear( emptyState );
 
-        const screen = emptyScreen( state.session );
+        const screen = emptyScreen( state );
 
         if ( screen === null )
             return;
 
-        if ( screen === 'no-model' )
+        if ( screen === 'choose-model' )
         {
-            const heading = element( 'p', 'empty-heading', 'No model is loaded' );
-            const reason = state.session.no_model_reason === null ? 'Choose one from the model menu above to start.' : state.session.no_model_reason;
-            const detail = element( 'p', 'empty-detail', reason );
-            emptyState.append( heading, detail );
+            renderChooseModel( state );
+
+            return;
+        }
+
+        if ( screen === 'first-run' )
+        {
+            renderFirstRun( state );
 
             return;
         }
@@ -138,6 +156,73 @@ export function createTranscriptView( scroller, container, actions )
         }
 
         renderHome( state );
+    }
+
+    /** Why no model is loaded, when there is a reason: a load just refused, or the remembered model not opening. */
+    function noModelReason( state )
+    {
+        if ( state.modelsError !== null && state.modelsError.during === 'load' )
+            return state.modelsError.text;
+
+        return state.session.no_model_reason;
+    }
+
+    /** Models are installed and none is loaded: each one a click from loading. */
+    function renderChooseModel( state )
+    {
+        const heading = element( 'p', 'empty-heading', 'Choose a model to start' );
+        const reason = noModelReason( state );
+        const list = element( 'div', 'start-models' );
+
+        emptyState.append( heading );
+
+        // Why the person is asked: a refusal when a load was refused, else that nothing is loaded.
+        if ( reason !== null )
+        {
+            const refusal = element( 'p', 'empty-detail start-refusal', reason );
+            refusal.setAttribute( 'role', 'alert' );
+            emptyState.append( refusal );
+        }
+        else
+        {
+            emptyState.append( element( 'p', 'empty-detail', 'Mila needs a model loaded to answer you.' ) );
+        }
+
+        for ( const model of state.installedModels )
+        {
+            const row = element( 'div', 'model-row' );
+            const text = element( 'div', 'model-text' );
+            const name = element( 'div', 'model-name', model.name );
+            const facts = element( 'div', 'model-facts', formatBytes( model.size_bytes ) + ' · ' + model.quantization );
+            const load = button( 'chip-button', 'Load', 'load-model' );
+
+            load.dataset.name = model.name;
+            text.append( name, facts );
+            row.append( text, load );
+            list.append( row );
+        }
+
+        const more = button( 'link-button', 'Install another model', 'open-models' );
+        emptyState.append( list, more );
+    }
+
+    /** Nothing is installed: the way to a first model. */
+    function renderFirstRun( state )
+    {
+        const heading = element( 'p', 'empty-heading', 'Install a model to start' );
+        const detail = element( 'p', 'empty-detail', 'Mila needs a model on this computer to answer you, and none is installed yet.' );
+        const choose = button( 'chip-button start-choose', 'Choose a model to install', 'open-models' );
+
+        emptyState.append( heading, detail );
+
+        if ( state.modelsError !== null && state.modelsError.during === 'install' )
+        {
+            const refusal = element( 'p', 'empty-detail start-refusal', state.modelsError.text );
+            refusal.setAttribute( 'role', 'alert' );
+            emptyState.append( refusal );
+        }
+
+        emptyState.append( choose );
     }
 
     /**

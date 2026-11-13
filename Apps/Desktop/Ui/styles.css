@@ -471,6 +471,33 @@ kbd {
 
 .empty-detail { margin: 0; color: var(--muted); }
 
+/* No model loaded: the installed ones to choose from, or the way to a first one. */
+
+.start-models {
+  max-width: 520px;
+  margin: 22px auto 0;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--faint);
+  text-align: left;
+  overflow: hidden;
+}
+
+.start-refusal { max-width: 520px; margin: 8px auto 0; color: var(--error); }
+
+.start-choose { margin-top: 18px; padding: 6px 16px; font-size: 14px; }
+
+.link-button {
+  margin-top: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-2);
+  font-size: 14px;
+}
+
+.link-button:hover { text-decoration: underline; }
+
 .activity-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -1018,7 +1045,11 @@ kbd {
 
 .setting-footer { margin: 6px 14px 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
 
-.settings-list-header { margin: 22px 14px -12px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.settings-list-header { margin: 22px 14px 0; font-size: 13px; font-weight: 600; color: var(--muted); }
+
+.settings-list-header + .settings-card { margin-top: 6px; }
+
+.settings-list-header + .setting-footer { margin-top: 2px; }
 
 .setting-note { margin: 0 0 8px; font-size: 13px; color: var(--muted); }
 

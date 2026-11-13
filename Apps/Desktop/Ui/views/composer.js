@@ -2,7 +2,7 @@
 // reply is written. A file dropped anywhere on the main pane attaches.
 
 import { element, iconButton, setIcon, clear, previewOrIcon } from '../dom.js';
-import { isBusy, streamIdentifier } from '../state.js';
+import { isBusy, streamIdentifier, isAskingForModel } from '../state.js';
 import { composerPrompt } from '../format.js';
 
 const maximumRows = 12;
@@ -309,6 +309,8 @@ export function createComposerView( root, dropZone, actions )
         const busy = isBusy( state );
         const session = state.session;
         const loaded = session !== null && session.model !== null;
+
+        root.hidden = isAskingForModel( state );
 
         attachRefusal = refusalFor( session );
         attach.classList.toggle( 'disabled', attachRefusal !== null );

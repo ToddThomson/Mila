@@ -13,6 +13,7 @@ export function createInitialState()
         conversationId: null,
         transcript: [],
         installedModels: [],
+        modelsKnown: false,
         publishedModels: null,
         progress: null,
         restore: null,
@@ -31,7 +32,7 @@ export function reduce( state, message )
             return reduceSessionState( state, message );
 
         case 'models.list':
-            return { ...state, installedModels: message.installed, publishedModels: message.published };
+            return { ...state, installedModels: message.installed, modelsKnown: true, publishedModels: message.published };
 
         case 'progress':
             // The model's memory coming back is the transcript's to show, not Settings'.
@@ -152,12 +153,18 @@ function reduceInfo( state, message )
 function reduceError( state, message )
 {
     const entry = { kind: 'error', text: message.text, during: message.during };
-    const added = appendEntry( state, entry );
+    const aboutModels = message.during === 'load' || message.during === 'install';
 
-    if ( message.during !== 'load' && message.during !== 'install' )
-        return added;
+    if ( !aboutModels )
+        return appendEntry( state, entry );
 
     const modelsError = { text: message.text, during: message.during };
+
+    // Before a conversation has begun, a refusal is said where the models are offered, not as its first entry.
+    if ( state.transcript.length === 0 )
+        return { ...state, modelsError };
+
+    const added = appendEntry( state, entry );
 
     return { ...added, modelsError };
 }
@@ -552,22 +559,40 @@ export function appStatus( state )
 }
 
 /**
- * What an empty conversation shows: nothing before the session's first state, the no-model words only when no
- * model is loaded or loading, else the conversation's activity or the home screen. A model being loaded is
- * shown as the screen it is about to have, since the header already says it is loading.
+ * What an empty conversation shows. With no model loaded or loading: the installed models to choose from, or,
+ * with none installed, the way to install one; nothing until the session has said which. A model being loaded
+ * is shown as the screen it is about to have, since the header already says it is loading.
  */
-export function emptyScreen( session )
+export function emptyScreen( state )
 {
+    const session = state.session;
+
     if ( session === null )
         return null;
 
     if ( session.model === null && !session.loading )
-        return 'no-model';
+    {
+        if ( !state.modelsKnown )
+            return null;
+
+        return state.installedModels.length > 0 ? 'choose-model' : 'first-run';
+    }
 
     if ( session.activity !== undefined && session.activity !== 'ask' )
         return 'activity';
 
     return 'home';
+}
+
+/**
+ * Whether the page is asking for a model: an empty conversation on the first-run or choose-a-model screen. The
+ * screen is then the one way forward, so the header's model menu and the message box are not shown beside it.
+ */
+export function isAskingForModel( state )
+{
+    const screen = emptyScreen( state );
+
+    return state.transcript.length === 0 && ( screen === 'first-run' || screen === 'choose-model' );
 }
 
 export function isBusy( state )

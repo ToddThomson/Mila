@@ -2,7 +2,7 @@
 
 import { element, button, iconButton, setIcon, clear } from '../dom.js';
 import { contextFact, thinkingFact, activityCard, folderName } from '../format.js';
-import { appStatus } from '../state.js';
+import { appStatus, isAskingForModel } from '../state.js';
 
 export function createHeaderView( root, actions )
 {
@@ -119,6 +119,7 @@ export function createHeaderView( root, actions )
     {
         // A wide window's collapsed sidebar is a rail, which has the way back itself.
         toggle.hidden = !surface.narrow || surface.sidebarOverlay;
+        picker.hidden = isAskingForModel( state );
 
         // Ahead of the facts' early return: the status and the title change while they do not.
         const working = appStatus( state );

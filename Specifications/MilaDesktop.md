@@ -158,8 +158,14 @@ its progress, not a catalogue.
 - The cards of 3.1 that can be shown, each its name and one line of what it is for.
 - Nothing else: no model, no settings. With no model installed, the first-run recommendation of 3.2 takes the
   cards' place until a model is installed.
-- While a model loads, the start's included, the home screen is already shown and the header says it is loading;
-  "No model is loaded" is only for when none is loaded or loading (Todd, 2026-11-13).
+- While a model loads, the start's included, the home screen is already shown and the header says it is loading.
+- With models installed and none loaded or loading: *Choose a model to start*, each installed model with *Load*, the
+  refusal's text above them when a load was refused, and *Install another model*, which opens Settings at *Models*
+  and fetches the published list. With none installed, until the recommendation of 3.2 exists: *Install a model to
+  start*, the reason it asks, and *Choose a model to install*, the same way (`+141`). Each screen asks one thing:
+  under its heading is why it asks, and while it shows, the header's model menu and the message box are hidden
+  (Todd, 2026-11-13). Before a conversation has begun, a load or install refused is said there and in Settings, not
+  as the conversation's first entry.
 
 ### 3.5 Main pane
 
@@ -400,7 +406,7 @@ tool the person has not allowed is asked about.
   5. No model loaded, then a load with progress, then a load refused with the refusal's text.
   6. An image attached to a model with the modality, and refused on one without.
   7. Five conversations across the date groups; open, rename, delete.
-  8. Install with progress from the published list; remove.
+  8. A first run, nothing installed: install with progress from the published list, a load, a remove.
   9. Detail `all`: log lines in the drawer.
   10. A reply of 20,000 tokens, to see that appending stays smooth.
   11. A tool call that asks first (section 4.5): allowed, the reply continues with the result; denied, the

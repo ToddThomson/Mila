@@ -635,3 +635,55 @@ function aSearchKeyIsSaidToBeSetButNeverSentBack()
 }
 
 test( 'a search key is said to be set, but never sent back', aSearchKeyIsSaidToBeSetButNeverSentBack );
+
+function aFirstRunInstallsFromThePublishedListThenLoadsAndRemoves()
+{
+    const { clock, events, session } = startSession( 8 );
+    const name = 'Llama-3.2-3B-Instruct-fp4';
+
+    session.handle( { v: 1, type: 'ready' } );
+    const first = ofType( events, 'models.list' ).pop();
+    assert.deepEqual( first.installed, [] );
+    assert.equal( first.published, null );
+    assert.equal( ofType( events, 'session.state' ).pop().model, null );
+
+    session.handle( { v: 1, type: 'models.refresh', online: true } );
+    assert.equal( ofType( events, 'models.list' ).pop().published.length, 4 );
+
+    session.handle( { v: 1, type: 'model.install', name } );
+    clock.run();
+
+    const installing = ofType( events, 'progress' ).filter( ( event ) => event.task === 'install' );
+    assert.equal( installing[ installing.length - 1 ].done, installing[ installing.length - 1 ].total );
+
+    const installed = ofType( events, 'models.list' ).pop();
+    assert.deepEqual( installed.installed.map( ( model ) => model.name ), [ name ] );
+    assert.ok( installed.published.find( ( model ) => model.name === name ).installed );
+
+    session.handle( { v: 1, type: 'model.load', name, quantization: null } );
+    clock.run();
+    assert.equal( ofType( events, 'session.state' ).pop().model, name );
+
+    session.handle( { v: 1, type: 'model.remove', name } );
+    assert.deepEqual( ofType( events, 'models.list' ).pop().installed, [] );
+}
+
+test( 'a first run installs from the published list, then loads and removes', aFirstRunInstallsFromThePublishedListThenLoadsAndRemoves );
+
+function aRefusedLoadSaysWhyAndLeavesNothingLoaded()
+{
+    const { clock, events, session } = startSession( 5 );
+
+    session.handle( { v: 1, type: 'model.load', name: 'qwen3.8-27b-fp4', quantization: null } );
+    clock.run();
+
+    const refusal = ofType( events, 'error' ).pop();
+    assert.equal( refusal.during, 'load' );
+    assert.match( refusal.text, /^Could not load qwen3\.8-27b-fp4: / );
+
+    const final = ofType( events, 'session.state' ).pop();
+    assert.equal( final.model, null );
+    assert.equal( final.loading, null );
+}
+
+test( 'a refused load says why and leaves nothing loaded', aRefusedLoadSaysWhyAndLeavesNothingLoaded );

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createInitialState, reduce, summarizeTurn, groupConversations, appStatus, emptyScreen } from '../state.js';
+import { createInitialState, reduce, summarizeTurn, groupConversations, appStatus, emptyScreen, isAskingForModel } from '../state.js';
 import { statsLine, thoughtLabel, contextFact, thinkingFact, finishNotice, activityCard, folderName, planProgress, composerPrompt } from '../format.js';
 
 function apply( messages )
@@ -209,7 +209,8 @@ function aRefusedInstallIsKeptForTheModelsViewUntilTheNextModelRequest()
     const afterRefusal = apply( [ refused ] );
 
     assert.equal( afterRefusal.modelsError.text, refused.text );
-    assert.equal( afterRefusal.transcript.at( -1 ).text, refused.text, 'the transcript keeps it too' );
+    assert.equal( afterRefusal.transcript.length, 0, 'before a conversation, only where the models are' );
+    assert.equal( apply( [ begin, refused ] ).transcript.at( -1 ).text, refused.text, 'in a conversation, the transcript keeps it too' );
     assert.equal( apply( [ refused, turnError ] ).modelsError.text, refused.text, 'an error elsewhere leaves it' );
     assert.equal( apply( [ turnError ] ).modelsError, null );
     assert.equal( apply( [ refused, installing ] ).modelsError, null );
@@ -342,16 +343,66 @@ function theHeaderSaysWhatTheAppIsDoingAndNothingWhenItIsDone()
 
 test( 'the header says what the app is doing, and nothing when it is done', theHeaderSaysWhatTheAppIsDoingAndNothingWhenItIsDone );
 
-function aModelBeingLoadedIsNotSaidToBeMissing()
+function screenFor( session, installed )
+{
+    const known = installed !== null;
+    const state = { session, modelsKnown: known, installedModels: known ? installed : [] };
+
+    return emptyScreen( state );
+}
+
+function anEmptyConversationShowsTheWayToAModel()
 {
     const missing = { model: null, loading: null };
     const loading = { model: null, loading: 'gemma-4-12b-it-q4_0' };
     const building = { model: 'gemma-4-12b-it-q4_0', loading: null, activity: 'build' };
+    const one = [ { name: 'gemma-4-12b-it-q4_0', size_bytes: 7e9, quantization: 'q4_0' } ];
 
-    assert.equal( emptyScreen( null ), null );
-    assert.equal( emptyScreen( missing ), 'no-model' );
-    assert.equal( emptyScreen( loading ), 'home' );
-    assert.equal( emptyScreen( building ), 'activity' );
+    assert.equal( screenFor( null, null ), null );
+    assert.equal( screenFor( missing, null ), null, 'nothing until the session has listed its models' );
+    assert.equal( screenFor( missing, [] ), 'first-run' );
+    assert.equal( screenFor( missing, one ), 'choose-model' );
+    assert.equal( screenFor( loading, [] ), 'home', 'a model being loaded is not said to be missing' );
+    assert.equal( screenFor( building, one ), 'activity' );
 }
 
-test( 'a model being loaded is not said to be missing', aModelBeingLoadedIsNotSaidToBeMissing );
+test( 'an empty conversation shows the way to a model', anEmptyConversationShowsTheWayToAModel );
+
+function theModelsListSaysTheInstalledModelsAreKnown()
+{
+    const listed = { type: 'models.list', installed: [], published: null };
+
+    assert.equal( apply( [] ).modelsKnown, false );
+    assert.equal( apply( [ listed ] ).modelsKnown, true );
+}
+
+test( 'the models list says the installed models are known', theModelsListSaysTheInstalledModelsAreKnown );
+
+function aRefusedLoadBeforeAConversationIsSaidWhereTheModelsAre()
+{
+    const refused = { type: 'error', text: 'Could not load qwen3.8-27b-fp4: too large.', during: 'load' };
+    const before = apply( [ refused ] );
+    const during = apply( [ begin, refused ] );
+
+    assert.equal( before.transcript.length, 0 );
+    assert.equal( before.modelsError.text, refused.text );
+    assert.equal( during.transcript[ during.transcript.length - 1 ].kind, 'error' );
+    assert.equal( during.modelsError.text, refused.text );
+}
+
+test( 'a refused load before a conversation is said where the models are', aRefusedLoadBeforeAConversationIsSaidWhereTheModelsAre );
+
+function aScreenAskingForAModelIsTheOneWayForward()
+{
+    const missing = { model: null, loading: null };
+    const loaded = { model: 'gemma-4-12b-it-q4_0', loading: null };
+    const firstRun = { session: missing, modelsKnown: true, installedModels: [], transcript: [] };
+    const refusedMidConversation = { ...firstRun, transcript: [ { kind: 'user', text: 'Hello' } ] };
+    const home = { ...firstRun, session: loaded };
+
+    assert.equal( isAskingForModel( firstRun ), true );
+    assert.equal( isAskingForModel( refusedMidConversation ), false, 'a conversation keeps its menu and box' );
+    assert.equal( isAskingForModel( home ), false );
+}
+
+test( 'a screen asking for a model is the one way forward', aScreenAskingForAModelIsTheOneWayForward );
