@@ -182,7 +182,12 @@ namespace Mila::Dnn::Serialization
                 readSafeTensorsHeader();
             }
 
-            mapFile();
+            // A header alone has no tensor bytes to map.
+            if ( !header_only_ )
+            {
+                mapFile();
+            }
+
             buildOffsetOrder();
         }
 
@@ -244,6 +249,20 @@ namespace Mila::Dnn::Serialization
         const std::string& getWeightQuantization() const noexcept
         {
             return weight_quantization_;
+        }
+
+        /**
+         * @brief Whether the file is a safetensors header with nothing after it: the start of a model's weights,
+         *        fetched to plan the model before it is installed (Specifications/Apps/AssistantOnboarding.md).
+         *
+         * Everything the header declares reads as for the whole file -- the configuration, the quantization, every
+         * tensor's name, type, shape and size -- and no tensor's bytes do, so it can be planned and never loaded.
+         * A file that ends exactly where its header does is never a whole weights file, so the form cannot be
+         * mistaken for one.
+         */
+        bool holdsHeaderOnly() const noexcept
+        {
+            return header_only_;
         }
 
         /**
@@ -331,6 +350,8 @@ namespace Mila::Dnn::Serialization
             requires isValidTensor<dtype_t::UINT8, MR>
         TensorBlob<MR> readTensorBlob( const std::string& name, int device_id = 0 )
         {
+            requireTensorBytes();
+
             const auto& blob_meta = getTensorBlobMetadata( name );
 
             TensorBuffer<dtype_t::UINT8, MR> buffer( device_id, static_cast<std::size_t>( blob_meta.nbytes ) );
@@ -385,6 +406,8 @@ namespace Mila::Dnn::Serialization
         template<typename TStagingMemoryResource = Compute::CpuMemoryResource, typename TConsumer>
         void streamTensorBlobs( TConsumer&& consume, int device_id = 0 )
         {
+            requireTensorBytes();
+
 #ifdef MILA_HAS_CUDA
             if constexpr ( std::is_same_v<TStagingMemoryResource, Compute::CudaPinnedMemoryResource> )
             {
@@ -433,6 +456,9 @@ namespace Mila::Dnn::Serialization
 
         // Empty unless the artifact declares a pre-quantized weight policy.
         std::string weight_quantization_;
+
+        // A safetensors header with nothing after it (holdsHeaderOnly).
+        bool header_only_{ false };
 
         std::unordered_map<std::string, TensorBlobMetadata> tensor_index_;
         std::uint32_t num_tensors_{ 0 };
@@ -518,6 +544,16 @@ namespace Mila::Dnn::Serialization
             }
         }
 #endif
+
+        void requireTensorBytes() const
+        {
+            if ( header_only_ )
+            {
+                throw std::runtime_error( std::format(
+                    "WeightsReader: {} holds only the header of its weights, which plans a model and cannot load one",
+                    filepath_.string() ) );
+            }
+        }
 
         const TensorBlobMetadata& getTensorBlobMetadata( const std::string& name ) const
         {
@@ -1021,6 +1057,8 @@ namespace Mila::Dnn::Serialization
             const std::uint64_t data_start = sizeof( std::uint64_t ) + header_length;
             const std::uint64_t file_size = static_cast<std::uint64_t>( std::filesystem::file_size( filepath_ ) );
 
+            header_only_ = ( file_size == data_start );
+
             nlohmann::json header = nlohmann::json::parse( header_text, nullptr, false );
 
             if ( header.is_discarded() || !header.is_object() )
@@ -1086,7 +1124,7 @@ namespace Mila::Dnn::Serialization
                 meta.offset = data_start + begin;
                 meta.nbytes = end - begin;
 
-                if ( meta.offset + meta.nbytes > file_size )
+                if ( !header_only_ && meta.offset + meta.nbytes > file_size )
                 {
                     throw std::runtime_error(
                         std::format( "Tensor '{}' extends past end of file", name ) );

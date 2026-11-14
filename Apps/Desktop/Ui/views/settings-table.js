@@ -180,7 +180,7 @@ const available = {
     terms: [ 'models', 'install', 'download', 'published' ],
     needs: null,
     layout: 'list',
-    reads: [ 'publishedModels' ],
+    reads: [ 'publishedModels', 'suggestedModel' ],
     note: ( state ) => state.publishedModels === null ? 'This needs an internet connection.' : null,
     offered: () => true,
     build( state )
@@ -201,6 +201,14 @@ const available = {
         for ( const model of state.publishedModels )
         {
             const { row, controls } = modelRow( model );
+
+            // What the planner said of it on this computer.
+            const text = row.querySelector( '.model-text' );
+            const said = model.name === state.suggestedModel ? 'Suggested for this computer'
+                : model.fits ? 'Runs on this computer' : model.why_not;
+
+            if ( said !== null && said !== undefined )
+                text.append( element( 'div', 'model-note', said ) );
 
             if ( model.installed )
             {

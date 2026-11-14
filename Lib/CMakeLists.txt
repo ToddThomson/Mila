@@ -544,6 +544,7 @@ PUBLIC
         "Src/Deployment/ModelHandle.ixx"
         "Src/Deployment/Refusals/OpenRefusal.ixx"
         "Src/Deployment/Refusals/OpenRefusedError.ixx"
+        "Src/Deployment/Planning/PublishedModelFit.ixx"
 
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.ixx"
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.Workspace.ixx"
@@ -1152,6 +1153,8 @@ target_sources(Mila
             "Src/Distribution/Store/CleanOptions.ixx"
             "Src/Distribution/Store/ModelStore.ixx"
             "Src/Distribution/Hub/ModelHub.ixx"
+            "Src/Distribution/Hub/PublishedModel.ixx"
+            "Src/Distribution/Hub/LocalDirectoryHub.ixx"
             "Src/Distribution/Hub/ModelResolver.ixx"
             "Src/Distribution/Http/HttpTransport.ixx"
             "Src/Distribution/Http/HttpClient.ixx"
@@ -1251,6 +1254,9 @@ endif()
 target_sources(Mila
     PRIVATE
         "Src/Deployment/Implementation/ModelHandle.cpp"
+        "Src/Deployment/Implementation/PublishedModelFit.cpp"
+        "Src/Distribution/Implementation/PublishedModel.cpp"
+        "Src/Distribution/Implementation/LocalDirectoryHub.cpp"
         "Src/Agents/Implementation/Agent.cpp"
 )
 

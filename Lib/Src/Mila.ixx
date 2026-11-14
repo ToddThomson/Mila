@@ -369,6 +369,9 @@ export import Deployment.OpenRefusal;
 export import Deployment.OpenRefusedError;
 export import Deployment.ModelHandle;
 
+// A published model planned on this computer before it is installed, and all of them ranked (AssistantOnboarding.md).
+export import Deployment.PublishedModelFit;
+
 // ============================================================================
 // Dnn - Optimizers
 // ============================================================================
@@ -429,6 +432,8 @@ export import Distribution.InstallOptions;
 export import Distribution.CleanOptions;
 export import Distribution.ModelStore;
 export import Distribution.ModelHub;
+export import Distribution.PublishedModel;
+export import Distribution.LocalDirectoryHub;
 export import Distribution.ModelResolver;
 export import Distribution.HttpTransport;
 export import Distribution.HttpClient;

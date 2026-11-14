@@ -45,7 +45,10 @@ namespace Mila::Deployment
             WeightFormatNotDerivable,
 
             /// The request fixes a context longer than the model was trained for.
-            ContextPastTrainedMaximum
+            ContextPastTrainedMaximum,
+
+            /// A published model whose manifest could not be read, so nothing says what it is.
+            ManifestUnread
         };
 
         Reason reason{ Reason::NotInstalled };

@@ -15,6 +15,8 @@ export function createInitialState()
         installedModels: [],
         modelsKnown: false,
         publishedModels: null,
+        suggestedModel: null,
+        publishedRequested: false,
         progress: null,
         restore: null,
         modelsError: null,
@@ -32,7 +34,14 @@ export function reduce( state, message )
             return reduceSessionState( state, message );
 
         case 'models.list':
-            return { ...state, installedModels: message.installed, modelsKnown: true, publishedModels: message.published };
+            return {
+                ...state,
+                installedModels: message.installed,
+                modelsKnown: true,
+                publishedModels: message.published,
+                suggestedModel: message.suggested ?? null,
+                publishedRequested: false
+            };
 
         case 'progress':
             // The model's memory coming back is the transcript's to show, not Settings'.
@@ -106,6 +115,9 @@ export function reduce( state, message )
         case 'attachment.remove':
             return reduceAttachmentRemove( state, message );
 
+        case 'models.refresh':
+            return reduceModelsRefresh( state, message );
+
         case 'model.load':
         case 'model.install':
         case 'model.remove':
@@ -139,21 +151,41 @@ function appendEntry( state, entry )
     return { ...state, transcript: [ ...state.transcript, identified ], nextEntryNumber: state.nextEntryNumber + 1 };
 }
 
+/** Asking the publisher is under way until its list comes back; an earlier failure to list is asked again. */
+function reduceModelsRefresh( state, message )
+{
+    if ( !message.online )
+        return state;
+
+    const modelsError = state.modelsError !== null && state.modelsError.during === 'models' ? null : state.modelsError;
+
+    return { ...state, publishedRequested: true, modelsError };
+}
+
+/**
+ * What an install or a load says as it ends is a conversation's line only once one has begun: before, the
+ * header already names the model, and the empty conversation keeps its screen.
+ */
 function reduceInfo( state, message )
 {
+    const aboutModels = message.during === 'install' || message.during === 'load';
+
+    if ( aboutModels && state.transcript.length === 0 )
+        return state;
+
     const entry = { kind: 'info', text: message.text };
 
     return appendEntry( state, entry );
 }
 
 /**
- * A refused load or install is also kept for the Models view, which covers the transcript while it is
- * open, until the person's next load, install or remove.
+ * A refused load or install, or a list the publisher did not give, is also kept for the models' screens and
+ * Settings' Models, which covers the transcript while it is open, until the person's next load, install or remove.
  */
 function reduceError( state, message )
 {
     const entry = { kind: 'error', text: message.text, during: message.during };
-    const aboutModels = message.during === 'load' || message.during === 'install';
+    const aboutModels = message.during === 'load' || message.during === 'install' || message.during === 'models';
 
     if ( !aboutModels )
         return appendEntry( state, entry );
@@ -582,6 +614,30 @@ export function emptyScreen( state )
         return 'activity';
 
     return 'home';
+}
+
+/**
+ * Where a first run stands (AssistantOnboarding.md 4): the publisher not yet asked, being asked, unreachable,
+ * a model suggested for this computer, or none of its models running here.
+ */
+export function firstRunStep( state )
+{
+    if ( state.modelsError !== null && state.modelsError.during === 'models' )
+        return 'unreachable';
+
+    if ( state.publishedModels === null )
+        return state.publishedRequested ? 'asking' : 'not-asked';
+
+    return state.suggestedModel !== null ? 'suggested' : 'none-fits';
+}
+
+/** The published model the planner suggests for this computer, or null. */
+export function suggestedModel( state )
+{
+    if ( state.publishedModels === null || state.suggestedModel === null )
+        return null;
+
+    return state.publishedModels.find( ( model ) => model.name === state.suggestedModel ) ?? null;
 }
 
 /**

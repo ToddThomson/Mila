@@ -1,8 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createInitialState, reduce, summarizeTurn, groupConversations, appStatus, emptyScreen, isAskingForModel } from '../state.js';
-import { statsLine, thoughtLabel, contextFact, thinkingFact, finishNotice, activityCard, folderName, planProgress, composerPrompt } from '../format.js';
+import { createInitialState, reduce, summarizeTurn, groupConversations, appStatus, emptyScreen, isAskingForModel,
+    firstRunStep, suggestedModel } from '../state.js';
+import { statsLine, thoughtLabel, contextFact, thinkingFact, finishNotice, activityCard, folderName, planProgress, composerPrompt,
+    modelAbilities, suggestionFacts } from '../format.js';
 
 function apply( messages )
 {
@@ -391,6 +393,56 @@ function aRefusedLoadBeforeAConversationIsSaidWhereTheModelsAre()
 }
 
 test( 'a refused load before a conversation is said where the models are', aRefusedLoadBeforeAConversationIsSaidWhereTheModelsAre );
+
+function aFirstRunAsksThePublisherAndShowsWhatItAnswered()
+{
+    const asked = { type: 'models.refresh', online: true };
+    const gemma = { name: 'gemma-4-12b-it-fp4', fits: true };
+    const qwen = { name: 'qwen3.8-27b-fp4', fits: false };
+    const suggesting = { type: 'models.list', installed: [], published: [ gemma, qwen ], suggested: gemma.name };
+    const nothing = { type: 'models.list', installed: [], published: [ qwen ], suggested: null };
+    const failed = { type: 'error', text: 'Could not list the models that can be installed: offline.', during: 'models' };
+    const empty = { type: 'models.list', installed: [], published: null, suggested: null };
+
+    assert.equal( firstRunStep( apply( [] ) ), 'not-asked' );
+    assert.equal( firstRunStep( apply( [ asked ] ) ), 'asking' );
+    assert.equal( firstRunStep( apply( [ asked, suggesting ] ) ), 'suggested' );
+    assert.deepEqual( suggestedModel( apply( [ asked, suggesting ] ) ), gemma );
+    assert.equal( firstRunStep( apply( [ asked, nothing ] ) ), 'none-fits' );
+
+    const unreachable = apply( [ asked, failed, empty ] );
+    assert.equal( firstRunStep( unreachable ), 'unreachable' );
+    assert.equal( unreachable.transcript.length, 0, 'the failure is said on the screen that asked' );
+    assert.equal( firstRunStep( reduce( unreachable, asked ) ), 'asking', 'asking again clears it' );
+}
+
+test( 'a first run asks the publisher and shows what it answered', aFirstRunAsksThePublisherAndShowsWhatItAnswered );
+
+function whatAnInstallOrLoadSaysKeepsAnEmptyConversationEmpty()
+{
+    const installed = { type: 'info', text: 'Installed gemma-4-12b-it-fp4 (6.8 GB).', during: 'install' };
+    const loaded = { type: 'info', text: 'Model loaded.', during: 'install' };
+    const other = { type: 'info', text: 'Sampler reseeded (7).' };
+
+    assert.equal( apply( [ installed, loaded ] ).transcript.length, 0 );
+    assert.equal( apply( [ other ] ).transcript.length, 1 );
+    assert.equal( apply( [ begin, installed ] ).transcript.length, 2, 'once a conversation has begun it is a line of it' );
+}
+
+test( 'what an install or a load says keeps an empty conversation empty', whatAnInstallOrLoadSaysKeepsAnEmptyConversationEmpty );
+
+function aSuggestedModelIsDescribedByWhatItCanDoHere()
+{
+    const agent = { agentic_here: true, thinking: true, modalities: [ 'image', 'audio' ], size_bytes: 6.8e9, context_length: 131072 };
+    const plain = { agentic_here: false, thinking: false, modalities: [], size_bytes: 3.1e9, context_length: null };
+
+    assert.equal( modelAbilities( agent ), 'Works through tasks with tools, thinks before it answers, reads images and audio.' );
+    assert.equal( modelAbilities( plain ), 'Answers questions and holds a conversation.' );
+    assert.equal( suggestionFacts( agent ), '6.8 GB download · holds 131,072 tokens of conversation on this computer' );
+    assert.equal( suggestionFacts( plain ), '3.1 GB download' );
+}
+
+test( 'a suggested model is described by what it can do here', aSuggestedModelIsDescribedByWhatItCanDoHere );
 
 function aScreenAskingForAModelIsTheOneWayForward()
 {

@@ -17,6 +17,7 @@ import Distribution.Environment;
 import Distribution.ModelCoordinate;
 import Distribution.ModelStore;
 import Distribution.ModelHub;
+import Distribution.LocalDirectoryHub;
 import Distribution.HttpTransport;
 import Distribution.HttpClient;
 import Distribution.HttpTransportBackend;
@@ -238,6 +239,41 @@ namespace Mila::Distribution
                 std::format( "{} ({})", result.message, toString( result.status ) ) };
         }
 
+        std::string fetchFilePart(
+            const ModelCoordinate& coordinate,
+            const std::string& path,
+            std::uint64_t first,
+            std::uint64_t count ) const override
+        {
+            if ( count == 0 )
+            {
+                return {};
+            }
+
+            HttpRequest request;
+            request.url = fileUrl( coordinate, path );
+            request.token = token_;
+            request.resume_from = first;
+            request.last_byte = first + count - 1;
+
+            std::string body;
+            const HttpResult result = client_.getString( request, body );
+
+            if ( !result.ok() )
+            {
+                throw std::runtime_error( std::format( "{}: bytes {} to {}: {} ({})", request.url, first,
+                    *request.last_byte, result.message, toString( result.status ) ) );
+            }
+
+            if ( body.size() != count )
+            {
+                throw std::runtime_error( std::format( "{}: asked for {} bytes from {} and received {}",
+                    request.url, count, first, body.size() ) );
+            }
+
+            return body;
+        }
+
     private:
 
         static std::string fileUrl( const ModelCoordinate& coordinate, const std::string& path )
@@ -308,9 +344,17 @@ namespace Mila::Distribution
      * HuggingFace over whichever transport this build was compiled with. In a build without
      * libcurl the hub still knows every URL and rule -- what it gets back is a transport that
      * refuses, so the failure names the missing dependency rather than a network error.
+     *
+     * With MILA_HUB_DIRECTORY set, a folder of packages stands in for HuggingFace instead
+     * (LocalDirectoryHub), for every program that asks here.
      */
     export std::unique_ptr<IModelHub> makeDefaultModelHub( ProgressCallback progress = {} )
     {
+        if ( const auto directory = readEnvironmentVariable( kHubDirectoryVariable ) )
+        {
+            return std::make_unique<LocalDirectoryHub>( std::filesystem::path( *directory ), std::move( progress ) );
+        }
+
         return std::make_unique<HuggingFaceHub>(
             makeDefaultHttpTransport(), discoverHuggingFaceToken(), std::move( progress ) );
     }

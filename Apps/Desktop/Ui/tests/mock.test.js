@@ -636,10 +636,9 @@ function aSearchKeyIsSaidToBeSetButNeverSentBack()
 
 test( 'a search key is said to be set, but never sent back', aSearchKeyIsSaidToBeSetButNeverSentBack );
 
-function aFirstRunInstallsFromThePublishedListThenLoadsAndRemoves()
+function aFirstRunInstallsTheSuggestionWhichThenLoads()
 {
     const { clock, events, session } = startSession( 8 );
-    const name = 'Llama-3.2-3B-Instruct-fp4';
 
     session.handle( { v: 1, type: 'ready' } );
     const first = ofType( events, 'models.list' ).pop();
@@ -648,27 +647,62 @@ function aFirstRunInstallsFromThePublishedListThenLoadsAndRemoves()
     assert.equal( ofType( events, 'session.state' ).pop().model, null );
 
     session.handle( { v: 1, type: 'models.refresh', online: true } );
-    assert.equal( ofType( events, 'models.list' ).pop().published.length, 4 );
+    clock.run();
 
-    session.handle( { v: 1, type: 'model.install', name } );
+    const listed = ofType( events, 'models.list' ).pop();
+    assert.equal( listed.published.length, 4 );
+    assert.equal( listed.suggested, 'gemma-4-12b-it-fp4', 'the agentic model that fits at 64K leads' );
+    assert.equal( listed.published[ 0 ].name, listed.suggested );
+
+    const refused = listed.published.find( ( model ) => !model.fits );
+    assert.equal( refused.name, 'qwen3.8-27b-fp4' );
+    assert.match( refused.why_not, /free/ );
+
+    session.handle( { v: 1, type: 'model.install', name: listed.suggested } );
     clock.run();
 
     const installing = ofType( events, 'progress' ).filter( ( event ) => event.task === 'install' );
     assert.equal( installing[ installing.length - 1 ].done, installing[ installing.length - 1 ].total );
 
+    const said = ofType( events, 'info' ).pop();
+    assert.equal( said.during, 'install' );
+
     const installed = ofType( events, 'models.list' ).pop();
-    assert.deepEqual( installed.installed.map( ( model ) => model.name ), [ name ] );
-    assert.ok( installed.published.find( ( model ) => model.name === name ).installed );
+    assert.deepEqual( installed.installed.map( ( model ) => model.name ), [ listed.suggested ] );
+    assert.equal( ofType( events, 'session.state' ).pop().model, listed.suggested, 'installed with nothing resident, it loads' );
 
-    session.handle( { v: 1, type: 'model.load', name, quantization: null } );
-    clock.run();
-    assert.equal( ofType( events, 'session.state' ).pop().model, name );
-
-    session.handle( { v: 1, type: 'model.remove', name } );
+    session.handle( { v: 1, type: 'model.remove', name: 'gemma-4-12b-it-fp4' } );
     assert.deepEqual( ofType( events, 'models.list' ).pop().installed, [] );
 }
 
-test( 'a first run installs from the published list, then loads and removes', aFirstRunInstallsFromThePublishedListThenLoadsAndRemoves );
+test( 'a first run installs the suggestion, which then loads', aFirstRunInstallsTheSuggestionWhichThenLoads );
+
+function aModelResidentStillHasThePublishedListPlanned()
+{
+    const { clock, events, session } = startSession( 1 );
+
+    session.handle( { v: 1, type: 'models.refresh', online: true } );
+    clock.run();
+
+    const listed = ofType( events, 'models.list' ).pop();
+    assert.equal( listed.suggested, 'gemma-4-12b-it-fp4' );
+    assert.ok( listed.published.every( ( model ) => model.fits || model.why_not !== null ) );
+}
+
+test( 'a model resident still has the published list planned', aModelResidentStillHasThePublishedListPlanned );
+
+function anUnreachablePublisherIsSaidOnTheModelsScreens()
+{
+    const { clock, events, session } = startSession( 12 );
+
+    session.handle( { v: 1, type: 'models.refresh', online: true } );
+    clock.run();
+
+    assert.equal( ofType( events, 'error' ).pop().during, 'models' );
+    assert.equal( ofType( events, 'models.list' ).pop().published, null );
+}
+
+test( 'an unreachable publisher is said on the models screens', anUnreachablePublisherIsSaidOnTheModelsScreens );
 
 function aRefusedLoadSaysWhyAndLeavesNothingLoaded()
 {

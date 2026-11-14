@@ -487,6 +487,34 @@ kbd {
 
 .start-choose { margin-top: 18px; padding: 6px 16px; font-size: 14px; }
 
+/* A first run: the model suggested for this computer, installed from here. */
+
+.start-finding { justify-content: center; margin-top: 22px; }
+
+.start-why { max-width: 520px; margin: 8px auto 0; }
+
+.start-suggestion {
+  max-width: 520px;
+  margin: 22px auto 0;
+  padding: 16px 18px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--faint);
+  text-align: left;
+}
+
+.suggestion-label { font-size: 12px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--accent); }
+
+.suggestion-name { margin-top: 4px; font-size: 17px; font-weight: 600; }
+
+.suggestion-line { margin-top: 6px; }
+
+.suggestion-facts { margin-top: 4px; font-size: 13px; color: var(--muted); }
+
+.start-install { margin-top: 14px; padding: 6px 18px; font-size: 14px; }
+
+.model-note { font-size: 12px; color: var(--muted); }
+
 .link-button {
   margin-top: 14px;
   padding: 0;

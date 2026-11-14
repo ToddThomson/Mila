@@ -137,8 +137,8 @@ every activity would choose the same model. That is expected: what differs betwe
 is given, not who runs it.
 
 **First run.** A fresh store has no model (CLAUDE.md), so the home screen with nothing installed recommends one
-model for this card -- the measured agentic model that fits it, from the published list -- with one *Install* and
-its progress, not a catalogue.
+model for this card -- the planner's suggestion from the published list, a measured agentic model first -- with one
+*Install* and its progress, not a catalogue. The design is `Apps/AssistantOnboarding.md`.
 
 ### 3.3 Sidebar
 
@@ -283,7 +283,7 @@ The window relays every message unchanged in both directions, except the three i
 | type | fields | meaning |
 |---|---|---|
 | `session.state` | `model` (name or null), `loading` (the model a load is opening, while it does, or null: the header names it at once), `no_model_reason` (string or null), `context_length`, `context_automatic`, `thinking_capable`, `thinking` (`"off"`, `"on"` or the effort in effect), `effort` (the effort in effect, one of `effort_levels`, or null), `effort_levels` (the model's template's own effort values, in its order, or null where it has none), `detail` (`"off"`, `"thoughts"`, `"all"`), `sampling` ({`temperature`, `top_k`, `top_p`, `presence_penalty`}, each `{value, is_model_default}`), `modalities` (subset of `["image","audio"]`), `activities` (the activities this session can start, in card order, a subset of `["ask","build","research","tasks"]`), `activity` (the conversation's), `folder` (the conversation's project folder, or null), `plan` (Get Things Done's approved plan, [{`text`, `status`: `"pending"`, `"in_progress"`, `"done"` or `"skipped"`}], or null), `web_search` (bool: a search key is set; the key itself is never sent), `run_commands` (bool: the setting), `run_commands_problem` (why commands cannot run here, or null), `program_folders` (the folders commands may read, empty while they are off), `busy` (bool), `streams` ([{`stream_id`, `parent_stream_id` (or null), `conversation_id`, `busy`}]) | The whole session state. Sent after every change, never as a delta. |
-| `models.list` | `installed` ([{`name`, `size_bytes`, `quantization`, `family`}]), `published` ([{`name`, `size_bytes`, `quantization`, `installed`}] or null when not fetched) | Reply to `models.refresh`, and after install or remove. |
+| `models.list` | `installed` ([{`name`, `size_bytes`, `quantization`, `family`}]), `published` ([{`name`, `size_bytes`, `quantization`, `installed`, `license`, `agentic`, `thinking`, `tools`, `modalities`, `fits`, `agentic_here`, `context_length`, `why_not`}] or null when not fetched), `suggested` (a published `name`, or null) | Reply to `models.refresh`, and after install or remove. Each published model is planned on this computer for the request a load sends -- against the whole card when a model is resident, as a listing is (`Deployment.md` 12.5) -- and the list is the library's ranking, `suggested` its first that fits and takes turns (`Apps/AssistantOnboarding.md` 5). |
 | `progress` | `task` (`"load"`, `"install"`, `"rebuild"`, `"restore"`), `label`, `done`, `total` (both null when unknown) | A long task's progress; a final one has `done == total`. `"restore"` is the model's memory coming back from the compressor or swap as Mila is used again, in bytes; a waiting turn's `turn.begin` follows it. The header shows the task in progress beside the model, a ring and its `label`, with no bar: a restore lasts seconds and its total is an estimate (Todd, 2026-11-13). |
 | `turn.begin` | `turn_id`, `conversation_id` | A reply starts. |
 | `turn.text` | `turn_id`, `round`, `channel` (`"thought"` or `"answer"`), `text`, `tokens` (a thought's only: the round's tokens so far) | Raw text to append to that channel; a thought's label counts `tokens` while it is written (Todd, 2026-11-13). Gemma streams many; Llama and Qwen send one per round when it is complete. The page must render both. |
@@ -297,8 +297,8 @@ The window relays every message unchanged in both directions, except the three i
 | `conversation.loaded` | `id`, `title`, `model`, `activity`, `folder`, `messages` (section 4.3) | The conversation now in the main pane. |
 | `attachment.accepted` | `attachment_id`, `kind`, `name`, `size_bytes` | The session has read and decoded the file. |
 | `attachment.refused` | `attachment_id`, `reason` | Not found, not decodable, too large, or no such modality on this model. |
-| `info` | `text` | A sentence the console would print with `printInfo`. Shown as a quiet line in the transcript. |
-| `error` | `text`, `during` (`"load"`, `"turn"`, `"install"`, `"settings"`, `"conversation"`, or null) | Shown where it happened, never as a modal. |
+| `info` | `text`, `during` (`"load"`, `"install"`, or absent) | A sentence the console would print with `printInfo`. Shown as a quiet line in the transcript; one said during a load or install is not shown in a conversation that has not begun, which keeps its screen. |
+| `error` | `text`, `during` (`"load"`, `"turn"`, `"install"`, `"models"`, `"settings"`, `"conversation"`, or null) | Shown where it happened, never as a modal. `"models"` is the publisher's list not read, said on the screens that asked for it. |
 | `folder.chosen` | `path` (or null when the person cancelled) | From the window, not the session: the answer to `folder.choose`. |
 | `log` | `level`, `text` | Only at detail `all`; shown in a collapsible log drawer. |
 
@@ -406,12 +406,14 @@ tool the person has not allowed is asked about.
   5. No model loaded, then a load with progress, then a load refused with the refusal's text.
   6. An image attached to a model with the modality, and refused on one without.
   7. Five conversations across the date groups; open, rename, delete.
-  8. A first run, nothing installed: install with progress from the published list, a load, a remove.
+  8. A first run, nothing installed: the published list planned for this computer, the suggestion installed with
+     its progress and loaded, a remove.
   9. Detail `all`: log lines in the drawer.
   10. A reply of 20,000 tokens, to see that appending stays smooth.
   11. A tool call that asks first (section 4.5): allowed, the reply continues with the result; denied, the
       model says it could not check and answers without it. A second message in the same conversation
       after *Allow in this conversation* runs the call without asking.
+  12. Scenario 8 with the publisher unreachable: the first run says so and offers *Try again*.
 - **Tests:** `node --test` over `state.js`, the markdown renderer and the mock's scenario scripts. No
   committed test dependency beyond Node itself. The visual checks of phase 1's gate may use whatever
   headless browser the building session has, with nothing of it committed.

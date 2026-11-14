@@ -201,6 +201,8 @@ is declared, never read out of `base_model`. `ExportArtifact --package --archite
 - **Older manifests keep loading.** A manifest without these fields reads as text only with no capabilities but
   its top-level `instruct`, which writers keep emitting so an older Mila still reads it. A published model is
   republished with the fields where that loses something it had.
+- **Measurements** -- the reliable depth and the task scores behind a verdict such as `agentic` -- are a proposed
+  optional `measurements` field, read by the planner (`Deployment/ModelSelection.md` 4.1, round 1, not decided).
 
 ### Sampling
 

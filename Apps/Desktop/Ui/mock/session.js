@@ -159,9 +159,35 @@ export function createMockSession( options )
         return { name: model.name, size_bytes: model.size_bytes, quantization: model.quantization, family: model.family };
     }
 
+    /** A fixture as the publisher offers it, planned as the session plans it: on the whole card when one is resident. */
     function publishedItem( model )
     {
-        return { name: model.name, size_bytes: model.size_bytes, quantization: model.quantization, installed: installed.has( model.name ) };
+        const facts = model.published;
+        const fits = facts.planned_context !== null;
+
+        return {
+            name: model.name,
+            size_bytes: model.size_bytes,
+            quantization: model.quantization,
+            installed: installed.has( model.name ),
+            license: facts.license,
+            agentic: facts.agentic,
+            thinking: model.thinking_capable,
+            tools: facts.tools,
+            modalities: model.modalities,
+            fits,
+            agentic_here: fits && facts.agentic && facts.planned_context >= 65536,
+            context_length: fits ? facts.planned_context : null,
+            why_not: fits ? null : facts.why_not
+        };
+    }
+
+    /** The library's ranking: agentic here first, then what fits, the larger download first within each. */
+    function rankPublished( items )
+    {
+        const tier = ( item ) => item.agentic_here ? 0 : item.fits ? 1 : 2;
+
+        return [ ...items ].sort( ( left, right ) => tier( left ) - tier( right ) || right.size_bytes - left.size_bytes );
     }
 
     /** Every fixture is published; the list is sent once the page has asked for it online, as the session's is. */
@@ -169,8 +195,10 @@ export function createMockSession( options )
     {
         const onComputer = models.filter( ( model ) => installed.has( model.name ) );
         const installedItems = onComputer.map( installedItem );
-        const published = publishedListed ? models.map( publishedItem ) : null;
-        const message = { type: 'models.list', installed: installedItems, published };
+        const published = publishedListed ? rankPublished( models.map( publishedItem ) ) : null;
+        const first = published === null ? undefined : published.find( ( item ) => item.fits );
+        const suggested = first === undefined ? null : first.name;
+        const message = { type: 'models.list', installed: installedItems, published, suggested };
 
         emit( message );
     }
@@ -833,12 +861,38 @@ export function createMockSession( options )
     const installSteps = 10;
     const installStepMilliseconds = 150;
 
+    // Planning every published model takes a moment the page shows; the session's time is not measured yet.
+    const planningMilliseconds = 900;
+
     function refreshModels( request )
     {
-        if ( request.online )
-            publishedListed = true;
+        if ( !request.online )
+        {
+            emitModels();
 
-        emitModels();
+            return;
+        }
+
+        if ( scenario.publisher === 'unreachable' )
+        {
+            const answer = () =>
+            {
+                emitError( 'Could not list the models that can be installed: the connection failed.', 'models' );
+                emitModels();
+            };
+
+            options.schedule( answer, planningMilliseconds );
+
+            return;
+        }
+
+        const answer = () =>
+        {
+            publishedListed = true;
+            emitModels();
+        };
+
+        options.schedule( answer, planningMilliseconds );
     }
 
     function installModel( request )
@@ -886,7 +940,17 @@ export function createMockSession( options )
         }
 
         installed.add( model.name );
+
+        const said = { type: 'info', text: 'Installed ' + model.name + '.', during: 'install' };
+        emit( said );
         emitModels();
+
+        // As the session's: a model installed with nothing resident is loaded.
+        if ( session.model === null && !session.busy )
+        {
+            const load = { name: model.name };
+            loadModel( load );
+        }
     }
 
     /** As the session's: the files go, a loaded model stays loaded, and a failure names no task. */

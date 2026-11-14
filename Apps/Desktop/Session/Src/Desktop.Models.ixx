@@ -1,6 +1,7 @@
 /**
  * @file Desktop.Models.ixx
- * @brief The models view's work in the store and at the publisher, and its sentences when a model will not open.
+ * @brief The work of Settings' Models in the store and at the publisher, the planner's suggestion among the published
+ *        models, and the sentences said when a model will not open.
  */
 
 export module Desktop.Models;
@@ -79,63 +80,114 @@ namespace Mila::Desktop
         return installed;
     }
 
+    export inline std::string refusalText( const Mila::Deployment::OpenRefusal& refusal );
+    export inline std::string refusalText( const DeploymentRefusal& refusal, bool quantizable );
+
+    /// Why a published model is not suggested for this computer, said to the person; empty when it is suggestable.
+    std::string whyNotSuggested( const Mila::Deployment::PublishedModelFit& fit )
+    {
+        using Reason = Mila::Deployment::OpenRefusal::Reason;
+
+        // Not installed, so the installed model's repair -- remove it, install it again -- is not what to say.
+        if ( fit.refusal && fit.refusal->reason == Reason::ChatTemplateNotRecorded )
+            return "As published, it does not say which version of its model it is, so this version of Mila cannot run it.";
+
+        if ( fit.refusal )
+            return refusalText( *fit.refusal );
+
+        if ( fit.shortfall )
+            return refusalText( *fit.shortfall, false );
+
+        if ( !fit.unplanned.empty() )
+        {
+            // The library's reason is a developer's sentence; it goes to the window's log, not the screen.
+            std::cerr << std::format( "Could not plan {}: {}\n", fit.model.name(), fit.unplanned );
+
+            return "This version of Mila cannot run it as published.";
+        }
+
+        if ( !fit.suggestable() )
+            return "It is a base model, which does not take turns in a conversation.";
+
+        return {};
+    }
+
     /**
-     * @brief Every model the publisher offers, as `models.list` carries it: one small request for the list and one
-     *        for each model's manifest, which holds its size. A model whose manifest cannot be read is listed by name.
+     * @brief Every model the publisher offers, as `models.list` carries it, and the one suggested for this computer.
+     *
+     * Each is planned on this computer for the request given (Specifications/Apps/AssistantOnboarding.md), ranked by
+     * the library, and the first it can suggest is named; each costs two small reads of its weights the first time.
      *
      * @throws std::exception when the publisher cannot be listed at all.
      */
-    export inline nlohmann::json publishedModels()
+    export inline nlohmann::json publishedModels( const Mila::Deployment::DeploymentRequest& request )
     {
-        nlohmann::json published = nlohmann::json::array();
+        nlohmann::json listed = { { "models", nlohmann::json::array() }, { "suggested", nullptr } };
 
         if constexpr ( !Mila::Distribution::kHttpTransportAvailable )
         {
-            return published;
+            return listed;
         }
 
         const std::string owner( Mila::Distribution::kDefaultHubOwner );
         const auto hub = Mila::Distribution::makeDefaultModelHub();
         const auto installed = Mila::Distribution::ModelStore{}.list();
 
-        for ( const auto& model : hub->listModels( owner ) )
+        for ( const auto& fit : Mila::Deployment::planPublishedModels( *hub, owner, request ) )
         {
-            std::uint64_t bytes = 0;
+            const auto& manifest = fit.model.manifest();
             std::string quantization;
 
-            if ( model.hasManifest() )
+            if ( manifest )
             {
-                try
-                {
-                    const auto manifest = Mila::Distribution::parseModelManifest(
-                        hub->fetchManifest( Mila::Distribution::ModelCoordinate{ owner, model.repository } ), model.repository );
+                const auto parsed = Mila::Dnn::parseWeightQuantization( manifest->weight_quantization );
+                quantization = parsed ? std::string( quantizationWord( *parsed ) ) : manifest->weight_quantization;
+            }
 
-                    for ( const auto& file : manifest.files )
-                    {
-                        bytes += file.bytes;
-                    }
+            const bool is_installed = std::ranges::any_of( installed,
+                [&fit]( const auto& stored ) { return stored.record.name == fit.model.name(); } );
 
-                    const auto parsed = Mila::Dnn::parseWeightQuantization( manifest.weight_quantization );
-                    quantization = parsed ? std::string( quantizationWord( *parsed ) ) : manifest.weight_quantization;
-                }
-                catch ( const std::exception& )
+            nlohmann::json modalities = nlohmann::json::array();
+
+            if ( manifest )
+            {
+                for ( const std::string& modality : manifest->capabilities.modalities )
                 {
-                    // One model's manifest unread costs that row its size, not the whole list.
+                    modalities.push_back( modality );
                 }
             }
 
-            // One repository is one model at one format, so its name is the store's.
-            const bool is_installed = std::ranges::any_of( installed,
-                [&model]( const auto& stored ) { return stored.record.name == model.repository; } );
-
-            published.push_back( {
-                { "name", model.repository },
-                { "size_bytes", bytes },
+            nlohmann::json entry = {
+                { "name", fit.model.name() },
+                { "size_bytes", fit.model.downloadBytes() },
                 { "quantization", quantization },
-                { "installed", is_installed } } );
+                { "installed", is_installed },
+                { "license", manifest ? manifest->license : std::string{} },
+                { "agentic", manifest && manifest->capabilities.agentic },
+                { "thinking", manifest && manifest->capabilities.thinking },
+                { "tools", manifest && manifest->capabilities.tools },
+                { "modalities", std::move( modalities ) },
+                { "fits", fit.suggestable() },
+                { "agentic_here", fit.agenticHere() },
+                { "context_length", fit.plans ? nlohmann::json( fit.plans->best().contextLength() ) : nlohmann::json( nullptr ) },
+                { "why_not", nullptr } };
+
+            const std::string why_not = whyNotSuggested( fit );
+
+            if ( !why_not.empty() )
+            {
+                entry[ "why_not" ] = why_not;
+            }
+
+            if ( listed[ "suggested" ].is_null() && fit.suggestable() )
+            {
+                listed[ "suggested" ] = fit.model.name();
+            }
+
+            listed[ "models" ].push_back( std::move( entry ) );
         }
 
-        return published;
+        return listed;
     }
 
     /**

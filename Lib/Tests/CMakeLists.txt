@@ -171,6 +171,7 @@ target_sources( MilaTests PRIVATE
     "Distribution/ModelPackage.Cpu.cpp"
     "Distribution/ModelResolver.Cpu.cpp"
     "Distribution/ModelHub.Cpu.cpp"
+    "Distribution/PublishedModel.Cpu.cpp"
     "Distribution/HttpClient.Cpu.cpp"
     # An installed model by name and the manifest fields it answers from (Deployment.md 8.1). Offline.
     "Deployment/InstalledModel.Cpu.cpp"

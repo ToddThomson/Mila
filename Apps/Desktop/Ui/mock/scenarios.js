@@ -4,13 +4,14 @@ import { streamedReply } from './scenario-streamed-reply.js';
 import { imageAttachment } from './scenario-image-attachment.js';
 import { toolApproval } from './scenario-tool-approval.js';
 import { noModelLoaded } from './scenario-no-model.js';
-import { firstRun } from './scenario-first-run.js';
+import { firstRun, firstRunOffline } from './scenario-first-run.js';
 
 export const scenarios = [
     streamedReply,
     noModelLoaded,
     imageAttachment,
     firstRun,
+    firstRunOffline,
     toolApproval
 ];
 

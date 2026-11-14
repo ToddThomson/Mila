@@ -68,6 +68,7 @@ namespace Mila::Distribution
      *   models/<name>.json      the records -- the index, keyed by the folded name
      *   blobs/sha256-<hex>      the content
      *   tmp/                    in-flight transfers and their locks
+     *   headers/                the start of published weights, read to plan them (PublishedModel)
      * @endverbatim
      *
      * A blob is deleted only by the operation that retires the record naming it: removing that

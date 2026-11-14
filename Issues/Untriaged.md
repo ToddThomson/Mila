@@ -10,6 +10,24 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Mila Assistant's first run on the Mac installs from a local folder, not the publisher
+
+`Lib/Src/Distribution/Hub/LocalDirectoryHub.ixx` (`MILA_HUB_DIRECTORY`) @ 0.21.0-dev+142
+
+A workaround Todd chose, 2026-11-13: until evaluations exist and the published models are republished after 0.21 development (the two entries below), the first run is shown with `MILA_HUB_DIRECTORY` naming a folder that holds one locally packaged model, `gemma-4-12b-it-q4_0` with its new card (`Lib/Tools/ExportArtifact/ModelCards/gemma-4-12b-it-q4_0/`), so it is the only model the planner can place ("we do not need to load from HF for this pass"). The suggestion's ranking is unchanged; nothing is faked in it. Comes out when the publisher carries a model the Mac can run. Folder on the Mac: `~/mila-work/hub`.
+
+## The published Gemma 4 12B fp4 cannot be loaded by this version of Mila
+
+`Lib/Src/Dnn/Models/Gemma/GemmaModel.ixx` (`requireStoredTableMatches`) @ 0.21.0-dev+142
+
+Found 2026-11-13 planning the published list on the Mac (`AssistantOnboarding.md`). `mila-llm/gemma-4-12b-it-fp4`'s weights header (digest d49c6c16...) stores `temb.wte` as F8_E4M3; since 0.21.0-dev+31 a quantized Gemma body is read only with the table as INT6 per 32, and the FP8 table is refused. The break was decided: `+31`'s commit is BREAKING for "quantized Gemma packages exported before 0.21.0-dev+31", with re-export or "the republished package" as the remedy, so the model was to be republished before 0.21.0 ships. `ModelDistribution.md` *Compatibility* (decided 2026-10-03, the same day) asks that a format a published minor wrote be read by the next minor; whether `+31` is the exception to it is not written down. Header kept in `~/mila-work/sweep/onboarding142/store/headers` on the Mac. Nothing is republished until 0.21 development is finished and the release backlog run down (Todd, 2026-11-13).
+
+## The published Llama manifests do not record which Llama they are, and this version of Mila refuses them
+
+`Lib/Src/Deployment/Implementation/ModelHandle.cpp` (`check`, `ChatTemplateNotRecorded`) @ 0.21.0-dev+142
+
+Found 2026-11-13, same run. `mila-llm/Llama-3.1-8B-Instruct-fp4` and `Llama-3.2-3B-Instruct-fp4` publish manifests with no `architecture_version`, which a Llama needs to choose its chat template; an install copies the empty value into the record, so the installed model is refused too, and the refusal's advice (remove it and install it again) cannot help. Same *Compatibility* rule as the entry above: the fix is republishing the manifests, or a reading of the 0.20 manifests that does not guess the version from the name. Nothing is republished until 0.21 development is finished and the release backlog run down (Todd, 2026-11-13).
+
 ## The turn after a long thinking reply waits while the reply's answer is read again
 
 `Lib/Src/Dnn/Models/Gemma/GemmaModel.ixx` (prompt prefix reuse) @ 0.21.0-dev+138

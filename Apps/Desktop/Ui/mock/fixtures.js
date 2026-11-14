@@ -17,6 +17,7 @@ export const models = [
         thinking_capable: true,
         effort_levels: null,
         modalities: [ 'image', 'audio' ],
+        published: { license: 'gemma', agentic: true, tools: true, planned_context: 131072 },
         sampling: { temperature: 1.0, top_k: 64, top_p: 0.95, presence_penalty: 0 }
     },
     {
@@ -28,6 +29,7 @@ export const models = [
         thinking_capable: false,
         effort_levels: null,
         modalities: [],
+        published: { license: 'llama3.2', agentic: false, tools: true, planned_context: 131072 },
         sampling: { temperature: 0.6, top_k: 0, top_p: 0.9, presence_penalty: 0 }
     },
     {
@@ -39,6 +41,7 @@ export const models = [
         thinking_capable: false,
         effort_levels: null,
         modalities: [],
+        published: { license: 'llama3.1', agentic: false, tools: true, planned_context: 98304 },
         sampling: { temperature: 0.6, top_k: 0, top_p: 0.9, presence_penalty: 0 }
     },
     {
@@ -51,6 +54,8 @@ export const models = [
         effort_levels: [ 'xhigh', 'medium', 'low' ],
         effort_default: 'xhigh',
         modalities: [],
+        published: { license: 'apache-2.0', agentic: true, tools: true, planned_context: null,
+            why_not: 'Its weights need 14.6 GB and this GPU has 11.2 GB free.' },
         sampling: { temperature: 0.6, top_k: 20, top_p: 0.95, presence_penalty: 0 }
     }
 ];

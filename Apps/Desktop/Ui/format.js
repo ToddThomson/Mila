@@ -26,6 +26,37 @@ export function formatBytes( bytes )
     return kilobytes + ' KB';
 }
 
+/**
+ * What a published model can do, in a line for a person choosing one: an agent only where it was measured as one
+ * and planned here at that depth, then thinking and what it reads besides text.
+ */
+export function modelAbilities( model )
+{
+    const parts = [ model.agentic_here ? 'Works through tasks with tools' : 'Answers questions and holds a conversation' ];
+
+    if ( model.thinking )
+        parts.push( 'thinks before it answers' );
+
+    const words = { image: 'images', audio: 'audio' };
+    const reads = model.modalities.filter( ( modality ) => words[ modality ] !== undefined );
+
+    if ( reads.length > 0 )
+        parts.push( 'reads ' + reads.map( ( modality ) => words[ modality ] ).join( ' and ' ) );
+
+    return parts.join( ', ' ) + '.';
+}
+
+/** The download and the conversation length it holds here, for a published model the planner placed. */
+export function suggestionFacts( model )
+{
+    const facts = [ formatBytes( model.size_bytes ) + ' download' ];
+
+    if ( model.context_length !== null )
+        facts.push( 'holds ' + formatCount( model.context_length ) + ' tokens of conversation on this computer' );
+
+    return facts.join( ' · ' );
+}
+
 export function contextFact( session )
 {
     const length = formatCount( session.context_length );

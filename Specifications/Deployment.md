@@ -430,6 +430,9 @@ family and its `variant` to a weight format, and the three copies disagreed abou
 What stays with each app: its own refusals of models it does not serve (Chat and MIS serve instruct models only),
 its wording, and its own state, such as the model Chat last loaded.
 
+**Measured quality in the plan** -- the reliable depth as the automatic context's ceiling, and models ranked for a
+use case -- is proposed in `Deployment/ModelSelection.md` (round 1, not decided).
+
 ---
 
 ## 9. Traps

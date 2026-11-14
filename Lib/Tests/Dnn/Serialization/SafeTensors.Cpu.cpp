@@ -572,6 +572,49 @@ namespace Mila::Tests::Dnn::Serialization
         EXPECT_THROW( WeightsReader reader( scratch.path() ), std::runtime_error );
     }
 
+    TEST( SafeTensors, ReadsAHeaderAloneAsThePlannerNeedsAndRefusesToLoadIt )
+    {
+        ScratchFile scratch( "header" );
+
+        const std::vector<float> values{ 1.0f, 2.0f, 3.0f, 4.0f };
+        const std::string config = R"({"architecture":"llama","model_name":"tiny","vocab_size":128,"num_layers":2})";
+
+        {
+            SafeTensorsWriter writer( scratch.path() );
+            writer.declareTensor( "w", TensorDataType::FP32, shape_t{ 4 } );
+            writer.setMetadata( kMilaConfigMetadataKey, config );
+            writer.setMetadata( kMilaQuantizationMetadataKey, "fp4" );
+            writer.beginData();
+            writer.writeTensorData( "w", values.data(), values.size() * sizeof( float ) );
+            writer.close();
+        }
+
+        EXPECT_FALSE( WeightsReader( scratch.path() ).holdsHeaderOnly() );
+
+        uint64_t header_length = 0;
+
+        {
+            FilePointer file = openFile( scratch.path(), "rb" );
+            ASSERT_NE( file.get(), nullptr );
+            ASSERT_EQ( std::fread( &header_length, sizeof( header_length ), 1, file.get() ), 1u );
+        }
+
+        // What a planner fetches of published weights: the length and the header, nothing after.
+        std::filesystem::resize_file( scratch.path(), sizeof( header_length ) + header_length );
+
+        WeightsReader reader( scratch.path() );
+
+        EXPECT_TRUE( reader.holdsHeaderOnly() );
+        EXPECT_EQ( reader.getWeightsMetadata().architecture, "llama" );
+        EXPECT_EQ( reader.getWeightsMetadata().num_layers, 2u );
+        EXPECT_EQ( reader.getWeightQuantization(), "fp4" );
+        EXPECT_EQ( reader.getTensorSizeBytes( "w" ), values.size() * sizeof( float ) );
+        EXPECT_EQ( reader.getTensorDataType( "w" ), TensorDataType::FP32 );
+
+        EXPECT_THROW( (void)reader.readTensorBlob( "w" ), std::runtime_error );
+        EXPECT_THROW( reader.streamTensorBlobs( []( const std::string&, const auto& ) {} ), std::runtime_error );
+    }
+
     // ================================================================
     // MILA format regression guard
     // ================================================================

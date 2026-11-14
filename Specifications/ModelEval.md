@@ -580,5 +580,6 @@ depth). Candidates: every configuration of every family the planner says fits, p
 1. The use cases and their minimum contexts beyond agentic work.
 2. The thresholds per use case -- decision 2 in section 10, per use case rather than per format.
 3. Which smaller models enter the candidate set, and in which formats.
-4. Where the answer is published: each card's "choose this model when", and a page on the website.
+4. Where the answer is published: each card's "choose this model when", and a page on the website. The planner
+   reading the same numbers is `Deployment/ModelSelection.md` (round 1, 2026-11-13).
 5. Whether a configuration that misses a threshold by less than the benchmark resolves counts as meeting it.

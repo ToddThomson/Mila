@@ -41,6 +41,9 @@ import Deployment.InstalledModel;
 import Deployment.InstalledModelPlanner;
 import Distribution.ModelCapabilities;
 import Distribution.ModelStore;
+import Distribution.ModelHub;
+import Distribution.ModelManifest;
+import Distribution.PublishedModel;
 import Dnn.WeightQuantization;
 import Deployment.OpenRefusal;
 import Deployment.OpenRefusedError;
@@ -109,6 +112,25 @@ namespace Mila::Deployment
                 } );
 
             return loaded;
+        }
+
+        /// The family's planner over weights at a path, reached through the architecture's name.
+        template<DeviceType TDeviceType>
+        std::expected<DeploymentPlans, DeploymentRefusal> planWeightsAt(
+            std::string_view architecture, const std::filesystem::path& weights, const DeploymentRequest& request )
+        {
+            constexpr TensorDataType kPrecision = DeviceTypeTraits<TDeviceType>::language_model_precision;
+
+            std::optional<std::expected<DeploymentPlans, DeploymentRefusal>> planned;
+
+            Architectures::visit( architecture, [&]( auto named )
+                {
+                    using Architecture = typename decltype( named )::type;
+
+                    planned = Architecture::template Model<TDeviceType, kPrecision>::planDeployment( weights, request );
+                } );
+
+            return std::move( *planned );
         }
 
         void addOnce( std::vector<DeviceType>& types, DeviceType type )
@@ -311,6 +333,74 @@ namespace Mila::Deployment
             {
                 return planDeployment<TDeviceType, DeviceTypeTraits<TDeviceType>::language_model_precision>(
                     installed, request );
+            } );
+    }
+
+    std::optional<OpenRefusal> ModelHandle::check( const PublishedModel& published )
+    {
+        const std::string& name = published.name();
+
+        if ( !published.manifest() )
+        {
+            return OpenRefusal{ OpenRefusal::Reason::ManifestUnread, name,
+                std::format( "'{}' is published, but its manifest could not be read", name ) };
+        }
+
+        const ModelManifest& manifest = *published.manifest();
+
+        if ( !Architectures::contains( manifest.architecture ) )
+        {
+            return OpenRefusal{ OpenRefusal::Reason::ArchitectureNotDeployed, name,
+                std::format( "'{}' has architecture '{}', which this build of Mila cannot deploy; it deploys {}",
+                    name, manifest.architecture, Architectures::names() ) };
+        }
+
+        if ( manifest.capabilities.instruct )
+        {
+            try
+            {
+                (void)chatProtocolFor( manifest.architecture, manifest.architecture_version );
+            }
+            catch ( const std::invalid_argument& error )
+            {
+                const OpenRefusal::Reason reason = manifest.architecture_version.empty()
+                    ? OpenRefusal::Reason::ChatTemplateNotRecorded
+                    : OpenRefusal::Reason::NoChatTemplate;
+
+                return OpenRefusal{ reason, name,
+                    std::format( "'{}' was trained with a chat template this build does not have: {}", name, error.what() ) };
+            }
+        }
+
+        if ( !parseWeightQuantization( manifest.weight_quantization ) )
+        {
+            return OpenRefusal{ OpenRefusal::Reason::WeightFormatUnknown, name, std::format(
+                "'{}' stores its weights as '{}', which this build of Mila does not read", name, manifest.weight_quantization ) };
+        }
+
+        return std::nullopt;
+    }
+
+    std::expected<DeploymentPlans, DeploymentRefusal> ModelHandle::planFor( const PublishedModel& published,
+        const DeploymentRequest& request, const IModelHub& hub, const ModelStore& store )
+    {
+        if ( auto refusal = check( published ) )
+        {
+            throw OpenRefusedError( std::move( *refusal ) );
+        }
+
+        const std::expected<DeviceType, DeploymentRefusal> device_type = deviceTypeFor( request );
+
+        if ( !device_type )
+        {
+            return std::unexpected( device_type.error() );
+        }
+
+        const std::filesystem::path header = published.weightsHeader( hub, store );
+
+        return onDeviceType( *device_type, [&]<DeviceType TDeviceType>()
+            {
+                return planWeightsAt<TDeviceType>( published.manifest()->architecture, header, request );
             } );
     }
 

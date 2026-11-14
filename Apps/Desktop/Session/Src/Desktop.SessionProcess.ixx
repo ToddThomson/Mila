@@ -1340,7 +1340,7 @@ namespace Mila::Desktop
             {
                 if ( had_model && open( previous, previous_quantization, previous_request ) )
                 {
-                    send( "info", { { "text", std::format( "{} is loaded again.", previous ) } } );
+                    send( "info", { { "text", std::format( "{} is loaded again.", previous ) }, { "during", workName() } } );
                 }
 
                 return;
@@ -1348,11 +1348,14 @@ namespace Mila::Desktop
 
             startNewConversation();
 
-            send( "info", { { "text", had_model ? "Model switched. Conversation history cleared." : "Model loaded." } } );
+            // Said during the load or install, so a conversation that has not begun keeps its home screen.
+            send( "info", { { "text", had_model ? "Model switched. Conversation history cleared." : "Model loaded." },
+                { "during", workName() } } );
 
             if ( !settings_.context_length )
             {
-                send( "info", { { "text", std::format( "Context {} (auto).", model_.agent().plan().contextLength() ) } } );
+                send( "info", { { "text", std::format( "Context {} (auto).", model_.agent().plan().contextLength() ) },
+                    { "during", workName() } } );
             }
         }
 
@@ -1446,7 +1449,7 @@ namespace Mila::Desktop
                 for ( const std::string& line : Mila::Desktop::installModel( name,
                     [this]( std::uint64_t received, std::uint64_t total ) { installProgress( received, total ); } ) )
                 {
-                    send( "info", { { "text", line } } );
+                    send( "info", { { "text", line }, { "during", "install" } } );
                 }
 
                 installed = true;
@@ -2127,21 +2130,34 @@ namespace Mila::Desktop
         void sendModels( bool online )
         {
             nlohmann::json published = nullptr;
+            nlohmann::json suggested = nullptr;
 
             if ( online )
             {
                 try
                 {
-                    published = publishedModels();
+                    // With a model resident the list is planned against the whole card, as a listing is (Deployment.md
+                    // 12.5), so the memory that model holds does not count against the others.
+                    DeploymentRequest request = requestFor( std::nullopt );
+
+                    if ( model_.resident() )
+                    {
+                        request.withWholeDeviceMemory();
+                    }
+
+                    nlohmann::json listed = publishedModels( request );
+                    published = std::move( listed[ "models" ] );
+                    suggested = std::move( listed[ "suggested" ] );
                 }
                 catch ( const std::exception& failure )
                 {
                     published = nullptr;
-                    sendError( std::format( "Could not list the models that can be installed: {}", failure.what() ), nullptr );
+                    sendError( std::format( "Could not list the models that can be installed: {}", failure.what() ), "models" );
                 }
             }
 
-            send( "models.list", { { "installed", installedModels() }, { "published", std::move( published ) } } );
+            send( "models.list", { { "installed", installedModels() }, { "published", std::move( published ) },
+                { "suggested", std::move( suggested ) } } );
         }
 
         // ---- Writing ----------------------------------------------------------------------

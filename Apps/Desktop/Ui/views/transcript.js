@@ -4,8 +4,9 @@
 
 import { element, button, iconButton, setIcon, clear, previewOrIcon } from '../dom.js';
 import { renderMarkdown } from '../markdown.js';
-import { summarizeTurn, isBusy, emptyScreen } from '../state.js';
-import { thoughtLabel, statsLine, finishNotice, readableJson, activityCard, formatBytes } from '../format.js';
+import { summarizeTurn, isBusy, emptyScreen, firstRunStep, suggestedModel } from '../state.js';
+import { thoughtLabel, statsLine, finishNotice, readableJson, activityCard, formatBytes, modelAbilities,
+    suggestionFacts } from '../format.js';
 
 const stickDistance = 80;
 
@@ -55,12 +56,30 @@ export function createTranscriptView( scroller, container, actions )
             actions.send( message );
         }
 
-        // A first model is chosen from the published list, so it is fetched as Settings opens.
+        // A first model is chosen from the published list, so it is fetched as Settings opens unless it is here.
         if ( action === 'open-models' )
+        {
+            const current = actions.getState();
+
+            if ( current.publishedModels === null && !current.publishedRequested )
+            {
+                const refresh = { type: 'models.refresh', online: true };
+                actions.send( refresh );
+            }
+
+            actions.openSettings( 'models' );
+        }
+
+        if ( action === 'retry-models' )
         {
             const refresh = { type: 'models.refresh', online: true };
             actions.send( refresh );
-            actions.openSettings( 'models' );
+        }
+
+        if ( action === 'install-model' )
+        {
+            const message = { type: 'model.install', name: target.dataset.name };
+            actions.send( message );
         }
     }
 
@@ -206,12 +225,23 @@ export function createTranscriptView( scroller, container, actions )
         emptyState.append( list, more );
     }
 
-    /** Nothing is installed: the way to a first model. */
+    /**
+     * Nothing is installed: Mila's suggestion for this computer, installed with one click, or the way through
+     * when there is none (AssistantOnboarding.md 4). The publisher is asked as the screen first shows.
+     */
     function renderFirstRun( state )
     {
-        const heading = element( 'p', 'empty-heading', 'Install a model to start' );
-        const detail = element( 'p', 'empty-detail', 'Mila needs a model on this computer to answer you, and none is installed yet.' );
-        const choose = button( 'chip-button start-choose', 'Choose a model to install', 'open-models' );
+        const step = firstRunStep( state );
+
+        if ( step === 'not-asked' )
+        {
+            const refresh = { type: 'models.refresh', online: true };
+            queueMicrotask( () => actions.send( refresh ) );
+        }
+
+        const heading = element( 'p', 'empty-heading', 'Welcome to Mila' );
+        const detail = element( 'p', 'empty-detail',
+            'Mila runs a language model on this computer, so what you ask stays here. To start, install one.' );
 
         emptyState.append( heading, detail );
 
@@ -222,7 +252,98 @@ export function createTranscriptView( scroller, container, actions )
             emptyState.append( refusal );
         }
 
-        emptyState.append( choose );
+        if ( step === 'not-asked' || step === 'asking' )
+        {
+            const finding = element( 'div', 'reading start-finding' );
+            const ring = element( 'span', 'caret' );
+            ring.setAttribute( 'aria-hidden', 'true' );
+            finding.append( ring, element( 'span', 'reading-label', 'Finding the model that suits this computer' ) );
+            emptyState.append( finding );
+
+            return;
+        }
+
+        if ( step === 'unreachable' )
+        {
+            const problem = element( 'p', 'empty-detail start-refusal', 'Mila could not reach the models published for it. '
+                + 'Check the internet connection, then try again.' );
+            problem.setAttribute( 'role', 'alert' );
+            const again = button( 'chip-button start-choose', 'Try again', 'retry-models' );
+            emptyState.append( problem, again );
+
+            return;
+        }
+
+        if ( step === 'none-fits' )
+        {
+            renderNoneFits( state );
+
+            return;
+        }
+
+        renderSuggestion( state, suggestedModel( state ) );
+    }
+
+    function renderSuggestion( state, model )
+    {
+        const card = element( 'div', 'start-suggestion' );
+        const label = element( 'div', 'suggestion-label', 'Suggested for this computer' );
+        const name = element( 'div', 'suggestion-name', model.name );
+        const abilities = element( 'div', 'suggestion-line', modelAbilities( model ) );
+        const facts = element( 'div', 'suggestion-facts', suggestionFacts( model ) );
+
+        card.append( label, name, abilities, facts );
+
+        if ( model.license !== '' )
+            card.append( element( 'div', 'suggestion-facts', 'Licence: ' + model.license ) );
+
+        const progress = state.progress;
+        const installing = progress !== null && progress.task === 'install'
+            && ( progress.total === null || progress.done < progress.total );
+
+        if ( installing )
+        {
+            const shown = element( 'div', 'progress' );
+            const bar = element( 'progress', 'progress-bar' );
+
+            if ( progress.total !== null )
+            {
+                bar.max = progress.total;
+                bar.value = progress.done;
+            }
+
+            shown.append( element( 'div', 'progress-label', progress.label ), bar );
+            card.append( shown );
+        }
+        else if ( isBusy( state ) )
+        {
+            card.append( element( 'div', 'progress-label', 'Starting the download' ) );
+        }
+        else
+        {
+            const install = button( 'chip-button start-install', 'Install', 'install-model' );
+            install.dataset.name = model.name;
+            card.append( install );
+        }
+
+        const other = button( 'link-button', 'Choose another model', 'open-models' );
+        emptyState.append( card, other );
+    }
+
+    /** The publisher answered and nothing it offers runs here: why, for the model nearest to running, and the list. */
+    function renderNoneFits( state )
+    {
+        const reason = element( 'p', 'empty-detail start-refusal', 'None of the models published for Mila runs on this computer.' );
+        reason.setAttribute( 'role', 'alert' );
+        emptyState.append( reason );
+
+        const nearest = state.publishedModels.find( ( model ) => model.why_not !== null );
+
+        if ( nearest !== undefined )
+            emptyState.append( element( 'p', 'empty-detail start-why', nearest.name + ': ' + nearest.why_not ) );
+
+        const all = button( 'link-button', 'See every model', 'open-models' );
+        emptyState.append( all );
     }
 
     /**

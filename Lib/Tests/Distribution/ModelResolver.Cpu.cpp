@@ -142,6 +142,15 @@ namespace Mila::Tests::Distribution
                 return { FetchOutcome::Complete, {} };
             }
 
+            std::string fetchFilePart(
+                const ModelCoordinate&, const std::string& path, uint64_t first, uint64_t count ) const override
+            {
+                const std::string& payload =
+                    path.ends_with( "tokenizer.bin" ) ? kTokenizerPayload : kWeightsPayload;
+
+                return payload.substr( static_cast<size_t>( first ), static_cast<size_t>( count ) );
+            }
+
             mutable int manifest_fetches{ 0 };
             mutable int file_fetches{ 0 };
             bool fail_files{ false };
@@ -179,6 +188,14 @@ namespace Mila::Tests::Distribution
                 ADD_FAILURE() << "resolver fetched a file it should not have";
 
                 return { FetchOutcome::Failed, {} };
+            }
+
+            std::string fetchFilePart(
+                const ModelCoordinate&, const std::string&, uint64_t, uint64_t ) const override
+            {
+                ADD_FAILURE() << "resolver read part of a file it should not have";
+
+                return {};
             }
         };
     }

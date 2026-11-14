@@ -24,6 +24,8 @@ import Deployment.DeploymentRefusal;
 import Deployment.InstalledModel;
 import Distribution.ModelCapabilities;
 import Distribution.ModelStore;
+import Distribution.ModelHub;
+import Distribution.PublishedModel;
 import Deployment.OpenRefusal;
 
 namespace Mila::Deployment
@@ -77,6 +79,25 @@ namespace Mila::Deployment
          */
         static std::expected<DeploymentPlans, DeploymentRefusal> planFor(
             std::string_view name, const DeploymentRequest& request, const ModelStore& store = ModelStore{} );
+
+        /**
+         * @brief Whether a published model would open once installed, from its manifest alone: the reason it would
+         *        not, or nothing when it would. A base model opens, as check says of an installed one.
+         */
+        [[nodiscard]] static std::optional<OpenRefusal> check( const PublishedModel& published );
+
+        /**
+         * @brief What open would load once a published model is installed, before it is: the plans on this computer
+         *        for the request, or why none fits.
+         *
+         * Reads the start of its weights from the hub (PublishedModel::weightsHeader) and plans it as an installed
+         * model is planned, so the answer is the one its load would give on a device in the same state.
+         *
+         * @throws OpenRefusedError   for every refusal check gives, before anything is read from the hub.
+         * @throws std::runtime_error when the start of its weights cannot be read.
+         */
+        static std::expected<DeploymentPlans, DeploymentRefusal> planFor( const PublishedModel& published,
+            const DeploymentRequest& request, const IModelHub& hub, const ModelStore& store = ModelStore{} );
 
         /**
          * @brief The device type a request's model runs on: that of the devices it allows, or, when it names none

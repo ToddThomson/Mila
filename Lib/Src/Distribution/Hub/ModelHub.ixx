@@ -95,5 +95,17 @@ namespace Mila::Distribution
             const std::string& path,
             std::uint64_t resume_from,
             const std::function<bool( const char*, std::size_t )>& sink ) const = 0;
+
+        /**
+         * @brief Read `count` bytes of one repository file from offset `first`, as the start of a model's weights is
+         *        read to plan it before it is installed.
+         *
+         * @throws std::runtime_error when the part cannot be read, including a hub that sends more than it asked for.
+         */
+        virtual std::string fetchFilePart(
+            const ModelCoordinate& coordinate,
+            const std::string& path,
+            std::uint64_t first,
+            std::uint64_t count ) const = 0;
     };
 }

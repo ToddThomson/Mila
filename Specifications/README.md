@@ -102,6 +102,7 @@ means a status line or target is out of date and the rest has not been re-read.
 |---|---|---|---|
 | [MemoryFootprint.md](MemoryFootprint.md) | Design | Predicting what a load allocates, without allocating it | |
 | [Deployment.md](Deployment.md) | Design | The deployment planner: context length, prefill chunk, devices | 12.10: how the machine's memory is shared (desktop or dedicated), a direction of 2026-11-12, not decided |
+| [Deployment/ModelSelection.md](Deployment/ModelSelection.md) | Design | How the planner uses Mila's measurements of a model: the reliable depth as the automatic context's ceiling, and models ranked for a use case | Round 1, 2026-11-13: Claude's recommendations as provisional answers, nothing decided, no code |
 | [LayerSplit.md](LayerSplit.md) | Design | One model's blocks across several devices | Draft; `Deployment.md` Phase 5, after v0.21.0 |
 | [WeightTying.md](WeightTying.md) | Design | One table for a tied embedding and output head | |
 | [Notebooks/DeviceAssumptions.md](Notebooks/DeviceAssumptions.md) | Notebook | Where the library, the applications and the bindings assume the device is CUDA, each site sorted correct, wrong or stale, 2026-11-07 | Evidence for `Deployment.md` 12.8 and for where device and precision are chosen; ahead of `Metal/MetalBackend.md` Phase 8 |
@@ -172,6 +173,7 @@ means a status line or target is out of date and the rest has not been re-read.
 | Document | Role | Decides or records | Notes |
 |---|---|---|---|
 | [ChatConfiguration.md](ChatConfiguration.md) | Design | Chat's layered configuration | |
+| [Apps/AssistantOnboarding.md](Apps/AssistantOnboarding.md) | Design | Mila Assistant's first run, and the model the planner suggests for the computer | Round 2, 2026-11-13: a one-shot build at `0.21.0-dev+142`, every answer provisional; iterated with Todd round by round |
 | [MilaDesktop.md](MilaDesktop.md) | Design | Mila Desktop for end users (`Apps/Desktop/`): organised around activities rather than models, the presentation-versus-session split, the session as its own process, the JSON-lines message schema, the layout | Draft, 2026-10-20. Phases 1 to 4 built; name and audience decided 2026-10-24; activities over models decided 2026-10-26 (phase 6 not built); open decisions in section 9 |
 | [PythonBinding.md](PythonBinding.md) | Design | The Python binding as a product, and its samples | |
 | [DotNetBinding.md](DotNetBinding.md) | Design | The C ABI over the binding surface (`MilaNative`, `mila.h`), and the C# library that projects it through P/Invoke | Draft, 2026-10-21; experimental until v0.22.0 or later. Phase 1a (the contract and the C# library against a mock) is written for a cloud session; open decisions in section 8 |

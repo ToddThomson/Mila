@@ -86,6 +86,10 @@ namespace Mila::Distribution
         /// means the server ignored it and the caller must restart.
         std::uint64_t resume_from{ 0 };
 
+        /// The last byte to read, inclusive, for a part of a file: a Range is then sent even from offset zero, and
+        /// a 200 means the server ignored it. Unset reads to the end.
+        std::optional<std::uint64_t> last_byte;
+
         /// Redirect hops permitted before giving up.
         int maximum_redirects{ 5 };
 
@@ -237,6 +241,7 @@ namespace Mila::Distribution
             std::uint64_t content_length = 0;
             bool sink_failed = false;
             bool aborted = false;
+            bool range_overrun = false;
 
             const auto on_headers = [&content_length]( long, std::uint64_t length )
                 {
@@ -246,6 +251,16 @@ namespace Mila::Distribution
             const auto counting_sink =
                 [&]( const char* data, std::size_t length ) -> bool
                 {
+                    // A server that ignores a part's Range streams the whole file; it is stopped at the first byte
+                    // past the part, not buffered to the end.
+                    if ( request.last_byte
+                        && request.resume_from + bytes_received + length > *request.last_byte + 1 )
+                    {
+                        range_overrun = true;
+
+                        return false;
+                    }
+
                     if ( !sink( data, length ) )
                     {
                         sink_failed = true;
@@ -286,7 +301,12 @@ namespace Mila::Distribution
                     fetch.headers.push_back( { "Authorization", "Bearer " + request.token } );
                 }
 
-                if ( request.resume_from > 0 )
+                if ( request.last_byte )
+                {
+                    fetch.headers.push_back(
+                        { "Range", std::format( "bytes={}-{}", request.resume_from, *request.last_byte ) } );
+                }
+                else if ( request.resume_from > 0 )
                 {
                     fetch.headers.push_back(
                         { "Range", std::format( "bytes={}-", request.resume_from ) } );
@@ -303,6 +323,14 @@ namespace Mila::Distribution
                 {
                     result.status = HttpStatus::TransportError;
                     result.message = "transfer aborted by progress callback";
+
+                    return result;
+                }
+
+                if ( range_overrun )
+                {
+                    result.status = HttpStatus::RangeIgnored;
+                    result.message = "server ignored Range and sent more than the part asked for";
 
                     return result;
                 }
@@ -383,7 +411,7 @@ namespace Mila::Distribution
                 case 200:
                     // A range was requested and the server answered with the whole file.
                     // Appending would concatenate, so the caller must discard and restart.
-                    result.status = ( request.resume_from > 0 )
+                    result.status = ( request.resume_from > 0 || request.last_byte )
                         ? HttpStatus::RangeIgnored
                         : HttpStatus::Ok;
 

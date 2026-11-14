@@ -238,6 +238,46 @@ namespace Mila::Tests::Distribution
         EXPECT_EQ( headerValue( transport->seen[ 0 ], "Range" ), "bytes=512-" );
     }
 
+    TEST( HttpClientPolicy, AsksForAPartFromZeroAndAccepts206 )
+    {
+        auto transport = std::make_shared<ScriptedTransport>();
+
+        transport->script[ "https://example.com/blob" ] = { 206, {}, "HEADBYTES", false };
+
+        HttpRequest request;
+        request.url = "https://example.com/blob";
+        request.last_byte = 8;
+
+        std::string body;
+        const HttpResult result = clientOver( transport ).getString( request, body );
+
+        EXPECT_TRUE( result.ok() );
+        EXPECT_EQ( body, "HEADBYTES" );
+        ASSERT_EQ( transport->seen.size(), 1u );
+        EXPECT_EQ( headerValue( transport->seen[ 0 ], "Range" ), "bytes=0-8" );
+    }
+
+    TEST( HttpClientPolicy, StopsAPartWhoseRangeTheServerIgnored )
+    {
+        // A server that ignores the Range of a part sends the whole file; the part asked for is the start of
+        // multi-gigabyte weights, so the transfer is stopped past the part rather than buffered.
+        auto transport = std::make_shared<ScriptedTransport>();
+
+        transport->script[ "https://example.com/blob" ] = { 200, {}, "THE WHOLE FILE, FAR LONGER THAN THE PART", false };
+
+        HttpRequest request;
+        request.url = "https://example.com/blob";
+        request.resume_from = 8;
+        request.last_byte = 11;
+
+        std::string body;
+        const HttpResult result = clientOver( transport ).getString( request, body );
+
+        EXPECT_EQ( result.status, HttpStatus::RangeIgnored );
+        EXPECT_TRUE( body.empty() );
+        EXPECT_EQ( headerValue( transport->seen[ 0 ], "Range" ), "bytes=8-11" );
+    }
+
     TEST( HttpClientPolicy, Accepts206ForAResume )
     {
         auto transport = std::make_shared<ScriptedTransport>();
