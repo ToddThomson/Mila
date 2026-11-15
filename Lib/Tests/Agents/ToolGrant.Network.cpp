@@ -40,7 +40,7 @@ import Mila;
 namespace Mila::Tests::AI
 {
     using namespace Mila::Agents;
-    using namespace Mila::Distribution;
+    using namespace Mila::Networking;
 
     namespace
     {

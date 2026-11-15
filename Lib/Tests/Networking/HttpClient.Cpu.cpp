@@ -26,9 +26,9 @@
 
 import Mila;
 
-namespace Mila::Tests::Distribution
+namespace Mila::Tests::Networking
 {
-    using namespace Mila::Distribution;
+    using namespace Mila::Networking;
 
     TEST( RedirectResolution, KeepsAnAbsoluteLocationUnchanged )
     {

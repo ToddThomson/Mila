@@ -1,8 +1,9 @@
 # HTTP Client
 
 Status: **proposed**, 2026-08-05. Supersedes the transport half of the Build gating section in
-[ModelDistribution.md](ModelDistribution.md). The layer the client and its transports belong to, `Mila::Network`, and
-the move out of `Distribution` are [Network/Network.md](Network/Network.md) (proposed, 2026-11-15).
+[ModelDistribution.md](ModelDistribution.md). The layer the client and its transports belong to, `Mila::Networking`, and
+the move out of `Distribution` are [Network/Network.md](Network/Network.md); the move is built (phase 1, 2026-11-15),
+so the module names below are `Networking.*` and the namespace `Mila::Networking`.
 
 ---
 
@@ -190,12 +191,12 @@ current build deliberately has.
 
 ## 7. Build plan
 
-1. **`Distribution.HttpTransport`** (always) -- `HttpHeader`, `HttpFetch`, `HttpResponse`,
-   `SinkCallback`, `IHttpTransport`.
-2. **`Distribution.HttpClient`** (always) -- `HttpStatus`, `HttpRequest`, `HttpResult`,
-   `ProgressCallback`, `HttpClient`, and `resolveRedirect` / `hostOf` moved up from the curl file.
-3. **`Distribution.CurlHttpTransport`** (gated) -- reduced to one `fetch`.
-4. **`Distribution.HttpTransportBackend`** -- `.Curl` / `.Null`, `makeDefaultHttpTransport()`,
+1. **`Networking.HttpTransport`** (always) -- `IHttpTransport` and `SinkCallback`, with `HttpHeader`, `HttpFetch` and
+   `HttpResponse` in modules of their own.
+2. **`Networking.HttpClient`** (always) -- `ProgressCallback`, `HttpClient`, and `resolveRedirect` / `hostOf` moved up
+   from the curl file, with `HttpStatus`, `HttpRequest` and `HttpResult` in modules of their own.
+3. **`Networking.CurlHttpTransport`** (gated) -- reduced to one `fetch`.
+4. **`Networking.HttpTransportBackend`** -- `.Curl` / `.Apple` / `.Null`, `makeDefaultHttpTransport()`,
    `kHttpTransportAvailable`.
 5. **`HuggingFaceHub`** takes an `HttpClient` rather than a transport -- a one-line change, since
    the client's surface is what it already calls.
@@ -243,7 +244,7 @@ Two transports, because a grant's network needs what Apple's URL loading does no
   the client sends none, so the bytes are what curl's request brings: Mila's `User-Agent`, and
   `Accept-Encoding: identity`, since the loader otherwise asks for compression and decodes it, and a
   resumed or hashed download must see the resource's own bytes. Apple's code is Objective-C, reached
-  through one `.m` file behind a C interface (`Implementation/UrlSessionFetch.m`), with no C++ in it.
+  through one `.m` file behind a C interface (`Networking/Transports/Apple/Implementation/UrlSessionFetch.m`), with no C++ in it.
 - **`NetworkHttpTransport`** is `makeCheckedHttpTransport()`: a tool grant's network
   (`ToolCalling.md` 3.4). Its guarantee is curl's: the check decides on the address connected to, after
   the name was resolved, before any packet reaches it, and no proxy is used. URL loading resolves and
@@ -255,7 +256,7 @@ Two transports, because a grant's network needs what Apple's URL loading does no
   `nw_parameters_set_prefer_no_proxy` is a preference, and a proxy can still be taken. Network.framework
   moves bytes and no more, so this transport writes the request and reads the reply itself: HTTP/1.1,
   one request per connection (`Connection: close`), only `http` and `https`, through
-  `HttpReplyReader`. The connection code is C (`Implementation/NetworkConnection.c`).
+  `HttpReplyReader`. The connection code is C (`Networking/Transports/Apple/Implementation/NetworkConnection.c`).
 - **`HttpReplyReader`** reads an HTTP/1.1 reply as its bytes arrive: the status line and headers,
   bounded, then a body by `Content-Length`, by chunks, or to the close; an interim 1xx reply is
   passed over. It is plain C++ in every build, so its rules are tested on every platform.

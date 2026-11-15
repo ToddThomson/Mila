@@ -1156,16 +1156,34 @@ target_sources(Mila
             "Src/Distribution/Hub/PublishedModel.ixx"
             "Src/Distribution/Hub/LocalDirectoryHub.ixx"
             "Src/Distribution/Hub/ModelResolver.ixx"
-            "Src/Distribution/Http/HttpTransport.ixx"
-            "Src/Distribution/Http/HttpReplyReader.ixx"
-            "Src/Distribution/Http/HttpClient.ixx"
             "Src/Distribution/Hub/HuggingFaceHub.ixx"
 )
 
 # ----------------------------------------------------------------------------
-# Model distribution -- the HTTP transport
+# Mila::Networking -- the outbound HTTP client, its transports, and the address checks a
+# connection can be held to (Specifications/Network/Network.md). It imports only Utils and
+# the root (Publishing/hooks/check_layers.py).
+# ----------------------------------------------------------------------------
+target_sources(Mila
+    PUBLIC
+        FILE_SET module_files
+        TYPE CXX_MODULES FILES
+            "Src/Networking/HttpHeader.ixx"
+            "Src/Networking/HttpFetch.ixx"
+            "Src/Networking/HttpResponse.ixx"
+            "Src/Networking/HttpTransport.ixx"
+            "Src/Networking/HttpStatus.ixx"
+            "Src/Networking/HttpRequest.ixx"
+            "Src/Networking/HttpResult.ixx"
+            "Src/Networking/HttpClient.ixx"
+            "Src/Networking/HttpReplyReader.ixx"
+            "Src/Networking/PublicAddress.ixx"
+)
+
+# ----------------------------------------------------------------------------
+# Mila::Networking -- the HTTP transport
 #
-# Distribution.HttpTransportBackend has three candidate source files and exactly one
+# Networking.HttpTransportBackend has three candidate source files and exactly one
 # is compiled: libcurl's, a Mac's own (Apple), or none. Selecting by source file rather
 # than by #ifdef means the OFF path is compiled code that a build actually checks, and
 # `import Mila;` never varies by a preprocessor define. This is the whole of what libcurl
@@ -1178,20 +1196,20 @@ if(MILA_ENABLE_LIBCURL AND APPLE)
         PUBLIC
             FILE_SET module_files
             TYPE CXX_MODULES FILES
-                "Src/Distribution/Http/UrlSessionHttpTransport.ixx"
-                "Src/Distribution/Http/NetworkHttpTransport.ixx"
-                "Src/Distribution/Http/HttpTransportBackend.Apple.ixx"
+                "Src/Networking/Transports/Apple/UrlSessionHttpTransport.ixx"
+                "Src/Networking/Transports/Apple/NetworkHttpTransport.ixx"
+                "Src/Networking/Transports/HttpTransportBackend.Apple.ixx"
     )
 
     target_sources(Mila
         PRIVATE
-            "Src/Distribution/Http/Implementation/UrlSessionHttpTransport.cpp"
-            "Src/Distribution/Http/Implementation/UrlSessionFetch.m"
-            "Src/Distribution/Http/Implementation/NetworkHttpTransport.cpp"
-            "Src/Distribution/Http/Implementation/NetworkConnection.c"
+            "Src/Networking/Transports/Apple/Implementation/UrlSessionHttpTransport.cpp"
+            "Src/Networking/Transports/Apple/Implementation/UrlSessionFetch.m"
+            "Src/Networking/Transports/Apple/Implementation/NetworkHttpTransport.cpp"
+            "Src/Networking/Transports/Apple/Implementation/NetworkConnection.c"
     )
 
-    set_source_files_properties("Src/Distribution/Http/Implementation/UrlSessionFetch.m" PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+    set_source_files_properties("Src/Networking/Transports/Apple/Implementation/UrlSessionFetch.m" PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 
     find_library(MILA_FOUNDATION_FRAMEWORK Foundation REQUIRED)
     find_library(MILA_NETWORK_FRAMEWORK Network REQUIRED)
@@ -1206,8 +1224,8 @@ elseif(MILA_ENABLE_LIBCURL)
         PUBLIC
             FILE_SET module_files
             TYPE CXX_MODULES FILES
-                "Src/Distribution/Http/CurlHttpTransport.ixx"
-                "Src/Distribution/Http/HttpTransportBackend.Curl.ixx"
+                "Src/Networking/Transports/Curl/CurlHttpTransport.ixx"
+                "Src/Networking/Transports/HttpTransportBackend.Curl.ixx"
     )
 
     # PRIVATE: libcurl is an implementation detail. Its headers appear only in a global
@@ -1215,7 +1233,7 @@ elseif(MILA_ENABLE_LIBCURL)
     target_link_libraries(Mila PRIVATE CURL::libcurl)
 
     # No MILA_HAS_* define: a PUBLIC macro that decides what a module exports makes the BMI
-    # depend on the preprocessor. Consumers ask Distribution::kHttpTransportAvailable
+    # depend on the preprocessor. Consumers ask Networking::kHttpTransportAvailable
     # instead, which is an exported constant the compiler checks.
     message(STATUS "Added HTTP transport: libcurl")
 else()
@@ -1223,7 +1241,7 @@ else()
         PUBLIC
             FILE_SET module_files
             TYPE CXX_MODULES FILES
-                "Src/Distribution/Http/HttpTransportBackend.Null.ixx"
+                "Src/Networking/Transports/HttpTransportBackend.Null.ixx"
     )
 
     message(STATUS "Added HTTP transport: none (caller supplies one, or install from disk)")
@@ -1243,7 +1261,6 @@ target_sources(Mila
             "Src/Agents/Grants/GrantFolder.ixx"
             "Src/Agents/Grants/FolderEntry.ixx"
             "Src/Agents/Grants/GrantPath.ixx"
-            "Src/Agents/Grants/PublicAddress.ixx"
             "Src/Agents/Grants/GrantFile.ixx"
             "Src/Agents/Programs/ProgramRequest.ixx"
             "Src/Agents/Programs/ProgramResult.ixx"
@@ -1289,7 +1306,8 @@ target_sources(Mila
         "Src/Deployment/Implementation/PublishedModelFit.cpp"
         "Src/Distribution/Implementation/PublishedModel.cpp"
         "Src/Distribution/Implementation/LocalDirectoryHub.cpp"
-        "Src/Distribution/Http/Implementation/HttpReplyReader.cpp"
+        "Src/Networking/Implementation/HttpClient.cpp"
+        "Src/Networking/Implementation/HttpReplyReader.cpp"
         "Src/Agents/Implementation/Agent.cpp"
 )
 
@@ -1297,7 +1315,7 @@ target_sources(Mila
 # Mila::Agents -- the file calls a tool's grant makes
 #
 # Agents.GrantFileSystem has two candidate source files and exactly one is compiled, as
-# Distribution.HttpTransportBackend does. Windows holds a tool to its folders; elsewhere every call
+# Networking.HttpTransportBackend does. Windows holds a tool to its folders; elsewhere every call
 # refuses, so no folder can be granted where none can be enforced (ToolCalling.md 3.4).
 # ----------------------------------------------------------------------------
 if(WIN32)

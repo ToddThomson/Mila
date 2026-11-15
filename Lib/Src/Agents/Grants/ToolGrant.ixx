@@ -18,10 +18,10 @@ import Agents.ProgramContainer;
 import Agents.ProgramFolders;
 import Agents.ProgramRequest;
 import Agents.ProgramResult;
-import Agents.PublicAddress;
 import Agents.ToolNeeds;
-import Distribution.HttpTransport;
-import Distribution.HttpTransportBackend;
+import Networking.HttpTransport;
+import Networking.HttpTransportBackend;
+import Networking.PublicAddress;
 
 namespace Mila::Agents
 {
@@ -177,9 +177,9 @@ namespace Mila::Agents
 
             if ( network )
             {
-                network_ = Mila::Distribution::makeCheckedHttpTransport( []( std::span<const std::uint8_t> address )
+                network_ = Mila::Networking::makeCheckedHttpTransport( []( std::span<const std::uint8_t> address )
                     {
-                        return isPublicAddress( address );
+                        return Mila::Networking::isPublicAddress( address );
                     } );
             }
         }
@@ -466,7 +466,7 @@ namespace Mila::Agents
          *
          * @throws std::runtime_error when the grant has no network.
          */
-        [[nodiscard]] std::shared_ptr<const Mila::Distribution::IHttpTransport> transport() const
+        [[nodiscard]] std::shared_ptr<const Mila::Networking::IHttpTransport> transport() const
         {
             if ( !network_ )
             {
@@ -711,7 +711,7 @@ namespace Mila::Agents
         // Each folder's own final path, taken when the grant was made, in the same order.
         std::vector<std::filesystem::path> final_paths_;
 
-        std::shared_ptr<const Mila::Distribution::IHttpTransport> network_;
+        std::shared_ptr<const Mila::Networking::IHttpTransport> network_;
 
         // Given only to a tool that runs programs, as the program folders are.
         std::shared_ptr<const ProgramContainer> container_;

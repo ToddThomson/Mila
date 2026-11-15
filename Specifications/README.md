@@ -152,8 +152,8 @@ means a status line or target is out of date and the rest has not been re-read.
 |---|---|---|---|
 | [ModelDistribution.md](ModelDistribution.md) | Design | Naming, packaging, the manifest and the local store | |
 | [ModelSerialization.md](ModelSerialization.md) | Design | Checkpoints and the flat weights path | |
-| [HttpClient.md](HttpClient.md) | Design | The HTTP transport behind fetching | Built: `Distribution/Http/HttpClient.ixx`, `HttpTransport.ixx` and `CurlHttpTransport.ixx` implement it and cite it. Its status line still says "proposed". Its layer is `Network/Network.md` |
-| [Network/Network.md](Network/Network.md) | Design | `Mila::Network`: the library's outbound networking as a folder of its own below `Distribution` and `Agents`, the platform transports under it, what moves there, and every request through one client | Proposed 2026-11-15; nothing built. Phase 1 (the move) is a session of its own |
+| [HttpClient.md](HttpClient.md) | Design | The HTTP transport behind fetching | Built: `Networking/HttpClient.ixx`, `HttpTransport.ixx` and the transports under `Networking/Transports/` implement it and cite it. Its status line still says "proposed". Its layer is `Network/Network.md` |
+| [Network/Network.md](Network/Network.md) | Design | `Mila::Networking`: the library's outbound networking as a folder of its own below `Distribution` and `Agents`, the platform transports under it, what moves there, and every request through one client | Phase 1 (the move) built 2026-11-15 at Todd's direction; phases 2 to 4 not started |
 
 ### Agents and tools
 

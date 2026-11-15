@@ -1,6 +1,7 @@
-# Network
+# Networking
 
-Status: **proposed**, 2026-11-15 (Todd asked for it; nothing below is decided until he says so). The layer the
+Status: **proposed**, 2026-11-15 (Todd asked for it). **Phase 1, the move, is built** (Todd directed it the same day,
+section 7); phases 2 to 4 are still proposals. The layer the
 library reaches the network through, its place among the others, what it holds and what it does not, and the work
 that moves today's code into it. The HTTP client's own design stays in [HttpClient.md](../HttpClient.md); this
 document decides the layer around it.
@@ -35,7 +36,7 @@ duplication `HttpClient.md` 3 named, one layer up.
 
 ## 2. Decisions proposed
 
-1. **`Mila::Network` is a folder of the Mila library, not a library of its own.** `Lib/Src/Network/`, in the
+1. **`Mila::Networking` is a folder of the Mila library, not a library of its own.** `Lib/Src/Networking/`, in the
    `Mila` target like `Dnn`, `Distribution`, `Deployment` and `Agents`, brought by `import Mila;`. One library,
    one install (`Direction.md` decision 2, 2026-11-02). Its edges are held by `Publishing/hooks/check_layers.py`,
    as every folder's are.
@@ -72,28 +73,28 @@ Mila::Dnn, Data   models ...    Mila::Distribution  hub, store, packaging
                                           |                         |
                                           +------------+------------+
                                                        |
-Mila::Network       HttpClient, IHttpTransport, HttpReplyReader, address classification
+Mila::Networking       HttpClient, IHttpTransport, HttpReplyReader, address classification
                                                        |
   transports        Curl (Windows, Linux) | Apple (URLSession, Network.framework) | Null | host delegate (binding)
                                                        |
 Utils, root (Mila.Version)
 ```
 
-It's a graph, not a stack. `Agents` imports `Network` directly (the grant's transport, the page reader, a future
-MCP client) and `Distribution` too (the store). `Deployment` imports `Distribution` and never `Network`; `Dnn`
+It's a graph, not a stack. `Agents` imports `Networking` directly (the grant's transport, the page reader, a future
+MCP client) and `Distribution` too (the store). `Deployment` imports `Distribution` and never `Networking`; `Dnn`
 imports neither. `check_layers.py` becomes:
 
 | Folder | May import |
 |---|---|
-| `Network` | `Utils`, (root) |
-| `Distribution` | `Network`, `Utils`, (root) |
-| `Agents` | as today, and `Network` |
+| `Networking` | `Utils`, (root) |
+| `Distribution` | `Networking`, `Utils`, (root) |
+| `Agents` | as today, and `Networking` |
 
 ## 4. What it holds
 
 ### 4.1 Moved from `Distribution/Http/`
 
-| Today | In `Network/` |
+| Today | In `Networking/` |
 |---|---|
 | `HttpTransport.ixx`: `HttpHeader`, `HttpFetch`, `HttpResponse`, `SinkCallback`, `HeadersCallback`, `ConnectionCheck`, `IHttpTransport`, `kMaximumCapturedErrorBytes` | Split by the one-type-per-file rule, since the move touches it: `HttpHeader.ixx`, `HttpFetch.ixx`, `HttpResponse.ixx`, `HttpTransport.ixx` (the interface, with its callback aliases and the capture bound beside it) |
 | `HttpClient.ixx`: `HttpStatus`, `HttpRequest`, `HttpResult`, `HttpClient`, `hostOf`, `resolveRedirect` | `HttpStatus.ixx`, `HttpRequest.ixx`, `HttpResult.ixx`, `HttpClient.ixx` (with `hostOf` and `resolveRedirect` beside it, or in `Url.ixx` if section 4.2's URL reading joins them) |
@@ -141,7 +142,7 @@ The grant's transport is the client's transport: `HttpClient( grant.transport() 
   separate question with its own open parts: where `ToolGate` and the grants go, and `ToolCalling.md` 5. It is not
   part of this change.
 - **No change to `Distribution`'s contents.** Hub, store, packaging and `Environment` stay. `Environment` reads a
-  variable, and nothing in `Network` needs it.
+  variable, and nothing in `Networking` needs it.
 - **No change to any transport's behaviour** in the move (phase 1). Section 5 changes behaviour and is its own phase.
 - **No new transport.** WinHTTP stays `HttpClient.md` 4.3's option.
 
@@ -149,16 +150,42 @@ The grant's transport is the client's transport: `HttpClient( grant.transport() 
 
 Each phase is its own change.
 
-1. **The move.** `Lib/Src/Network/` as in section 4.1 and the address classification in 4.2, namespace
-   `Mila::Network`, modules `Network.*`, the one-type-per-file split, `Mila.ixx`, `Lib/CMakeLists.txt`,
-   `check_layers.py`, and every user: `Distribution`'s hub, the grant, the page reader, the Python binding's
-   delegate, Chat, Mila Assistant's session, `mila-store`, `Tools/ExportArtifact`. Tests move to `Lib/Tests/Network/`
+1. **The move.** `Lib/Src/Networking/` as in section 4.1 and the address classification in 4.2, namespace
+   `Mila::Networking`, modules `Networking.*`, the one-type-per-file split, `Mila.ixx`, `Lib/CMakeLists.txt` (module
+   lists, implementation units, the Apple block with its frameworks and the `.m` file's `-fobjc-arc`, the curl
+   block), `check_layers.py`, and every user: `Distribution`'s hub, the grant, the page reader, the Python
+   binding's delegate (`DelegateHttpTransport`), Chat's catalogue, Mila Assistant's session (its models and web
+   search), `mila-store`, `Tools/ExportArtifact`. `kHttpTransportAvailable` becomes `Mila::Networking`'s. Nothing
+   changes behaviour: every transport, test and message does what it did. Tests move to `Lib/Tests/Networking/`
    (`HttpClient.Cpu.cpp`, `HttpReplyReader.Cpu.cpp`, `PublicAddress.cpp`); `ToolGrant.Network.cpp` stays with the
-   grant. The specs that name the old modules (`HttpClient.md`, `ModelDistribution.md`, `ToolCalling.md`,
-   `MilaDesktop.md`, `Metal/MetalBackend.md`) are updated in the same change.
+   grant, as do `WebPageReader.cpp` and `ModelHub.Cpu.cpp`. The specs that name the old modules (`HttpClient.md`,
+   `ModelDistribution.md`, `ToolCalling.md`, `MilaDesktop.md`, `Metal/MetalBackend.md`, the index row in
+   `Specifications/README.md`) are updated in the same change, and this section records phase 1 as built.
    *Done when:* every target builds on the PC and the Mac, the full suite passes on both, `check_layers.py`
    passes with section 3's table, and a search finds no `Distribution.Http`, `Mila::Distribution::Http`,
    `IHttpTransport` under `Distribution`, or `Agents.PublicAddress` left.
+   *Built* (2026-11-15), as section 4.1's table has it, with these choices made on the way:
+   - **The namespace is `Mila::Networking`, not `Mila::Network`** (Todd, 2026-11-15), and the folder, the modules
+     and the tests' folder follow it. `Mila::Network` collided with `Mila::Dnn::Network`, the class template a model
+     is built on: code inside a `Mila::` namespace other than `Dnn` with `using namespace Mila::Dnn;` found both for
+     `Network<...>` (MSVC C2872), which the build met in `Lib/Tests/Dnn/Modeling/Network.Cuda.cpp` and the MNIST
+     sample. `Mila::Net` was weighed and refused: an abbreviation, and "net" already names a neural network in
+     the library's own docs and component types. This document keeps its path.
+   - Each module whose signatures name a type re-exports its module (`Networking.HttpTransport` brings `HttpFetch` and
+     `HttpResponse`, `Networking.HttpClient` brings the transport, `HttpRequest` and `HttpResult`), so a user that
+     imported one module before imports one now.
+   - `hostOf` and `resolveRedirect` stay beside the client (section 8's third point, for now). The client's bodies,
+     and theirs, moved to `Networking/Implementation/HttpClient.cpp`, by `CLAUDE.md`'s rule for a plain class.
+   - `NullHttpTransport` is no longer exported: only its own file names it.
+   - `Agents.MxcProgramContainer` also imported the address module, for `nonPublicRanges()`; it imports
+     `Networking.PublicAddress` now. `ContainedPrograms.md` 7 is updated with it.
+   - `ToolCalling.md`, `MilaDesktop.md` and `Metal/MetalBackend.md` name no moved module, so nothing changed in
+     them.
+
+   *Done-when met* at `0.21.0-dev+144`: every target builds on the PC (`x64-claude-verify`) and the Mac
+   (`macos-clang-release`); the full suites fail only where they did before the move (PC: the 4070's drafter near-tie
+   and the three tests on the 26B stub, and the MXC tests until `MILA_MXC_LIBRARY` is set, then 21 of 21; Mac: the six
+   Llama FP8 gates on Metal); `check_layers.py` passes; the search finds none of the old names.
 2. **One User-Agent** (section 4.3). *Done when:* one definition, and a test reads it from each transport's
    request where the transport can be observed (curl and Network.framework, against the loopback server).
 3. **The client serves every use** (section 5). The page reader and web search go through `HttpClient`.
@@ -170,17 +197,17 @@ Each phase is its own change.
 
 - **`MILA_ENABLE_LIBCURL`** names the wrong thing on a Mac (`HttpClient.md` 8). With networking a layer, the option
   says whether the library reaches the network at all, and the platform picks the transport:
-  `MILA_ENABLE_NETWORK` is the obvious name. The rename reaches CI, the Dockerfiles, `getting-started.md` and
+  `MILA_ENABLE_NETWORKING`, after the layer, is the obvious name. The rename reaches CI, the Dockerfiles, `getting-started.md` and
   user-visible strings, so it is phase 4, not phase 1.
 - **Whether `HttpClient.md` folds into this document** once phase 3 lands, as `Network/HttpClient.md`. Moving a
   spec is its own commit (`Specifications/README.md` rule 4).
 - **The one-type-per-file split of `HttpClient.ixx`'s helpers**: `hostOf` and `resolveRedirect` beside the client,
-  or a `Url.ixx` with the URL reading of section 4.2.
+  or a `Url.ixx` with the URL reading of section 4.2. Phase 1 left them beside the client.
 
 ## 9. Relationship to other specs
 
 - `HttpClient.md`: the client's policy and the transport contract. Unchanged in substance; its module names follow
   phase 1.
 - `ToolCalling.md` 3.4: the grant's network rule. Unchanged; the classification it names moves home.
-- `Direction.md` 3: the layering diagram gains `Mila::Network` below `Mila::Distribution` when this is agreed.
+- `Direction.md` 3: the layering diagram gains `Mila::Networking` below `Mila::Distribution` when this is agreed.
 - `ModelDistribution.md`: the store and hub reach the network through this layer.

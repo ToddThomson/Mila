@@ -138,7 +138,7 @@ namespace Mila::Desktop
     {
         nlohmann::json listed = { { "models", nlohmann::json::array() }, { "suggested", nullptr } };
 
-        if constexpr ( !Mila::Distribution::kHttpTransportAvailable )
+        if constexpr ( !Mila::Networking::kHttpTransportAvailable )
         {
             return listed;
         }
@@ -214,7 +214,7 @@ namespace Mila::Desktop
     export inline std::vector<std::string> installModel( const std::string& name,
         const std::function<void( std::uint64_t received, std::uint64_t total )>& progress )
     {
-        if constexpr ( !Mila::Distribution::kHttpTransportAvailable )
+        if constexpr ( !Mila::Networking::kHttpTransportAvailable )
         {
             throw std::runtime_error( "this build of Mila cannot download" );
         }

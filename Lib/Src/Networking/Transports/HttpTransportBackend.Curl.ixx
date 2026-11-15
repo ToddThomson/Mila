@@ -2,19 +2,19 @@
  * @file HttpTransportBackend.Curl.ixx
  * @brief The HTTP transport this build has: libcurl.
  *
- * One of two candidate files for Distribution.HttpTransportBackend; CMake compiles this one
- * when MILA_ENABLE_LIBCURL is ON. Selecting by source file rather than by preprocessor keeps
+ * One of three candidate files for Networking.HttpTransportBackend; CMake compiles this one
+ * when MILA_ENABLE_LIBCURL is ON on Windows or Linux. Selecting by source file rather than by preprocessor keeps
  * both alternatives compiled code and keeps `import Mila;` free of an `#ifdef`.
  */
 
-export module Distribution.HttpTransportBackend;
+export module Networking.HttpTransportBackend;
 
 import std;
-import Distribution.HttpTransport;
+import Networking.HttpTransport;
 
-export import Distribution.CurlHttpTransport;
+export import Networking.CurlHttpTransport;
 
-namespace Mila::Distribution
+namespace Mila::Networking
 {
     /**
      * @brief Whether this build can perform an HTTP request itself.

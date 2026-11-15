@@ -2,18 +2,18 @@
  * @file HttpTransportBackend.Null.ixx
  * @brief The transport for a build with no HTTP client of its own: one that refuses, by name.
  *
- * One of two candidate files for Distribution.HttpTransportBackend; CMake compiles this one
+ * One of three candidate files for Networking.HttpTransportBackend; CMake compiles this one
  * when MILA_ENABLE_LIBCURL is OFF. Only moving bytes is gone -- the store, packaging, install,
  * pull, and every HuggingFace URL, token and status rule are still compiled, so a caller that
  * supplies its own transport loses nothing at all. That is how the Python wheel works.
  */
 
-export module Distribution.HttpTransportBackend;
+export module Networking.HttpTransportBackend;
 
 import std;
-import Distribution.HttpTransport;
+import Networking.HttpTransport;
 
-namespace Mila::Distribution
+namespace Mila::Networking
 {
     /**
      * @brief Whether this build can perform an HTTP request itself.
@@ -30,7 +30,7 @@ namespace Mila::Distribution
      * network call to have failed. Supplying a transport is the supported answer, not a
      * workaround -- this build knows everything about HuggingFace except how to reach it.
      */
-    export class NullHttpTransport : public IHttpTransport
+    class NullHttpTransport : public IHttpTransport
     {
     public:
 

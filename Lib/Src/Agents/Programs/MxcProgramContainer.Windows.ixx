@@ -27,9 +27,9 @@ import Agents.FolderAccess;
 import Agents.GrantFolder;
 import Agents.ProgramContainer;
 import Agents.ProgramResult;
-import Agents.PublicAddress;
 import Agents.SecondNameWatch;
 import Agents.ToolDesktop;
+import Networking.PublicAddress;
 
 namespace Mila::Agents
 {
@@ -531,7 +531,7 @@ namespace Mila::Agents
             {
                 nlohmann::json to = nlohmann::json::array();
 
-                for ( const std::string& range : nonPublicRanges() )
+                for ( const std::string& range : Mila::Networking::nonPublicRanges() )
                 {
                     to.push_back( { { "cidr", range } } );
                 }

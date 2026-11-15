@@ -538,7 +538,7 @@ namespace Mila::Bindings
          * The delegate is held by value: a copy of a std::function is cheap next to a transfer,
          * and it removes any question of whether the caller's callable outlives the pull.
          */
-        class DelegateHttpTransport : public Mila::Distribution::IHttpTransport
+        class DelegateHttpTransport : public Mila::Networking::IHttpTransport
         {
         public:
 
@@ -548,15 +548,15 @@ namespace Mila::Bindings
 
             std::string name() const override { return "delegate"; }
 
-            Mila::Distribution::HttpResponse fetch(
-                const Mila::Distribution::HttpFetch& request,
-                const Mila::Distribution::SinkCallback& sink,
-                const Mila::Distribution::HeadersCallback& on_headers ) const override
+            Mila::Networking::HttpResponse fetch(
+                const Mila::Networking::HttpFetch& request,
+                const Mila::Networking::SinkCallback& sink,
+                const Mila::Networking::HeadersCallback& on_headers ) const override
             {
                 // The delegate's signature carries no body, so a POST it was handed would go out as a GET.
                 if ( request.body )
                 {
-                    Mila::Distribution::HttpResponse refused;
+                    Mila::Networking::HttpResponse refused;
                     refused.transport_failed = true;
                     refused.message = "the Python transport sends GET requests only";
 
@@ -580,7 +580,7 @@ namespace Mila::Bindings
                     on_headers( answer.http_code, answer.content_length );
                 }
 
-                Mila::Distribution::HttpResponse response;
+                Mila::Networking::HttpResponse response;
                 response.http_code = answer.http_code;
                 response.location = answer.location;
                 response.content_length = answer.content_length;
@@ -596,12 +596,12 @@ namespace Mila::Bindings
         };
 
         /// The caller's transport, or this build's own when they supplied none.
-        std::shared_ptr<const Mila::Distribution::IHttpTransport> transportFor(
+        std::shared_ptr<const Mila::Networking::IHttpTransport> transportFor(
             const HttpFetchDelegate& delegate )
         {
             if ( !delegate )
             {
-                return Mila::Distribution::makeDefaultHttpTransport();
+                return Mila::Networking::makeDefaultHttpTransport();
             }
 
             return std::make_shared<const DelegateHttpTransport>( delegate );

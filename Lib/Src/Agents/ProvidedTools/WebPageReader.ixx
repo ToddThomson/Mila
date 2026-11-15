@@ -8,8 +8,8 @@ export module Agents.WebPageReader;
 
 import std;
 import nlohmann.json;
-import Distribution.HttpClient;
-import Distribution.HttpTransport;
+import Networking.HttpClient;
+import Networking.HttpTransport;
 import Agents.HtmlText;
 import Agents.Tool;
 import Agents.ToolGrant;
@@ -17,9 +17,9 @@ import Agents.ToolNeeds;
 
 namespace Mila::Agents
 {
-    using Mila::Distribution::HttpFetch;
-    using Mila::Distribution::HttpResponse;
-    using Mila::Distribution::IHttpTransport;
+    using Mila::Networking::HttpFetch;
+    using Mila::Networking::HttpResponse;
+    using Mila::Networking::IHttpTransport;
 
     /**
      * @brief Reads one web page for the model, a part at a time.
@@ -172,7 +172,7 @@ namespace Mila::Agents
 
                 if ( code == 301 || code == 302 || code == 303 || code == 307 || code == 308 )
                 {
-                    const std::string next = Mila::Distribution::resolveRedirect( url, response.location );
+                    const std::string next = Mila::Networking::resolveRedirect( url, response.location );
 
                     if ( response.location.empty() || !isWebAddress( next ) )
                         throw std::runtime_error( std::format( "{} redirects to something that is not a web page", url ) );

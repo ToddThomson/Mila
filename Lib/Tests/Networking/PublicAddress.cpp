@@ -14,9 +14,9 @@
 
 import Mila;
 
-namespace Mila::Tests::AI
+namespace Mila::Tests::Networking
 {
-    using namespace Mila::Agents;
+    using namespace Mila::Networking;
 
     namespace
     {

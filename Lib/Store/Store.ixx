@@ -163,7 +163,7 @@ namespace Mila::StoreApp
                             break;
                     }
 
-                    if constexpr ( !Mila::Distribution::kHttpTransportAvailable )
+                    if constexpr ( !Mila::Networking::kHttpTransportAvailable )
                     {
                         std::cerr << std::format( "Could not install '{}': this build has no HTTP transport "
                             "(MILA_ENABLE_LIBCURL=OFF), so it installs only from a package directory.\n",
@@ -379,7 +379,7 @@ namespace Mila::StoreApp
 
         int listPublished()
         {
-            if constexpr ( !Mila::Distribution::kHttpTransportAvailable )
+            if constexpr ( !Mila::Networking::kHttpTransportAvailable )
             {
                 std::cerr << "This build has no HTTP transport (MILA_ENABLE_LIBCURL=OFF), "
                     "so it cannot reach the hub.\n";

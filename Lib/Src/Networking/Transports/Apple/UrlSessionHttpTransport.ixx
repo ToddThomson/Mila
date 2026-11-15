@@ -3,12 +3,12 @@
  * @brief Apple's URL loading as an IHttpTransport: Keychain trust and the Mac's proxy settings (HttpClient.md 9).
  */
 
-export module Distribution.UrlSessionHttpTransport;
+export module Networking.UrlSessionHttpTransport;
 
 import std;
-import Distribution.HttpTransport;
+import Networking.HttpTransport;
 
-namespace Mila::Distribution
+namespace Mila::Networking
 {
     /**
      * @brief The default transport on macOS: one request through an ephemeral URL session, with no cache, no cookies

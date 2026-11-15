@@ -5,11 +5,11 @@
  * For a transport that speaks HTTP itself over a connection it holds (HttpClient.md section 9).
  */
 
-export module Distribution.HttpReplyReader;
+export module Networking.HttpReplyReader;
 
 import std;
 
-namespace Mila::Distribution
+namespace Mila::Networking
 {
     /**
      * @brief Reads one reply to one request on a connection that closes after it.

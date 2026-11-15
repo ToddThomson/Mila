@@ -18,12 +18,12 @@ module;
 #  include <netinet/in.h>
 #endif
 
-export module Distribution.CurlHttpTransport;
+export module Networking.CurlHttpTransport;
 
 import std;
-import Distribution.HttpTransport;
+import Networking.HttpTransport;
 
-namespace Mila::Distribution
+namespace Mila::Networking
 {
     namespace
     {

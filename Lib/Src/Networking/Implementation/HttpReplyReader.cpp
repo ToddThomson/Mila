@@ -3,11 +3,11 @@
  * @brief The bodies of HttpReplyReader's members; the interface is HttpReplyReader.ixx.
  */
 
-module Distribution.HttpReplyReader;
+module Networking.HttpReplyReader;
 
 import std;
 
-namespace Mila::Distribution
+namespace Mila::Networking
 {
     namespace
     {

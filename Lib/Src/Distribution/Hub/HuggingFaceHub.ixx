@@ -18,12 +18,21 @@ import Distribution.ModelCoordinate;
 import Distribution.ModelStore;
 import Distribution.ModelHub;
 import Distribution.LocalDirectoryHub;
-import Distribution.HttpTransport;
-import Distribution.HttpClient;
-import Distribution.HttpTransportBackend;
+import Networking.HttpTransport;
+import Networking.HttpClient;
+import Networking.HttpTransportBackend;
 
 namespace Mila::Distribution
 {
+    using Mila::Networking::HttpClient;
+    using Mila::Networking::HttpRequest;
+    using Mila::Networking::HttpResult;
+    using Mila::Networking::HttpStatus;
+    using Mila::Networking::IHttpTransport;
+    using Mila::Networking::ProgressCallback;
+    using Mila::Networking::SinkCallback;
+    using Mila::Networking::makeDefaultHttpTransport;
+
     /**
      * @brief HuggingFace token, or empty for anonymous access.
      *

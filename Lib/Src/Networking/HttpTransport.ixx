@@ -8,54 +8,18 @@
  * language without being trusted with a token.
  */
 
-export module Distribution.HttpTransport;
+export module Networking.HttpTransport;
 
 import std;
 
-namespace Mila::Distribution
+export import Networking.HttpFetch;
+export import Networking.HttpResponse;
+
+namespace Mila::Networking
 {
     /// A non-2xx body is captured to this many bytes and no further: enough to carry an error page's useful line,
     /// bounded enough that a hostile server cannot grow it.
     export inline constexpr std::size_t kMaximumCapturedErrorBytes = 4096;
-
-    export struct HttpHeader
-    {
-        std::string name;
-        std::string value;
-    };
-
-    export struct HttpFetch
-    {
-        std::string url;
-
-        /// Exactly what to send. A transport adds nothing and removes nothing.
-        std::vector<HttpHeader> headers;
-
-        /// When set, the request is a POST carrying exactly these bytes, and its Content-Type is one of the headers;
-        /// a GET when not.
-        std::optional<std::string> body;
-
-        /// Seconds with no data before the transfer is abandoned. Zero disables.
-        long low_speed_timeout_seconds{ 60 };
-    };
-
-    export struct HttpResponse
-    {
-        /// Zero when the request never completed.
-        long http_code{ 0 };
-
-        /// The Location header verbatim, empty when absent. Resolving it is the client's job.
-        std::string location;
-
-        /// Server-reported length of this response body. Zero if absent.
-        std::uint64_t content_length{ 0 };
-
-        /// Connection, TLS or I/O failure -- distinct from any HTTP status.
-        bool transport_failed{ false };
-
-        /// Detail on failure, or a bounded prefix of a non-2xx body. Never contains a token.
-        std::string message;
-    };
 
     /**
      * @brief Called with each chunk of body as it arrives. Return false to abort.

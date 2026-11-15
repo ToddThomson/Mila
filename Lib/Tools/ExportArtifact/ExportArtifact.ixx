@@ -208,7 +208,7 @@ namespace Mila::Tools
 
         std::uint64_t written = 0;
 
-        Mila::Distribution::HttpRequest request;
+        Mila::Networking::HttpRequest request;
         request.url = url;
         request.token = Mila::Distribution::discoverHuggingFaceToken();
         request.resume_from = resume_from;
@@ -224,8 +224,8 @@ namespace Mila::Tools
 
         // A client, not a raw transport: --fetch is meant to reproduce what a real pull does,
         // which includes following the CDN redirect and dropping the token on the way.
-        const Mila::Distribution::HttpClient client(
-            Mila::Distribution::makeDefaultHttpTransport() );
+        const Mila::Networking::HttpClient client(
+            Mila::Networking::makeDefaultHttpTransport() );
 
         const auto result = client.get( request,
             [&]( const char* data, std::size_t length ) -> bool
@@ -269,7 +269,7 @@ namespace Mila::Tools
 
         // The store discards the partial here, because a prefix followed by a second copy from
         // byte zero is not salvageable. The probe keeps it: inspecting the wreck is the point.
-        if ( result.status == Mila::Distribution::HttpStatus::RangeIgnored )
+        if ( result.status == Mila::Networking::HttpStatus::RangeIgnored )
         {
             std::cout << std::format(
                 "\n  The server ignored the Range header and sent the whole file, so {} now holds\n"

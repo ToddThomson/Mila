@@ -13,8 +13,8 @@ import Mila;
 
 namespace Mila::Desktop
 {
-    using Mila::Distribution::HttpFetch;
-    using Mila::Distribution::HttpResponse;
+    using Mila::Networking::HttpFetch;
+    using Mila::Networking::HttpResponse;
 
     /**
      * @brief Searches the web for the model, one query at a time.

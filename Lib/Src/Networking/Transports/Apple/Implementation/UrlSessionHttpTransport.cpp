@@ -7,12 +7,12 @@ module;
 
 #include "UrlSessionFetch.h"
 
-module Distribution.UrlSessionHttpTransport;
+module Networking.UrlSessionHttpTransport;
 
 import std;
-import Distribution.HttpTransport;
+import Networking.HttpTransport;
 
-namespace Mila::Distribution
+namespace Mila::Networking
 {
     namespace
     {

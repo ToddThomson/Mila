@@ -610,7 +610,7 @@ namespace Mila::ChatApp
     {
         std::vector<PublishedModel> published;
 
-        if constexpr ( !Mila::Distribution::kHttpTransportAvailable )
+        if constexpr ( !Mila::Networking::kHttpTransportAvailable )
         {
             return published;
         }
@@ -706,7 +706,7 @@ namespace Mila::ChatApp
 
         // A build without a hub says so, rather than reporting an empty listing -- that would
         // claim this publisher has nothing, when the truth is that nothing can be asked.
-        if constexpr ( !Mila::Distribution::kHttpTransportAvailable )
+        if constexpr ( !Mila::Networking::kHttpTransportAvailable )
         {
             lines.push_back(
                 "This build has no HTTP transport (MILA_ENABLE_LIBCURL=OFF), so no publisher "
@@ -873,7 +873,7 @@ namespace Mila::ChatApp
 
         // Not here, so ask the publisher. A name that is neither installed nor published costs one
         // failed fetch, which is the right price for a typo on a command typed by hand.
-        if constexpr ( !Mila::Distribution::kHttpTransportAvailable )
+        if constexpr ( !Mila::Networking::kHttpTransportAvailable )
         {
             lines.push_back( std::format(
                 "'{}' is not installed, and this build has no HTTP transport to ask a "
@@ -952,7 +952,7 @@ namespace Mila::ChatApp
     {
         std::vector<std::string> lines;
 
-        if constexpr ( !Mila::Distribution::kHttpTransportAvailable )
+        if constexpr ( !Mila::Networking::kHttpTransportAvailable )
         {
             lines.push_back( std::format(
                 "Cannot install '{}': this build has no HTTP transport "

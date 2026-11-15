@@ -435,16 +435,27 @@ export import Distribution.ModelHub;
 export import Distribution.PublishedModel;
 export import Distribution.LocalDirectoryHub;
 export import Distribution.ModelResolver;
-export import Distribution.HttpTransport;
-export import Distribution.HttpReplyReader;
-export import Distribution.HttpClient;
 export import Distribution.HuggingFaceHub;
 
-// The transport, chosen by CMake between two source files: the libcurl backend re-exports the
-// client with it, the null backend re-exports nothing. Selecting it here would take an #ifdef,
+// ============================================================================
+// Networking - the outbound HTTP client and its transports (Network/Network.md)
+// ============================================================================
+export import Networking.HttpHeader;
+export import Networking.HttpFetch;
+export import Networking.HttpResponse;
+export import Networking.HttpTransport;
+export import Networking.HttpStatus;
+export import Networking.HttpRequest;
+export import Networking.HttpResult;
+export import Networking.HttpClient;
+export import Networking.HttpReplyReader;
+export import Networking.PublicAddress;
+
+// The transport, chosen by CMake among three source files: libcurl's and a Mac's re-export their
+// transports with it, the null backend re-exports nothing. Selecting it here would take an #ifdef,
 // which would make this module's exported interface -- and its BMI -- depend on a preprocessor
 // define rather than on the build configuration.
-export import Distribution.HttpTransportBackend;
+export import Networking.HttpTransportBackend;
 
 // ============================================================================
 // Data - Core
@@ -476,7 +487,6 @@ export import Agents.FolderAccess;
 export import Agents.GrantFolder;
 export import Agents.FolderEntry;
 export import Agents.GrantPath;
-export import Agents.PublicAddress;
 export import Agents.GrantFile;
 export import Agents.ProgramRequest;
 export import Agents.ProgramResult;

@@ -11,13 +11,13 @@ module;
 
 #include "NetworkConnection.h"
 
-module Distribution.NetworkHttpTransport;
+module Networking.NetworkHttpTransport;
 
 import std;
-import Distribution.HttpTransport;
-import Distribution.HttpReplyReader;
+import Networking.HttpTransport;
+import Networking.HttpReplyReader;
 
-namespace Mila::Distribution
+namespace Mila::Networking
 {
     namespace
     {

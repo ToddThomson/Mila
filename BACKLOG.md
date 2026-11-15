@@ -925,16 +925,15 @@ Q4_0 kernel changed the order of the sums again: worst 2.14e-2 against the bar o
 
 Defects in the library the user admitted to this release with no ROADMAP criterion behind them.
 
-#### The library's networking sits inside model distribution, so the agents and the applications reach the web through the model store's code
+#### The web page tool and Mila Assistant's web search go round the library's HTTP client, and each transport names its own User-Agent
 
-`open` · `architecture` · `api` · `agents` · `distribution` · `mila-src` · `breaking`
+`in progress` · `architecture` · `api` · `agents` · `mila-src` · `breaking`
 
-The HTTP client and every transport are `Mila::Distribution`, under `Distribution/Http/`. The tool grant, the web
-page tool and Mila Assistant's web search all import that layer to reach the network. The page tool and web search
-also go round `HttpClient` to the transport and keep their own redirect and status handling. Work: a `Mila::Network`
-folder of the Mila library below `Distribution` and `Agents`, with the platform transports under it, then one
-User-Agent, then every request through the client. Admitted by Todd, 2026-11-15. The move is phase 1, a session of
-its own.
+The HTTP client, every transport and the address classification are `Mila::Networking`, under `Networking/`, below
+`Distribution` and `Agents` (phase 1). The page tool and web search still call the transport themselves and keep
+their own redirect and status handling, and curl, URL loading and Network.framework each send their own
+`Mila/0.20`. Work left: one User-Agent, then every request through the client, then the build option's name if
+section 8 decides it. Admitted by Todd, 2026-11-15.
 
 `Specifications/Network/Network.md` 7
 

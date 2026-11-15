@@ -24,11 +24,12 @@ SOURCE = Path("Lib") / "Src"
 ALLOWED = {
     "Logging": set(),
     "Utils": set(),
-    "Distribution": {"Utils", "(root)"},
+    "Networking": {"Utils", "(root)"},
+    "Distribution": {"Networking", "Utils", "(root)"},
     "Data": {"Dnn", "Logging", "Utils"},
     "Dnn": {"Data", "Deployment", "Logging", "Utils"},
     "Deployment": {"Data", "Distribution", "Dnn"},
-    "Agents": {"Data", "Deployment", "Distribution", "Dnn", "Utils"},
+    "Agents": {"Data", "Deployment", "Distribution", "Dnn", "Networking", "Utils"},
 }
 
 MODULE = re.compile(r"^\s*export\s+module\s+([\w.]+)", re.MULTILINE)

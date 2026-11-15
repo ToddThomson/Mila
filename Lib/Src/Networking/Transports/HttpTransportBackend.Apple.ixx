@@ -2,19 +2,19 @@
  * @file HttpTransportBackend.Apple.ixx
  * @brief The HTTP transports a macOS build has: Apple's URL loading, and Network.framework for a checked network.
  *
- * One of the candidate files for Distribution.HttpTransportBackend; CMake compiles this one on Apple when
+ * One of three candidate files for Networking.HttpTransportBackend; CMake compiles this one on Apple when
  * MILA_ENABLE_LIBCURL is ON, and no libcurl is built there (HttpClient.md section 9).
  */
 
-export module Distribution.HttpTransportBackend;
+export module Networking.HttpTransportBackend;
 
 import std;
-import Distribution.HttpTransport;
+import Networking.HttpTransport;
 
-export import Distribution.UrlSessionHttpTransport;
-export import Distribution.NetworkHttpTransport;
+export import Networking.UrlSessionHttpTransport;
+export import Networking.NetworkHttpTransport;
 
-namespace Mila::Distribution
+namespace Mila::Networking
 {
     /**
      * @brief Whether this build can perform an HTTP request itself.

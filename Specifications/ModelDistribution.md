@@ -744,15 +744,16 @@ them.
 The split is by dependency, not by theme, and **the only optional thing is the transport.**
 
 - **Always compiled** -- `Sha256`, `Environment`, `ModelCoordinate`, `ModelManifest`,
-  `ModelPackage`, `ModelStore`, `ModelHub`, `ModelResolver`, `HttpTransport` and
-  **`HuggingFaceHub`**: naming, the schema, layout, records, list, locate, remove, clean,
+  `ModelPackage`, `ModelStore`, `ModelHub`, `ModelResolver`, `Mila::Networking`'s client and
+  `HttpTransport` (`Network/Network.md`), and **`HuggingFaceHub`**: naming, the schema, layout, records, list, locate, remove, clean,
   package, validate, install, `pull` itself, and every HuggingFace URL shape, token rule,
   listing quirk and status meaning. None of it performs I/O. `HuggingFaceHub` holds an
   `IHttpTransport` and asks it for bytes.
-- **`Distribution.HttpTransportBackend`** -- the transport, with two candidate source files and
+- **`Networking.HttpTransportBackend`** -- the transport, with three candidate source files and
   exactly one compiled. `HttpTransportBackend.Curl.ixx` brings `CurlHttpTransport` and keeps
-  libcurl private; `HttpTransportBackend.Null.ixx` supplies one that refuses by name. Both
-  export `makeDefaultHttpTransport()` and `kHttpTransportAvailable`.
+  libcurl private; `HttpTransportBackend.Apple.ixx` brings a Mac's own (`HttpClient.md` 9);
+  `HttpTransportBackend.Null.ixx` supplies one that refuses by name. Each exports
+  `makeDefaultHttpTransport()` and `kHttpTransportAvailable`.
 
 **Why the seam is the transport and not the hub.** Gating `HuggingFaceHub` was tried and was
 wrong: URL construction, token discovery, the `gated: "auto"` quirk and the 401-vs-403 distinction
@@ -776,7 +777,7 @@ should not force a network dependency on a consumer that only loads from disk.
 exports makes the BMI depend on the preprocessor, so `import Mila;` would no longer name one
 thing. Choosing the file instead keeps both alternatives compiled code and leaves the variation
 where it belongs: in the build configuration. A consumer that must say which build it is asks
-`Distribution::kHttpTransportAvailable`.
+`Networking::kHttpTransportAvailable`.
 
 ### The HTTP client
 

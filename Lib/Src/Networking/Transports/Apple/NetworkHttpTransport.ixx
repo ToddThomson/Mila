@@ -3,12 +3,12 @@
  * @brief Network.framework as an IHttpTransport that makes only the connections a check allows (HttpClient.md 9).
  */
 
-export module Distribution.NetworkHttpTransport;
+export module Networking.NetworkHttpTransport;
 
 import std;
-import Distribution.HttpTransport;
+import Networking.HttpTransport;
 
-namespace Mila::Distribution
+namespace Mila::Networking
 {
     /**
      * @brief The checked transport on macOS: a tool grant's network.

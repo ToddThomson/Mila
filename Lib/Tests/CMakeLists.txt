@@ -172,8 +172,11 @@ target_sources( MilaTests PRIVATE
     "Distribution/ModelResolver.Cpu.cpp"
     "Distribution/ModelHub.Cpu.cpp"
     "Distribution/PublishedModel.Cpu.cpp"
-    "Distribution/HttpClient.Cpu.cpp"
-    "Distribution/HttpReplyReader.Cpu.cpp"
+    # Mila::Networking: the client's policy against a scripted transport, the reply reader, and the address
+    # classification. Offline, in every build.
+    "Networking/HttpClient.Cpu.cpp"
+    "Networking/HttpReplyReader.Cpu.cpp"
+    "Networking/PublicAddress.cpp"
     # An installed model by name and the manifest fields it answers from (Deployment.md 8.1). Offline.
     "Deployment/InstalledModel.Cpu.cpp"
     # The devices a request allows and the planner's choice among them (Deployment.md 12.8), on described devices.
@@ -187,7 +190,6 @@ target_sources( MilaTests PRIVATE
 target_sources( MilaTests PRIVATE
     "Agents/ArgumentSchema.cpp"
     "Agents/GrantPath.cpp"
-    "Agents/PublicAddress.cpp"
     "Agents/ToolRules.cpp"
     "Agents/ToolGate.cpp"
     "Agents/Session.cpp"
@@ -224,7 +226,7 @@ if(MILA_ENABLE_LIBCURL)
     )
 endif()
 
-# Nothing under Distribution is gated any more. HttpClient's policy -- redirect hops, the
+# Nothing under Distribution or Networking is gated any more. HttpClient's policy -- redirect hops, the
 # cross-host token drop, Range and the 200-versus-206 rule -- runs against a scripted
 # transport, so the rules that matter are pinned in every build rather than only where
 # libcurl happens to be compiled.

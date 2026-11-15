@@ -10,9 +10,18 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## A local hub's files are opened by a narrow path on Windows, and the warning that would say so is not silenced
+
+`Lib/Src/Distribution/Implementation/LocalDirectoryHub.cpp` (`openForReading`) @ 0.21.0-dev+144
+
+Found 2026-11-15 building the Networking move: MSVC 14.52 reports C4996 for the `std::fopen` there despite the
+`#pragma warning( suppress : 4996 )` above it, the only warning in an all-targets build. The call opens
+`path.string()`, which on Windows is the path in the ANSI code page, so a hub folder whose path holds a character
+outside it would not open. Not tried.
+
 ## Every HTTP request Mila makes says it comes from Mila 0.20
 
-`Lib/Src/Distribution/Http/CurlHttpTransport.ixx`, `Implementation/UrlSessionFetch.m`, `Implementation/NetworkHttpTransport.cpp` (`Mila/0.20`) @ 0.21.0-dev+142
+`Lib/Src/Networking/Transports/Curl/CurlHttpTransport.ixx`, `Transports/Apple/Implementation/UrlSessionFetch.m`, `Transports/Apple/Implementation/NetworkHttpTransport.cpp` (`Mila/0.20`) @ 0.21.0-dev+144
 
 Found 2026-11-14 writing the Mac's transports. The User-Agent is a literal `Mila/0.20` in curl's transport, and the two macOS transports copy it so a server sees the same request from each; no transport reads `Version.txt`. Three copies of one stale string.
 
@@ -373,7 +382,7 @@ Tavily's credits page says nothing on keeping or showing results. Brave grants t
 
 ## Mila's HTTP transport names itself Mila 0.20 to every server
 
-`Lib/Src/Distribution/Http/CurlHttpTransport.ixx` (`CURLOPT_USERAGENT`, "Mila/0.20") @ da647c29
+`Lib/Src/Networking/Transports/Curl/CurlHttpTransport.ixx` (`CURLOPT_USERAGENT`, "Mila/0.20") @ 0.21.0-dev+144
 
 Found 2026-10-26 writing Mila Desktop's page reader, which fetches through it: the user agent is a written-in
 string from the 0.20 cycle, not `Version.txt`'s, so model installs and web pages alike are requested as Mila 0.20.

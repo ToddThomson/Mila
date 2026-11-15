@@ -3,11 +3,11 @@
  * @brief Whether an IP address is one a grant's network may connect to: a public address, reachable from anywhere.
  */
 
-export module Agents.PublicAddress;
+export module Networking.PublicAddress;
 
 import std;
 
-namespace Mila::Agents
+namespace Mila::Networking
 {
     namespace
     {

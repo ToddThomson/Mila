@@ -16,11 +16,11 @@ import Mila;
 namespace Mila::Tests::AI
 {
     using namespace Mila::Agents;
-    using Mila::Distribution::HttpFetch;
-    using Mila::Distribution::HttpResponse;
-    using Mila::Distribution::HeadersCallback;
-    using Mila::Distribution::IHttpTransport;
-    using Mila::Distribution::SinkCallback;
+    using Mila::Networking::HttpFetch;
+    using Mila::Networking::HttpResponse;
+    using Mila::Networking::HeadersCallback;
+    using Mila::Networking::IHttpTransport;
+    using Mila::Networking::SinkCallback;
 
     namespace
     {

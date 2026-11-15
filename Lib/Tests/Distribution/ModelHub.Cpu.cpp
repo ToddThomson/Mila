@@ -22,6 +22,7 @@ import Mila;
 namespace Mila::Tests::Distribution
 {
     using namespace Mila::Distribution;
+    using namespace Mila::Networking;
 
     namespace
     {

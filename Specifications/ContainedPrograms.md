@@ -265,7 +265,7 @@ One type each, under `Lib/Src/Agents/` unless named:
 | `Agents.ToolDesktop` | the desktop of 4.4, created once and closed with the container |
 | `Agents.SecondNameWatch` | the walk and watcher of 4.3 for one granted folder: the files with a name elsewhere |
 | `Agents.ToolNeeds`, `Agents.ToolGrant` | changed: `runs_programs`; `runProgram`, the program folders and the container |
-| `Agents.PublicAddress` | changed: `nonPublicRanges()`, the deny list of 4.5 drawn from its own table |
+| `Networking.PublicAddress` | changed: `nonPublicRanges()`, the deny list of 4.5 drawn from its own table (moved from `Agents`, `Network/Network.md` 4.2) |
 | `Apps/Desktop/Session/Src/Tools/Desktop.CommandTool.ixx` | `run_command` |
 | `Apps/Desktop/Session/Src/Tools/Desktop.ProgramSetup.ixx` | the build tools' folders and variables of section 5 |
 
