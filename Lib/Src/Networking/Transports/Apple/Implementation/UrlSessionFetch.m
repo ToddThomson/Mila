@@ -163,9 +163,14 @@ void milaUrlSessionFetch( const MilaUrlSessionRequest* request, void* context,
             [loading addValue:value forHTTPHeaderField:name];
         }
 
-        if ( !agent )
+        if ( !agent && request->user_agent != NULL )
         {
-            [loading setValue:@"Mila/0.20" forHTTPHeaderField:@"User-Agent"];
+            NSString* user_agent = [NSString stringWithUTF8String:request->user_agent];
+
+            if ( user_agent != nil )
+            {
+                [loading setValue:user_agent forHTTPHeaderField:@"User-Agent"];
+            }
         }
 
         // Unasked, the loader requests compression and decodes it, so a resumed or hashed download would not see the

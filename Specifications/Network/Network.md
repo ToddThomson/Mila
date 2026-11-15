@@ -1,7 +1,8 @@
 # Networking
 
 Status: **proposed**, 2026-11-15 (Todd asked for it). **Phase 1, the move, is built** (Todd directed it the same day,
-section 7); phases 2 to 4 are still proposals. The layer the
+section 7), and so are **phase 2, one User-Agent, phase 3, the client serving every use, and phase 4, the build
+option's name** (each agreed with Todd the same day). The layer the
 library reaches the network through, its place among the others, what it holds and what it does not, and the work
 that moves today's code into it. The HTTP client's own design stays in [HttpClient.md](../HttpClient.md); this
 document decides the layer around it.
@@ -114,20 +115,23 @@ imports neither. `check_layers.py` becomes:
 
 ### 4.3 New
 
-- **One User-Agent**, `Mila/<version>` from `Mila.Version`, used by every transport that adds one. Today there are
-  three copies of `"Mila/0.20"` (curl, URLSession, Network.framework; `Issues/Untriaged.md`).
+- **One User-Agent**, `Mila/<version>` from `Mila.Version`, used by every transport that adds one. The version is
+  the full one, dev tail included (`Mila/0.21.0-dev+145`; `Mila/0.21.0` at a tag), so a server's log tells a
+  development build from a release (Todd, 2026-11-15). Before phase 2 there were three copies of `"Mila/0.20"`
+  (curl, URLSession, Network.framework).
 
 ## 5. The client serves every use
 
 `HttpClient` was shaped by the store: GET, a token, resume by `Range`, a sink for a large body. The page reader and
 web search need four things it lacks, which is why they went round it:
 
-| Need | Who | Proposed |
+| Need | Who | Decided |
 |---|---|---|
-| A request body (POST) | web search | `HttpRequest::body`; the transport contract already carries one (`HttpClient.md` 4.1) |
-| A bounded body that reports the cut instead of failing | page reader (4 MB), web search (1 MB) | `HttpRequest::maximum_body_bytes`; `HttpResult` says whether it was cut |
-| A header that must not cross a change of host | web search's `Authorization` | today's `token` field (always sent as `Bearer`), generalised: a header the request marks as host-bound is dropped when a redirect changes host |
-| Redirects that must stay web addresses | page reader | `http` and `https` only, for every user. The store's redirects already are |
+| A request body (POST) | web search | `HttpRequest::body`; the transport contract already carries one (`HttpClient.md` 4.1). A request with a body follows no redirect (`RedirectRefused`): no user needs one, and a redirected POST has rules of its own. `get` and `getString` became `fetch` and `fetchString`, since a `get` that posts misleads (Todd, 2026-11-15) |
+| Headers of the request's own | page reader's `Accept`, web search's `Content-Type` | `HttpRequest::headers`, sent on every hop; one naming `Authorization` is refused, so a secret can only be the token |
+| A bounded body that reports the cut instead of failing | page reader (4 MB), web search (1 MB) | `HttpRequest::maximum_body_bytes`; `HttpResult::cut`. The page reader reads a cut page; web search refuses a cut answer, which before was parsed as broken JSON |
+| A header that must not cross a change of host | web search's `Authorization` | today's `token` field, unchanged: web search's key is a `Bearer` token, which the field already carries and drops on a change of host. Generalising it to any host-bound header waits for a user whose secret is not a `Bearer` token (Todd, 2026-11-15) |
+| Redirects that must stay web addresses | page reader | `http` and `https` only, for every user, the first address and each redirect (`isWebAddress`, beside the client, and the page reader's own check uses it). The store's redirects already are |
 
 The status-to-message mapping stays with each caller, since the words are its own ("the site refused to show this
 page", "the search service refused the key"). The client reports the status; the caller says what it means to its
@@ -188,17 +192,38 @@ Each phase is its own change.
    Llama FP8 gates on Metal); `check_layers.py` passes; the search finds none of the old names.
 2. **One User-Agent** (section 4.3). *Done when:* one definition, and a test reads it from each transport's
    request where the transport can be observed (curl and Network.framework, against the loopback server).
+   *Built* (2026-11-15): `userAgent()` in `Networking.HttpTransport`, beside the capture bound, since the contract
+   names it: a transport adds it only when the request names no User-Agent. curl and Network.framework call it;
+   URLSession's Objective-C cannot import a module, so `MilaUrlSessionRequest` carries it as `user_agent`, filled
+   by the C++ side. URLSession could be observed after all (it reaches `127.0.0.1` like the others), so
+   `Lib/Tests/Networking/HttpTransport.UserAgent.cpp` reads the request every transport of the build sent, the
+   plain and the checked: one User-Agent, the library's, and a request's own in its place when it names one. The
+   loopback server moved to `Lib/Tests/Common/LoopbackServer.h` for it, shared with `ToolGrant.Network.cpp`.
 3. **The client serves every use** (section 5). The page reader and web search go through `HttpClient`.
    *Done when:* neither calls `fetch` itself; a test drops a host-bound header across a change of host; the page
    reader's tests and `ToolGrant.Network.cpp` pass unchanged.
-4. **The build option's name**, if section 8 decides it.
+   *Built* (2026-11-15), with section 5's decisions. The host-bound header is the token, so the existing
+   `DropsTheTokenWhenTheHostChanges` is that test, with a new one beside it that sends the request's own headers on
+   every hop while the token stays with the first host; others cover the refused `Authorization` header, the body
+   and its refused redirect, the cut, and the `http`/`https` rule. Two statuses were added so a caller can say
+   which redirect failure it met without reading a message: `RedirectRefused` (no `Location`, not `http` or `https`,
+   or a request with a body) and `TooManyRedirects`; both were `TransportError` before, and the two client tests that
+   named it now name them. The page reader's tests pass unchanged; `ToolGrant.Network.cpp` changed only by the
+   rename. The page reader's bodies moved to `Agents/ProvidedTools/Implementation/WebPageReader.cpp`, by `CLAUDE.md`'s
+   rule for a plain class, since the change rewrote its fetch. Web search has no test, and nothing lets one give it
+   a scripted server (`Issues/Untriaged.md`).
+4. **The build option's name.** `MILA_ENABLE_LIBCURL` named the wrong thing on a Mac (`HttpClient.md` 8), where ON
+   selects Apple's transports and no libcurl is built. With networking a layer, the option says whether the library
+   reaches the network with a transport of its own, and the platform picks which: `MILA_ENABLE_NETWORKING`.
+   *Built* (2026-11-15, Todd asked for it): the option, its uses in the three CMake files, the presets, CI, the
+   Dockerfiles, `getting-started.md`, `NOTICE.md`, the binding's notes, and the user-visible strings in Chat,
+   `mila-store` and the null transport. A build directory configured before carries the old name in its cache, and
+   a consumer may still pass it, so the root `CMakeLists.txt` reads `MILA_ENABLE_LIBCURL` once into the new name with
+   a warning and removes it from the cache. The preset `x64-debug-no-libcurl` keeps its name: it is a Windows
+   preset, where OFF does mean no libcurl, and a renamed preset is a new build directory.
 
 ## 8. Open
 
-- **`MILA_ENABLE_LIBCURL`** names the wrong thing on a Mac (`HttpClient.md` 8). With networking a layer, the option
-  says whether the library reaches the network at all, and the platform picks the transport:
-  `MILA_ENABLE_NETWORKING`, after the layer, is the obvious name. The rename reaches CI, the Dockerfiles, `getting-started.md` and
-  user-visible strings, so it is phase 4, not phase 1.
 - **Whether `HttpClient.md` folds into this document** once phase 3 lands, as `Network/HttpClient.md`. Moving a
   spec is its own commit (`Specifications/README.md` rule 4).
 - **The one-type-per-file split of `HttpClient.ixx`'s helpers**: `hostOf` and `resolveRedirect` beside the client,

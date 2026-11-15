@@ -5,8 +5,8 @@
  * Everything that used to make this file interesting -- following redirects, dropping the
  * authorization header across a host change, building a Range, mapping a status -- moved up
  * into HttpClient, where it is written once for every transport. What is left is the part
- * that genuinely needs libcurl. The only module in the library that does, and therefore the
- * only one MILA_ENABLE_LIBCURL gates. See Specifications/HttpClient.md.
+ * that genuinely needs libcurl: the only module in the library that does, compiled when
+ * MILA_ENABLE_NETWORKING is ON on Windows or Linux. See Specifications/HttpClient.md.
  */
 
 module;
@@ -281,7 +281,8 @@ namespace Mila::Networking
 
             curl_easy_setopt( handle.get(), CURLOPT_FOLLOWLOCATION, 0L );
             curl_easy_setopt( handle.get(), CURLOPT_NOSIGNAL, 1L );
-            curl_easy_setopt( handle.get(), CURLOPT_USERAGENT, "Mila/0.20" );
+            // curl copies the string; a User-Agent among the request's headers replaces it.
+            curl_easy_setopt( handle.get(), CURLOPT_USERAGENT, userAgent().c_str() );
 
             ConnectionState connection;
 

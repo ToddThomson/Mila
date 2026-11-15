@@ -1,6 +1,6 @@
 /**
  * @file HttpClient.Cpu.cpp
- * @brief The HTTP client's policy, tested offline: redirects, the token rule, Range, status.
+ * @brief The HTTP client's policy, tested offline: redirects, the token rule, Range, body bounds, status.
  *
  * These exist because the omission cost a live debugging round. Phase 1 shipped with no
  * tests on the argument that the client's contract was about live behaviour; the very first
@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -188,7 +189,7 @@ namespace Mila::Tests::Networking
         request.token = "hf_secret";
 
         std::string body;
-        const HttpResult result = clientOver( transport ).getString( request, body );
+        const HttpResult result = clientOver( transport ).fetchString( request, body );
 
         ASSERT_TRUE( result.ok() );
         EXPECT_EQ( body, "PAYLOAD" );
@@ -211,7 +212,7 @@ namespace Mila::Tests::Networking
         request.token = "hf_secret";
 
         std::string body;
-        ASSERT_TRUE( clientOver( transport ).getString( request, body ).ok() );
+        ASSERT_TRUE( clientOver( transport ).fetchString( request, body ).ok() );
 
         ASSERT_EQ( transport->seen.size(), 2u );
         EXPECT_EQ( headerValue( transport->seen[ 1 ], "Authorization" ), "Bearer hf_secret" );
@@ -230,7 +231,7 @@ namespace Mila::Tests::Networking
         request.resume_from = 512;
 
         std::string body;
-        const HttpResult result = clientOver( transport ).getString( request, body );
+        const HttpResult result = clientOver( transport ).fetchString( request, body );
 
         EXPECT_EQ( result.status, HttpStatus::RangeIgnored );
 
@@ -249,7 +250,7 @@ namespace Mila::Tests::Networking
         request.last_byte = 8;
 
         std::string body;
-        const HttpResult result = clientOver( transport ).getString( request, body );
+        const HttpResult result = clientOver( transport ).fetchString( request, body );
 
         EXPECT_TRUE( result.ok() );
         EXPECT_EQ( body, "HEADBYTES" );
@@ -271,7 +272,7 @@ namespace Mila::Tests::Networking
         request.last_byte = 11;
 
         std::string body;
-        const HttpResult result = clientOver( transport ).getString( request, body );
+        const HttpResult result = clientOver( transport ).fetchString( request, body );
 
         EXPECT_EQ( result.status, HttpStatus::RangeIgnored );
         EXPECT_TRUE( body.empty() );
@@ -289,7 +290,7 @@ namespace Mila::Tests::Networking
         request.resume_from = 4;
 
         std::string body;
-        const HttpResult result = clientOver( transport ).getString( request, body );
+        const HttpResult result = clientOver( transport ).fetchString( request, body );
 
         EXPECT_TRUE( result.ok() );
         EXPECT_EQ( body, "TAIL" );
@@ -308,7 +309,7 @@ namespace Mila::Tests::Networking
         request.resume_from = 1024;
 
         std::string body;
-        const HttpResult result = clientOver( transport ).getString( request, body );
+        const HttpResult result = clientOver( transport ).fetchString( request, body );
 
         EXPECT_EQ( result.status, HttpStatus::RangeNotSatisfiable );
     }
@@ -325,7 +326,7 @@ namespace Mila::Tests::Networking
         request.url = "https://example.com/blob";
 
         std::string body;
-        const HttpResult result = clientOver( transport ).getString( request, body );
+        const HttpResult result = clientOver( transport ).fetchString( request, body );
 
         EXPECT_EQ( result.status, HttpStatus::TransportError );
     }
@@ -340,7 +341,7 @@ namespace Mila::Tests::Networking
         request.url = "https://example.com/blob";
 
         std::string body;
-        ASSERT_TRUE( clientOver( transport ).getString( request, body ).ok() );
+        ASSERT_TRUE( clientOver( transport ).fetchString( request, body ).ok() );
 
         ASSERT_EQ( transport->seen.size(), 1u );
         EXPECT_EQ( headerValue( transport->seen[ 0 ], "Range" ), "" );
@@ -359,9 +360,9 @@ namespace Mila::Tests::Networking
         request.maximum_redirects = 3;
 
         std::string body;
-        const HttpResult result = clientOver( transport ).getString( request, body );
+        const HttpResult result = clientOver( transport ).fetchString( request, body );
 
-        EXPECT_EQ( result.status, HttpStatus::TransportError );
+        EXPECT_EQ( result.status, HttpStatus::TooManyRedirects );
         EXPECT_NE( result.message.find( "redirects" ), std::string::npos );
         EXPECT_EQ( transport->seen.size(), 4u ) << "one initial request plus three hops";
     }
@@ -376,9 +377,9 @@ namespace Mila::Tests::Networking
         request.url = "https://example.com/x";
 
         std::string body;
-        const HttpResult result = clientOver( transport ).getString( request, body );
+        const HttpResult result = clientOver( transport ).fetchString( request, body );
 
-        EXPECT_EQ( result.status, HttpStatus::TransportError );
+        EXPECT_EQ( result.status, HttpStatus::RedirectRefused );
         EXPECT_NE( result.message.find( "Location" ), std::string::npos );
     }
 
@@ -397,11 +398,11 @@ namespace Mila::Tests::Networking
 
         HttpRequest unauthorized;
         unauthorized.url = "https://example.com/a";
-        EXPECT_EQ( client.getString( unauthorized, body ).status, HttpStatus::Unauthorized );
+        EXPECT_EQ( client.fetchString( unauthorized, body ).status, HttpStatus::Unauthorized );
 
         HttpRequest forbidden;
         forbidden.url = "https://example.com/b";
-        EXPECT_EQ( client.getString( forbidden, body ).status, HttpStatus::Forbidden );
+        EXPECT_EQ( client.fetchString( forbidden, body ).status, HttpStatus::Forbidden );
     }
 
     TEST( HttpClientPolicy, ReportsTheFinalUrlRatherThanTheRequestedOne )
@@ -417,7 +418,7 @@ namespace Mila::Tests::Networking
         request.url = "https://example.com/start";
 
         std::string body;
-        const HttpResult result = clientOver( transport ).getString( request, body );
+        const HttpResult result = clientOver( transport ).fetchString( request, body );
 
         EXPECT_EQ( result.status, HttpStatus::ServerError );
         EXPECT_EQ( result.final_url, "https://elsewhere.example/end" );
@@ -439,7 +440,7 @@ namespace Mila::Tests::Networking
         uint64_t last_total = 0;
 
         HttpRequest copy = request;
-        const HttpResult result = clientOver( transport ).get( copy,
+        const HttpResult result = clientOver( transport ).fetch( copy,
             []( const char*, size_t ) { return true; },
             [&]( uint64_t received, uint64_t total )
             {
@@ -452,5 +453,125 @@ namespace Mila::Tests::Networking
         EXPECT_TRUE( result.ok() );
         EXPECT_EQ( last_received, 100u );
         EXPECT_EQ( last_total, 100u );
+    }
+
+    // ------------------------------------------------------------------------
+    // What the page reader and web search need of the client (Network.md section 5)
+    // ------------------------------------------------------------------------
+
+    TEST( HttpClientPolicy, SendsTheRequestsOwnHeadersOnEveryHopWhileTheTokenStaysWithTheFirstHost )
+    {
+        auto transport = std::make_shared<ScriptedTransport>();
+
+        transport->script[ "https://api.example/search" ] = { 302, "https://other.example/search", {}, false };
+        transport->script[ "https://other.example/search" ] = { 200, {}, "answer", false };
+
+        HttpRequest request;
+        request.url = "https://api.example/search";
+        request.headers = { { "Accept", "text/html" } };
+        request.token = "secret";
+
+        std::string body;
+        ASSERT_TRUE( clientOver( transport ).fetchString( request, body ).ok() );
+
+        ASSERT_EQ( transport->seen.size(), 2u );
+        EXPECT_EQ( headerValue( transport->seen[ 0 ], "Accept" ), "text/html" );
+        EXPECT_EQ( headerValue( transport->seen[ 1 ], "Accept" ), "text/html" );
+        EXPECT_EQ( headerValue( transport->seen[ 0 ], "Authorization" ), "Bearer secret" );
+        EXPECT_EQ( headerValue( transport->seen[ 1 ], "Authorization" ), "" )
+            << "the token was sent across a change of host";
+    }
+
+    TEST( HttpClientPolicy, RefusesAnAuthorizationHeaderAmongTheRequestsOwn )
+    {
+        auto transport = std::make_shared<ScriptedTransport>();
+
+        HttpRequest request;
+        request.url = "https://api.example/search";
+        request.headers = { { "authorization", "Bearer secret" } };
+
+        std::string body;
+
+        EXPECT_THROW( (void)clientOver( transport ).fetchString( request, body ), std::invalid_argument );
+        EXPECT_TRUE( transport->seen.empty() ) << "a request that would carry a secret to every host was sent";
+    }
+
+    TEST( HttpClientPolicy, SendsTheBodyAndFollowsNoRedirectForIt )
+    {
+        auto transport = std::make_shared<ScriptedTransport>();
+
+        transport->script[ "https://api.example/search" ] = { 200, {}, "{}", false };
+        transport->script[ "https://api.example/moved" ] = { 307, "https://api.example/search", {}, false };
+
+        HttpRequest request;
+        request.url = "https://api.example/search";
+        request.body = R"({"query":"x"})";
+
+        std::string body;
+        ASSERT_TRUE( clientOver( transport ).fetchString( request, body ).ok() );
+        ASSERT_EQ( transport->seen.size(), 1u );
+        ASSERT_TRUE( transport->seen[ 0 ].body.has_value() );
+        EXPECT_EQ( *transport->seen[ 0 ].body, R"({"query":"x"})" );
+
+        request.url = "https://api.example/moved";
+        const HttpResult result = clientOver( transport ).fetchString( request, body );
+
+        EXPECT_EQ( result.status, HttpStatus::RedirectRefused );
+        EXPECT_EQ( result.http_code, 307 );
+        EXPECT_EQ( transport->seen.size(), 2u ) << "the body was sent on to where the redirect led";
+    }
+
+    TEST( HttpClientPolicy, CutsABodyAtTheBoundAndSaysSo )
+    {
+        auto transport = std::make_shared<ScriptedTransport>();
+
+        // The scripted transport delivers the whole body in one run, so the bound falls inside it.
+        transport->script[ "https://example.com/page" ] = { 200, {}, "0123456789", false };
+
+        HttpRequest request;
+        request.url = "https://example.com/page";
+        request.maximum_body_bytes = 4;
+
+        std::string body;
+        const HttpResult cut = clientOver( transport ).fetchString( request, body );
+
+        EXPECT_TRUE( cut.ok() ) << cut.message;
+        EXPECT_TRUE( cut.cut );
+        EXPECT_EQ( body, "0123" );
+        EXPECT_EQ( cut.bytes_received, 4u );
+
+        request.maximum_body_bytes = 10;
+        const HttpResult whole = clientOver( transport ).fetchString( request, body );
+
+        EXPECT_TRUE( whole.ok() ) << whole.message;
+        EXPECT_FALSE( whole.cut ) << "a body of exactly the bound is the whole body";
+        EXPECT_EQ( body, "0123456789" );
+    }
+
+    TEST( HttpClientPolicy, FetchesOnlyHttpAndHttpsAddresses )
+    {
+        auto transport = std::make_shared<ScriptedTransport>();
+
+        transport->script[ "https://example.com/" ] = { 302, "file:///c:/secret.txt", {}, false };
+
+        HttpRequest request;
+        request.url = "https://example.com/";
+
+        std::string body;
+        const HttpResult redirected = clientOver( transport ).fetchString( request, body );
+
+        EXPECT_EQ( redirected.status, HttpStatus::RedirectRefused );
+        EXPECT_EQ( transport->seen.size(), 1u );
+
+        request.url = "file:///c:/secret.txt";
+        const HttpResult first = clientOver( transport ).fetchString( request, body );
+
+        EXPECT_EQ( first.status, HttpStatus::TransportError );
+        EXPECT_EQ( transport->seen.size(), 1u ) << "an address that is not http or https was handed to the transport";
+
+        EXPECT_TRUE( isWebAddress( "HTTPS://example.com/" ) );
+        EXPECT_TRUE( isWebAddress( "http://example.com/" ) );
+        EXPECT_FALSE( isWebAddress( "ftp://example.com/" ) );
+        EXPECT_FALSE( isWebAddress( "example.com" ) );
     }
 }

@@ -227,7 +227,7 @@ namespace Mila::Tools
         const Mila::Networking::HttpClient client(
             Mila::Networking::makeDefaultHttpTransport() );
 
-        const auto result = client.get( request,
+        const auto result = client.fetch( request,
             [&]( const char* data, std::size_t length ) -> bool
             {
                 if ( std::fwrite( data, 1, length, output.get() ) != length )

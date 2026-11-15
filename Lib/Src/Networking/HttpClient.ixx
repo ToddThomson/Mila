@@ -1,6 +1,6 @@
 /**
  * @file HttpClient.ixx
- * @brief How to ask, and how to read the answer: redirects, the token rule, resume, status.
+ * @brief How to ask, and how to read the answer: redirects, the token rule, resume, body bounds, status.
  *
  * Every decision that used to live inside the libcurl implementation, now written once above
  * any transport and depending on nothing. That matters most for one rule: the authorization
@@ -43,7 +43,15 @@ namespace Mila::Networking
     export std::string resolveRedirect( const std::string& base, const std::string& location );
 
     /**
-     * @brief GET a URL, streaming the body to a sink, over whichever transport it is given.
+     * @brief Whether a URL is one the client fetches: its scheme is http or https, in any case.
+     *
+     * Every hop is held to it, the first and each redirect, so no request reaches a file or any other scheme.
+     */
+    export bool isWebAddress( std::string_view url );
+
+    /**
+     * @brief Fetch a URL, a GET or a POST of the request's body, streaming the reply's body to a sink, over
+     *        whichever transport it is given.
      *
      * Redirects are followed here rather than by the transport, for one reason: the
      * authorization header must be dropped when the host changes. HuggingFace redirects LFS
@@ -54,6 +62,9 @@ namespace Mila::Networking
      * A resume request answered 200 rather than 206 is reported as RangeIgnored rather than
      * treated as success: the server is sending the whole file, so appending it to an existing
      * partial would silently concatenate.
+     *
+     * The status is the client's reading of the reply; what a status means to a person is the caller's to say,
+     * from the status or `http_code`.
      */
     export class HttpClient
     {
@@ -65,17 +76,20 @@ namespace Mila::Networking
         /// The transport underneath, for messages. "none" when this build has no client.
         std::string transportName() const { return transport_->name(); }
 
-        HttpResult get(
+        /// @throws std::invalid_argument when the request's own headers name Authorization.
+        HttpResult fetch(
             const HttpRequest& request,
             const SinkCallback& sink,
             const ProgressCallback& progress = {} ) const;
 
         /**
-         * @brief GET a small resource into a string.
+         * @brief Fetch a small resource into a string.
          *
-         * For manifests and API responses. Not for artifacts -- it buffers the whole body.
+         * For manifests, pages and API replies. Not for weights -- it buffers the whole body.
+         *
+         * @throws std::invalid_argument when the request's own headers name Authorization.
          */
-        HttpResult getString( const HttpRequest& request, std::string& body ) const;
+        HttpResult fetchString( const HttpRequest& request, std::string& body ) const;
 
     private:
 

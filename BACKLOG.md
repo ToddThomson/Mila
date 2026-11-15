@@ -925,18 +925,6 @@ Q4_0 kernel changed the order of the sums again: worst 2.14e-2 against the bar o
 
 Defects in the library the user admitted to this release with no ROADMAP criterion behind them.
 
-#### The web page tool and Mila Assistant's web search go round the library's HTTP client, and each transport names its own User-Agent
-
-`in progress` · `architecture` · `api` · `agents` · `mila-src` · `breaking`
-
-The HTTP client, every transport and the address classification are `Mila::Networking`, under `Networking/`, below
-`Distribution` and `Agents` (phase 1). The page tool and web search still call the transport themselves and keep
-their own redirect and status handling, and curl, URL loading and Network.framework each send their own
-`Mila/0.20`. Work left: one User-Agent, then every request through the client, then the build option's name if
-section 8 decides it. Admitted by Todd, 2026-11-15.
-
-`Specifications/Network/Network.md` 7
-
 #### A load can take more of the card than its plan priced
 
 `open` · `models` · `mila-src` · `measured`

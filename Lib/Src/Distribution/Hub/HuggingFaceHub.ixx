@@ -227,7 +227,7 @@ namespace Mila::Distribution
             request.token = token_;
             request.resume_from = resume_from;
 
-            const HttpResult result = client_.get( request, sink, progress_ );
+            const HttpResult result = client_.fetch( request, sink, progress_ );
 
             if ( result.status == HttpStatus::Ok )
             {
@@ -266,7 +266,7 @@ namespace Mila::Distribution
             request.last_byte = first + count - 1;
 
             std::string body;
-            const HttpResult result = client_.getString( request, body );
+            const HttpResult result = client_.fetchString( request, body );
 
             if ( !result.ok() )
             {
@@ -306,7 +306,7 @@ namespace Mila::Distribution
             request.token = token_;
 
             std::string body;
-            const HttpResult result = client_.getString( request, body );
+            const HttpResult result = client_.fetchString( request, body );
 
             if ( result.ok() )
             {

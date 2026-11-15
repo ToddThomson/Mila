@@ -30,7 +30,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 #   python3-venv -- so mila-build-mis can create the MIS server venv (Debian/Ubuntu
 #                 split venv/ensurepip out of the base python3 package)
 #   libssl-dev -- curl's configure does find_package(OpenSSL) and fails the whole build
-#                 without it. This image builds Chat at the MILA_ENABLE_LIBCURL default
+#                 without it. This image builds Chat at the MILA_ENABLE_NETWORKING default
 #                 (ON), unlike Dockerfile.wheel which omits OpenSSL deliberately because
 #                 the wheel forces it OFF. Chat in the container needs a real transport:
 #                 /model install pulls into the store on the bind mount.

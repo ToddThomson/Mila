@@ -169,7 +169,7 @@ namespace Mila::Networking
             // What curl's request carries beside the given headers, so a server sees the same request from either.
             if ( !agent )
             {
-                text += "User-Agent: Mila/0.20\r\n";
+                text += "User-Agent: " + userAgent() + "\r\n";
             }
 
             if ( !accept )

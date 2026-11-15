@@ -11,6 +11,7 @@
 export module Networking.HttpTransport;
 
 import std;
+import Mila.Version;
 
 export import Networking.HttpFetch;
 export import Networking.HttpResponse;
@@ -20,6 +21,13 @@ namespace Mila::Networking
     /// A non-2xx body is captured to this many bytes and no further: enough to carry an error page's useful line,
     /// bounded enough that a hostile server cannot grow it.
     export inline constexpr std::size_t kMaximumCapturedErrorBytes = 4096;
+
+    /// The User-Agent every transport sends when the request names none: `Mila/` and the library's full version,
+    /// dev tail included, so a server's log tells a development build from a release.
+    export inline std::string userAgent()
+    {
+        return "Mila/" + getAPIVersion().toString();
+    }
 
     /**
      * @brief Called with each chunk of body as it arrives. Return false to abort.
@@ -59,8 +67,9 @@ namespace Mila::Networking
      * **Do not follow redirects.** Report the status and the Location header; the client
      * decides whether to follow and what may be sent to the next host.
      *
-     * **Send exactly the headers given.** No token discovery, no Range construction, no
-     * additions of any kind. A transport is never told a token -- it is handed headers the
+     * **Send exactly the headers given.** No token discovery, no Range construction, and no
+     * additions beyond what HTTP itself needs and `userAgent()` when the request names no
+     * User-Agent. A transport is never told a token -- it is handed headers the
      * client has already decided are safe for this exact host, which is what makes an
      * untrusted implementation safe.
      *

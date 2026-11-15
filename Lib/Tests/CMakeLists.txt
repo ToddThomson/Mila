@@ -218,11 +218,13 @@ if(WIN32)
     target_link_libraries( MilaTests PRIVATE ws2_32 iphlpapi )
 endif()
 
-# A grant's network on whichever transports this build has: curl's, or a Mac's own (HttpClient.md section 9). The
-# loopback server is written for each platform's sockets.
-if(MILA_ENABLE_LIBCURL)
+# A grant's network, and the User-Agent each transport sends, on whichever transports this build has: curl's, or a
+# Mac's own (HttpClient.md section 9). The loopback server (Common/LoopbackServer.h) is written for each platform's
+# sockets.
+if(MILA_ENABLE_NETWORKING)
     target_sources( MilaTests PRIVATE
         "Agents/ToolGrant.Network.cpp"
+        "Networking/HttpTransport.UserAgent.cpp"
     )
 endif()
 

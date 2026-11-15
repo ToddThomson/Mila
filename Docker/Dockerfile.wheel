@@ -12,7 +12,7 @@
 # and lock out 24.04, where most CUDA users are. PyPI rejects a plain linux_x86_64 tag
 # outright, so there is no un-tagged option.
 #
-# No libssl-dev: the wheel is built MILA_ENABLE_LIBCURL=OFF because it supplies its own
+# No libssl-dev: the wheel is built MILA_ENABLE_NETWORKING=OFF because it supplies its own
 # transport from Python through the binding's HttpFetchDelegate. curl's system OpenSSL
 # is what the manylinux whitelist refuses, and this image never introduces it.
 #

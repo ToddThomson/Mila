@@ -172,9 +172,9 @@
     {
       "name": "x64-debug-no-libcurl",
       "displayName": "x64 Debug (no libcurl - the Linux wheel's configuration)",
-      "description": "x64-debug with MILA_ENABLE_LIBCURL=OFF: no HTTP client of Mila's own. Everything else is still compiled -- the store, packaging, install, ModelResolver::pull, and HuggingFaceHub itself, since URL shapes, the token file and the meaning of a 403 are knowledge rather than I/O. So this build still installs, lists, locates, removes and loads models, and can pull too when the caller supplies a transport. That is what the Linux mila-llm wheel does, where libcurl cannot be linked because curl's system OpenSSL is not on the manylinux whitelist. Build it and run the tests whenever anything under Src/Distribution changes.",
+      "description": "x64-debug with MILA_ENABLE_NETWORKING=OFF: no HTTP client of Mila's own. Everything else is still compiled -- the store, packaging, install, ModelResolver::pull, and HuggingFaceHub itself, since URL shapes, the token file and the meaning of a 403 are knowledge rather than I/O. So this build still installs, lists, locates, removes and loads models, and can pull too when the caller supplies a transport. That is what the Linux mila-llm wheel does, where libcurl cannot be linked because curl's system OpenSSL is not on the manylinux whitelist. Build it and run the tests whenever anything under Src/Distribution changes.",
       "inherits": "x64-debug",
-      "cacheVariables": { "MILA_ENABLE_LIBCURL": "OFF" }
+      "cacheVariables": { "MILA_ENABLE_NETWORKING": "OFF" }
     },
     {
       "name": "x64-debug-cpu-only",
@@ -183,7 +183,7 @@
       "inherits": "x64-debug",
       "cacheVariables": {
         "MILA_ENABLE_CUDA": "OFF",
-        "MILA_ENABLE_LIBCURL": "OFF",
+        "MILA_ENABLE_NETWORKING": "OFF",
         "MILA_ENABLE_TESTING": "ON",
         "MILA_ENABLE_SAMPLES": "OFF",
         "MILA_ENABLE_PYTHON_BINDINGS": "OFF",
@@ -212,13 +212,13 @@
     {
       "name": "x64-wheel",
       "displayName": "x64 Wheel (build the mila-llm wheel for PyPI)",
-      "description": "The Windows mila-llm wheel. Release, the Mila library and the MilaPy extension and nothing else -- no tests, samples, apps, profiling, tools or docs, none of which go in a wheel. MILA_ENABLE_LIBCURL=OFF because the wheel is Python end to end: it supplies its own transport through the binding's HttpFetchDelegate, so no C++ HTTP client belongs in the .pyd. Build this, then `pip wheel Lib/Bindings/Python/Package` over the staged extension. The architecture list (80;86;89;90;120) is the supported set, which the library target now defaults to as well: SM 8.0 is the floor Mila's own kernels draw -- the FP4 W4A16 GEMM and both GQA flash prefill paths gate at major >= 8, and the flash ones THROW below it -- so Turing codegen would carry kernels for hardware the runtime already refuses. 120 is Blackwell, native rather than a PTX JIT from 90. Keep this in step with linux-wheel, with MILA_LIBRARY_CUDA_ARCHITECTURES in Lib/CMakeLists.txt, and with ARCHITECTURES in Publishing/dockerhub/publish-image.sh; one list everywhere.",
+      "description": "The Windows mila-llm wheel. Release, the Mila library and the MilaPy extension and nothing else -- no tests, samples, apps, profiling, tools or docs, none of which go in a wheel. MILA_ENABLE_NETWORKING=OFF because the wheel is Python end to end: it supplies its own transport through the binding's HttpFetchDelegate, so no C++ HTTP client belongs in the .pyd. Build this, then `pip wheel Lib/Bindings/Python/Package` over the staged extension. The architecture list (80;86;89;90;120) is the supported set, which the library target now defaults to as well: SM 8.0 is the floor Mila's own kernels draw -- the FP4 W4A16 GEMM and both GQA flash prefill paths gate at major >= 8, and the flash ones THROW below it -- so Turing codegen would carry kernels for hardware the runtime already refuses. 120 is Blackwell, native rather than a PTX JIT from 90. Keep this in step with linux-wheel, with MILA_LIBRARY_CUDA_ARCHITECTURES in Lib/CMakeLists.txt, and with ARCHITECTURES in Publishing/dockerhub/publish-image.sh; one list everywhere.",
       "inherits": "x64-release",
       "cacheVariables": {
         "CMAKE_CUDA_ARCHITECTURES": "80;86;89;90;120",
         "MILA_LIBRARY_CUDA_ARCHITECTURES": "80;86;89;90;120",
         "PYBIND11_FINDPYTHON": "NEW",
-        "MILA_ENABLE_LIBCURL": "OFF",
+        "MILA_ENABLE_NETWORKING": "OFF",
         "MILA_ENABLE_PYTHON_BINDINGS": "ON",
         "MILA_ENABLE_TESTING": "OFF",
         "MILA_ENABLE_SAMPLES": "OFF",
@@ -253,7 +253,7 @@
         "PYBIND11_FINDPYTHON": "NEW",
         "Python_EXECUTABLE": "/usr/bin/python3.13",
         "Python3_EXECUTABLE": "/usr/bin/python3.13",
-        "MILA_ENABLE_LIBCURL": "OFF",
+        "MILA_ENABLE_NETWORKING": "OFF",
         "MILA_ENABLE_PYTHON_BINDINGS": "ON",
         "MILA_ENABLE_CUDA": "ON",
         "MILA_ENABLE_TESTING": "OFF",

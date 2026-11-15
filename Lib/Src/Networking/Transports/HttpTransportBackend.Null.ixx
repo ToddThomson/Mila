@@ -3,7 +3,7 @@
  * @brief The transport for a build with no HTTP client of its own: one that refuses, by name.
  *
  * One of three candidate files for Networking.HttpTransportBackend; CMake compiles this one
- * when MILA_ENABLE_LIBCURL is OFF. Only moving bytes is gone -- the store, packaging, install,
+ * when MILA_ENABLE_NETWORKING is OFF. Only moving bytes is gone -- the store, packaging, install,
  * pull, and every HuggingFace URL, token and status rule are still compiled, so a caller that
  * supplies its own transport loses nothing at all. That is how the Python wheel works.
  */
@@ -44,7 +44,7 @@ namespace Mila::Networking
             HttpResponse response;
             response.transport_failed = true;
             response.message =
-                "This build was compiled with MILA_ENABLE_LIBCURL=OFF and has no HTTP client. "
+                "This build was compiled with MILA_ENABLE_NETWORKING=OFF and has no HTTP client. "
                 "Supply a transport, or install the model from a package on disk.";
 
             return response;

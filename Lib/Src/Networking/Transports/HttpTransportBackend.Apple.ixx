@@ -3,7 +3,7 @@
  * @brief The HTTP transports a macOS build has: Apple's URL loading, and Network.framework for a checked network.
  *
  * One of three candidate files for Networking.HttpTransportBackend; CMake compiles this one on Apple when
- * MILA_ENABLE_LIBCURL is ON, and no libcurl is built there (HttpClient.md section 9).
+ * MILA_ENABLE_NETWORKING is ON, and no libcurl is built there (HttpClient.md section 9).
  */
 
 export module Networking.HttpTransportBackend;

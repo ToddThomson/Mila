@@ -31,7 +31,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Same toolchain as Docker/Dockerfile, minus the interactive-shell niceties (gdb, less):
 # clang-22 for the C++23 module units, gcc-15 as nvcc's module-free host compiler,
 # libssl-dev because vendored curl's find_package(OpenSSL) fails the configure without it
-# and this image builds at the MILA_ENABLE_LIBCURL default (ON) -- the published image
+# and this image builds at the MILA_ENABLE_NETWORKING default (ON) -- the published image
 # must be able to pull a model with no caller-supplied transport.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

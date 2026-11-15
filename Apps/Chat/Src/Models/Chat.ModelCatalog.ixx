@@ -709,7 +709,7 @@ namespace Mila::ChatApp
         if constexpr ( !Mila::Networking::kHttpTransportAvailable )
         {
             lines.push_back(
-                "This build has no HTTP transport (MILA_ENABLE_LIBCURL=OFF), so no publisher "
+                "This build has no HTTP transport (MILA_ENABLE_NETWORKING=OFF), so no publisher "
                 "can be listed. Models already installed are shown by /model list." );
 
             return lines;
@@ -956,7 +956,7 @@ namespace Mila::ChatApp
         {
             lines.push_back( std::format(
                 "Cannot install '{}': this build has no HTTP transport "
-                "(MILA_ENABLE_LIBCURL=OFF).", spec ) );
+                "(MILA_ENABLE_NETWORKING=OFF).", spec ) );
 
             return lines;
         }

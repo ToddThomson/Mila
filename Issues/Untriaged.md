@@ -10,6 +10,23 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Mila Assistant's web search has no test, and nothing lets one give it a scripted server
+
+`Apps/Desktop/Session/Src/Tools/Desktop.WebSearch.ixx` (`search`, `kEndpoint`), `Lib/Src/Agents/Grants/ToolGrant.ixx` (`transport()`); an absence -- no test names `WebSearch` @ 0.21.0-dev+145
+
+Found 2026-11-15 moving web search onto `HttpClient` (Network.md phase 3): its request, its status wording and the
+new 1 MB cut run untested. `search` reaches the network only through the grant's own checked transport, which
+connects to public addresses alone, and the endpoint is a constant, so no test can answer it from loopback or a
+scripted transport. The page reader is tested through `read( arguments, transport )`; web search has no such seam.
+
+## A token loader test sets a setting the loader no longer reads
+
+`Lib/Tests/Data/Loaders/TokenSequenceLoader.cpp` (`CustomConfig_VerboseLogging`, `config.max_queue_size = 5`), `Lib/Src/Data/Loaders/TokenSequenceLoader.Config.ixx` (`max_queue_size`) @ 0.21.0-dev+145
+
+Found 2026-11-15 building on the Mac: Clang warns that `max_queue_size` is deprecated (the queue gave way to double
+buffering), the only warning in an all-targets Mac build. MSVC says nothing. Either the field can go, or the test
+is setting it for no effect. Not looked into further.
+
 ## A local hub's files are opened by a narrow path on Windows, and the warning that would say so is not silenced
 
 `Lib/Src/Distribution/Implementation/LocalDirectoryHub.cpp` (`openForReading`) @ 0.21.0-dev+144
@@ -18,18 +35,6 @@ Found 2026-11-15 building the Networking move: MSVC 14.52 reports C4996 for the 
 `#pragma warning( suppress : 4996 )` above it, the only warning in an all-targets build. The call opens
 `path.string()`, which on Windows is the path in the ANSI code page, so a hub folder whose path holds a character
 outside it would not open. Not tried.
-
-## Every HTTP request Mila makes says it comes from Mila 0.20
-
-`Lib/Src/Networking/Transports/Curl/CurlHttpTransport.ixx`, `Transports/Apple/Implementation/UrlSessionFetch.m`, `Transports/Apple/Implementation/NetworkHttpTransport.cpp` (`Mila/0.20`) @ 0.21.0-dev+144
-
-Found 2026-11-14 writing the Mac's transports. The User-Agent is a literal `Mila/0.20` in curl's transport, and the two macOS transports copy it so a server sees the same request from each; no transport reads `Version.txt`. Three copies of one stale string.
-
-## `MILA_ENABLE_LIBCURL` selects Apple's transports on a Mac, where no libcurl is built
-
-`CMakeLists.txt`, `Lib/CMakeLists.txt` (`MILA_ENABLE_LIBCURL`) @ 0.21.0-dev+142
-
-Found 2026-11-14 (`HttpClient.md` sections 8 and 9). ON means "Mila's own transport": libcurl on Windows and Linux, URL loading and Network.framework on macOS; OFF the null transport everywhere. The name is read in CI, the Dockerfiles, `getting-started.md`, `NOTICE.md` and two user-visible strings in Chat and `mila-store`.
 
 ## Mila Assistant's first run on the Mac installs from a local folder, not the publisher
 
@@ -379,13 +384,6 @@ plus a link-count check for hard links, which the man page does not mention. Unm
 
 Found 2026-10-26 adding Tavily web search: a saved conversation keeps every tool result, search results included, and
 Tavily's credits page says nothing on keeping or showing results. Brave grants that only on some plans.
-
-## Mila's HTTP transport names itself Mila 0.20 to every server
-
-`Lib/Src/Networking/Transports/Curl/CurlHttpTransport.ixx` (`CURLOPT_USERAGENT`, "Mila/0.20") @ 0.21.0-dev+144
-
-Found 2026-10-26 writing Mila Desktop's page reader, which fetches through it: the user agent is a written-in
-string from the 0.20 cycle, not `Version.txt`'s, so model installs and web pages alike are requested as Mila 0.20.
 
 ## Two of the agent's answers to a stop or a cut have no test that fails without them
 

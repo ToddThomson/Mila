@@ -3,7 +3,7 @@
  * @brief The HTTP transport this build has: libcurl.
  *
  * One of three candidate files for Networking.HttpTransportBackend; CMake compiles this one
- * when MILA_ENABLE_LIBCURL is ON on Windows or Linux. Selecting by source file rather than by preprocessor keeps
+ * when MILA_ENABLE_NETWORKING is ON on Windows or Linux. Selecting by source file rather than by preprocessor keeps
  * both alternatives compiled code and keeps `import Mila;` free of an `#ifdef`.
  */
 

@@ -78,10 +78,13 @@ namespace Mila::Networking
             headers.push_back( { header.name.c_str(), header.value.c_str() } );
         }
 
+        const std::string user_agent = userAgent();
+
         MilaUrlSessionRequest loading{};
         loading.url = request.url.c_str();
         loading.headers = headers.data();
         loading.header_count = headers.size();
+        loading.user_agent = user_agent.c_str();
         loading.has_body = request.body.has_value() ? 1 : 0;
         loading.body = request.body ? request.body->data() : nullptr;
         loading.body_length = request.body ? request.body->size() : 0;

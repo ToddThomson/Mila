@@ -13,8 +13,9 @@ import Mila;
 
 namespace Mila::Desktop
 {
-    using Mila::Networking::HttpFetch;
-    using Mila::Networking::HttpResponse;
+    using Mila::Networking::HttpClient;
+    using Mila::Networking::HttpRequest;
+    using Mila::Networking::HttpResult;
 
     /**
      * @brief Searches the web for the model, one query at a time.
@@ -46,32 +47,31 @@ namespace Mila::Desktop
             if ( query.find_first_not_of( " \t\r\n" ) == std::string::npos )
                 throw std::runtime_error( "the query is empty" );
 
-            HttpFetch request;
+            HttpRequest request;
             request.url = std::string( kEndpoint );
-            request.headers = { { "Authorization", "Bearer " + key_ }, { "Content-Type", "application/json" } };
+            request.token = key_;
+            request.headers = { { "Content-Type", "application/json" } };
             request.body = nlohmann::json{ { "query", query }, { "search_depth", "basic" }, { "max_results", results } }.dump();
+            request.maximum_body_bytes = kMostBytes;
             request.low_speed_timeout_seconds = 20;
 
             std::string body;
-            const HttpResponse response = grant.transport()->fetch( request,
-                [&body]( const char* data, std::size_t length )
-                {
-                    body.append( data, length );
+            const HttpResult result = HttpClient( grant.transport() ).fetchString( request, body );
 
-                    return body.size() < kMostBytes;
-                }, {} );
+            if ( result.http_code == 0 )
+                throw std::runtime_error( std::format( "the search service could not be reached: {}", result.message ) );
 
-            if ( response.transport_failed )
-                throw std::runtime_error( std::format( "the search service could not be reached: {}", response.message ) );
-
-            if ( response.http_code == 401 || response.http_code == 403 )
+            if ( result.http_code == 401 || result.http_code == 403 )
                 throw std::runtime_error( "the search service refused the key; the user can check it in Settings" );
 
-            if ( response.http_code == 429 )
+            if ( result.http_code == 429 )
                 throw std::runtime_error( "the search service asked for fewer searches; try again shortly" );
 
-            if ( response.http_code < 200 || response.http_code >= 300 )
-                throw std::runtime_error( std::format( "the search service answered HTTP {}", response.http_code ) );
+            if ( !result.ok() )
+                throw std::runtime_error( std::format( "the search service answered HTTP {}", result.http_code ) );
+
+            if ( result.cut )
+                throw std::runtime_error( std::format( "the search service's answer was larger than {} MB, so it was not read", kMostBytes / ( 1024u * 1024u ) ) );
 
             return format( query, nlohmann::json::parse( body ) );
         }

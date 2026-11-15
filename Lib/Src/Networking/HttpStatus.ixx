@@ -21,7 +21,9 @@ namespace Mila::Networking
         RangeIgnored,     ///< A range request drew a 200; the partial must be discarded.
         RangeNotSatisfiable, ///< 416 on a resume; the offset is at or past the end of the file.
         TransportError,   ///< Connection, TLS or I/O failure.
-        ServerError       ///< 5xx.
+        ServerError,      ///< 5xx.
+        RedirectRefused,  ///< A redirect not followed: no Location, an address other than http or https, or a request with a body.
+        TooManyRedirects  ///< More redirects than the request permits.
     };
 
     export inline std::string toString( HttpStatus status )
@@ -36,6 +38,8 @@ namespace Mila::Networking
             case HttpStatus::RangeNotSatisfiable: return "RangeNotSatisfiable";
             case HttpStatus::TransportError: return "TransportError";
             case HttpStatus::ServerError:    return "ServerError";
+            case HttpStatus::RedirectRefused: return "RedirectRefused";
+            case HttpStatus::TooManyRedirects: return "TooManyRedirects";
             default:                         return "Unknown";
         }
     }

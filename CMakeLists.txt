@@ -91,17 +91,28 @@ option(MILA_ENABLE_DOCS "Build Doxygen API documentation. Requires Doxygen and G
 option(MILA_ENABLE_COMMIT_CHECKS "Run the pre-commit checks on the working tree in every build." OFF)
 option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)
 
-# Mila's own HTTP transport. OFF drops libcurl and nothing else: the store, packaging,
-# install, pull, and every HuggingFace URL, token rule and status meaning are still compiled,
-# so such a build knows everything about the hub except how to reach it -- and a caller that
-# supplies its own transport loses nothing at all.
+# Whether the library reaches the network with a transport of its own; the platform picks which: a vendored libcurl
+# on Windows and Linux, Apple's URL loading and Network.framework on macOS (Specifications/Network/Network.md). OFF
+# drops the transport and nothing else: the store, packaging, install, pull, and every HuggingFace URL, token rule
+# and status meaning are still compiled, so such a build knows everything about the hub except how to reach it --
+# and a caller that supplies its own transport loses nothing at all.
 #
 # The reason is TLS, not the library: manylinux permits a wheel to vendor libcurl statically,
 # but curl links the system OpenSSL, which is not whitelisted. Vendoring OpenSSL instead means
 # owning its CVEs and shipping a CA bundle, losing the system trust store. So the Linux wheel
 # builds with this OFF and supplies the transport from Python, which already has one.
 # See Specifications/ModelDistribution.md.
-option(MILA_ENABLE_LIBCURL "Build Mila's libcurl HTTP transport." ON)
+#
+# Until 0.21 this was MILA_ENABLE_LIBCURL. A build directory configured before carries that name in its cache, and a
+# consumer may still pass it, so it is read once into the new name, with a warning, and removed from the cache.
+if(DEFINED MILA_ENABLE_LIBCURL)
+    message(WARNING "MILA_ENABLE_LIBCURL is now MILA_ENABLE_NETWORKING; its value (${MILA_ENABLE_LIBCURL}) is used for that.")
+    set(MILA_ENABLE_NETWORKING ${MILA_ENABLE_LIBCURL} CACHE BOOL "Build Mila's own HTTP transport: libcurl on Windows and Linux, Apple's on macOS." FORCE)
+    unset(MILA_ENABLE_LIBCURL CACHE)
+    unset(MILA_ENABLE_LIBCURL)
+endif()
+
+option(MILA_ENABLE_NETWORKING "Build Mila's own HTTP transport: libcurl on Windows and Linux, Apple's on macOS." ON)
 
 option(MILA_ENABLE_CUDA "Enable CUDA compute backend" ON)
 
@@ -270,11 +281,11 @@ CPMAddPackage(
 
 # A Mac's transports are Apple's own and curl is not built there (Specifications/HttpClient.md section 9): their
 # code is C and Objective-C, and every target that links Mila links it, so the languages are enabled here.
-if(MILA_ENABLE_LIBCURL AND APPLE)
+if(MILA_ENABLE_NETWORKING AND APPLE)
     enable_language(C OBJC)
 endif()
 
-if(MILA_ENABLE_LIBCURL AND NOT APPLE)
+if(MILA_ENABLE_NETWORKING AND NOT APPLE)
     # Vendored and pinned on both platforms. Windows has no linkable OS libcurl, so it is
     # built there regardless; building it on Linux too buys one known version everywhere
     # rather than whatever the distribution shipped.

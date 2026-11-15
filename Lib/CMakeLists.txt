@@ -1189,7 +1189,7 @@ target_sources(Mila
 # `import Mila;` never varies by a preprocessor define. This is the whole of what libcurl
 # is needed for, and a Mac does not build it (Specifications/HttpClient.md section 9).
 # ----------------------------------------------------------------------------
-if(MILA_ENABLE_LIBCURL AND APPLE)
+if(MILA_ENABLE_NETWORKING AND APPLE)
     # Apple's URL loading by default, and Network.framework for a grant's checked network, behind C interfaces in
     # C and Objective-C (HttpClient.md section 9).
     target_sources(Mila
@@ -1219,7 +1219,7 @@ if(MILA_ENABLE_LIBCURL AND APPLE)
         ${MILA_FOUNDATION_FRAMEWORK} ${MILA_NETWORK_FRAMEWORK} ${MILA_SECURITY_FRAMEWORK} ${MILA_COREFOUNDATION_FRAMEWORK})
 
     message(STATUS "Added HTTP transport: Apple's URL loading, and Network.framework for a checked network")
-elseif(MILA_ENABLE_LIBCURL)
+elseif(MILA_ENABLE_NETWORKING)
     target_sources(Mila
         PUBLIC
             FILE_SET module_files
@@ -1309,6 +1309,7 @@ target_sources(Mila
         "Src/Networking/Implementation/HttpClient.cpp"
         "Src/Networking/Implementation/HttpReplyReader.cpp"
         "Src/Agents/Implementation/Agent.cpp"
+        "Src/Agents/ProvidedTools/Implementation/WebPageReader.cpp"
 )
 
 # ----------------------------------------------------------------------------

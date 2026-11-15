@@ -107,21 +107,65 @@ namespace Mila::Networking
         }
     }
 
-    HttpResult HttpClient::get(
+    bool isWebAddress( std::string_view url )
+    {
+        const std::size_t scheme_end = url.find( "://" );
+
+        if ( scheme_end == std::string_view::npos )
+        {
+            return false;
+        }
+
+        std::string scheme( url.substr( 0, scheme_end ) );
+
+        for ( char& character : scheme )
+        {
+            character = static_cast<char>( std::tolower( static_cast<unsigned char>( character ) ) );
+        }
+
+        return scheme == "http" || scheme == "https";
+    }
+
+    HttpResult HttpClient::fetch(
         const HttpRequest& request,
         const SinkCallback& sink,
         const ProgressCallback& progress ) const
     {
+        for ( const auto& header : request.headers )
+        {
+            std::string name = header.name;
+
+            for ( char& character : name )
+            {
+                character = static_cast<char>( std::tolower( static_cast<unsigned char>( character ) ) );
+            }
+
+            // A request's own headers go to every host it reaches; only the token is held to the first.
+            if ( name == "authorization" )
+            {
+                throw std::invalid_argument( "a request's own headers may not carry Authorization; give the token instead" );
+            }
+        }
+
         HttpResult result;
 
         std::string url = request.url;
         const std::string origin_host = hostOf( url );
+
+        if ( !isWebAddress( url ) )
+        {
+            result.final_url = url;
+            result.message = std::format( "'{}' is not an http or https address", url );
+
+            return result;
+        }
 
         std::uint64_t bytes_received = 0;
         std::uint64_t content_length = 0;
         bool sink_failed = false;
         bool aborted = false;
         bool range_overrun = false;
+        bool cut = false;
 
         const auto on_headers = [&content_length]( long, std::uint64_t length )
             {
@@ -137,6 +181,25 @@ namespace Mila::Networking
                     && request.resume_from + bytes_received + length > *request.last_byte + 1 )
                 {
                     range_overrun = true;
+
+                    return false;
+                }
+
+                // Past the bound the sink is given the bytes up to it and the transfer stops, however much the
+                // transport delivered in one run. A body of exactly the bound is read whole and not cut.
+                if ( request.maximum_body_bytes > 0 && bytes_received + length > request.maximum_body_bytes )
+                {
+                    const auto kept = static_cast<std::size_t>( request.maximum_body_bytes - bytes_received );
+
+                    if ( kept > 0 && !sink( data, kept ) )
+                    {
+                        sink_failed = true;
+
+                        return false;
+                    }
+
+                    bytes_received += kept;
+                    cut = true;
 
                     return false;
                 }
@@ -173,6 +236,8 @@ namespace Mila::Networking
         {
             HttpFetch fetch;
             fetch.url = url;
+            fetch.headers = request.headers;
+            fetch.body = request.body;
             fetch.low_speed_timeout_seconds = request.low_speed_timeout_seconds;
 
             // THE RULE: auth travels only to the host the request started on.
@@ -223,6 +288,15 @@ namespace Mila::Networking
                 return result;
             }
 
+            // Only a 2xx body reaches the sink, so a cut is a successful reply read to the bound.
+            if ( cut )
+            {
+                result = classify( request, response, std::move( result ) );
+                result.cut = true;
+
+                return result;
+            }
+
             if ( response.transport_failed )
             {
                 result.status = HttpStatus::TransportError;
@@ -235,14 +309,34 @@ namespace Mila::Networking
             {
                 if ( response.location.empty() )
                 {
-                    result.status = HttpStatus::TransportError;
+                    result.status = HttpStatus::RedirectRefused;
                     result.message = std::format(
                         "{} redirect without a Location header", response.http_code );
 
                     return result;
                 }
 
-                url = resolveRedirect( url, response.location );
+                const std::string next = resolveRedirect( url, response.location );
+
+                if ( request.body )
+                {
+                    result.status = HttpStatus::RedirectRefused;
+                    result.message = std::format(
+                        "{} redirect to {}, and a request with a body is not redirected", response.http_code, next );
+
+                    return result;
+                }
+
+                if ( !isWebAddress( next ) )
+                {
+                    result.status = HttpStatus::RedirectRefused;
+                    result.message = std::format(
+                        "{} redirect to {}, which is not an http or https address", response.http_code, next );
+
+                    return result;
+                }
+
+                url = next;
 
                 continue;
             }
@@ -250,17 +344,17 @@ namespace Mila::Networking
             return classify( request, response, std::move( result ) );
         }
 
-        result.status = HttpStatus::TransportError;
+        result.status = HttpStatus::TooManyRedirects;
         result.message = std::format( "exceeded {} redirects", request.maximum_redirects );
 
         return result;
     }
 
-    HttpResult HttpClient::getString( const HttpRequest& request, std::string& body ) const
+    HttpResult HttpClient::fetchString( const HttpRequest& request, std::string& body ) const
     {
         body.clear();
 
-        return get( request, [&body]( const char* data, std::size_t length )
+        return fetch( request, [&body]( const char* data, std::size_t length )
             {
                 body.append( data, length );
 

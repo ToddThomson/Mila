@@ -68,7 +68,7 @@ Three layers, each with one job.
         v
   IHttpTransport      one request, no interpretation
         |
-        +-- CurlHttpTransport      libcurl            (gated: MILA_ENABLE_LIBCURL; Windows, Linux)
+        +-- CurlHttpTransport      libcurl            (gated: MILA_ENABLE_NETWORKING; Windows, Linux)
         +-- UrlSessionHttpTransport  Apple's URL loading  (macOS, section 9)
         +-- NetworkHttpTransport   Network.framework  (macOS, a grant's network, section 9)
         +-- WinHttpTransport       WinHTTP            (future, no dependency)
@@ -132,15 +132,27 @@ request as a transport failure rather than sending it as a GET.
 Concrete, always compiled, no dependency. Owns everything the transports used to each own:
 
 - Follows redirects to `maximum_redirects`, resolving relative `Location` values (all four forms;
-  HuggingFace answers a manifest request with a 307 to a root-relative path).
+  HuggingFace answers a manifest request with a 307 to a root-relative path), and reports
+  `TooManyRedirects` past the bound.
+- **Fetches only `http` and `https` addresses**, the first and every redirect (`isWebAddress`); a
+  redirect elsewhere, or one with no `Location`, is `RedirectRefused`.
 - **Drops the `Authorization` header when the host changes.** One place. This is the rule that
-  matters, and it is now impossible for a transport to get wrong.
+  matters, and it is now impossible for a transport to get wrong. The request's own `headers` go to
+  every host it reaches, so one naming `Authorization` is refused (`std::invalid_argument`): a secret
+  is only ever the `token`.
+- **Sends a body as a POST** (`HttpRequest::body`), and follows no redirect for it:
+  `RedirectRefused`.
+- **Bounds the body** at `maximum_body_bytes`: the sink is given the bytes up to the bound, the
+  transfer stops, and the result says `cut`. A body of exactly the bound is not cut.
 - Builds `Range: bytes=N-` for a resume, and reports `RangeIgnored` when the answer is 200 rather
   than 206 -- the server is sending the whole file, and appending that to a partial silently
   concatenates.
 - Maps status to `HttpStatus`, keeping 401 and 403 distinct because one means "get a token" and the
-  other means "accept the terms".
-- Keeps `getString` for manifests and API responses.
+  other means "accept the terms". What a status means to a person is the caller's to say, from the
+  status or `http_code`.
+- `fetch` streams to a sink; `fetchString` buffers, for manifests, pages and API replies. Every
+  request in the library and the applications goes through one or the other (`Network/Network.md`
+  section 5).
 
 Its public surface is today's `HttpRequest` / `HttpResult` / `HttpStatus`, unchanged, so
 `HuggingFaceHub` is untouched by this work.
@@ -177,7 +189,7 @@ def transport(url, headers, sink):
 - **The policy becomes testable offline**, in the always-compiled test set, against a fake transport
   that returns scripted responses: the hop limit, a redirect chain, a cross-host hop that must drop
   the header, a 200 answering a `Range`. None of that has coverage today.
-- **`MILA_ENABLE_LIBCURL` stops being interesting.** It selects which raw fetcher compiles. No
+- **`MILA_ENABLE_NETWORKING` (once `MILA_ENABLE_LIBCURL`) stops being interesting.** It selects which raw fetcher compiles. No
   behaviour rides on it, and the null case is a transport that reports `transport_failed` rather
   than a hole in the API.
 
@@ -221,9 +233,8 @@ presets are green.
 - **Proxy configuration** is currently whatever libcurl picks up from the environment. Under a
   host transport it is whatever the host does. That difference is intended -- see section 2 -- but
   it is undocumented behaviour today. On macOS it is the Mac's own proxy settings (section 9).
-- **`MILA_ENABLE_LIBCURL` names the wrong thing on a Mac**, where ON selects Apple's transports and
-  no libcurl is built (section 9). Renaming it reaches CI, the Dockerfiles, `getting-started.md` and
-  user-visible strings; not done with the macOS transports.
+- **`MILA_ENABLE_LIBCURL` named the wrong thing on a Mac**, where ON selects Apple's transports and
+  no libcurl is built (section 9). It is `MILA_ENABLE_NETWORKING` now (`Network/Network.md` 7, phase 4).
 
 ## 9. macOS: the operating system's transports
 
@@ -241,7 +252,8 @@ Two transports, because a grant's network needs what Apple's URL loading does no
   refused in the session's delegate and reported, as the contract requires. Headers are set as given;
   Apple lists `Authorization` among the headers its loader manages, and its developer support says
   setting it directly is the only way to send a bearer token, which is what is done. Two are added when
-  the client sends none, so the bytes are what curl's request brings: Mila's `User-Agent`, and
+  the client sends none, so the bytes are what curl's request brings: Mila's `User-Agent`
+  (`userAgent()`, `Network/Network.md` 4.3), and
   `Accept-Encoding: identity`, since the loader otherwise asks for compression and decodes it, and a
   resumed or hashed download must see the resource's own bytes. Apple's code is Objective-C, reached
   through one `.m` file behind a C interface (`Networking/Transports/Apple/Implementation/UrlSessionFetch.m`), with no C++ in it.

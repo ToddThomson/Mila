@@ -270,7 +270,7 @@ __version__ = _resolve_version()
 # ---------------------------------------------------------------------------
 # HTTP transport
 #
-# The wheel is built with MILA_ENABLE_LIBCURL=OFF on BOTH platforms, so the
+# The wheel is built with MILA_ENABLE_NETWORKING=OFF on BOTH platforms, so the
 # extension has no HTTP client of its own and pull() would otherwise refuse --
 # quoting a CMake flag at someone who ran `pip install`. On Linux that is forced
 # (curl links the system OpenSSL, which manylinux does not whitelist); on Windows

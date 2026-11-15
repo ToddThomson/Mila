@@ -24,6 +24,9 @@ typedef struct MilaUrlSessionRequest
     const MilaUrlSessionHeader* headers;
     size_t header_count;
 
+    /* Sent as the User-Agent when the headers name none. */
+    const char* user_agent;
+
     /* A POST of these bytes when has_body is set, a GET when not. */
     const char* body;
     size_t body_length;

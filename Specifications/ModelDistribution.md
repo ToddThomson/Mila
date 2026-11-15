@@ -761,7 +761,7 @@ are *knowledge*, and a host language that had to supply them would be reimplemen
 policy rather than lending it a capability. With the seam one level down, a caller supplies
 `GET url -> bytes` and reimplements nothing.
 
-`MILA_ENABLE_LIBCURL` defaults ON, matching `MILA_ENABLE_CUDA` and
+`MILA_ENABLE_NETWORKING` defaults ON, matching `MILA_ENABLE_CUDA` and
 `MILA_ENABLE_PYTHON_BINDINGS`.
 
 **The reason is TLS, not libcurl.** The manylinux policy constrains dynamic linking only, and

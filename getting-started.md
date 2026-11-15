@@ -143,10 +143,10 @@ Clang 22 nor libstdc++ 15, so these steps do not build Mila there.
    sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-22 100
    sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-22 100
    ```
-   `libssl-dev` is curl's, not Mila's: `MILA_ENABLE_LIBCURL` defaults ON, and on Linux the
+   `libssl-dev` is curl's, not Mila's: `MILA_ENABLE_NETWORKING` defaults ON, and on Linux the
    vendored libcurl takes TLS from the system OpenSSL (`CURL_USE_SCHANNEL` is Windows-only),
    so its `find_package(OpenSSL)` fails the whole configure without it. Omit it only if you
-   also configure with `-DMILA_ENABLE_LIBCURL=OFF`, which builds a Mila that can still list,
+   also configure with `-DMILA_ENABLE_NETWORKING=OFF`, which builds a Mila that can still list,
    install, locate and load models but cannot pull one without a caller-supplied transport.
    `build-essential` installs the distro's default GCC, which is what nvcc uses as its host
    compiler for the `.cu` files. Ubuntu 26.04 ships GCC 15.2, and that is fine in this role —

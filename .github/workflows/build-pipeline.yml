@@ -191,7 +191,7 @@ jobs:
       # preset uses the generic `clang` name, which is the dev's WSL default but not the
       # runner's).
       #
-      # MILA_ENABLE_LIBCURL=OFF is the Linux mila-llm wheel's configuration, which had no
+      # MILA_ENABLE_NETWORKING=OFF is the Linux mila-llm wheel's configuration, which had no
       # Linux coverage anywhere -- the only OFF preset is a Windows Debug build. Taking it
       # here gates the wheel's configuration for free and keeps this image free of
       # libssl-dev, which the vendored curl would otherwise require.
@@ -202,7 +202,7 @@ jobs:
             -DCMAKE_C_COMPILER=clang-22 \
             -DCMAKE_CXX_COMPILER=clang++-22 \
             -DMILA_ENABLE_CUDA=OFF \
-            -DMILA_ENABLE_LIBCURL=OFF \
+            -DMILA_ENABLE_NETWORKING=OFF \
             -DMILA_ENABLE_TESTING=ON \
             -DMILA_ENABLE_SAMPLES=OFF \
             -DMILA_ENABLE_APPS=OFF \

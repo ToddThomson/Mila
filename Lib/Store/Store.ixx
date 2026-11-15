@@ -166,7 +166,7 @@ namespace Mila::StoreApp
                     if constexpr ( !Mila::Networking::kHttpTransportAvailable )
                     {
                         std::cerr << std::format( "Could not install '{}': this build has no HTTP transport "
-                            "(MILA_ENABLE_LIBCURL=OFF), so it installs only from a package directory.\n",
+                            "(MILA_ENABLE_NETWORKING=OFF), so it installs only from a package directory.\n",
                             argument );
                         ++failures;
                         continue;
@@ -381,7 +381,7 @@ namespace Mila::StoreApp
         {
             if constexpr ( !Mila::Networking::kHttpTransportAvailable )
             {
-                std::cerr << "This build has no HTTP transport (MILA_ENABLE_LIBCURL=OFF), "
+                std::cerr << "This build has no HTTP transport (MILA_ENABLE_NETWORKING=OFF), "
                     "so it cannot reach the hub.\n";
 
                 return 2;
