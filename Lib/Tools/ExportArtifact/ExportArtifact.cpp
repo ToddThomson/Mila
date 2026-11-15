@@ -72,6 +72,9 @@ namespace
             "                                 the card's sampling.json transcribes them. Without\n"
             "                                 it the model samples at its family's settings.\n"
             "      --base-model <id>          Lineage, published with the model.\n"
+            "      --display-name <name>      The model's name as a person reads it: its\n"
+            "                                 publisher's own, as their card writes it, e.g.\n"
+            "                                 \"Gemma 4 12B\".\n"
             "      --architecture-version <v> Which of the family's architectures, e.g. 3.1 for\n"
             "                                 Llama 3.1. Required for Llama, whose chat\n"
             "                                 template differs between 3.1 and 3.2.\n"
@@ -160,6 +163,10 @@ namespace
             else if ( argument == "--base-model" && index + 1 < argc )
             {
                 request.base_model = argv[ ++index ];
+            }
+            else if ( argument == "--display-name" && index + 1 < argc )
+            {
+                request.display_name = argv[ ++index ];
             }
             else if ( argument == "--architecture-version" && index + 1 < argc )
             {

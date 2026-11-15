@@ -449,6 +449,7 @@ namespace Mila::Distribution
             ModelRecord record;
             record.name = firstNonEmpty(
                 options.name, manifest.name, package.directory().filename().string() );
+            record.display_name = manifest.display_name;
             record.architecture = manifest.architecture;
             record.architecture_version = manifest.architecture_version;
             record.variant = manifest.variant;
@@ -1222,6 +1223,11 @@ namespace Mila::Distribution
                 { "base_model", record.base_model },
                 { "license", record.license } };
 
+            if ( !record.display_name.empty() )
+            {
+                document[ "display_name" ] = record.display_name;
+            }
+
             if ( !record.architecture_version.empty() )
             {
                 document[ "architecture_version" ] = record.architecture_version;
@@ -1246,6 +1252,7 @@ namespace Mila::Distribution
             ModelRecord record;
 
             record.name = json.value( "name", std::string{} );
+            record.display_name = json.value( "display_name", std::string{} );
             record.architecture = json.value( "architecture", std::string{} );
             record.architecture_version = json.value( "architecture_version", std::string{} );
             record.variant = json.value( "variant", std::string{} );

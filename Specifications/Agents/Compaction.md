@@ -189,6 +189,12 @@ the tools stay for the first attempt and go for the second.
 An application times a compaction from `CompactionBegan` to `Compacted`, as it times a round; the measurements stay in the
 consumer. The trace (`AgentTasks.md` 6.1) keeps these events later.
 
+**How full the context is** (Todd, 2026-11-14), for a program that shows it: `RoundBegan` carries `prompt_tokens`, the
+tokens the round's prompt holds, which the agent has already counted for the round's budget; `Agent::contextTokens()`
+counts the conversation as it stands, system prompt and tools included, with no new message, at the cost of a tokenizer
+pass over it; and `Agent::compactionThreshold()` is the prompt length at which the session's policy compacts here, empty
+with no policy. Mila Desktop's header ring is built on the three (`../MilaDesktop.md` 3.5).
+
 ## 7. The apps
 
 **Mila Desktop** stores `messages`, what the page shows, apart from `turns`, what the model reads

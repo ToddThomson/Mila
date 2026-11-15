@@ -1157,6 +1157,7 @@ target_sources(Mila
             "Src/Distribution/Hub/LocalDirectoryHub.ixx"
             "Src/Distribution/Hub/ModelResolver.ixx"
             "Src/Distribution/Http/HttpTransport.ixx"
+            "Src/Distribution/Http/HttpReplyReader.ixx"
             "Src/Distribution/Http/HttpClient.ixx"
             "Src/Distribution/Hub/HuggingFaceHub.ixx"
 )
@@ -1164,12 +1165,43 @@ target_sources(Mila
 # ----------------------------------------------------------------------------
 # Model distribution -- the HTTP transport
 #
-# Distribution.HttpTransportBackend has two candidate source files and exactly one
-# is compiled. Selecting by source file rather than by #ifdef means the OFF path is
-# compiled code that a build actually checks, and `import Mila;` never varies by a
-# preprocessor define. This is the whole of what libcurl is needed for.
+# Distribution.HttpTransportBackend has three candidate source files and exactly one
+# is compiled: libcurl's, a Mac's own (Apple), or none. Selecting by source file rather
+# than by #ifdef means the OFF path is compiled code that a build actually checks, and
+# `import Mila;` never varies by a preprocessor define. This is the whole of what libcurl
+# is needed for, and a Mac does not build it (Specifications/HttpClient.md section 9).
 # ----------------------------------------------------------------------------
-if(MILA_ENABLE_LIBCURL)
+if(MILA_ENABLE_LIBCURL AND APPLE)
+    # Apple's URL loading by default, and Network.framework for a grant's checked network, behind C interfaces in
+    # C and Objective-C (HttpClient.md section 9).
+    target_sources(Mila
+        PUBLIC
+            FILE_SET module_files
+            TYPE CXX_MODULES FILES
+                "Src/Distribution/Http/UrlSessionHttpTransport.ixx"
+                "Src/Distribution/Http/NetworkHttpTransport.ixx"
+                "Src/Distribution/Http/HttpTransportBackend.Apple.ixx"
+    )
+
+    target_sources(Mila
+        PRIVATE
+            "Src/Distribution/Http/Implementation/UrlSessionHttpTransport.cpp"
+            "Src/Distribution/Http/Implementation/UrlSessionFetch.m"
+            "Src/Distribution/Http/Implementation/NetworkHttpTransport.cpp"
+            "Src/Distribution/Http/Implementation/NetworkConnection.c"
+    )
+
+    set_source_files_properties("Src/Distribution/Http/Implementation/UrlSessionFetch.m" PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+
+    find_library(MILA_FOUNDATION_FRAMEWORK Foundation REQUIRED)
+    find_library(MILA_NETWORK_FRAMEWORK Network REQUIRED)
+    find_library(MILA_SECURITY_FRAMEWORK Security REQUIRED)
+    find_library(MILA_COREFOUNDATION_FRAMEWORK CoreFoundation REQUIRED)
+    target_link_libraries(Mila PRIVATE
+        ${MILA_FOUNDATION_FRAMEWORK} ${MILA_NETWORK_FRAMEWORK} ${MILA_SECURITY_FRAMEWORK} ${MILA_COREFOUNDATION_FRAMEWORK})
+
+    message(STATUS "Added HTTP transport: Apple's URL loading, and Network.framework for a checked network")
+elseif(MILA_ENABLE_LIBCURL)
     target_sources(Mila
         PUBLIC
             FILE_SET module_files
@@ -1257,6 +1289,7 @@ target_sources(Mila
         "Src/Deployment/Implementation/PublishedModelFit.cpp"
         "Src/Distribution/Implementation/PublishedModel.cpp"
         "Src/Distribution/Implementation/LocalDirectoryHub.cpp"
+        "Src/Distribution/Http/Implementation/HttpReplyReader.cpp"
         "Src/Agents/Implementation/Agent.cpp"
 )
 

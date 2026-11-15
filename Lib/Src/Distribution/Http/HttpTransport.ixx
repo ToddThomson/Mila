@@ -14,6 +14,10 @@ import std;
 
 namespace Mila::Distribution
 {
+    /// A non-2xx body is captured to this many bytes and no further: enough to carry an error page's useful line,
+    /// bounded enough that a hostile server cannot grow it.
+    export inline constexpr std::size_t kMaximumCapturedErrorBytes = 4096;
+
     export struct HttpHeader
     {
         std::string name;

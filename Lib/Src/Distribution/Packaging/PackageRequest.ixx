@@ -24,6 +24,9 @@ namespace Mila::Distribution
         /// Empty takes the package directory's name.
         std::string name;
 
+        /// The model's name as a person reads it, its upstream publisher's own ("Gemma 4 12B"). Empty writes none.
+        std::string display_name;
+
         std::string architecture;
 
         /// Which of the family's architectures, "3.1" for Llama 3.1. Empty for a family with only one.

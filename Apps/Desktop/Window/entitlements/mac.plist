@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The app under the hardened runtime: Electron's V8 needs JIT on arm64, and nothing else is granted. -->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+  </dict>
+</plist>

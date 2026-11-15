@@ -29,6 +29,9 @@ namespace Mila::Tools
         /// Empty takes the package directory's name.
         std::string name;
 
+        /// The model's name as a person reads it, its upstream publisher's own. Empty writes none.
+        std::string display_name;
+
         /// Empty derives the variant from the weights themselves.
         std::string variant;
 

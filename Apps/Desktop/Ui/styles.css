@@ -418,6 +418,44 @@ kbd {
   overflow: hidden;
 }
 
+/* How much of the context the conversation takes: a ring that fills, and its details on a click. */
+.context-control { position: relative; flex: none; margin-left: 10px; }
+
+.context-control[hidden] { display: none; }
+
+.context-ring {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+}
+
+.context-ring:hover { background: var(--hover); }
+
+.context-ring svg { width: 20px; height: 20px; }
+
+.context-ring circle { fill: none; stroke-width: 2.5; }
+
+.context-ring-track { stroke: var(--rule); }
+
+/* What the ring shows is the session's state, so blue; the ring itself is the button, and hovers as one. */
+.context-ring-used { stroke: var(--accent); stroke-linecap: round; transition: stroke-dasharray .3s ease; }
+
+.context-ring.full .context-ring-used { stroke: var(--error); }
+
+.context-popup { top: 36px; right: 0; min-width: 300px; padding: 6px 8px 8px; }
+
+.context-row { display: flex; justify-content: space-between; gap: 16px; padding: 4px 9px; font-size: 13px; }
+
+.context-row-name { color: var(--muted); }
+
+.context-row-value { text-align: right; font-variant-numeric: tabular-nums; }
+
 /* ---- Transcript -------------------------------------------------------------------------- */
 
 .transcript-scroll { flex: 1; overflow-y: auto; overflow-anchor: none; }
@@ -503,7 +541,6 @@ kbd {
   text-align: left;
 }
 
-.suggestion-label { font-size: 12px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--accent); }
 
 .suggestion-name { margin-top: 4px; font-size: 17px; font-weight: 600; }
 
@@ -511,7 +548,53 @@ kbd {
 
 .suggestion-facts { margin-top: 4px; font-size: 13px; color: var(--muted); }
 
-.start-install { margin-top: 14px; padding: 6px 18px; font-size: 14px; }
+/* The first run is a welcome as well as a choice: the mark and a larger heading, the card and its one decision. */
+
+/* A first run has the whole window: no sidebar, rail or header beside the welcome. */
+.app.welcoming .sidebar,
+.app.welcoming .rail,
+.app.welcoming .header,
+.app.welcoming .scrim { display: none; }
+
+.empty-state.first-run { padding-top: 12vh; }
+
+.first-run-mark { display: block; width: 72px; height: auto; margin: 0 auto 18px; }
+
+.first-run .empty-heading { margin-bottom: 8px; font-size: 30px; letter-spacing: -.02em; }
+
+.first-run-byline { margin: 0; font-size: 17px; font-weight: 500; color: var(--accent); }
+
+/* Skip stays in the window's corner on every step of the welcome, the suggestion found or not. */
+.first-run-skip { position: fixed; top: 14px; right: 20px; margin: 0; color: var(--muted); }
+
+.first-run-skip:hover { color: var(--fg); }
+
+/* The introduction, the card and the way to another model share the card's left edge. */
+.first-run-introduction { max-width: 520px; margin: 40px auto 0; font-size: 15px; text-align: left; }
+
+.first-run .start-suggestion { margin-top: 12px; }
+
+.start-other { display: block; max-width: 520px; margin: 14px auto 0; text-align: left; width: 100%; }
+
+.first-run .start-finding,
+.first-run .start-refusal { margin-top: 40px; }
+
+.start-action { margin-top: 16px; text-align: center; }
+
+.start-action .progress { width: 100%; }
+
+.start-install {
+  min-width: 240px;
+  padding: 9px 22px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--accent-2);
+  color: var(--on-accent);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.start-install:hover { filter: brightness(1.08); }
 
 .model-note { font-size: 12px; color: var(--muted); }
 

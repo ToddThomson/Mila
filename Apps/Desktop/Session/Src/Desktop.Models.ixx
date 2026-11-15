@@ -72,12 +72,26 @@ namespace Mila::Desktop
 
             installed.push_back( {
                 { "name", model.name() },
+                { "display_name", model.stored().record.display_name },
                 { "size_bytes", model.stored().bytes_on_disk },
                 { "quantization", stored ? std::string( quantizationWord( *stored ) ) : model.stored().record.weight_quantization },
                 { "family", family } } );
         }
 
         return installed;
+    }
+
+    /// An installed model's name for a person to read: its display name, or its name when its manifest declared none.
+    export inline std::string displayName( const std::string& name )
+    {
+        const std::optional<InstalledModel> installed = InstalledModel::find( name );
+
+        if ( !installed || installed->stored().record.display_name.empty() )
+        {
+            return name;
+        }
+
+        return installed->stored().record.display_name;
     }
 
     export inline std::string refusalText( const Mila::Deployment::OpenRefusal& refusal );
@@ -159,6 +173,7 @@ namespace Mila::Desktop
 
             nlohmann::json entry = {
                 { "name", fit.model.name() },
+                { "display_name", manifest ? manifest->display_name : std::string{} },
                 { "size_bytes", fit.model.downloadBytes() },
                 { "quantization", quantization },
                 { "installed", is_installed },
@@ -220,7 +235,8 @@ namespace Mila::Desktop
         const auto pulled = resolver.pull( name, std::string( Mila::Distribution::kDefaultHubOwner ) );
 
         std::vector<std::string> lines;
-        lines.push_back( std::format( "Installed {} ({}).", pulled.record.name, formatBytes( pulled.bytes_on_disk ) ) );
+        const std::string& shown = pulled.record.display_name.empty() ? pulled.record.name : pulled.record.display_name;
+        lines.push_back( std::format( "Installed {} ({}).", shown, formatBytes( pulled.bytes_on_disk ) ) );
 
         if ( !pulled.record.license.empty() )
         {

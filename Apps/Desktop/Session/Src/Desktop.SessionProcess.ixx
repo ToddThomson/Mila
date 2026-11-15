@@ -596,6 +596,8 @@ namespace Mila::Desktop
             {
                 case Kind::RoundBegan:
                     ++round_;
+                    context_used_ = event.prompt_tokens;
+                    sendState();
                     timer.begin();
                     break;
 
@@ -638,6 +640,8 @@ namespace Mila::Desktop
                     break;
 
                 case Kind::Compacted:
+                    context_used_ = event.tokens_after;
+                    sendState();
                     send( "info", { { "text", event.text.empty() && event.dropped_turns > 0
                         ? std::format( "The {} oldest turns were dropped unread, taking the conversation from {} tokens to {}.",
                             event.dropped_turns, *event.tokens_before, *event.tokens_after )
@@ -1370,10 +1374,11 @@ namespace Mila::Desktop
             const bool applied_at_load = quantization && *quantization != WeightQuantization::None;
 
             // The quantization is quoted only when it is applied as the weights load: a pre-quantized model already
-            // carries it in its name.
+            // carries it in its name. The model is named as a person reads it.
+            const std::string shown = displayName( name );
             load_label_ = applied_at_load
-                ? std::format( "Loading {} ({})", name, quantizationWord( *quantization ) )
-                : std::format( "Loading {}", name );
+                ? std::format( "Loading {} ({})", shown, quantizationWord( *quantization ) )
+                : std::format( "Loading {}", shown );
 
             loading_ = name;
             sendState();
@@ -1435,7 +1440,8 @@ namespace Mila::Desktop
 
         void installModel( const std::string& name )
         {
-            install_name_ = name;
+            const auto published = published_display_names_.find( name );
+            install_name_ = published != published_display_names_.end() ? published->second : name;
             install_total_ = 0;
             install_percent_ = -1;
 
@@ -2072,6 +2078,14 @@ namespace Mila::Desktop
 
             const dim_t context_length = resident ? model_.agent().plan().contextLength() : settings_.context_length.value_or( 0 );
 
+            // Counted whole between turns; within one, each round's start says it (onAgentEvent).
+            if ( work_ != Work::Turn )
+            {
+                measureContext();
+            }
+
+            const std::optional<dim_t> compacts_at = resident ? model_.agent().compactionThreshold() : std::nullopt;
+
             send( "session.state", {
                 { "model", resident ? nlohmann::ordered_json( model_.name() ) : nlohmann::ordered_json( nullptr ) },
                 { "loading", loading_.empty() ? nlohmann::ordered_json( nullptr ) : nlohmann::ordered_json( loading_ ) },
@@ -2079,6 +2093,8 @@ namespace Mila::Desktop
                     ? nlohmann::ordered_json( nullptr ) : nlohmann::ordered_json( no_model_reason_ ) },
                 { "context_length", context_length },
                 { "context_automatic", !settings_.context_length.has_value() },
+                { "context_used", context_used_ ? nlohmann::ordered_json( *context_used_ ) : nlohmann::ordered_json( nullptr ) },
+                { "compacts_at", compacts_at ? nlohmann::ordered_json( *compacts_at ) : nlohmann::ordered_json( nullptr ) },
                 { "thinking_capable", thinking_capable },
                 { "thinking", thinking },
                 { "effort", std::move( effort_in_effect ) },
@@ -2097,6 +2113,27 @@ namespace Mila::Desktop
                 { "program_folders", programFoldersShown() },
                 { "busy", busy },
                 { "streams", nlohmann::ordered_json::array( { stream } ) } } );
+        }
+
+        /// The context the conversation takes now, counted by the agent; unknown with no model resident.
+        void measureContext()
+        {
+            if ( !model_.resident() )
+            {
+                context_used_.reset();
+
+                return;
+            }
+
+            try
+            {
+                context_used_ = model_.agent().contextTokens();
+            }
+            catch ( const std::invalid_argument& )
+            {
+                // A template variable the template refuses is said where it is set; the count waits for it.
+                context_used_.reset();
+            }
         }
 
         /// The folders commands are given to read, for Settings to show; none while commands are off.
@@ -2147,6 +2184,17 @@ namespace Mila::Desktop
 
                     nlohmann::json listed = publishedModels( request );
                     published = std::move( listed[ "models" ] );
+                    published_display_names_.clear();
+
+                    for ( const auto& model : published )
+                    {
+                        const std::string display_name = model.value( "display_name", std::string{} );
+
+                        if ( !display_name.empty() )
+                        {
+                            published_display_names_[ model.value( "name", std::string{} ) ] = display_name;
+                        }
+                    }
                     suggested = std::move( listed[ "suggested" ] );
                 }
                 catch ( const std::exception& failure )
@@ -2390,7 +2438,14 @@ namespace Mila::Desktop
         // The model a load is opening, while it does, so the page names it before it is resident.
         std::string loading_;
 
+        // The tokens the conversation takes in the context: counted between turns, said by each round within one.
+        std::optional<dim_t> context_used_;
+
+        /// The model an install is bringing in, as a person reads it: its display name when the publisher's list gave one.
         std::string install_name_;
+
+        /// Each published model's display name from the list last sent, so an install can say what it is installing.
+        std::map<std::string, std::string, std::less<>> published_display_names_;
         std::uint64_t install_total_{ 0 };
         int install_percent_{ -1 };
 

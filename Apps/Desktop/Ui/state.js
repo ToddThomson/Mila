@@ -17,6 +17,7 @@ export function createInitialState()
         publishedModels: null,
         suggestedModel: null,
         publishedRequested: false,
+        welcomeSkipped: false,
         progress: null,
         restore: null,
         modelsError: null,
@@ -117,6 +118,10 @@ export function reduce( state, message )
 
         case 'models.refresh':
             return reduceModelsRefresh( state, message );
+
+        // The page's alone, never sent: the first-run welcome passed by for this run of the window.
+        case 'welcome.skip':
+            return { ...state, welcomeSkipped: true };
 
         case 'model.load':
         case 'model.install':
@@ -592,7 +597,8 @@ export function appStatus( state )
 
 /**
  * What an empty conversation shows. With no model loaded or loading: the installed models to choose from, or,
- * with none installed, the way to install one; nothing until the session has said which. A model being loaded
+ * with none installed, the first-run welcome, or once it is skipped the way to install one; nothing until the
+ * session has said which. A model being loaded
  * is shown as the screen it is about to have, since the header already says it is loading.
  */
 export function emptyScreen( state )
@@ -607,7 +613,10 @@ export function emptyScreen( state )
         if ( !state.modelsKnown )
             return null;
 
-        return state.installedModels.length > 0 ? 'choose-model' : 'first-run';
+        if ( state.installedModels.length > 0 )
+            return 'choose-model';
+
+        return state.welcomeSkipped ? 'install-model' : 'first-run';
     }
 
     if ( session.activity !== undefined && session.activity !== 'ask' )
@@ -648,7 +657,18 @@ export function isAskingForModel( state )
 {
     const screen = emptyScreen( state );
 
-    return state.transcript.length === 0 && ( screen === 'first-run' || screen === 'choose-model' );
+    const asking = screen === 'first-run' || screen === 'choose-model' || screen === 'install-model';
+
+    return state.transcript.length === 0 && asking;
+}
+
+/**
+ * Whether the page is welcoming a first run: nothing installed, an empty conversation. The welcome then fills the
+ * window, with no sidebar or header beside it, as there is nothing yet to go back to or to show.
+ */
+export function isWelcoming( state )
+{
+    return state.transcript.length === 0 && emptyScreen( state ) === 'first-run';
 }
 
 export function isBusy( state )

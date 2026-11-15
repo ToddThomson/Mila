@@ -1,24 +1,32 @@
 /**
  * @file ToolGrant.Network.cpp
  * @brief What a grant's network reaches: each connection the grant refuses beside the same connection made without
- *        it, reaching what was there (ToolCalling.md 3.4). Windows only, for the local server's sockets.
+ *        it, reaching what was there (ToolCalling.md 3.4), on every platform's own transports (HttpClient.md 9).
  *
- * A server on the loopback address stands in for anything on the machine or its network. One test reads a public
+ * A server on a loopback address stands in for anything on the machine or its network. One test reads a public
  * page and skips when the machine is offline.
  */
 
-#ifndef WIN32_LEAN_AND_MEAN
-#  define WIN32_LEAN_AND_MEAN
+#ifdef _WIN32
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  include <winsock2.h>
+#  include <ws2tcpip.h>
+#else
+#  include <arpa/inet.h>
+#  include <netinet/in.h>
+#  include <sys/socket.h>
+#  include <unistd.h>
 #endif
-#ifndef NOMINMAX
-#  define NOMINMAX
-#endif
-#include <winsock2.h>
-#include <ws2tcpip.h>
 
 #include <gtest/gtest.h>
 #include <atomic>
 #include <cstdlib>
+#include <cstring>
 #include <format>
 #include <cstdint>
 #include <memory>
@@ -36,47 +44,63 @@ namespace Mila::Tests::AI
 
     namespace
     {
+#ifdef _WIN32
+        using Socket = SOCKET;
+        constexpr Socket kNoSocket = INVALID_SOCKET;
+        void closeSocket( Socket socket ) { closesocket( socket ); }
+        using AddressLength = int;
+#else
+        using Socket = int;
+        constexpr Socket kNoSocket = -1;
+        void closeSocket( Socket socket ) { close( socket ); }
+        using AddressLength = socklen_t;
+#endif
+
         constexpr const char* kRefusal = "not a public one";
 
         constexpr const char* kPageReadingOk = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok";
 
-        /// 127.0.0.2: loopback too, and a second address for a redirect to lead to.
-        constexpr std::uint32_t kSecondLoopback = 0x7f000002u;
-
-        /// Answers every connection on a loopback address with one response, a page reading "ok" unless given
-        /// another, and counts them.
+        /// Answers every connection on a loopback address, 127.0.0.1 or ::1, with one response, a page reading "ok"
+        /// unless given another, and counts them.
         class LoopbackServer
         {
         public:
 
-            explicit LoopbackServer( std::string response = kPageReadingOk, std::uint32_t host = INADDR_LOOPBACK )
-                : response_( std::move( response ) )
+            explicit LoopbackServer( std::string response = kPageReadingOk, bool ipv6 = false )
+                : response_( std::move( response ) ), ipv6_( ipv6 )
             {
+#ifdef _WIN32
                 WSADATA data{};
                 WSAStartup( MAKEWORD( 2, 2 ), &data );
+#endif
+                listener_ = socket( ipv6_ ? AF_INET6 : AF_INET, SOCK_STREAM, IPPROTO_TCP );
 
-                listener_ = socket( AF_INET, SOCK_STREAM, IPPROTO_TCP );
-
-                sockaddr_in address{};
-                address.sin_family = AF_INET;
-                address.sin_addr.s_addr = htonl( host );
-                address.sin_port = 0;
-
-                bind( listener_, reinterpret_cast<const sockaddr*>( &address ), sizeof( address ) );
+                sockaddr_storage address = loopback( 0 );
+                AddressLength length = addressLength();
+                bind( listener_, reinterpret_cast<const sockaddr*>( &address ), length );
                 listen( listener_, 8 );
 
-                int length = sizeof( address );
                 getsockname( listener_, reinterpret_cast<sockaddr*>( &address ), &length );
-                port_ = ntohs( address.sin_port );
+                port_ = ipv6_
+                    ? ntohs( reinterpret_cast<const sockaddr_in6*>( &address )->sin6_port )
+                    : ntohs( reinterpret_cast<const sockaddr_in*>( &address )->sin_port );
 
                 thread_ = std::thread( [this] { serve(); } );
             }
 
             ~LoopbackServer()
             {
-                closesocket( listener_ );
+                // Closing a socket does not wake an accept on every platform; a last connection of its own does.
+                stopping_ = true;
+                const Socket waking = socket( ipv6_ ? AF_INET6 : AF_INET, SOCK_STREAM, IPPROTO_TCP );
+                const sockaddr_storage address = loopback( port_ );
+                connect( waking, reinterpret_cast<const sockaddr*>( &address ), addressLength() );
                 thread_.join();
+                closeSocket( waking );
+                closeSocket( listener_ );
+#ifdef _WIN32
                 WSACleanup();
+#endif
             }
 
             [[nodiscard]] int port() const noexcept
@@ -91,31 +115,78 @@ namespace Mila::Tests::AI
 
         private:
 
+            sockaddr_storage loopback( int port ) const
+            {
+                sockaddr_storage storage{};
+
+                if ( ipv6_ )
+                {
+                    auto* address = reinterpret_cast<sockaddr_in6*>( &storage );
+                    address->sin6_family = AF_INET6;
+                    address->sin6_addr = in6addr_loopback;
+                    address->sin6_port = htons( static_cast<std::uint16_t>( port ) );
+                }
+                else
+                {
+                    auto* address = reinterpret_cast<sockaddr_in*>( &storage );
+                    address->sin_family = AF_INET;
+                    address->sin_addr.s_addr = htonl( INADDR_LOOPBACK );
+                    address->sin_port = htons( static_cast<std::uint16_t>( port ) );
+                }
+
+                return storage;
+            }
+
+            AddressLength addressLength() const
+            {
+                return static_cast<AddressLength>( ipv6_ ? sizeof( sockaddr_in6 ) : sizeof( sockaddr_in ) );
+            }
+
             void serve()
             {
                 for ( ;; )
                 {
-                    const SOCKET client = accept( listener_, nullptr, nullptr );
+                    const Socket client = accept( listener_, nullptr, nullptr );
 
-                    if ( client == INVALID_SOCKET )
+                    if ( client == kNoSocket )
                     {
+                        return;
+                    }
+
+                    if ( stopping_ )
+                    {
+                        closeSocket( client );
+
                         return;
                     }
 
                     ++connections_;
 
+#ifdef SO_NOSIGPIPE
+                    // A client that has gone must not end the test process with SIGPIPE.
+                    const int on = 1;
+                    setsockopt( client, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof( on ) );
+#endif
+#ifdef MSG_NOSIGNAL
+                    constexpr int kSendFlags = MSG_NOSIGNAL;
+#else
+                    constexpr int kSendFlags = 0;
+#endif
+
                     char request[ 4096 ];
                     recv( client, request, sizeof( request ), 0 );
 
-                    send( client, response_.data(), static_cast<int>( response_.size() ), 0 );
-                    closesocket( client );
+                    send( client, response_.data(), static_cast<int>( response_.size() ), kSendFlags );
+                    closeSocket( client );
                 }
             }
 
             std::string response_;
-            SOCKET listener_{ INVALID_SOCKET };
+            bool ipv6_{ false };
+            Socket listener_{ kNoSocket };
             int port_{ 0 };
             std::atomic<int> connections_{ 0 };
+            std::atomic<bool> stopping_{ false };
             std::thread thread_;
         };
 
@@ -154,14 +225,40 @@ namespace Mila::Tests::AI
 
             explicit ProxyInEnvironment( int port )
             {
-                _putenv_s( "http_proxy", std::format( "http://127.0.0.1:{}", port ).c_str() );
+                const std::string proxy = std::format( "http://127.0.0.1:{}", port );
+#ifdef _WIN32
+                _putenv_s( "http_proxy", proxy.c_str() );
+#else
+                setenv( "http_proxy", proxy.c_str(), 1 );
+#endif
             }
 
             ~ProxyInEnvironment()
             {
+#ifdef _WIN32
                 _putenv_s( "http_proxy", "" );
+#else
+                unsetenv( "http_proxy" );
+#endif
             }
         };
+
+        bool isIpv4Loopback( std::span<const std::uint8_t> address )
+        {
+            return address.size() == 4 && address[ 0 ] == 127 && address[ 1 ] == 0 && address[ 2 ] == 0 && address[ 3 ] == 1;
+        }
+
+        bool isLoopback( std::span<const std::uint8_t> address )
+        {
+            if ( isIpv4Loopback( address ) )
+            {
+                return true;
+            }
+
+            static constexpr std::uint8_t kIpv6Loopback[ 16 ] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 };
+
+            return address.size() == 16 && std::memcmp( address.data(), kIpv6Loopback, 16 ) == 0;
+        }
     }
 
     TEST( ToolGrantNetwork, ALoopbackServerIsRefusedThroughTheGrant )
@@ -179,7 +276,17 @@ namespace Mila::Tests::AI
         LoopbackServer server;
         const Fetched fetched = fetch( *makeDefaultHttpTransport(), std::format( "http://127.0.0.1:{}/", server.port() ) );
 
-        EXPECT_EQ( fetched.response.http_code, 200 );
+        EXPECT_EQ( fetched.response.http_code, 200 ) << fetched.response.message;
+        EXPECT_EQ( fetched.body, "ok" );
+        EXPECT_EQ( server.connections(), 1 );
+    }
+
+    TEST( ToolGrantNetwork, TheSameServerIsReachedThroughACheckThatAllowsIt )
+    {
+        LoopbackServer server;
+        const Fetched fetched = fetch( *makeCheckedHttpTransport( isLoopback ), std::format( "http://127.0.0.1:{}/", server.port() ) );
+
+        EXPECT_EQ( fetched.response.http_code, 200 ) << fetched.response.message;
         EXPECT_EQ( fetched.body, "ok" );
         EXPECT_EQ( server.connections(), 1 );
     }
@@ -195,7 +302,7 @@ namespace Mila::Tests::AI
 
     namespace
     {
-        /// A server on 127.0.0.1 redirecting to one on 127.0.0.2, followed as a client follows a redirect.
+        /// A server on 127.0.0.1 redirecting to one on ::1, followed as a client follows a redirect.
         struct RedirectFollowed
         {
             int redirecting_connections;
@@ -206,9 +313,9 @@ namespace Mila::Tests::AI
 
         RedirectFollowed followRedirect( ConnectionCheck check )
         {
-            LoopbackServer target( kPageReadingOk, kSecondLoopback );
+            LoopbackServer target( kPageReadingOk, true );
             LoopbackServer redirecting( std::format(
-                "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.2:{}/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", target.port() ) );
+                "HTTP/1.1 302 Found\r\nLocation: http://[::1]:{}/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", target.port() ) );
 
             const HttpClient client( makeCheckedHttpTransport( std::move( check ) ) );
             HttpRequest request;
@@ -221,17 +328,12 @@ namespace Mila::Tests::AI
 
             return followed;
         }
-
-        bool isFirstLoopback( std::span<const std::uint8_t> address )
-        {
-            return address.size() == 4 && address[ 0 ] == 127 && address[ 1 ] == 0 && address[ 2 ] == 0 && address[ 3 ] == 1;
-        }
     }
 
     TEST( ToolGrantNetwork, ARedirectToAnAddressRefusedIsNotReached )
     {
         // The check stands in for isPublicAddress: the first address is allowed and the one redirected to is not.
-        const RedirectFollowed followed = followRedirect( isFirstLoopback );
+        const RedirectFollowed followed = followRedirect( isIpv4Loopback );
 
         EXPECT_EQ( followed.redirecting_connections, 1 );
         EXPECT_EQ( followed.target_connections, 0 ) << "a redirect's connection is checked as the first was";
@@ -240,14 +342,11 @@ namespace Mila::Tests::AI
 
     TEST( ToolGrantNetwork, ARedirectToAnAddressAllowedIsReached )
     {
-        const RedirectFollowed followed = followRedirect( []( std::span<const std::uint8_t> address )
-            {
-                return address.size() == 4 && address[ 0 ] == 127;
-            } );
+        const RedirectFollowed followed = followRedirect( isLoopback );
 
         EXPECT_EQ( followed.redirecting_connections, 1 );
         EXPECT_EQ( followed.target_connections, 1 );
-        EXPECT_EQ( followed.body, "ok" );
+        EXPECT_EQ( followed.body, "ok" ) << followed.result.message;
     }
 
     TEST( ToolGrantNetwork, AProxyNamedInTheEnvironmentIsNotUsedByTheGrant )
@@ -263,6 +362,11 @@ namespace Mila::Tests::AI
 
     TEST( ToolGrantNetwork, AProxyNamedInTheEnvironmentIsUsedWithoutTheGrant )
     {
+        if ( makeDefaultHttpTransport()->name() != "libcurl" )
+        {
+            GTEST_SKIP() << "the environment's proxy is curl's to use; a Mac takes its own proxy settings";
+        }
+
         LoopbackServer proxy;
         const ProxyInEnvironment environment( proxy.port() );
         const Fetched fetched = fetch( *makeDefaultHttpTransport(), "http://example.com/" );
@@ -291,16 +395,43 @@ namespace Mila::Tests::AI
         EXPECT_TRUE( ToolGrant( {}, true ).narrowedTo( network ).network() );
     }
 
+    namespace
+    {
+        bool offline( const Fetched& fetched )
+        {
+            return fetched.response.transport_failed && fetched.response.message.find( kRefusal ) == std::string::npos
+                && fetched.response.http_code == 0 && fetched.response.message.find( "certificate" ) == std::string::npos
+                && fetched.response.message.find( "TLS" ) == std::string::npos;
+        }
+    }
+
     TEST( ToolGrantNetwork, APublicPageIsReached )
     {
         const Fetched fetched = fetch( *grantedTransport(), "https://example.com/" );
 
-        if ( fetched.response.transport_failed && fetched.response.message.find( kRefusal ) == std::string::npos )
+        if ( offline( fetched ) )
         {
             GTEST_SKIP() << "offline: " << fetched.response.message;
         }
 
         EXPECT_FALSE( fetched.response.transport_failed ) << fetched.response.message;
         EXPECT_EQ( fetched.response.http_code, 200 );
+        EXPECT_FALSE( fetched.body.empty() );
+    }
+
+    TEST( ToolGrantNetwork, ACertificateForAnotherNameIsRefusedThroughEitherTransport )
+    {
+        for ( const auto& transport : { grantedTransport(), makeDefaultHttpTransport() } )
+        {
+            const Fetched fetched = fetch( *transport, "https://wrong.host.badssl.com/" );
+
+            if ( fetched.response.transport_failed && fetched.response.message.find( "resolve" ) != std::string::npos )
+            {
+                GTEST_SKIP() << "offline: " << fetched.response.message;
+            }
+
+            EXPECT_TRUE( fetched.response.transport_failed ) << transport->name() << " reached a host whose certificate names another";
+            EXPECT_TRUE( fetched.body.empty() ) << transport->name();
+        }
     }
 }

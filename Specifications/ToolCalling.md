@@ -147,8 +147,9 @@ opened.
   connection is about to be made to, once the name is resolved, so the decision is on the connection, not on the
   name. A redirect is a new connection and is checked the same way. No proxy is used, one named in the
   environment included, since the connection checked would be the proxy's.
-- **Where.** *Decided 2026-10-27 (Todd):* Windows only for now. Elsewhere a grant holds no folder, so no tool
-  reaches one; Linux's `openat2` with `RESOLVE_BENEATH` (Linux 5.6) is the likely route there and is filed in
+- **Where.** *Decided 2026-10-27 (Todd):* Windows only for now. *Decided 2026-11-15 (Todd):* macOS too, in
+  v0.21.0, macOS being a platform at parity with Windows (`BACKLOG.md`, *Mila on Apple Silicon*); until it is built a
+  Mac grant holds no folder. Elsewhere a grant holds no folder, so no tool reaches one; Linux's `openat2` with `RESOLVE_BENEATH` (Linux 5.6) is the likely route there and is filed in
   `Untriaged.md`, unmeasured.
 - **What it holds.** A tool that works through its grant is held to it. One that opens files directly is not; an
   in-process tool is the application's own code, and that is the application's choice.

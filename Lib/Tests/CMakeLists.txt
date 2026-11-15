@@ -173,6 +173,7 @@ target_sources( MilaTests PRIVATE
     "Distribution/ModelHub.Cpu.cpp"
     "Distribution/PublishedModel.Cpu.cpp"
     "Distribution/HttpClient.Cpu.cpp"
+    "Distribution/HttpReplyReader.Cpu.cpp"
     # An installed model by name and the manifest fields it answers from (Deployment.md 8.1). Offline.
     "Deployment/InstalledModel.Cpu.cpp"
     # The devices a request allows and the planner's choice among them (Deployment.md 12.8), on described devices.
@@ -200,8 +201,7 @@ if(MILA_ENABLE_CUDA)
 endif()
 
 # What a tool's grant reaches (ToolCalling.md 3.4). Files only where a folder can be granted,
-# Windows; the network where this build has its own transport to check, and the local server's
-# sockets are Windows's.
+# Windows; the network below.
 if(WIN32)
     target_sources( MilaTests PRIVATE
         "Agents/ToolGrant.Files.cpp"
@@ -214,14 +214,14 @@ if(WIN32)
 
     # The program tests' loopback server, and the route to the local network's gateway.
     target_link_libraries( MilaTests PRIVATE ws2_32 iphlpapi )
+endif()
 
-    if(MILA_ENABLE_LIBCURL)
-        target_sources( MilaTests PRIVATE
-            "Agents/ToolGrant.Network.cpp"
-        )
-
-        target_link_libraries( MilaTests PRIVATE ws2_32 )
-    endif()
+# A grant's network on whichever transports this build has: curl's, or a Mac's own (HttpClient.md section 9). The
+# loopback server is written for each platform's sockets.
+if(MILA_ENABLE_LIBCURL)
+    target_sources( MilaTests PRIVATE
+        "Agents/ToolGrant.Network.cpp"
+    )
 endif()
 
 # Nothing under Distribution is gated any more. HttpClient's policy -- redirect hops, the

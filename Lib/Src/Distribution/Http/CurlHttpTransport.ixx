@@ -42,10 +42,6 @@ namespace Mila::Distribution
             return initialized;
         }
 
-        /// A non-2xx body is captured to this many bytes and no further: enough to carry an
-        /// error page's useful line, bounded enough that a hostile server cannot grow it.
-        constexpr std::size_t kMaximumCapturedErrorBytes = 4096;
-
         struct TransferState
         {
             const SinkCallback* sink{ nullptr };

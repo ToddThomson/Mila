@@ -655,6 +655,7 @@ namespace Mila::Tests::AI
 
                         case AgentEvent::Kind::RoundBegan:
                             budgets_.push_back( event.budget );
+                            prompt_tokens_.push_back( event.prompt_tokens );
                             tokens_.emplace_back();
                             break;
 
@@ -689,6 +690,9 @@ namespace Mila::Tests::AI
         /// Each round's budget, and each round's tokens as decoded.
         std::vector<std::optional<dim_t>> budgets_;
         std::vector<std::vector<std::string>> tokens_;
+
+        /// Each round's prompt, as the round said it began.
+        std::vector<std::optional<dim_t>> prompt_tokens_;
     };
 
     TEST_F( AgentOnGemmaCuda, WithNoOneToAskACallIsDeclinedAndTheModelReadsSo )
@@ -938,6 +942,28 @@ namespace Mila::Tests::AI
         // The first round may take every token; the next only what the first left.
         EXPECT_EQ( budgets_[ 0 ], dim_t( 4000 ) );
         EXPECT_EQ( budgets_[ 1 ], dim_t( 4000 ) - static_cast<dim_t>( tokens_[ 0 ].size() ) );
+    }
+
+    TEST_F( AgentOnGemmaCuda, EachRoundSaysHowManyTokensItsPromptHolds )
+    {
+        allowEveryCall();
+
+        const std::string_view message = "What is the weather in Paris right now?";
+        const dim_t before = agent_->contextTokens();
+        const auto first = static_cast<dim_t>( agent_->model().tokenizer().encode( agent_->prompt( message ).text ).size() );
+
+        // An empty conversation still takes the tools the template declares.
+        EXPECT_GT( before, 0 );
+
+        ASSERT_FALSE( respond( message ).empty() ) << last_.text;
+        ASSERT_GE( prompt_tokens_.size(), 2u );
+
+        // The first round begins from the conversation with the message; the next holds the first round too.
+        EXPECT_EQ( prompt_tokens_[ 0 ], first );
+        ASSERT_TRUE( prompt_tokens_[ 1 ].has_value() );
+        EXPECT_GT( *prompt_tokens_[ 1 ], first );
+
+        EXPECT_GT( agent_->contextTokens(), first ) << "the conversation now holds the message, the call and the answer";
     }
 
     TEST_F( AgentOnGemmaCuda, AResponseOutOfReplyTokensStopsAndRunsNothing )
@@ -1895,6 +1921,19 @@ namespace Mila::Tests::AI
         ASSERT_FALSE( reuse.rounds().empty() );
         ASSERT_TRUE( reuse.rounds().front().has_value() ) << "the summary prefilled its whole prompt";
         EXPECT_GT( reuse.rounds().front()->skipped, held - 300 ) << "the tools or the history no longer matched what the model holds";
+    }
+
+    TEST_F( AgentCompactsOnGemmaCuda, TheCompactionThresholdIsThePolicysTriggerWithRoomForTheSummary )
+    {
+        const dim_t limit = agent_->plan().contextLength();
+
+        EXPECT_FALSE( agent_->compactionThreshold().has_value() ) << "no policy, no compaction";
+
+        agent_->session().withCompaction( { .trigger_tokens = 7000, .summary_tokens = 3000 } );
+        EXPECT_EQ( agent_->compactionThreshold(), std::min<dim_t>( 7000, limit - 3000 ) );
+
+        agent_->session().withCompaction( { .summary_tokens = 512 } );
+        EXPECT_EQ( agent_->compactionThreshold(), limit - 512 ) << "with no trigger, the limit less the summary's room";
     }
 
     TEST_F( AgentCompactsOnGemmaCuda, ACompactionAskedForTwiceFindsNothingToReplaceTheSecondTime )

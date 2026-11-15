@@ -23,6 +23,9 @@ namespace Mila::Distribution
         /// The store's key, and the only name a user types. Unique across the store.
         std::string name;
 
+        /// The model's name as a person reads it, as the manifest declared it. Empty when it did not; show the name then.
+        std::string display_name;
+
         std::string architecture;
 
         /// Which of the family's architectures, as the manifest declared it ("3.1"). Empty when it did not.

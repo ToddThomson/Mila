@@ -268,7 +268,13 @@ CPMAddPackage(
 #        "SPM_BUILD_TEST OFF"
 #)
 
-if(MILA_ENABLE_LIBCURL)
+# A Mac's transports are Apple's own and curl is not built there (Specifications/HttpClient.md section 9): their
+# code is C and Objective-C, and every target that links Mila links it, so the languages are enabled here.
+if(MILA_ENABLE_LIBCURL AND APPLE)
+    enable_language(C OBJC)
+endif()
+
+if(MILA_ENABLE_LIBCURL AND NOT APPLE)
     # Vendored and pinned on both platforms. Windows has no linkable OS libcurl, so it is
     # built there regardless; building it on Linux too buys one known version everywhere
     # rather than whatever the distribution shipped.
@@ -357,6 +363,10 @@ endif()
 # CMAKE_SOURCE_DIR) keeps this pointing at Mila's own Data/ when embedded.
 # Mila project benchmarks, samples, tests, and tools can reference this variable to access data files.
 set(MILA_DATA_DIR "${PROJECT_SOURCE_DIR}/Data")
+
+# On macOS, LLVM's C++ runtime inside every program Mila links, so none needs the toolchain where it runs.
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/CxxRuntime.cmake")
+mila_link_cxx_runtime_statically()
 
 # The Mila library and Doxygen docs
 add_subdirectory( Lib )

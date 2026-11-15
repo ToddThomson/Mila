@@ -877,9 +877,12 @@ what the development Mac builds and tests (Todd, 2026-11-09).
 ### Phase 8 -- Apps and distribution
 
 Chat, Mila Desktop's session process and the server on macOS; how a Mac user installs Mila; what the model cards may claim.
-Planned when Phase 6 is done. An app adds no capability to the library. Today's binaries link Homebrew's libc++, libunwind
-and OpenSSL, and the linker warns that those were built for macOS 27.2 against the preset's 27.0. Both are fine on the
-development Mac and neither can reach a user's.
+Planned when Phase 6 is done. An app adds no capability to the library. Since 2026-11-14 every program Mila links on a
+Mac carries LLVM's libc++, libc++abi and libunwind inside itself (`cmake/CxxRuntime.cmake`): Apple's toolchain ships no
+`std` module source and its Clang is 21, so the system's libc++ is not one Mila can build against. The linker warns that
+Homebrew's archives were built for macOS 27.2 against the preset's 27.0, so the oldest macOS Mila supports is bounded by the
+runtime's own build until that is chosen. No libcurl or OpenSSL is built on a Mac: its transports are Apple's URL
+loading and Network.framework, TLS from the OS as on Windows (`HttpClient.md` section 9).
 
 ## 10. Decisions
 

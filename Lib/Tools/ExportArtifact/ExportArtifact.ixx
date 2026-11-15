@@ -969,6 +969,7 @@ namespace Mila::Tools
             package_request.variant = variant;
             package_request.weight_quantization = quantization;
             package_request.minimum_mila_version = kArtifactMinimumMilaVersion;
+            package_request.display_name = request.display_name;
             package_request.base_model = request.base_model;
             package_request.license_id = request.license_id;
             package_request.capabilities = request.capabilities;

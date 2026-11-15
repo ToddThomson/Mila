@@ -91,6 +91,7 @@ namespace Mila::Distribution
 
             ModelRecord record;
             record.name = coordinate.repository;
+            record.display_name = manifest.display_name;
             record.architecture = manifest.architecture;
             record.architecture_version = manifest.architecture_version;
             record.variant = manifest.variant;

@@ -152,6 +152,22 @@ namespace Mila::Agents
         [[nodiscard]] Conversation::Prompt prompt( std::string_view message = {} ) const;
 
         /**
+         * @brief The tokens the conversation takes in the context now: the system prompt, the tools and every turn,
+         *        as the template renders them, with no new message.
+         *
+         * Counted by encoding the whole conversation, so it costs a tokenizer pass over it: a program showing it as
+         * a response runs reads `AgentEvent::prompt_tokens` instead.
+         *
+         * @throws std::invalid_argument for a template variable the session asks for that the template does not
+         *         accept.
+         */
+        [[nodiscard]] dim_t contextTokens() const;
+
+        /// The prompt length at which the session's compaction policy compacts the conversation here; empty when the
+        /// session has no policy, or its summary has no room in this context.
+        [[nodiscard]] std::optional<dim_t> compactionThreshold() const;
+
+        /**
          * @brief Answer one message, running every call the model makes, until it gives its answer or a limit ends
          *        the response.
          *

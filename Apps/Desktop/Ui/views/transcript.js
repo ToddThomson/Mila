@@ -6,7 +6,7 @@ import { element, button, iconButton, setIcon, clear, previewOrIcon } from '../d
 import { renderMarkdown } from '../markdown.js';
 import { summarizeTurn, isBusy, emptyScreen, firstRunStep, suggestedModel } from '../state.js';
 import { thoughtLabel, statsLine, finishNotice, readableJson, activityCard, formatBytes, modelAbilities,
-    suggestionFacts } from '../format.js';
+    fitLine, modelTitle } from '../format.js';
 
 const stickDistance = 80;
 
@@ -81,6 +81,12 @@ export function createTranscriptView( scroller, container, actions )
             const message = { type: 'model.install', name: target.dataset.name };
             actions.send( message );
         }
+
+        if ( action === 'skip-welcome' )
+        {
+            const skip = { type: 'welcome.skip' };
+            actions.dispatch( skip );
+        }
     }
 
     function copyReply( target )
@@ -143,6 +149,7 @@ export function createTranscriptView( scroller, container, actions )
         clear( emptyState );
 
         const screen = emptyScreen( state );
+        emptyState.classList.toggle( 'first-run', screen === 'first-run' );
 
         if ( screen === null )
             return;
@@ -157,6 +164,13 @@ export function createTranscriptView( scroller, container, actions )
         if ( screen === 'first-run' )
         {
             renderFirstRun( state );
+
+            return;
+        }
+
+        if ( screen === 'install-model' )
+        {
+            renderInstallModel();
 
             return;
         }
@@ -211,7 +225,7 @@ export function createTranscriptView( scroller, container, actions )
         {
             const row = element( 'div', 'model-row' );
             const text = element( 'div', 'model-text' );
-            const name = element( 'div', 'model-name', model.name );
+            const name = element( 'div', 'model-name', modelTitle( model ) );
             const facts = element( 'div', 'model-facts', formatBytes( model.size_bytes ) + ' · ' + model.quantization );
             const load = button( 'chip-button', 'Load', 'load-model' );
 
@@ -239,11 +253,14 @@ export function createTranscriptView( scroller, container, actions )
             queueMicrotask( () => actions.send( refresh ) );
         }
 
+        const mark = element( 'img', 'first-run-mark' );
+        mark.src = 'mila-mark.svg';
+        mark.alt = '';
         const heading = element( 'p', 'empty-heading', 'Welcome to Mila' );
-        const detail = element( 'p', 'empty-detail',
-            'Mila runs a language model on this computer, so what you ask stays here. To start, install one.' );
+        const byline = element( 'p', 'first-run-byline', 'Local LLMs on hardware you own — at the metal' );
+        const skip = button( 'link-button first-run-skip', 'Skip', 'skip-welcome' );
 
-        emptyState.append( heading, detail );
+        emptyState.append( skip, mark, heading, byline );
 
         if ( state.modelsError !== null && state.modelsError.during === 'install' )
         {
@@ -284,19 +301,36 @@ export function createTranscriptView( scroller, container, actions )
         renderSuggestion( state, suggestedModel( state ) );
     }
 
+    /** The first-run welcome skipped with nothing installed: the way to a model, without the suggestion. */
+    function renderInstallModel()
+    {
+        const heading = element( 'p', 'empty-heading', 'Install a model to start' );
+        const detail = element( 'p', 'empty-detail', 'Mila needs a model to answer you.' );
+        const choose = button( 'link-button', 'Choose a model to install', 'open-models' );
+
+        emptyState.append( heading, detail, choose );
+    }
+
     function renderSuggestion( state, model )
     {
+        const introduction = element( 'p', 'first-run-introduction',
+            'To start, install the model Mila suggests for this computer.' );
         const card = element( 'div', 'start-suggestion' );
-        const label = element( 'div', 'suggestion-label', 'Suggested for this computer' );
-        const name = element( 'div', 'suggestion-name', model.name );
+        const name = element( 'div', 'suggestion-name', modelTitle( model ) );
         const abilities = element( 'div', 'suggestion-line', modelAbilities( model ) );
-        const facts = element( 'div', 'suggestion-facts', suggestionFacts( model ) );
+        const fit = fitLine( model );
 
-        card.append( label, name, abilities, facts );
+        emptyState.append( introduction );
+        card.append( name, abilities );
+
+        if ( fit !== null )
+            card.append( element( 'div', 'suggestion-facts', fit ) );
 
         if ( model.license !== '' )
             card.append( element( 'div', 'suggestion-facts', 'Licence: ' + model.license ) );
 
+        // The decision is the card's last line, and its progress takes its place once made.
+        const action = element( 'div', 'start-action' );
         const progress = state.progress;
         const installing = progress !== null && progress.task === 'install'
             && ( progress.total === null || progress.done < progress.total );
@@ -313,21 +347,28 @@ export function createTranscriptView( scroller, container, actions )
             }
 
             shown.append( element( 'div', 'progress-label', progress.label ), bar );
-            card.append( shown );
+            action.append( shown );
         }
         else if ( isBusy( state ) )
         {
-            card.append( element( 'div', 'progress-label', 'Starting the download' ) );
+            action.append( element( 'div', 'progress-label', 'Starting the download' ) );
         }
         else
         {
-            const install = button( 'chip-button start-install', 'Install', 'install-model' );
+            const install = button( 'start-install', 'Install', 'install-model' );
             install.dataset.name = model.name;
-            card.append( install );
+            action.append( install );
         }
 
-        const other = button( 'link-button', 'Choose another model', 'open-models' );
-        emptyState.append( card, other );
+        card.append( action );
+        emptyState.append( card );
+
+        // Once Install is pressed the choice is made: the way to another model goes until the window returns.
+        if ( !installing && !isBusy( state ) )
+        {
+            const other = button( 'link-button start-other', 'Choose another model', 'open-models' );
+            emptyState.append( other );
+        }
     }
 
     /** The publisher answered and nothing it offers runs here: why, for the model nearest to running, and the list. */

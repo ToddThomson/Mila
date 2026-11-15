@@ -726,9 +726,28 @@ Mac's working set, where the model runs and macOS swaps the rest of the Mac out 
 
 Chat and Mila Desktop build and run on a Mac, and the window packages for one (`Apps/Desktop/Window/package.json`,
 `build:mac`, an arm64 app signed ad hoc, which Gatekeeper refuses once it has been downloaded). A Mac app a person downloads is
-signed and notarized under Todd's Apple developer account. Without tools on a Mac until the grant's checks are tested
-there (*The Desktop Agent*), and labelled experimental where it is offered. Not looked at: whether GitHub's macOS
+signed and notarized under Todd's Apple developer account, as a Developer ID disk image (`build:mac:signed`,
+`Specifications/MilaDesktop.md` section 9, item 4); the build is written and has not yet run with the certificate. The staged session stands alone:
+it carries LLVM's C++ runtime inside itself and reaches the network through macOS's own transports, with no libcurl
+(`Specifications/HttpClient.md` section 9; `otool -L`, 2026-11-14). It reads web pages through the grant's network,
+tested on the Mac; its file tools wait on the grant's file checks there (below). Labelled experimental where
+it is offered. Not looked at: whether GitHub's macOS
 runners reach Metal for CI.
+
+#### On a Mac a tool cannot read or write a file in the folder a person names
+
+`open` · `agents` · `apps` · `mila-src`
+
+The grant holds a tool to its folders on Windows only (`ToolCalling.md` 3.4 *Where*). Every POSIX call refuses
+(`Agents/Grants/GrantFileSystem.Posix.ixx`), so on a Mac a grant of folders throws and no file tool runs. Work: on
+macOS, the checks the grant makes on Windows: the path's one accepted form; a file opened, its final path taken from
+the open file and kept only inside a granted folder's own final path; a file with more than one name refused; a file
+or folder created only in a folder already opened and checked, through that folder's handle, and never through a name
+that already exists. Each is tested by a refused access beside the same access allowed, and the grant's file tests run
+on the Mac as on Windows. Absent: how macOS gives those answers has not been looked at. Admitted by Todd, 2026-11-15,
+macOS being a platform at parity with Windows. Linux stays in `Issues/Untriaged.md`.
+
+`Specifications/ToolCalling.md` 3.4
 
 #### Mila for Python does not build on a Mac
 
@@ -905,6 +924,19 @@ Q4_0 kernel changed the order of the sums again: worst 2.14e-2 against the bar o
 ### Internal fixes
 
 Defects in the library the user admitted to this release with no ROADMAP criterion behind them.
+
+#### The library's networking sits inside model distribution, so the agents and the applications reach the web through the model store's code
+
+`open` · `architecture` · `api` · `agents` · `distribution` · `mila-src` · `breaking`
+
+The HTTP client and every transport are `Mila::Distribution`, under `Distribution/Http/`. The tool grant, the web
+page tool and Mila Assistant's web search all import that layer to reach the network. The page tool and web search
+also go round `HttpClient` to the transport and keep their own redirect and status handling. Work: a `Mila::Network`
+folder of the Mila library below `Distribution` and `Agents`, with the platform transports under it, then one
+User-Agent, then every request through the client. Admitted by Todd, 2026-11-15. The move is phase 1, a session of
+its own.
+
+`Specifications/Network/Network.md` 7
 
 #### A load can take more of the card than its plan priced
 

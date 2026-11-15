@@ -250,8 +250,8 @@ Mila Desktop and Chat each build on the library alone for that, with no family-s
 experiment, off by default: the grant runs a program in Microsoft's execution container, held to the folder, the
 network as granted and a desktop of its own, and Mila Desktop's Build & Code gains a shell through it
 (`ContainedPrograms.md`, Todd, 2026-10-27). MCP and other people's tool servers come later, through the same
-container. The grant's checks are Windows first: on any other platform the app runs without tools until they are
-tested there.
+container. The grant's checks hold on Windows and on a Mac, each tested on both (*Mila on Apple Silicon*, Todd,
+2026-11-15); on Linux a tool runs only once its checks are tested there.
 
 **Success criteria:** on Windows, Mila Desktop runs every model this release publishes that calls tools through a
 task that reads files in the chosen folder, edits one, and reads a web page, each call allowed or asked by the
@@ -353,8 +353,9 @@ the models this release publishes and to the things a person installs, all of th
 as a Mac app, signed and notarized, Mila for Python as a wheel for Apple silicon, and Chat and the model store built from
 source as on every other platform (Todd, 2026-11-05). Published packages do not change; Metal reads the ones CUDA
 reads. A 16 GB Mac holds less than a 16 GB card, since the GPU shares that memory with the Mac, so not every published
-model fits one. Mila Desktop on a Mac runs without tools until the grant's checks are tested there, as *The Desktop
-Agent* already says of every platform but Windows. Metal in this release is what the development Mac, an M1 Pro with
+model fits one. A Mac is a platform at parity with Windows (Todd, 2026-11-15): Mila Desktop on a Mac reads web pages
+through the grant's network and works in the folder a person names through its file tools, the grant's checks tested
+there as on Windows. Metal in this release is what the development Mac, an M1 Pro with
 16 GB, can build and test: Llama and Gemma 4 12B. Qwen 3.8 on a Mac, the Gemma 26B-A4B and decode replay are
 v0.22.0's (Todd, 2026-11-09).
 
@@ -363,7 +364,8 @@ before anything else does.
 
 **Success criteria:** on an M1 Pro with 16 GB and macOS 27, every Llama and Gemma model this release publishes that the
 planner admits there passes its family's HuggingFace gate on Metal, in its published format; Mila Desktop installs on that Mac from a
-signed, notarized download and runs one of those models in a conversation; `pip install mila-llm` on that Mac opens a
+signed, notarized download and runs one of those models in a conversation, its file and web tools held to the
+grant as on Windows; `pip install mila-llm` on that Mac opens a
 session on one and generates; Chat and `mila-store` build there from source with the documented toolchain and run one;
 the rates on that Mac are shown beside llama.cpp's on the same Mac, by the same method; and every surface that offers
 a Mac artifact says it is experimental.

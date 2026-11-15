@@ -3,7 +3,7 @@
 
 import { createTransport } from './transport.js';
 import { setIcon } from './dom.js';
-import { createInitialState, reduce, isBusy, streamIdentifier } from './state.js';
+import { createInitialState, reduce, isBusy, isWelcoming, streamIdentifier } from './state.js';
 import { createSidebarView } from './views/sidebar.js';
 import { createHeaderView } from './views/header.js';
 import { createTranscriptView } from './views/transcript.js';
@@ -237,6 +237,7 @@ function render()
     const sidebarHidden = surface.narrow ? !surface.sidebarOverlay : surface.sidebarCollapsed;
     application.classList.toggle( 'sidebar-hidden', sidebarHidden );
     application.classList.toggle( 'sidebar-overlay', surface.narrow && surface.sidebarOverlay );
+    application.classList.toggle( 'welcoming', isWelcoming( state ) );
     const busy = isBusy( state );
     application.classList.toggle( 'busy', busy );
 

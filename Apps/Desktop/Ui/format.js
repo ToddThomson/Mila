@@ -46,23 +46,76 @@ export function modelAbilities( model )
     return parts.join( ', ' ) + '.';
 }
 
-/** The download and the conversation length it holds here, for a published model the planner placed. */
-export function suggestionFacts( model )
+/** A model's name for a person to read: its manifest's display name, or its name when it declares none. */
+export function modelTitle( model )
 {
-    const facts = [ formatBytes( model.size_bytes ) + ' download' ];
-
-    if ( model.context_length !== null )
-        facts.push( 'holds ' + formatCount( model.context_length ) + ' tokens of conversation on this computer' );
-
-    return facts.join( ' · ' );
+    return model.display_name ? model.display_name : model.name;
 }
 
-export function contextFact( session )
+/**
+ * A model the session names, as a person reads it. The installed list first; then the published one, which
+ * already holds a model just installed while the installed list is still being sent; its name when in neither.
+ */
+export function namedTitle( state, name )
 {
-    const length = formatCount( session.context_length );
-    const automatic = session.context_automatic ? ' (auto)' : '';
+    const lists = [ state.installedModels, state.publishedModels ?? [] ];
 
-    return 'Context window ' + length + automatic;
+    for ( const list of lists )
+    {
+        const model = list.find( ( listed ) => listed.name === name );
+
+        if ( model !== undefined && model.display_name )
+            return model.display_name;
+    }
+
+    return name;
+}
+
+/**
+ * Why the suggestion suits this computer, from the planner's answer: room for long tasks only when it plans the
+ * model agentic here (AssistantOnboarding.md 5); otherwise the card's label already says it runs here.
+ */
+export function fitLine( model )
+{
+    return model.agentic_here ? 'Runs on this computer with room for long tasks.' : null;
+}
+
+/** How much of the context the conversation takes, from 0 to 1; null before the session has counted it. */
+export function contextShare( session )
+{
+    if ( session.context_used === null || session.context_used === undefined || !session.context_length )
+        return null;
+
+    return Math.min( 1, Math.max( 0, session.context_used / session.context_length ) );
+}
+
+/** The context ring's popup: what is used, the window, where compaction starts, and what is left, as label and value. */
+export function contextDetails( session )
+{
+    const length = session.context_length;
+    const used = session.context_used;
+    const windowText = formatCount( length ) + ' tokens, ' + ( session.context_automatic ? 'chosen for this computer' : 'set in Settings' );
+    const rows = [];
+
+    if ( used === null || used === undefined )
+    {
+        rows.push( [ 'Used', 'Counted after the next reply' ] );
+    }
+    else
+    {
+        const percent = Math.round( contextShare( session ) * 100 );
+        rows.push( [ 'Used', formatCount( used ) + ' tokens (' + percent + '%)' ] );
+    }
+
+    rows.push( [ 'Context window', windowText ] );
+
+    if ( session.compacts_at !== null && session.compacts_at !== undefined )
+        rows.push( [ 'Compacts at', formatCount( session.compacts_at ) + ' tokens' ] );
+
+    if ( used !== null && used !== undefined )
+        rows.push( [ 'Left', formatCount( Math.max( 0, length - used ) ) + ' tokens' ] );
+
+    return rows;
 }
 
 /**

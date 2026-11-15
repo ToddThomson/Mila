@@ -118,7 +118,8 @@ namespace Mila::Tests::Distribution
             const std::string& name = "gemma-4-12b-it-fp4",
             bool with_license = true,
             std::string_view weights_payload = kWeightsPayload,
-            std::vector<SamplingRecommendation> sampling = {} )
+            std::vector<SamplingRecommendation> sampling = {},
+            const std::string& display_name = {} )
         {
             writeWholeFile( directory / "sources" / "model.safetensors", weights_payload );
             writeWholeFile( directory / "sources" / "tokenizer.bin", kTokenizerPayload );
@@ -132,6 +133,7 @@ namespace Mila::Tests::Distribution
             PackageRequest request;
             request.directory = directory / "package";
             request.name = name;
+            request.display_name = display_name;
             request.architecture = "gemma";
             request.variant = "fp4";
             request.weight_quantization = "per_group_fp4_128";
@@ -342,6 +344,28 @@ namespace Mila::Tests::Distribution
 
         EXPECT_EQ( parseModelManifest( text, "test" ).architecture_version, "3.1" );
         EXPECT_NE( text.find( "\"architecture\": \"llama\",\n  \"architecture_version\": \"3.1\"" ), std::string::npos );
+    }
+
+    TEST( ModelManifestTests, AManifestWrittenBeforeDisplayNameReadsItEmpty )
+    {
+        const auto manifest = parseModelManifest( manifestJson( "aaa" ), "test" );
+
+        EXPECT_TRUE( manifest.display_name.empty() );
+        EXPECT_EQ( toJsonText( manifest ).find( "display_name" ), std::string::npos );
+    }
+
+    TEST( ModelManifestTests, DisplayNameRoundTripsBesideTheName )
+    {
+        auto manifest = parseModelManifest( manifestJson( "aaa" ), "test" );
+        manifest.display_name = "Gemma 4 12B";
+        manifest.architecture_version = "4";
+
+        const std::string text = toJsonText( manifest );
+        const auto reparsed = parseModelManifest( text, "test" );
+
+        EXPECT_EQ( reparsed.display_name, "Gemma 4 12B" );
+        EXPECT_EQ( reparsed.architecture_version, "4" );
+        EXPECT_NE( text.find( "\"name\": \"gemma-4-12b-it-fp4\",\n  \"display_name\": \"Gemma 4 12B\"" ), std::string::npos );
     }
 
     TEST( ModelManifestTests, RefusesAModelWithNoWeights )
@@ -673,6 +697,26 @@ namespace Mila::Tests::Distribution
         EXPECT_EQ( located->record.sampling[ 1 ].thinking, std::optional<bool>( false ) );
         EXPECT_EQ( located->record.sampling[ 1 ].presence_penalty, std::optional<float>( 1.5f ) );
         EXPECT_EQ( located->record.sampling[ 0 ].top_p, std::optional<float>( 0.95f ) );
+    }
+
+    TEST( ModelStoreInstallTests, TheDisplayNameTravelsFromThePackageToTheStoredRecord )
+    {
+        ScratchDirectory scratch( "package" );
+        ScratchDirectory store_root( "store" );
+
+        const auto package = buildScratchPackage(
+            scratch.path(), "gemma-4-12b-it-q4_0", true, kWeightsPayload, {}, "Gemma 4 12B" );
+
+        EXPECT_EQ( package.manifest().display_name, "Gemma 4 12B" );
+
+        ModelStore store( store_root.path() );
+        store.install( package );
+
+        // Read back from the record on disk, not the one install returned.
+        const auto located = store.locate( "gemma-4-12b-it-q4_0" );
+
+        ASSERT_TRUE( located.has_value() );
+        EXPECT_EQ( located->record.display_name, "Gemma 4 12B" );
     }
 
     TEST( ModelStoreInstallTests, InstallsAPackageUnderItsName )

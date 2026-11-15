@@ -10,6 +10,18 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Every HTTP request Mila makes says it comes from Mila 0.20
+
+`Lib/Src/Distribution/Http/CurlHttpTransport.ixx`, `Implementation/UrlSessionFetch.m`, `Implementation/NetworkHttpTransport.cpp` (`Mila/0.20`) @ 0.21.0-dev+142
+
+Found 2026-11-14 writing the Mac's transports. The User-Agent is a literal `Mila/0.20` in curl's transport, and the two macOS transports copy it so a server sees the same request from each; no transport reads `Version.txt`. Three copies of one stale string.
+
+## `MILA_ENABLE_LIBCURL` selects Apple's transports on a Mac, where no libcurl is built
+
+`CMakeLists.txt`, `Lib/CMakeLists.txt` (`MILA_ENABLE_LIBCURL`) @ 0.21.0-dev+142
+
+Found 2026-11-14 (`HttpClient.md` sections 8 and 9). ON means "Mila's own transport": libcurl on Windows and Linux, URL loading and Network.framework on macOS; OFF the null transport everywhere. The name is read in CI, the Dockerfiles, `getting-started.md`, `NOTICE.md` and two user-visible strings in Chat and `mila-store`.
+
 ## Mila Assistant's first run on the Mac installs from a local folder, not the publisher
 
 `Lib/Src/Distribution/Hub/LocalDirectoryHub.ixx` (`MILA_HUB_DIRECTORY`) @ 0.21.0-dev+142
@@ -342,14 +354,15 @@ not the session. On `+105`'s session (Mila Desktop on `Mila::Agents` alone, same
 `list_folder` first in 4 of 6 runs, then a plan carried out correctly; `propose_plan` first in 1; and once no plan
 at all -- three edits, then an answer claiming a README change it never made. Whether the prompt should allow a look first, or the check should, is not decided.
 
-## Off Windows a tool's grant holds no folder, so no file tool can run there
+## On Linux a tool's grant holds no folder, so no file tool can run there
 
-`Lib/Src/Agents/Grants/GrantFileSystem.Posix.ixx`; an absence -- no POSIX file checks behind the grant @ f42c0d95
+`Lib/Src/Agents/Grants/GrantFileSystem.Posix.ixx`; an absence -- no Linux file checks behind the grant @ f42c0d95
 
 Todd, 2026-10-27: the grant is Windows-only for now (`ToolCalling.md` 3.4 *Where*). Every POSIX call refuses, so a
 grant of folders throws and a tool reaches none. The likely route is Linux's `openat2` with `RESOLVE_BENEATH` from
 a held folder descriptor (Linux 5.6, man7.org openat2(2)), which decides in the kernel rather than by a final path,
-plus a link-count check for hard links, which the man page does not mention. Unmeasured; macOS not looked at.
+plus a link-count check for hard links, which the man page does not mention. Unmeasured. macOS's half is v0.21.0's
+(`BACKLOG.md`, *Mila on Apple Silicon*, Todd, 2026-11-15).
 
 ## Nobody has read whether Tavily's terms let Mila Desktop keep search results in a saved conversation
 

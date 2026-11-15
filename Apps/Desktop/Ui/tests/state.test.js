@@ -2,9 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createInitialState, reduce, summarizeTurn, groupConversations, appStatus, emptyScreen, isAskingForModel,
-    firstRunStep, suggestedModel } from '../state.js';
-import { statsLine, thoughtLabel, contextFact, thinkingFact, finishNotice, activityCard, folderName, planProgress, composerPrompt,
-    modelAbilities, suggestionFacts } from '../format.js';
+    isWelcoming, firstRunStep, suggestedModel } from '../state.js';
+import { statsLine, thoughtLabel, contextShare, contextDetails, thinkingFact, finishNotice, activityCard, folderName, planProgress, composerPrompt,
+    modelAbilities, fitLine, modelTitle, namedTitle } from '../format.js';
 
 function apply( messages )
 {
@@ -257,15 +257,36 @@ function theHeaderFactsReadAsTheConsolePrintsThem()
 {
     const session = sessionState( 'gemma-4-12b-it-fp4', null );
 
-    assert.equal( contextFact( session ), 'Context window 56,320 (auto)' );
     assert.equal( thinkingFact( session ), 'Thinking on' );
 
     const plain = { ...session, thinking_capable: false, context_automatic: false };
     assert.equal( thinkingFact( plain ), null );
-    assert.equal( contextFact( plain ), 'Context window 56,320' );
 }
 
 test( 'the header facts read as the console prints them', theHeaderFactsReadAsTheConsolePrintsThem );
+
+function theContextRingShowsWhatTheConversationTakes()
+{
+    const counted = { context_length: 131072, context_automatic: true, context_used: 32768, compacts_at: 126976 };
+
+    assert.equal( contextShare( counted ), 0.25 );
+    assert.deepEqual( contextDetails( counted ), [
+        [ 'Used', '32,768 tokens (25%)' ],
+        [ 'Context window', '131,072 tokens, chosen for this computer' ],
+        [ 'Compacts at', '126,976 tokens' ],
+        [ 'Left', '98,304 tokens' ] ] );
+
+    const uncounted = { ...counted, context_used: null, compacts_at: null, context_automatic: false };
+
+    assert.equal( contextShare( uncounted ), null );
+    assert.deepEqual( contextDetails( uncounted ), [
+        [ 'Used', 'Counted after the next reply' ],
+        [ 'Context window', '131,072 tokens, set in Settings' ] ] );
+
+    assert.equal( contextShare( { ...counted, context_used: 200000 } ), 1, 'a share never passes the whole' );
+}
+
+test( 'the context ring shows what the conversation takes', theContextRingShowsWhatTheConversationTakes );
 
 function aReplyThatDidNotFinishOnItsOwnSaysWhy()
 {
@@ -438,8 +459,17 @@ function aSuggestedModelIsDescribedByWhatItCanDoHere()
 
     assert.equal( modelAbilities( agent ), 'Works through tasks with tools, thinks before it answers, reads images and audio.' );
     assert.equal( modelAbilities( plain ), 'Answers questions and holds a conversation.' );
-    assert.equal( suggestionFacts( agent ), '6.8 GB download · holds 131,072 tokens of conversation on this computer' );
-    assert.equal( suggestionFacts( plain ), '3.1 GB download' );
+    assert.equal( fitLine( agent ), 'Runs on this computer with room for long tasks.' );
+    assert.equal( fitLine( plain ), null );
+    assert.equal( modelTitle( { name: 'gemma-4-12b-it-q4_0', display_name: 'Gemma 4 12B' } ), 'Gemma 4 12B' );
+    assert.equal( modelTitle( { name: 'Llama-3.2-3B-Instruct-fp4', display_name: '' } ), 'Llama-3.2-3B-Instruct-fp4',
+        'a manifest written before the field shows its name' );
+
+    const gemma = { name: 'gemma-4-12b-it-q4_0', display_name: 'Gemma 4 12B' };
+    assert.equal( namedTitle( { installedModels: [ gemma ], publishedModels: null }, gemma.name ), 'Gemma 4 12B' );
+    assert.equal( namedTitle( { installedModels: [], publishedModels: [ gemma ] }, gemma.name ), 'Gemma 4 12B',
+        'a model just installed is named before the installed list arrives' );
+    assert.equal( namedTitle( { installedModels: [], publishedModels: null }, 'qwen3.8-27b-fp4' ), 'qwen3.8-27b-fp4' );
 }
 
 test( 'a suggested model is described by what it can do here', aSuggestedModelIsDescribedByWhatItCanDoHere );
@@ -458,3 +488,32 @@ function aScreenAskingForAModelIsTheOneWayForward()
 }
 
 test( 'a screen asking for a model is the one way forward', aScreenAskingForAModelIsTheOneWayForward );
+
+function aFirstRunWelcomeHasTheWholeWindow()
+{
+    const missing = { model: null, loading: null };
+    const firstRun = { session: missing, modelsKnown: true, installedModels: [], transcript: [] };
+    const installed = { ...firstRun, installedModels: [ { name: 'gemma-4-12b-it-q4_0' } ] };
+    const loading = { ...installed, session: { model: null, loading: 'gemma-4-12b-it-q4_0' } };
+    const midConversation = { ...firstRun, transcript: [ { kind: 'user', text: 'Hello' } ] };
+
+    assert.equal( isWelcoming( firstRun ), true );
+    assert.equal( isWelcoming( installed ), false, 'choosing among installed models keeps the sidebar' );
+    assert.equal( isWelcoming( loading ), false, 'the installed model loading brings the window back' );
+    assert.equal( isWelcoming( midConversation ), false );
+}
+
+test( 'a first-run welcome has the whole window', aFirstRunWelcomeHasTheWholeWindow );
+
+function aSkippedWelcomeLeavesTheWayToAModel()
+{
+    const firstRun = { ...createInitialState(), session: { model: null, loading: null }, modelsKnown: true };
+    const skipped = reduce( firstRun, { type: 'welcome.skip' } );
+
+    assert.equal( emptyScreen( firstRun ), 'first-run' );
+    assert.equal( emptyScreen( skipped ), 'install-model' );
+    assert.equal( isWelcoming( skipped ), false, 'the window comes back' );
+    assert.equal( isAskingForModel( skipped ), true, 'still no message box without a model' );
+}
+
+test( 'a skipped welcome leaves the way to a model', aSkippedWelcomeLeavesTheWayToAModel );

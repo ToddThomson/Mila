@@ -175,6 +175,16 @@ do. Additive, written only when known: a manifest from before it reads as the fa
 and Qwen, and a Llama manifest without it is refused for conversation rather than given a guessed template. It
 is declared, never read out of `base_model`. `ExportArtifact --package --architecture-version 3.1` writes it.
 
+`display_name` is the model's name **as a person reads it**: `"Gemma 4 12B"` (decided 2026-11-14, Todd). It is the
+upstream publisher's own name for the model, as their card writes it, never one Mila invents, which keeps it
+checkable the way [the name](#the-name) is. It names the model, not the package, so two formats of one model carry
+the same one. Additive, written beside `name` only when known: a manifest from before it reads it empty, and a
+reader shows `name` then; an older Mila ignores it, since a reader takes only the keys it knows. Nothing keys on
+it. `ExportArtifact --package --display-name "Gemma 4 12B"` writes it, and the store's record keeps it. It is the
+third of three names -- the hub repository name, the name a user types
+([Direction -- the family is the name](#direction----the-family-is-the-name), not built), and this one -- and the
+only one that is prose.
+
 ### Capabilities and modalities
 
 *Decided 2026-10-12 (Todd).* What a model can do is declared by the manifest, never inferred from its family:

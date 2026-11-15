@@ -114,6 +114,9 @@ export function createMockSession( options )
             no_model_reason: session.noModelReason,
             context_length: session.contextLength,
             context_automatic: session.contextAutomatic,
+            // Plausible, not counted: the tools and prompt, then a share of the context per conversation.
+            context_used: model === null ? null : 1400 + ( session.conversationId === null ? 0 : Math.round( session.contextLength * 0.18 ) ),
+            compacts_at: model === null ? null : session.contextLength - 4096,
             thinking_capable: model !== null && model.thinking_capable,
             thinking: thinkingValue(),
             effort: model !== null && model.effort_levels !== null ? effortInEffect() : null,
@@ -156,7 +159,8 @@ export function createMockSession( options )
 
     function installedItem( model )
     {
-        return { name: model.name, size_bytes: model.size_bytes, quantization: model.quantization, family: model.family };
+        return { name: model.name, display_name: model.display_name ?? '', size_bytes: model.size_bytes,
+            quantization: model.quantization, family: model.family };
     }
 
     /** A fixture as the publisher offers it, planned as the session plans it: on the whole card when one is resident. */
@@ -167,6 +171,7 @@ export function createMockSession( options )
 
         return {
             name: model.name,
+            display_name: model.display_name ?? '',
             size_bytes: model.size_bytes,
             quantization: model.quantization,
             installed: installed.has( model.name ),

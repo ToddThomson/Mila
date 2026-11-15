@@ -88,6 +88,10 @@ namespace Mila::Agents
         /// both counted; empty when neither bounds it below the context.
         std::optional<Mila::Dnn::dim_t> budget;
 
+        /// RoundBegan: the tokens the round's prompt holds, which is the context the conversation takes before the
+        /// round generates. Empty for every other kind.
+        std::optional<Mila::Dnn::dim_t> prompt_tokens;
+
         /// RoundEnded: why the round's generation stopped.
         Mila::Dnn::GenerateStatus status{ Mila::Dnn::GenerateStatus::Success };
 

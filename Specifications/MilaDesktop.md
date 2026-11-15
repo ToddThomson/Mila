@@ -174,7 +174,11 @@ model for this card -- the planner's suggestion from the published list, a measu
   measured, not chosen), thinking, the tools the activity gives the agent and their rules. Read-only there; a
   change is made under the limits (below) or, for the model, in Settings' *Models*. With no model loaded, the
   header says so and the way out. Between the model and those facts: the app's status while it has one (4.1
-  `progress`), and the conversation's title, shown whether or not the sidebar is (Todd, 2026-11-13).
+  `progress`), and the conversation's title, shown whether or not the sidebar is (Todd, 2026-11-13). At the far right,
+  with a model resident, a ring that fills with the share of the context the conversation takes; a click opens its
+  details -- what is used, the context window and whether Mila chose it, where compaction starts, what is left -- in
+  place of the context window among the facts (Todd, 2026-11-14). It turns the error colour past nine tenths. The
+  model is named by its display name, here and in its menu.
 - *Transcript:*
   - User turns, right-aligned, with their attachments as thumbnails (image) or a small player (audio).
   - Assistant turns, full width. The reasoning channel is a collapsed block above the answer ("Thought
@@ -282,8 +286,8 @@ The window relays every message unchanged in both directions, except the three i
 
 | type | fields | meaning |
 |---|---|---|
-| `session.state` | `model` (name or null), `loading` (the model a load is opening, while it does, or null: the header names it at once), `no_model_reason` (string or null), `context_length`, `context_automatic`, `thinking_capable`, `thinking` (`"off"`, `"on"` or the effort in effect), `effort` (the effort in effect, one of `effort_levels`, or null), `effort_levels` (the model's template's own effort values, in its order, or null where it has none), `detail` (`"off"`, `"thoughts"`, `"all"`), `sampling` ({`temperature`, `top_k`, `top_p`, `presence_penalty`}, each `{value, is_model_default}`), `modalities` (subset of `["image","audio"]`), `activities` (the activities this session can start, in card order, a subset of `["ask","build","research","tasks"]`), `activity` (the conversation's), `folder` (the conversation's project folder, or null), `plan` (Get Things Done's approved plan, [{`text`, `status`: `"pending"`, `"in_progress"`, `"done"` or `"skipped"`}], or null), `web_search` (bool: a search key is set; the key itself is never sent), `run_commands` (bool: the setting), `run_commands_problem` (why commands cannot run here, or null), `program_folders` (the folders commands may read, empty while they are off), `busy` (bool), `streams` ([{`stream_id`, `parent_stream_id` (or null), `conversation_id`, `busy`}]) | The whole session state. Sent after every change, never as a delta. |
-| `models.list` | `installed` ([{`name`, `size_bytes`, `quantization`, `family`}]), `published` ([{`name`, `size_bytes`, `quantization`, `installed`, `license`, `agentic`, `thinking`, `tools`, `modalities`, `fits`, `agentic_here`, `context_length`, `why_not`}] or null when not fetched), `suggested` (a published `name`, or null) | Reply to `models.refresh`, and after install or remove. Each published model is planned on this computer for the request a load sends -- against the whole card when a model is resident, as a listing is (`Deployment.md` 12.5) -- and the list is the library's ranking, `suggested` its first that fits and takes turns (`Apps/AssistantOnboarding.md` 5). |
+| `session.state` | `model` (name or null), `loading` (the model a load is opening, while it does, or null: the header names it at once), `no_model_reason` (string or null), `context_length`, `context_automatic`, `context_used` (the tokens the conversation takes, system prompt and tools included: counted by the agent between turns, said by each round's start within one; null with no model resident), `compacts_at` (the prompt length at which the session's compaction policy compacts, or null), `thinking_capable`, `thinking` (`"off"`, `"on"` or the effort in effect), `effort` (the effort in effect, one of `effort_levels`, or null), `effort_levels` (the model's template's own effort values, in its order, or null where it has none), `detail` (`"off"`, `"thoughts"`, `"all"`), `sampling` ({`temperature`, `top_k`, `top_p`, `presence_penalty`}, each `{value, is_model_default}`), `modalities` (subset of `["image","audio"]`), `activities` (the activities this session can start, in card order, a subset of `["ask","build","research","tasks"]`), `activity` (the conversation's), `folder` (the conversation's project folder, or null), `plan` (Get Things Done's approved plan, [{`text`, `status`: `"pending"`, `"in_progress"`, `"done"` or `"skipped"`}], or null), `web_search` (bool: a search key is set; the key itself is never sent), `run_commands` (bool: the setting), `run_commands_problem` (why commands cannot run here, or null), `program_folders` (the folders commands may read, empty while they are off), `busy` (bool), `streams` ([{`stream_id`, `parent_stream_id` (or null), `conversation_id`, `busy`}]) | The whole session state. Sent after every change, never as a delta. |
+| `models.list` | `installed` ([{`name`, `display_name`, `size_bytes`, `quantization`, `family`}]), `published` ([{`name`, `display_name`, `size_bytes`, `quantization`, `installed`, `license`, `agentic`, `thinking`, `tools`, `modalities`, `fits`, `agentic_here`, `context_length`, `why_not`}] or null when not fetched), `suggested` (a published `name`, or null) | Reply to `models.refresh`, and after install or remove. Each published model is planned on this computer for the request a load sends -- against the whole card when a model is resident, as a listing is (`Deployment.md` 12.5) -- and the list is the library's ranking, `suggested` its first that fits and takes turns (`Apps/AssistantOnboarding.md` 5). `display_name` is the manifest's name for a person to read ("Gemma 4 12B"), empty when it declares none; the page shows `name` then. |
 | `progress` | `task` (`"load"`, `"install"`, `"rebuild"`, `"restore"`), `label`, `done`, `total` (both null when unknown) | A long task's progress; a final one has `done == total`. `"restore"` is the model's memory coming back from the compressor or swap as Mila is used again, in bytes; a waiting turn's `turn.begin` follows it. The header shows the task in progress beside the model, a ring and its `label`, with no bar: a restore lasts seconds and its total is an estimate (Todd, 2026-11-13). |
 | `turn.begin` | `turn_id`, `conversation_id` | A reply starts. |
 | `turn.text` | `turn_id`, `round`, `channel` (`"thought"` or `"answer"`), `text`, `tokens` (a thought's only: the round's tokens so far) | Raw text to append to that channel; a thought's label counts `tokens` while it is written (Todd, 2026-11-13). Gemma streams many; Llama and Qwen send one per round when it is complete. The page must render both. |
@@ -695,6 +699,25 @@ interrupted the reply printed after the trace line; the renderer now writes it f
    *Built 2026-10-31 (`ContainedPrograms.md` phase 3):* with `MILA_ENABLE_MXC` on and `MILA_MXC_LIBRARY` naming
    MXC v1.0.1's `mxc_ffi.dll` (about 6 MB, MIT), the component carries it beside the session with MXC's licence as
    `MXC-LICENSE.md`; the session loads it from there only when *Run commands* is on.
+   *Decided 2026-11-14 (Todd):* the Mac's first testers get a Developer ID build, signed, notarized and handed out as
+   a disk image, not TestFlight. TestFlight takes only a Mac App Store build, and the store's App Sandbox would move
+   the model store into the app's container, need the inherit entitlement on `mila-session` and a security-scoped
+   grant for every folder the agent works in -- work that belongs with a decision to sell through the store.
+   *Decided 2026-11-14 (Todd):* the app ID is `me.toddt.mila`, kept as it is; a person's own settings are tied to it.
+   *Built 2026-11-14:* `npm run build:mac:signed` on the Mac (`Window/mac-signed.config.mjs`) takes the package's
+   build configuration and signs with the Developer ID Application certificate in the keychain, under the hardened
+   runtime, with JIT the one entitlement (`Window/entitlements/`), notarizes, staples and builds the disk image;
+   it refuses to start without the session or notarization credentials (a `notarytool` keychain profile,
+   `APPLE_KEYCHAIN_PROFILE`), since electron-builder 26 otherwise skips notarization with a warning, and ends by
+   asking Gatekeeper to assess the app. `build:mac` stays the ad hoc folder for development.
+   *Decided 2026-11-14 (Todd):* nothing the session loads comes from a developer's toolchain. LLVM's C++ runtime is
+   linked into the program (`cmake/CxxRuntime.cmake`, `Metal/MetalBackend.md` Phase 8), loaded hidden so a Python
+   extension exports none of it; a Mac build directory configured before then needs `CMAKE_EXE_LINKER_FLAGS` unset
+   once, since the preset's old dynamic flags stay in its cache. OpenSSL goes with libcurl on a Mac, for a transport on
+   Apple's URLSession: Mila's rule is TLS from the operating system, macOS has no OpenSSL an app may link, curl
+   dropped Secure Transport in 2025, and Homebrew's OpenSSL trusts Homebrew's certificate file rather than the
+   Keychain. *Built 2026-11-14:* Apple's URL loading for downloads and Network.framework for a grant's checked
+   network (`HttpClient.md` section 9); a Mac build loads nothing from outside macOS.
 5. **Math.** Shown as source in phase 1; a vendored math renderer later, or never.
 6. **When macOS.** macOS is wanted (Todd, 2026-10-20). The page and the Electron window run there as they
    are; the session process reaches it once a Metal backend exists.

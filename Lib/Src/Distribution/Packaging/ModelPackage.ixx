@@ -443,6 +443,7 @@ namespace Mila::Distribution
         // and a refusal that fires after that has already rearranged the caller's disk.
         requireDirectoryIsFree( request.directory, manifest.name, request.replace );
 
+        manifest.display_name = request.display_name;
         manifest.architecture = request.architecture;
         manifest.architecture_version = request.architecture_version;
         manifest.variant = request.variant;

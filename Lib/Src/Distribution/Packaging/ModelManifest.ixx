@@ -37,6 +37,15 @@ namespace Mila::Distribution
         /// The model's name. Empty leaves the store to take it from the package directory.
         std::string name;
 
+        /**
+         * @brief The model's name as a person reads it: its upstream publisher's own, as their card writes it
+         * ("Gemma 4 12B"), never one Mila invents.
+         *
+         * It names the model, not this package, so two formats of one model share it. Empty in every manifest
+         * written before it existed; a reader shows the name then.
+         */
+        std::string display_name;
+
         /// The family, as every manifest since 0.20 has written it: "gemma", "llama", "qwen".
         std::string architecture;
 
@@ -322,6 +331,7 @@ namespace Mila::Distribution
         ModelManifest manifest;
         manifest.manifest_version = json.value( "manifest_version", 1 );
         manifest.name = json.value( "name", std::string{} );
+        manifest.display_name = json.value( "display_name", std::string{} );
         manifest.architecture = json.value( "architecture", std::string{} );
         manifest.architecture_version = json.value( "architecture_version", std::string{} );
         manifest.variant = json.value( "variant", std::string{} );
@@ -406,8 +416,8 @@ namespace Mila::Distribution
             { "base_model", manifest.base_model },
             { "license", manifest.license } };
 
-        // Beside the family it qualifies, and only when known: a reader older than the field ignores it either way.
-        if ( !manifest.architecture_version.empty() )
+        // Each beside the field it qualifies, and only when known: a reader older than the field ignores it either way.
+        if ( !manifest.display_name.empty() || !manifest.architecture_version.empty() )
         {
             nlohmann::ordered_json placed = nlohmann::ordered_json::object();
 
@@ -415,7 +425,12 @@ namespace Mila::Distribution
             {
                 placed[ entry.key() ] = entry.value();
 
-                if ( entry.key() == "architecture" )
+                if ( entry.key() == "name" && !manifest.display_name.empty() )
+                {
+                    placed[ "display_name" ] = manifest.display_name;
+                }
+
+                if ( entry.key() == "architecture" && !manifest.architecture_version.empty() )
                 {
                     placed[ "architecture_version" ] = manifest.architecture_version;
                 }

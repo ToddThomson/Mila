@@ -152,7 +152,8 @@ means a status line or target is out of date and the rest has not been re-read.
 |---|---|---|---|
 | [ModelDistribution.md](ModelDistribution.md) | Design | Naming, packaging, the manifest and the local store | |
 | [ModelSerialization.md](ModelSerialization.md) | Design | Checkpoints and the flat weights path | |
-| [HttpClient.md](HttpClient.md) | Design | The HTTP transport behind fetching | Built: `Distribution/Http/HttpClient.ixx`, `HttpTransport.ixx` and `CurlHttpTransport.ixx` implement it and cite it. Its status line still says "proposed" |
+| [HttpClient.md](HttpClient.md) | Design | The HTTP transport behind fetching | Built: `Distribution/Http/HttpClient.ixx`, `HttpTransport.ixx` and `CurlHttpTransport.ixx` implement it and cite it. Its status line still says "proposed". Its layer is `Network/Network.md` |
+| [Network/Network.md](Network/Network.md) | Design | `Mila::Network`: the library's outbound networking as a folder of its own below `Distribution` and `Agents`, the platform transports under it, what moves there, and every request through one client | Proposed 2026-11-15; nothing built. Phase 1 (the move) is a session of its own |
 
 ### Agents and tools
 
@@ -174,6 +175,7 @@ means a status line or target is out of date and the rest has not been re-read.
 |---|---|---|---|
 | [ChatConfiguration.md](ChatConfiguration.md) | Design | Chat's layered configuration | |
 | [Apps/AssistantOnboarding.md](Apps/AssistantOnboarding.md) | Design | Mila Assistant's first run, and the model the planner suggests for the computer | Round 2, 2026-11-13: a one-shot build at `0.21.0-dev+142`, every answer provisional; iterated with Todd round by round |
+| [Apps/AssistantProjects.md](Apps/AssistantProjects.md) | Design | Projects as the place Mila Assistant's work lives, every conversation of every activity in one, in place of a single list | Idea, round 1, 2026-11-14 (Todd): nothing decided, open questions in section 5; not admitted to a release |
 | [MilaDesktop.md](MilaDesktop.md) | Design | Mila Desktop for end users (`Apps/Desktop/`): organised around activities rather than models, the presentation-versus-session split, the session as its own process, the JSON-lines message schema, the layout | Draft, 2026-10-20. Phases 1 to 4 built; name and audience decided 2026-10-24; activities over models decided 2026-10-26 (phase 6 not built); open decisions in section 9 |
 | [PythonBinding.md](PythonBinding.md) | Design | The Python binding as a product, and its samples | |
 | [DotNetBinding.md](DotNetBinding.md) | Design | The C ABI over the binding surface (`MilaNative`, `mila.h`), and the C# library that projects it through P/Invoke | Draft, 2026-10-21; experimental until v0.22.0 or later. Phase 1a (the contract and the C# library against a mock) is written for a cloud session; open decisions in section 8 |

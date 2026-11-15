@@ -42,8 +42,9 @@ reports, nothing tried:
   ask them first. Microsoft's Artifact Signing lists Canadian individuals, and a Microsoft Q&A answer of March 2026
   says individual onboarding is paused. A listing also needs a privacy policy, an age rating and the GPU requirement
   stated (`Untriaged.md`, unsigned download).
-- **Apple.** Todd takes a developer account. Apple's fee waiver is for nonprofits, schools and governments, not
-  individuals; whether notarizing needs the paid membership was not found.
+- **Apple.** Todd has a developer account (2026-11-14), and the first Mac testers get a notarized Developer ID disk
+  image (`MilaDesktop.md` section 9, item 4). The Mac App Store, and TestFlight with it, needs the App Sandbox, which
+  moves the model store into the app's container and needs a grant for each folder the agent works in.
 
 ## Qwen 3 — the dense members
 

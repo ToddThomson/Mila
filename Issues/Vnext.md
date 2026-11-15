@@ -1036,7 +1036,8 @@ and one kind of tool runs a program through the grant's container: Mila Desktop'
 default (`BACKLOG.md`, `ContainedPrograms.md`, Todd 2026-10-27). What waits: other people's MCP servers started as
 processes, and tools an agent writes, through the same container (`ContainedPrograms.md` phase 4); and the
 container off Windows -- MXC's bubblewrap backend accepts and refuses on Linux as its Windows one does
-(`Notebooks/MxcConformance.md`), but the grant is Windows only, and macOS's Seatbelt backend is unmeasured.
+(`Notebooks/MxcConformance.md`), but the grant's file checks are Windows only (macOS's are v0.21.0's, `BACKLOG.md`),
+and macOS's Seatbelt backend is unmeasured.
 
 `Specifications/ContainedPrograms.md` section 8; `Notebooks/MxcConformance.md`
 

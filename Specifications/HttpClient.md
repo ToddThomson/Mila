@@ -1,7 +1,8 @@
 # HTTP Client
 
 Status: **proposed**, 2026-08-05. Supersedes the transport half of the Build gating section in
-[ModelDistribution.md](ModelDistribution.md).
+[ModelDistribution.md](ModelDistribution.md). The layer the client and its transports belong to, `Mila::Network`, and
+the move out of `Distribution` are [Network/Network.md](Network/Network.md) (proposed, 2026-11-15).
 
 ---
 
@@ -66,7 +67,9 @@ Three layers, each with one job.
         v
   IHttpTransport      one request, no interpretation
         |
-        +-- CurlHttpTransport      libcurl            (gated: MILA_ENABLE_LIBCURL)
+        +-- CurlHttpTransport      libcurl            (gated: MILA_ENABLE_LIBCURL; Windows, Linux)
+        +-- UrlSessionHttpTransport  Apple's URL loading  (macOS, section 9)
+        +-- NetworkHttpTransport   Network.framework  (macOS, a grant's network, section 9)
         +-- WinHttpTransport       WinHTTP            (future, no dependency)
         +-- DelegateHttpTransport  a host callable    (the Python wheel)
 ```
@@ -205,8 +208,8 @@ presets are green.
 
 ## 8. Open
 
-- **Bounded error-body capture.** Set at **4096 bytes** in `CurlHttpTransport`
-  (`kMaximumCapturedErrorBytes`): enough for an error page's useful line, bounded enough that a
+- **Bounded error-body capture.** Set at **4096 bytes** for every transport
+  (`kMaximumCapturedErrorBytes`, `HttpTransport.ixx`): enough for an error page's useful line, bounded enough that a
   hostile server cannot grow it. Revisit if a real message is ever truncated.
 - **A delegate transport reports its headers late.** `IHttpTransport` gets a `HeadersCallback`
   fired before the body, which `CurlHttpTransport` drives from libcurl's header hook. A delegate
@@ -216,4 +219,47 @@ presets are green.
   streaming; not worth the extra call shape until something needs the total.
 - **Proxy configuration** is currently whatever libcurl picks up from the environment. Under a
   host transport it is whatever the host does. That difference is intended -- see section 2 -- but
-  it is undocumented behaviour today.
+  it is undocumented behaviour today. On macOS it is the Mac's own proxy settings (section 9).
+- **`MILA_ENABLE_LIBCURL` names the wrong thing on a Mac**, where ON selects Apple's transports and
+  no libcurl is built (section 9). Renaming it reaches CI, the Dockerfiles, `getting-started.md` and
+  user-visible strings; not done with the macOS transports.
+
+## 9. macOS: the operating system's transports
+
+*Decided 2026-11-14 (Todd).* Section 1's fork has one answer on a Mac: Apple's own stack. macOS has no
+OpenSSL an application may link, curl removed its Secure Transport backend in 2025, and Homebrew's
+OpenSSL trusts Homebrew's certificate file rather than the Keychain, so a Mac build that linked it ran
+only where Homebrew is installed. curl is not built on macOS; bundling a TLS stack is section 6's
+rejected door, and stays rejected (Todd: "2 is not an option").
+
+Two transports, because a grant's network needs what Apple's URL loading does not offer:
+
+- **`UrlSessionHttpTransport`** is `makeDefaultHttpTransport()`: the model store's listings and
+  downloads. Keychain trust, the Mac's proxy settings (System Settings, automatic configuration
+  included) and Apple's TLS, through an ephemeral session with no cache and no cookies. A redirect is
+  refused in the session's delegate and reported, as the contract requires. Headers are set as given;
+  Apple lists `Authorization` among the headers its loader manages, and its developer support says
+  setting it directly is the only way to send a bearer token, which is what is done. Two are added when
+  the client sends none, so the bytes are what curl's request brings: Mila's `User-Agent`, and
+  `Accept-Encoding: identity`, since the loader otherwise asks for compression and decodes it, and a
+  resumed or hashed download must see the resource's own bytes. Apple's code is Objective-C, reached
+  through one `.m` file behind a C interface (`Implementation/UrlSessionFetch.m`), with no C++ in it.
+- **`NetworkHttpTransport`** is `makeCheckedHttpTransport()`: a tool grant's network
+  (`ToolCalling.md` 3.4). Its guarantee is curl's: the check decides on the address connected to, after
+  the name was resolved, before any packet reaches it, and no proxy is used. URL loading resolves and
+  connects inside itself and reports the address only once the request has been sent, so it cannot
+  keep that. Network.framework, a C API, can: the transport resolves the name itself, puts each address
+  to the check, and connects to that address, never the name, with TLS verified against the URL's host
+  name and the system's trust. Before a byte is sent it confirms from the connection's own path that
+  data goes to that address, and from its establishment report that no proxy was used --
+  `nw_parameters_set_prefer_no_proxy` is a preference, and a proxy can still be taken. Network.framework
+  moves bytes and no more, so this transport writes the request and reads the reply itself: HTTP/1.1,
+  one request per connection (`Connection: close`), only `http` and `https`, through
+  `HttpReplyReader`. The connection code is C (`Implementation/NetworkConnection.c`).
+- **`HttpReplyReader`** reads an HTTP/1.1 reply as its bytes arrive: the status line and headers,
+  bounded, then a body by `Content-Length`, by chunks, or to the close; an interim 1xx reply is
+  passed over. It is plain C++ in every build, so its rules are tested on every platform.
+
+The grant's network tests (`ToolGrant.Network.cpp`) run on every platform, their loopback server on
+each platform's sockets. The default transport's use of a proxy named in the environment is curl's
+behaviour and is tested where curl is built; a Mac's default transport takes the Mac's proxy settings.

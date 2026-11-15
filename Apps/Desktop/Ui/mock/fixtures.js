@@ -1,6 +1,7 @@
 // What the mock session holds before any scenario runs: the installed models, their facts, and a
 // conversation store with something in every date group. Sizes and rates are plausible for a
-// 12 GB card, not measurements.
+// 12 GB card, not measurements. Only Gemma declares a display name, as a manifest written before
+// the field leaves it out.
 
 export const weatherTool = {
     name: 'get_weather',
@@ -10,6 +11,7 @@ export const weatherTool = {
 export const models = [
     {
         name: 'gemma-4-12b-it-fp4',
+        display_name: 'Gemma 4 12B',
         size_bytes: 6800000000,
         quantization: 'fp4',
         family: 'gemma',

@@ -58,15 +58,23 @@ memory other applications hold (`Deployment.md` 12.10).
 
 ## 4. The first run, as built at +142
 
-1. With nothing installed and nothing loading, the empty conversation shows *Welcome to Mila* and one line: Mila
-   runs a language model on this computer, so what you ask stays here; to start, install one. The message box and
-   the header's model menu are hidden, as on every screen that asks for a model (`+141`).
+1. With nothing installed and nothing loading, the empty conversation is one screen that welcomes and asks: Mila's
+   mark, *Welcome to Mila* and Mila's byline *Local LLMs on hardware you own -- at the metal* (Todd, 2026-11-14;
+   the wording is being chosen across every surface). *Skip* in the window's corner on every step passes the
+   welcome by for this run of the window: the window returns with *Install a model to start* and *Choose a model to
+   install*, and the welcome shows again at the next launch while nothing is installed.
+   It has the whole window (Todd, 2026-11-14): no sidebar, rail or header, as there is nothing yet to go back to,
+   and no message box. They return as the installed model loads.
 2. The screen asks the session for the published list as it first shows (`models.refresh`, online) and says
    *Finding the model that suits this computer* until the list comes back.
-3. The suggestion, in a card: *Suggested for this computer*, its name, what it can do (*Works through tasks with
+3. One line introduces it, *To start, install the model Mila suggests for this computer*, then the suggestion in a
+   card: its name for a person to read, the manifest's `display_name` (*Gemma 4 12B*), or its name when the
+   manifest declares none (Todd, 2026-11-14), what it can do (*Works through tasks with
    tools* only when it is agentic here, section 5; else *Answers questions and holds a conversation*; then whether
-   it thinks and what it reads besides text), its download and the conversation length it holds on this computer,
-   and its licence by name. One *Install*.
+   it thinks and what it reads besides text), *Runs on this computer with room for long tasks* when it is agentic
+   here, and its licence by name, then one *Install*, centred, as the card's last line (Todd, 2026-11-14). The
+   download's size and the conversation length are Settings' to show, not the first run's. *Choose another model*
+   sits below the card, on its left edge, and goes once *Install* is pressed.
 4. The install's progress replaces the button. The session loads the model when the install ends; the lines the
    install and the load say are not added to the empty conversation, so the home screen follows at once.
 5. *Choose another model* opens Settings at *Models*, where each published model carries what the planner said:
@@ -143,6 +151,11 @@ Each answer below is Claude's, built at `+142` so it can be looked at; none is s
 - **The time to plan every published model is not measured.** Each costs two small reads of its weights the first
   time and a graph construction on the device every time.
 - **Disk space** before an install (question 8).
+- **Two formats of one model share a display name** (*Gemma 4 12B* in Q4_0 and in FP4). The first run shows one
+  suggestion, so it is untouched; Settings' *Models* is where they meet: one row per model with Mila choosing the
+  format, or one row per package with the format in plain words. Todd's call, the next round after the first run.
+  The first-run card, the header's model menu, the choose-a-model rows and the session's *Installing*, *Loading*
+  and *Installed* lines use the display name; Settings' *Models* still shows the name.
 
 ## 7. Found while scoping, fixed at +142
 

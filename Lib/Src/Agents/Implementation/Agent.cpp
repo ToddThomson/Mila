@@ -241,6 +241,23 @@ namespace Mila::Agents
         return render( turns );
     }
 
+    dim_t Agent::contextTokens() const
+    {
+        return static_cast<dim_t>( encode( render( session_.conversation() ) ).size() );
+    }
+
+    std::optional<dim_t> Agent::compactionThreshold() const
+    {
+        const std::optional<CompactionPolicy>& policy = session_.compaction();
+
+        if ( !policy || policy->summary_tokens >= handle_.plan().contextLength() )
+        {
+            return std::nullopt;
+        }
+
+        return compactionTrigger( *policy );
+    }
+
     Response Agent::respond( std::string_view message, const EventSink& on_event, std::stop_token stop )
     {
         const auto conversation = session_.conversation();
@@ -347,6 +364,7 @@ namespace Mila::Agents
 
             AgentEvent began{ AgentEvent::Kind::RoundBegan };
             began.budget = budget;
+            began.prompt_tokens = static_cast<dim_t>( tokens.size() );
             emit( began );
             ++response.rounds;
 

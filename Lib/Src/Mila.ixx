@@ -436,6 +436,7 @@ export import Distribution.PublishedModel;
 export import Distribution.LocalDirectoryHub;
 export import Distribution.ModelResolver;
 export import Distribution.HttpTransport;
+export import Distribution.HttpReplyReader;
 export import Distribution.HttpClient;
 export import Distribution.HuggingFaceHub;
 
