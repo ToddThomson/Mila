@@ -2,9 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createInitialState, reduce, summarizeTurn, groupConversations, appStatus, emptyScreen, isAskingForModel,
-    isWelcoming, firstRunStep, suggestedModel, setupPane } from '../state.js';
+    isWelcoming, firstRunStep, suggestedModel, setupPane, homeSections } from '../state.js';
 import { statsLine, thoughtLabel, contextShare, contextDetails, thinkingFact, finishNotice, activityCard, folderName, planProgress, composerPrompt,
-    modelAbilities, fitLine, modelTitle, namedTitle } from '../format.js';
+    modelAbilities, fitLine, modelTitle, namedTitle, whenLabel, attentionLine, progressLine } from '../format.js';
 
 function apply( messages )
 {
@@ -252,6 +252,65 @@ function conversationsGroupByTheViewersDaysNewestFirstEmptyGroupsLeft()
 }
 
 test( 'conversations group by the viewer\'s days, newest first, empty groups left out', conversationsGroupByTheViewersDaysNewestFirstEmptyGroupsLeft );
+
+function theHomeScreenSortsTheWorkIntoItsSections()
+{
+    const at = ( hours ) => new Date( Date.UTC( 2026, 10, 16, hours, 0, 0 ) ).toISOString();
+    const stopped = { steps: 4, finished: 1, current: 'Fix the parser' };
+    const items = [
+        { id: 'question', title: 'Why?', updated: at( 9 ), activity: 'ask', folder: null, progress: null, finish: 'stop', wrote: [] },
+        { id: 'cut', title: 'Long answer', updated: at( 10 ), activity: 'research', folder: null, progress: null, finish: 'length', wrote: [] },
+        { id: 'plan', title: 'Tidy tests', updated: at( 11 ), activity: 'tasks', folder: 'C:\\calc', progress: stopped, finish: 'stop',
+            wrote: [ { path: 'a.py', tool: 'write_file' }, { path: 'b.md', tool: 'write_file' } ] },
+        { id: 'build', title: 'Fix a.py', updated: at( 8 ), activity: 'build', folder: 'C:\\calc', progress: null, finish: 'stop',
+            wrote: [ { path: 'a.py', tool: 'edit_file' } ] },
+        { id: 'finished', title: 'Done plan', updated: at( 7 ), activity: 'tasks', folder: 'C:\\calc',
+            progress: { steps: 2, finished: 2, current: null }, finish: 'stop', wrote: [] }
+    ];
+    const state = apply( [ { v: 1, type: 'conversations.list', items } ] );
+    const sections = homeSections( state );
+
+    assert.deepEqual( sections.needsYou.map( ( row ) => row.item.id ), [ 'plan', 'cut' ] );
+    assert.equal( attentionLine( sections.needsYou[ 0 ] ), 'Stopped at step 2 of 4: Fix the parser' );
+    assert.equal( attentionLine( sections.needsYou[ 1 ] ), 'The last reply was cut short' );
+    assert.deepEqual( sections.plans.map( ( item ) => item.id ), [ 'plan', 'finished' ] );
+    assert.equal( progressLine( sections.plans[ 1 ].progress ), 'Finished, 2 steps' );
+    // The same file in the same folder is listed once, at its latest write.
+    assert.deepEqual( sections.made.map( ( file ) => file.path + '@' + file.item.id ), [ 'b.md@plan', 'a.py@plan' ] );
+    assert.deepEqual( sections.recent.map( ( item ) => item.id ), [ 'plan', 'cut', 'build', 'finished' ] );
+    assert.deepEqual( sections.ideas.map( ( item ) => item.id ), [ 'question' ] );
+}
+
+test( 'the home screen sorts the work into its sections', theHomeScreenSortsTheWorkIntoItsSections );
+
+function aConversationWithAReplyUnderWayNeedsNothingYet()
+{
+    const items = [ { id: 'c', title: 't', updated: new Date().toISOString(), activity: 'research', folder: null, progress: null,
+        finish: 'length', wrote: [] } ];
+    const busy = { ...sessionState( 'gemma-4-12b-it-fp4', 'c' ), busy: true };
+    const state = apply( [ busy, { v: 1, type: 'conversations.list', items }, { v: 1, type: 'conversation.loaded', id: 'c', title: 't',
+        model: 'gemma-4-12b-it-fp4', activity: 'research', folder: null, messages: [] } ] );
+
+    assert.equal( homeSections( state ).needsYou.length, 0 );
+}
+
+test( 'a conversation with a reply under way needs nothing yet', aConversationWithAReplyUnderWayNeedsNothingYet );
+
+function whenSaysTheTimeAsAPersonWould()
+{
+    const now = new Date( 2026, 10, 16, 15, 0, 0 );
+    const before = ( minutes ) => new Date( now.getTime() - minutes * 60 * 1000 ).toISOString();
+
+    assert.equal( whenLabel( before( 0.5 ), now ), 'Just now' );
+    assert.equal( whenLabel( before( 1 ), now ), '1 minute ago' );
+    assert.equal( whenLabel( before( 45 ), now ), '45 minutes ago' );
+    assert.equal( whenLabel( before( 5 * 60 ), now ), '5 hours ago' );
+    assert.equal( whenLabel( new Date( 2026, 10, 15, 20, 0, 0 ).toISOString(), now ), 'Yesterday' );
+    assert.equal( whenLabel( new Date( 2026, 10, 12, 9, 0, 0 ).toISOString(), now ), 'Thursday' );
+    assert.equal( whenLabel( new Date( 2026, 9, 30, 9, 0, 0 ).toISOString(), now ), 'Oct 30' );
+}
+
+test( 'when says the time as a person would', whenSaysTheTimeAsAPersonWould );
 
 function theHeaderFactsReadAsTheConsolePrintsThem()
 {

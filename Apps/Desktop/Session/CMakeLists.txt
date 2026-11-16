@@ -23,6 +23,7 @@ PUBLIC
         "Src/Desktop.RoundTimer.ixx"
         "Src/Desktop.MemoryHolder.ixx"
         "Src/Desktop.ConversationStore.ixx"
+        "Src/Desktop.ConversationSummary.ixx"
         "Src/Tools/Desktop.CommandTool.ixx"
         "Src/Tools/Desktop.TaskPlan.ixx"
         "Src/Settings/Desktop.SearchKeyFile.ixx"
@@ -31,6 +32,7 @@ PUBLIC
 
 target_sources( mila-session PRIVATE
     "Src/Settings/Implementation/MilaLicense.cpp"
+    "Src/Implementation/ConversationSummary.cpp"
 )
 
 # Desktop.ProgramSetup has two candidate files and exactly one is compiled, as Agents.MxcProgramContainer does:

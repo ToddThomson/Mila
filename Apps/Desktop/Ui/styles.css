@@ -666,6 +666,55 @@ kbd {
 
 .activity-line { font-size: 13px; color: var(--muted); }
 
+/* The home screen with work stored: the line and the cards, then a panel per section of the work so far
+   (AssistantInterface.md 4.2). */
+.empty-state.home { padding-top: 8vh; padding-bottom: 24px; }
+
+.home-dashboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+  max-width: 880px;
+  margin: 36px auto 0;
+  text-align: left;
+}
+
+.home-panel {
+  min-width: 0;
+  padding: 12px 10px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--faint);
+}
+
+.home-panel-title { margin: 0 6px 6px; font-size: 13px; font-weight: 600; color: var(--muted); }
+
+.home-panel.attention .home-panel-title { color: var(--accent-2); }
+
+.home-rows { display: flex; flex-direction: column; }
+
+.home-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 7px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  text-align: left;
+}
+
+.home-row:hover { background: var(--hover); }
+
+.home-row-top { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+
+.home-row-title { flex: 1; min-width: 0; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+
+.home-row-when { flex: none; font-size: 12px; color: var(--faint-text); }
+
+.home-row-line { overflow: hidden; font-size: 12.5px; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+
 /* Thought blocks */
 
 .thought { margin: 0 0 12px; }

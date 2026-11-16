@@ -831,3 +831,61 @@ function compareUpdatedDescending( left, right )
 {
     return new Date( right.updated ).getTime() - new Date( left.updated ).getTime();
 }
+
+const homeRows = 5;
+const homeFiles = 6;
+
+// The endings of a reply the person has to act on; a stop, a call or their own stop is not one.
+const attentionEndings = [ 'length', 'context', 'error' ];
+
+/**
+ * The home screen's sections (AssistantInterface.md 4.2), from what each stored conversation reports of itself
+ * (`conversations.list`): what needs the person, plans and how far they came, the files Mila wrote, recent work and
+ * the ideas being explored. Each list is newest first; an empty one is the view's to leave out. The conversation a
+ * reply is under way in needs nothing yet.
+ */
+export function homeSections( state )
+{
+    const sorted = state.conversations.slice().sort( compareUpdatedDescending );
+    const working = isBusy( state ) ? state.conversationId : null;
+    const idle = sorted.filter( ( item ) => item.id !== working );
+
+    const stoppedPlans = idle.filter( ( item ) => item.progress && item.progress.current !== null )
+        .map( ( item ) => ( { kind: 'plan', item } ) );
+    const endedReplies = idle.filter( ( item ) => attentionEndings.includes( item.finish ) && !( item.progress && item.progress.current !== null ) )
+        .map( ( item ) => ( { kind: 'reply', item } ) );
+    const needsYou = stoppedPlans.concat( endedReplies )
+        .sort( ( left, right ) => compareUpdatedDescending( left.item, right.item ) ).slice( 0, homeRows );
+
+    const plans = sorted.filter( ( item ) => item.progress ).slice( 0, homeRows );
+    const made = filesMade( sorted );
+    const recent = sorted.filter( ( item ) => item.activity !== undefined && item.activity !== 'ask' ).slice( 0, homeRows );
+    const ideas = sorted.filter( ( item ) => item.activity === undefined || item.activity === 'ask' ).slice( 0, homeRows );
+
+    return { needsYou, plans, made, recent, ideas };
+}
+
+/** The files written, the most recent first, each once: a file is its conversation's folder and its path there. */
+function filesMade( sorted )
+{
+    const seen = new Set();
+    const made = [];
+
+    for ( const item of sorted )
+    {
+        const wrote = Array.isArray( item.wrote ) ? item.wrote.slice().reverse() : [];
+
+        for ( const file of wrote )
+        {
+            const key = ( item.folder ?? '' ) + '\u0000' + file.path;
+
+            if ( seen.has( key ) )
+                continue;
+
+            seen.add( key );
+            made.push( { path: file.path, tool: file.tool, item } );
+        }
+    }
+
+    return made.slice( 0, homeFiles );
+}

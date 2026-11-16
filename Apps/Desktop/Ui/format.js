@@ -252,8 +252,83 @@ export function activityCard( activity )
     return known === undefined ? { name: activity, line: '' } : known;
 }
 
+const minuteMilliseconds = 60 * 1000;
+const hourMilliseconds = 60 * minuteMilliseconds;
+const weekdayFormat = new Intl.DateTimeFormat( 'en-US', { weekday: 'long' } );
+const dateFormat = new Intl.DateTimeFormat( 'en-US', { month: 'short', day: 'numeric' } );
+
 /**
- * The last part of a folder's path, which is how a person names their project.
+ * When something happened, as a person says it: minutes and hours today, then yesterday, the weekday within a
+ * week, and the date before that. Days are the viewer's local days.
+ */
+export function whenLabel( updated, now )
+{
+    const then = new Date( updated );
+    const elapsed = now.getTime() - then.getTime();
+    const today = new Date( now.getFullYear(), now.getMonth(), now.getDate() ).getTime();
+    const day = 24 * hourMilliseconds;
+
+    if ( elapsed < minuteMilliseconds )
+        return 'Just now';
+
+    if ( then.getTime() >= today )
+    {
+        if ( elapsed < hourMilliseconds )
+        {
+            const minutes = Math.floor( elapsed / minuteMilliseconds );
+
+            return minutes === 1 ? '1 minute ago' : minutes + ' minutes ago';
+        }
+
+        const hours = Math.floor( elapsed / hourMilliseconds );
+
+        return hours === 1 ? '1 hour ago' : hours + ' hours ago';
+    }
+
+    if ( then.getTime() >= today - day )
+        return 'Yesterday';
+
+    if ( then.getTime() >= today - 6 * day )
+        return weekdayFormat.format( then );
+
+    return dateFormat.format( then );
+}
+
+/**
+ * What the home screen says of a row that needs the person: where a plan stopped, or how a reply ended.
+ */
+export function attentionLine( row )
+{
+    if ( row.kind === 'plan' )
+    {
+        const progress = row.item.progress;
+        const step = progress.finished + 1;
+
+        return 'Stopped at step ' + Math.min( step, progress.steps ) + ' of ' + progress.steps + ': ' + progress.current;
+    }
+
+    const endings = {
+        length: 'The last reply was cut short',
+        context: 'The conversation ran out of room',
+        error: 'The last reply ended in an error'
+    };
+
+    return endings[ row.item.finish ] ?? '';
+}
+
+/**
+ * How far a plan came, from a conversation's summary: steps finished of all of them, or finished.
+ */
+export function progressLine( progress )
+{
+    if ( progress.current === null )
+        return 'Finished, ' + progress.steps + ( progress.steps === 1 ? ' step' : ' steps' );
+
+    return progress.finished + ' of ' + progress.steps + ' steps done';
+}
+
+/**
+ * The last part of a folder's path, which is how a person names their project; of a file's path, its name.
  */
 export function folderName( folder )
 {

@@ -3,7 +3,7 @@
 // and no timers of its own -- the host passes a clock -- so one implementation serves the page in
 // a browser, a Node wrapper on stdio, and node --test.
 
-import { findModel, mockLicense, models, seedConversations, titleFor } from './fixtures.js';
+import { findModel, mockLicense, models, seedConversations, summarizeConversation, titleFor } from './fixtures.js';
 import { findScenario } from './scenarios.js';
 
 const streamId = 'stream-1';
@@ -185,7 +185,8 @@ export function createMockSession( options )
             updated: conversation.updated,
             model: conversation.model,
             activity: conversation.activity,
-            folder: conversation.folder
+            folder: conversation.folder,
+            ...summarizeConversation( conversation )
         };
     }
 

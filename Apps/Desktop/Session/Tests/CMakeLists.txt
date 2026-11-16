@@ -7,7 +7,9 @@ add_executable( DesktopSessionTests
     "SettingsFile.cpp"
     "PromptFile.cpp"
     "MilaLicense.cpp"
+    "ConversationSummary.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Settings/Implementation/MilaLicense.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Implementation/ConversationSummary.cpp"
 )
 
 # BASE_DIRS is explicit because a module file set otherwise roots itself at this directory, and the modules being tested
@@ -23,6 +25,7 @@ PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Settings/Desktop.MilaLicense.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Tools/Desktop.PromptTool.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Tools/Desktop.PromptFile.ixx"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Desktop.ConversationSummary.ixx"
 )
 
 set_target_properties( DesktopSessionTests PROPERTIES

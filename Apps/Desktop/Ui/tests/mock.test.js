@@ -43,7 +43,7 @@ function readyIsAnsweredWithTheSessionStateTheConversationsAndTheMode()
     assert.equal( events[ 0 ].accepted, true );
     assert.equal( events[ 1 ].model, 'gemma-4-12b-it-fp4' );
     assert.equal( events[ 1 ].busy, false );
-    assert.equal( events[ 2 ].items.length, 5 );
+    assert.equal( events[ 2 ].items.length, 7 );
 }
 
 test( 'ready is answered with the licence, the session state, the conversations and the models', readyIsAnsweredWithTheSessionStateTheConversationsAndTheMode );
@@ -145,7 +145,7 @@ function aNewConversationIsStoredUnderItsFirstMessageOnceTheReplyEnds()
     const begin = ofType( events, 'turn.begin' )[ 0 ];
     const stored = latest.items.find( ( item ) => item.id === begin.conversation_id );
 
-    assert.equal( latest.items.length, 6 );
+    assert.equal( latest.items.length, 8 );
     assert.equal( stored.title, titleFor( text ) );
     assert.ok( stored.title.length < 60 );
 
@@ -216,7 +216,7 @@ function thePageReducesScenario1ToOneUserTurnAndOneAssistantTurnInOrd()
     assert.equal( turn.blocks[ 1 ].result, '{"temperature_c": 18, "condition": "cloudy"}' );
     assert.equal( turn.blocks[ 0 ].tokens, ofType( events, 'turn.round_end' )[ 0 ].thought_tokens );
     assert.equal( turn.blocks[ 3 ].text, turn.answer );
-    assert.equal( state.conversations.length, 6 );
+    assert.equal( state.conversations.length, 8 );
 }
 
 test( 'the page reduces scenario 1 to one user turn and one assistant turn in order', thePageReducesScenario1ToOneUserTurnAndOneAssistantTurnInOrd );
@@ -235,6 +235,26 @@ function aStoredConversationReopensWithWhatItHeld()
 }
 
 test( 'a stored conversation reopens with what it held', aStoredConversationReopensWithWhatItHeld );
+
+function eachListedConversationReportsItsPlanItsLastReplyAndItsFiles()
+{
+    const { events, session } = startSession( 1 );
+
+    session.handle( { v: 1, type: 'ready' } );
+
+    const items = ofType( events, 'conversations.list' )[ 0 ].items;
+    const tasks = items.find( ( item ) => item.id === 'conversation-6' );
+    const research = items.find( ( item ) => item.id === 'conversation-7' );
+    const question = items.find( ( item ) => item.id === 'conversation-1' );
+
+    assert.deepEqual( tasks.progress, { steps: 5, finished: 2, current: 'Add cases for division by zero' } );
+    assert.deepEqual( tasks.wrote.map( ( file ) => file.path ), [ 'tests/test_parser.py', 'TESTING.md' ] );
+    assert.equal( research.finish, 'length' );
+    assert.equal( question.progress, null );
+    assert.deepEqual( question.wrote, [] );
+}
+
+test( 'each listed conversation reports its plan, its last reply and its files', eachListedConversationReportsItsPlanItsLastReplyAndItsFiles );
 
 function settingsChangeTheStateAndAnUnknownOneIsRefused()
 {

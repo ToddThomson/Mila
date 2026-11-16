@@ -9,6 +9,7 @@ import std;
 import nlohmann.json;
 
 import Mila;
+import Desktop.ConversationSummary;
 
 namespace Mila::Desktop
 {
@@ -97,13 +98,16 @@ namespace Mila::Desktop
                 }
 
                 // A conversation stored before activities was asked and explored, with no folder (MilaDesktop.md 4.1).
-                items.push_back( {
+                nlohmann::json item = {
                     { "id", conversation->value( "id", std::string{} ) },
                     { "title", conversation->value( "title", std::string{} ) },
                     { "updated", conversation->value( "updated", std::string{} ) },
                     { "model", conversation->value( "model", std::string{} ) },
                     { "activity", conversation->value( "activity", std::string( "ask" ) ) },
-                    { "folder", conversation->value( "folder", nlohmann::json( nullptr ) ) } } );
+                    { "folder", conversation->value( "folder", nlohmann::json( nullptr ) ) } };
+
+                item.update( summarizeConversation( *conversation ) );
+                items.push_back( std::move( item ) );
             }
 
             // ISO 8601 in UTC sorts as text. A JSON array's iterators are not a std::ranges range.

@@ -104,6 +104,9 @@ not models (section 1; decided 2026-10-26, section 9.7).
 
 ### 3.1 Activities
 
+Replaced by general-purpose chats, with no activity cards (Todd, 2026-11-16): `Apps/AssistantInterface.md` 5.5, at its
+phase 3. Until then, as built:
+
 An activity is what a person came to do. It is the app's vocabulary, and it decides what the app gives the agent
 for that work: which of the app's tools, the default rules for them (`ToolCalling.md` 3.3), the guidance in the
 system prompt, and the agent's limits. It does not name a model. A conversation keeps the activity it started in.
@@ -142,6 +145,8 @@ model for this card -- the planner's suggestion from the published list, a measu
 
 ### 3.3 Sidebar
 
+Replaced by the sidebar of `Apps/AssistantInterface.md` 4.1 at its phase 2; until then, as built:
+
 - *New* at the top (Ctrl+N, Command+N on a Mac): the home screen.
 - Conversations, newest first, grouped *Today*, *Yesterday*, *Previous 7 days*, *Older*. Each row shows
   its title and its activity; hover shows the model it was held with. Rename and delete from a row's menu;
@@ -153,6 +158,10 @@ model for this card -- the planner's suggestion from the published list, a measu
   (Todd, 2026-11-13).
 
 ### 3.4 Home screen
+
+With conversations stored, the work so far follows the cards, read as `Apps/AssistantInterface.md` 10 says (its phase
+1). The whole screen is replaced by that design's workspace overview (4.3) at its phase 2. With none, the home screen is
+what follows.
 
 - One line asking what the person wants to do, and one box under it; sending from it starts *Ask & Explore*.
 - The cards of 3.1 that can be shown, each its name and one line of what it is for.
@@ -298,7 +307,7 @@ The window relays every message unchanged in both directions, except those it ha
 | `turn.tool_result` | `turn_id`, `call_id`, `result`, `is_error` | The tool's result, fed back to the model. |
 | `turn.round_end` | `turn_id`, `round`, `prefill_ms`, `tokens_per_second`, `tokens`, `thought_tokens` (those of `tokens` the reasoning channel took; 0 when it did not open), `finish` (`turn.end`'s values, or `"tool_call"` for a round that ended in one) | One generate call ended. `thought_tokens` labels the round's thought block ("Thought for 412 tokens"), which the page cannot count from text. |
 | `turn.end` | `turn_id`, `finish` (`"stop"`, `"length"`, `"context"`, `"cancelled"`, `"error"`), `answer` (the parsed final answer) | The reply ended. `answer` is what the conversation keeps. |
-| `conversations.list` | `items` ([{`id`, `title`, `updated` (ISO 8601), `model`, `activity`, `folder`}]) | After any change to the store. A conversation stored before activities is `"ask"` with no folder. |
+| `conversations.list` | `items` ([{`id`, `title`, `updated` (ISO 8601), `model`, `activity`, `folder`, `progress`, `finish`, `wrote`}]) | After any change to the store. A conversation stored before activities is `"ask"` with no folder. `progress`, `finish` and `wrote` are what the home screen reads (`Apps/AssistantInterface.md` 10). |
 | `conversation.loaded` | `id`, `title`, `model`, `activity`, `folder`, `messages` (section 4.3) | The conversation now in the main pane. |
 | `attachment.accepted` | `attachment_id`, `kind`, `name`, `size_bytes` | The session has read and decoded the file. |
 | `attachment.refused` | `attachment_id`, `reason` | Not found, not decodable, too large, or no such modality on this model. |
@@ -413,7 +422,8 @@ tool the person has not allowed is asked about.
   4. A reply ending on `length`, and one on `context`.
   5. No model loaded, then a load with progress, then a load refused with the refusal's text.
   6. An image attached to a model with the modality, and refused on one without.
-  7. Five conversations across the date groups; open, rename, delete.
+  7. Seven conversations across the date groups, among them a plan stopped partway, files written and a reply cut
+     short, which the home screen shows; open, rename, delete.
   8. A first run, nothing installed: the welcome, the licence accepted, the published list planned for this
      computer, the suggestion installed with its progress and loaded, the conclusion, a remove.
   9. Detail `all`: log lines in the drawer.

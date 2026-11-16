@@ -104,14 +104,68 @@ function assistantMessage( content, thought, stats )
     return { role: 'assistant', content, thought, tool_calls: null, attachments: null, stats };
 }
 
-function stats( prefillMs, tokensPerSecond, tokens )
+function stats( prefillMs, tokensPerSecond, tokens, finish = 'stop' )
 {
-    return { prefill_ms: prefillMs, tokens_per_second: tokensPerSecond, tokens, rounds: 1, finish: 'stop' };
+    return { prefill_ms: prefillMs, tokens_per_second: tokensPerSecond, tokens, rounds: 1, finish };
+}
+
+/** A file tool's call as the store keeps it: what its card showed, and its result. */
+function fileCall( name, path, result )
+{
+    const verb = name === 'write_file' ? 'Writing ' : 'Editing ';
+
+    return { call_id: 'call-' + path, name, summary: verb + path, arguments: JSON.stringify( { path } ),
+        decision: 'allow_once', result, is_error: false };
+}
+
+function assistantWithCalls( content, calls, replyStats )
+{
+    return { role: 'assistant', content, thought: null, tool_calls: calls, attachments: null, stats: replyStats };
 }
 
 /**
- * Five stored conversations, one or two per date group, dated back from now so the groups hold
- * whatever day the page is opened on.
+ * What a stored conversation reports of itself in `conversations.list`, as the session's summary does
+ * (Desktop.ConversationSummary): how far its plan came, how its last reply ended, and the files its calls wrote.
+ */
+export function summarizeConversation( conversation )
+{
+    const messages = Array.isArray( conversation.messages ) ? conversation.messages : [];
+    const plan = Array.isArray( conversation.plan ) && conversation.plan.length > 0 ? conversation.plan : null;
+    let progress = null;
+
+    if ( plan !== null )
+    {
+        const finished = plan.filter( ( step ) => step.status === 'done' || step.status === 'skipped' ).length;
+        const working = plan.find( ( step ) => step.status === 'in_progress' ) ?? plan.find( ( step ) => step.status === 'pending' );
+
+        progress = { steps: plan.length, finished, current: working === undefined ? null : working.text };
+    }
+
+    const replies = messages.filter( ( message ) => message.role === 'assistant' );
+    const last = replies.length === 0 ? null : replies[ replies.length - 1 ];
+    const finish = last !== null && last.stats ? last.stats.finish ?? null : null;
+    let wrote = [];
+
+    for ( const message of messages )
+    {
+        for ( const call of message.tool_calls ?? [] )
+        {
+            if ( ( call.name !== 'write_file' && call.name !== 'edit_file' ) || call.is_error || call.result === null )
+                continue;
+
+            const path = JSON.parse( call.arguments ).path;
+            wrote = wrote.filter( ( file ) => file.path !== path );
+            wrote.push( { path, tool: call.name } );
+        }
+    }
+
+    return { progress, finish, wrote };
+}
+
+/**
+ * Seven stored conversations, one to three per date group, dated back from now so the groups hold whatever day the
+ * page is opened on: questions, a build that edited a file, a plan stopped partway with files written, and research
+ * whose reply was cut short, so the home screen has every section.
  */
 export function seedConversations( now )
 {
@@ -144,10 +198,47 @@ export function seedConversations( now )
             age: dayMilliseconds + 3 * hourMilliseconds,
             messages: [
                 userMessage( 'How do I write a Rust struct that holds a slice of another struct\'s data?' ),
-                assistantMessage(
-                    'Give the struct a lifetime parameter and use it on the slice:\n\n```rust\nstruct Window<\'a> {\n    samples: &\'a [f32],\n}\n```\n\nThe compiler then checks that no `Window` outlives the data it borrows.',
-                    null,
+                assistantWithCalls(
+                    'Give the struct a lifetime parameter and use it on the slice:\n\n```rust\nstruct Window<\'a> {\n    samples: &\'a [f32],\n}\n```\n\nThe compiler then checks that no `Window` outlives the data it borrows. I changed `src/window.rs` to match.',
+                    [ fileCall( 'edit_file', 'src/window.rs', 'Edited src/window.rs.' ) ],
                     lifetimeStats )
+            ]
+        },
+        {
+            id: 'conversation-6',
+            title: 'Tidy the calculator project\'s tests',
+            model: 'gemma-4-12b-it-fp4',
+            activity: 'tasks',
+            folder: 'C:\\Users\\you\\Projects\\calc',
+            age: 5 * hourMilliseconds,
+            plan: [
+                { text: 'Read the tests and list what each covers', status: 'done' },
+                { text: 'Move the parser cases into their own file', status: 'done' },
+                { text: 'Add cases for division by zero', status: 'in_progress' },
+                { text: 'Run the suite and fix what fails', status: 'pending' },
+                { text: 'Summarize the changes', status: 'pending' }
+            ],
+            messages: [
+                userMessage( 'Tidy the calculator project\'s tests: group them, fill the gaps, make them pass.' ),
+                assistantWithCalls(
+                    'The parser cases are in `tests/test_parser.py` now, and the suite\'s notes are in `TESTING.md`. Next is division by zero.',
+                    [ fileCall( 'write_file', 'tests/test_parser.py', 'Wrote tests/test_parser.py.' ),
+                        fileCall( 'write_file', 'TESTING.md', 'Wrote TESTING.md.' ) ],
+                    stats( 410, 36.2, 1820, 'stop' ) )
+            ]
+        },
+        {
+            id: 'conversation-7',
+            title: 'Compare SQLite and DuckDB for analytics',
+            model: 'gemma-4-12b-it-fp4',
+            activity: 'research',
+            age: dayMilliseconds + 6 * hourMilliseconds,
+            messages: [
+                userMessage( 'Compare SQLite and DuckDB for running analytics over a few GB of CSV files.' ),
+                assistantMessage(
+                    'Both are embedded and need no server. **DuckDB** is columnar and vectorized, so scans and aggregates over wide tables run far faster; **SQLite** stores rows, which suits many small reads and writes. For a few GB of CSV',
+                    null,
+                    stats( 380, 37.0, 2048, 'length' ) )
             ]
         },
         {
@@ -201,8 +292,9 @@ function storedConversation( seed, now )
 
     const activity = seed.activity === undefined ? 'ask' : seed.activity;
     const folder = seed.folder === undefined ? null : seed.folder;
+    const plan = seed.plan === undefined ? null : seed.plan;
 
-    return { id: seed.id, title: seed.title, model: seed.model, activity, folder, created: stamp, updated: stamp, messages: seed.messages };
+    return { id: seed.id, title: seed.title, model: seed.model, activity, folder, plan, created: stamp, updated: stamp, messages: seed.messages };
 }
 
 /**

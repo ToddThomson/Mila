@@ -1,0 +1,1913 @@
+<title>Mila Assistant Workspace</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: one pane. The workspace fills the window; Mila is a bar docked at its foot, and the conversation rises over
+   the pane while you talk, moving the pane to what it is about. Projects are the containers; a project opens on its
+   summary, with a sidebar that lists that project. Type: the system's own faces, as the app ships no web fonts.
+   Color: Mila's structure blue and action teal over a blue-biased neutral. */
+:root {
+  --ground: #f4f6f9;
+  --surface: #ffffff;
+  --sunk: #eceff4;
+  --ink: #14171d;
+  --ink-2: #4b5262;
+  --ink-3: #868d9c;
+  --rule: #dfe3ea;
+  --brand: #0a40c2;
+  --action: #0b7a85;
+  --action-soft: #ddf1f3;
+  --attention: #a8520b;
+  --attention-soft: #fbeee2;
+  --pulse: #b9c6e6;
+  --scrim: rgba(20, 23, 29, .32);
+  --shadow: 0 12px 32px rgba(20, 23, 29, .14), 0 1px 3px rgba(20, 23, 29, .08);
+  --lift: 0 -8px 30px rgba(20, 23, 29, .12), 0 -1px 3px rgba(20, 23, 29, .06);
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0e1014; --surface: #161920; --sunk: #1c2029; --ink: #e7e9ef; --ink-2: #a2a8b6; --ink-3: #6c7282;
+    --rule: #272b35; --brand: #86a6ff; --action: #2fc4d4; --action-soft: #0f2a2f; --attention: #f0a35b;
+    --attention-soft: #2b1f14; --pulse: #33415f; --scrim: rgba(0, 0, 0, .55);
+    --shadow: 0 12px 32px rgba(0, 0, 0, .5), 0 1px 3px rgba(0, 0, 0, .4);
+    --lift: 0 -8px 30px rgba(0, 0, 0, .5), 0 -1px 3px rgba(0, 0, 0, .4); color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground: #0e1014; --surface: #161920; --sunk: #1c2029; --ink: #e7e9ef; --ink-2: #a2a8b6; --ink-3: #6c7282;
+  --rule: #272b35; --brand: #86a6ff; --action: #2fc4d4; --action-soft: #0f2a2f; --attention: #f0a35b;
+  --attention-soft: #2b1f14; --pulse: #33415f; --scrim: rgba(0, 0, 0, .55);
+  --shadow: 0 12px 32px rgba(0, 0, 0, .5), 0 1px 3px rgba(0, 0, 0, .4);
+  --lift: 0 -8px 30px rgba(0, 0, 0, .5), 0 -1px 3px rgba(0, 0, 0, .4); color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body { background: var(--ground); color: var(--ink); font-family: var(--sans); font-size: 14px; line-height: 1.45; }
+button { font: inherit; color: inherit; cursor: pointer; }
+input, textarea, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+
+.app { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+
+/* The sidebar: the workspace, the places in it, its projects and recent chats; at its foot Settings, the model as a
+   quiet fact, and you. The content beside it has a slim bar saying where you are. */
+:root { --side-width: 256px; }
+.app { grid-template-columns: var(--side-width) minmax(0, 1fr); grid-template-rows: none; }
+.content { display: grid; grid-template-rows: auto 1fr; min-width: 0; min-height: 0; }
+.side {
+  display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow-y: auto;
+  padding: 12px 10px calc(10px + env(safe-area-inset-bottom, 0px)) max(10px, env(safe-area-inset-left, 0px));
+  border-right: 1px solid var(--rule); background: var(--surface);
+}
+.side-workspace { display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 8px; padding: 8px; border: 1px solid var(--rule); border-radius: 12px; background: var(--ground); text-align: left; }
+.side-workspace:hover { border-color: color-mix(in srgb, var(--action) 45%, var(--rule)); }
+.side-mark { display: grid; place-items: center; flex: none; width: 34px; height: 34px; border-radius: 9px; background: var(--brand); color: var(--surface); }
+.side-mark svg { width: 20px; height: 20px; }
+.side-name { flex: 1; min-width: 0; }
+.side-name b { display: block; font-size: 14.5px; font-weight: 650; letter-spacing: -.01em; }
+.side-name span { display: block; color: var(--ink-3); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+.side-chevrons { flex: none; width: 16px; height: 16px; color: var(--ink-3); }
+.side-item { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; padding: 7px 10px; border: 0; border-radius: 8px; background: none; color: var(--ink-2); font-size: 13.5px; text-align: left; }
+.side-item:hover { background: var(--sunk); color: var(--ink); }
+.side-item[aria-current="page"] { background: var(--sunk); color: var(--ink); font-weight: 600; }
+.side-item svg { flex: none; width: 17px; height: 17px; }
+.side-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-count, .side-item kbd { flex: none; padding: 0 6px; border: 1px solid var(--rule); border-radius: 5px; color: var(--ink-3); font-family: var(--sans); font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.side-rule { height: 1px; margin: 8px 6px; background: var(--rule); }
+.side-title { display: flex; justify-content: space-between; margin: 12px 10px 4px; color: var(--ink-3); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.side-dot { flex: none; width: 8px; height: 8px; margin: 0 4px; border-radius: 50%; background: var(--ink-3); }
+.side-dot.waiting { background: var(--attention); }
+.side-dot.active { background: var(--action); }
+.side-dot.quiet { background: color-mix(in srgb, var(--ink-3) 60%, transparent); }
+.side-quiet { color: var(--ink-3); }
+.side-foot { display: flex; flex-direction: column; gap: 2px; margin-top: auto; padding-top: 10px; }
+.side-model { color: var(--ink-3); font-size: 12.5px; }
+.dot { flex: none; width: 7px; height: 7px; margin: 0 5px; border-radius: 50%; background: var(--action); }
+.side-user { display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 6px; padding: 8px; border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: none; text-align: left; }
+.side-user:hover { background: var(--sunk); border-radius: 10px; }
+.avatar { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 50%; background: var(--sunk); color: var(--ink-2); font-size: 12px; font-weight: 650; }
+.side-user .side-name b { font-size: 13.5px; }
+.side-user .side-name span { font-size: 11.5px; letter-spacing: 0; text-transform: none; }
+
+.bar {
+  display: flex; align-items: center; gap: 12px; min-width: 0; min-height: 52px;
+  padding-block: 8px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  border-bottom: 1px solid var(--rule); background: var(--surface);
+}
+.bar .menu-button { display: none; }
+.crumbs { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; color: var(--ink-3); font-size: 13px; white-space: nowrap; }
+.crumbs svg { flex: none; width: 15px; height: 15px; }
+.crumbs button { border: 0; padding: 0; background: none; color: var(--ink-2); }
+.crumbs button:hover { color: var(--action); }
+.crumbs .here { overflow: hidden; color: var(--ink); text-overflow: ellipsis; }
+.spacer { flex: 1; }
+.example-switch { padding: 0 2px; border: 0; background: none; color: var(--ink-2); font-size: 11px; }
+.prototype-tag { padding: 2px 7px; border: 1px dashed var(--ink-3); border-radius: 999px; color: var(--ink-3); font-size: 11px; white-space: nowrap; }
+
+.popover {
+  position: fixed; z-index: 55; width: 280px; padding: 12px 14px;
+  border: 1px solid var(--rule); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow);
+  color: var(--ink); font-size: 13px; text-align: left; cursor: default;
+}
+.menu { display: flex; flex-direction: column; gap: 2px; margin: 6px -6px 0; }
+.menu-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 8px; border: 0; border-radius: 8px; background: none; text-align: left; }
+.menu-item:hover { background: var(--sunk); }
+.menu-item small { color: var(--ink-3); font-size: 11.5px; }
+.popover dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 10px 0 0; }
+.popover dt { color: var(--ink-3); }
+.popover dd { margin: 0; font-variant-numeric: tabular-nums; }
+.popover p { margin: 10px 0 0; color: var(--ink-3); font-size: 12px; }
+
+/* The one pane. */
+.main { position: relative; min-width: 0; min-height: 0; overflow-y: auto; }
+.main-inner {
+  max-width: 1080px; margin: 0 auto; padding-block: 28px 140px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+.eyebrow { color: var(--ink-3); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+h1 { margin: 4px 0 0; font-size: 30px; font-weight: 680; letter-spacing: -.025em; text-wrap: balance; }
+.lead { margin: 6px 0 0; max-width: 64ch; color: var(--ink-2); font-size: 15px; }
+.lead b { color: var(--ink); font-weight: 600; }
+.section { margin-top: 30px; }
+.section-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; margin-bottom: 10px; }
+h2 { margin: 0; font-size: 13px; font-weight: 650; color: var(--ink-2); letter-spacing: .01em; }
+.section-note { color: var(--ink-3); font-size: 12.5px; }
+
+/* At a glance: the state of the workspace, or of a project, in figures a person reads in one look. */
+.glance { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; margin-top: 18px; border: 1px solid var(--rule); border-radius: 14px; background: var(--rule); overflow: hidden; }
+.figure { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 14px 16px; border: 0; background: var(--surface); text-align: left; }
+button.figure:hover { background: var(--sunk); }
+.figure-value { font-size: 26px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.figure-label { color: var(--ink-2); font-size: 13px; }
+.figure-note { color: var(--ink-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.figure.attention .figure-value { color: var(--attention); }
+
+.notices { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.notice { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px 14px; border: 1px solid var(--rule); border-radius: 12px; background: var(--surface); }
+.notice.waiting { border-color: color-mix(in srgb, var(--attention) 35%, var(--rule)); background: var(--attention-soft); }
+.notice-kind { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); }
+.notice.waiting .notice-kind { color: var(--attention); }
+.notice.proposal .notice-kind { color: var(--brand); }
+.notice-title { font-weight: 600; }
+.notice-text { color: var(--ink-2); }
+.notice-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.notice.proposal { grid-column: 1 / -1; border-color: color-mix(in srgb, var(--brand) 30%, var(--rule)); }
+.proposal-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+.proposal-name { width: 100%; padding: 6px 9px; border: 1px solid var(--rule); border-radius: 8px; background: var(--ground); font-weight: 600; }
+.proposal-threads { display: flex; flex-direction: column; gap: 6px; }
+.joined { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 13px; }
+.joined::before { content: ""; flex: none; width: 8px; height: 8px; border: 1.5px dashed var(--brand); border-radius: 50%; }
+
+.button { padding: 5px 12px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); font-size: 13px; }
+.button:hover { border-color: var(--action); color: var(--action); }
+.button.primary { border-color: transparent; background: var(--action); color: var(--surface); font-weight: 600; }
+.button.primary:hover { color: var(--surface); filter: brightness(1.08); }
+.button.quiet { border-color: transparent; background: none; color: var(--ink-2); }
+.link { padding: 0; border: 0; background: none; color: var(--action); text-align: left; }
+.link:hover { text-decoration: underline; }
+
+/* Projects: solid cards with their rhythm. Threads still forming: dashed seeds. */
+.projects { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.project-card { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 14px 16px 12px; border: 1px solid var(--rule); border-radius: 14px; background: var(--surface); text-align: left; }
+.project-card:hover { border-color: color-mix(in srgb, var(--action) 55%, var(--rule)); }
+.project-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.project-name { font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+.project-purpose { color: var(--ink-2); font-size: 13px; }
+.state { flex: none; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.state.waiting { background: var(--attention-soft); color: var(--attention); }
+.state.active { background: var(--action-soft); color: var(--action); }
+.state.quiet { background: var(--sunk); color: var(--ink-3); }
+.pulse { display: flex; align-items: flex-end; gap: 3px; height: 26px; }
+.pulse i { flex: 1; min-height: 2px; border-radius: 2px; background: var(--pulse); }
+.pulse i:last-child { background: var(--brand); }
+.project-foot { display: flex; justify-content: space-between; gap: 10px; color: var(--ink-3); font-size: 12px; }
+.project-latest { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.counts { flex: none; font-variant-numeric: tabular-nums; }
+
+.seeds { display: flex; flex-wrap: wrap; gap: 8px; }
+.seed { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 7px 12px; border: 1.5px dashed var(--rule); border-radius: 999px; background: none; font-size: 13px; text-align: left; }
+.seed:hover { border-color: var(--action); }
+.seed.related { border-color: color-mix(in srgb, var(--brand) 60%, var(--rule)); }
+.seed-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seed-when { flex: none; color: var(--ink-3); font-size: 12px; }
+
+.chat-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-row .row-main { flex: 1; }
+.related-mark { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border: 1.5px dashed var(--brand); border-radius: 50%; vertical-align: 1px; }
+.made { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.file { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 9px 12px; border: 1px solid var(--rule); border-radius: 10px; background: var(--surface); text-align: left; }
+.file:hover { border-color: var(--action); }
+.file-name { font-family: var(--mono); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-where { color: var(--ink-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.changed { color: var(--attention); }
+
+/* All projects: every project, searched, filtered and sorted, one row each. */
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 18px; }
+.search { flex: 1 1 220px; min-width: 0; padding: 7px 11px; border: 1px solid var(--rule); border-radius: 9px; background: var(--surface); }
+.filter { padding: 4px 11px; border: 1px solid var(--rule); border-radius: 999px; background: var(--surface); color: var(--ink-2); font-size: 12.5px; white-space: nowrap; }
+.filter[aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: var(--surface); }
+.sort { padding: 5px 8px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); font-size: 12.5px; }
+.table { margin-top: 14px; border: 1px solid var(--rule); border-radius: 12px; background: var(--surface); overflow: hidden; }
+.table-row { display: grid; grid-template-columns: minmax(0, 2.2fr) 120px minmax(0, 1.6fr) 110px; gap: 14px; align-items: center; width: 100%; padding: 11px 16px; border: 0; border-top: 1px solid var(--rule); background: none; text-align: left; }
+.table-row:first-child { border-top: 0; }
+button.table-row:hover { background: var(--sunk); }
+.table-head { color: var(--ink-3); font-size: 12px; background: var(--ground); }
+.cell-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cell-sub { color: var(--ink-3); font-size: 12.5px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cell-latest { color: var(--ink-2); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cell-counts { color: var(--ink-3); font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; }
+.empty { padding: 22px 16px; color: var(--ink-3); text-align: center; }
+
+/* One chat with the pane to itself: a reading column, and the bar below as its reply box. */
+.chat-view { max-width: 760px; margin: 0 auto; }
+.chat-title { font-size: 24px; }
+.chat-placement { display: block; margin-top: 6px; font-size: 13px; }
+.chat-messages { display: flex; flex-direction: column; gap: 18px; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--rule); font-size: 15px; }
+.dock.in-chat .conversation { display: none; }
+
+/* Activity: one timeline of everything, by day. */
+.day { margin-top: 26px; }
+.timeline { display: flex; flex-direction: column; margin-top: 8px; border-left: 1px solid var(--rule); }
+.event { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 12px; align-items: baseline; padding: 7px 0 7px 14px; position: relative; }
+.event::before { content: ""; position: absolute; left: -4.5px; top: 14px; width: 8px; height: 8px; border-radius: 50%; background: var(--surface); border: 1.5px solid var(--ink-3); }
+.event.mila::before { border-color: var(--brand); background: var(--brand); }
+.event-time { color: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.event-text { min-width: 0; }
+.event-where { color: var(--ink-3); font-size: 12px; }
+
+/* Inside a project: its summary first, and a sidebar that lists the project, because here it means something. */
+.project-view { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 28px; }
+.project-nav { position: sticky; top: 0; align-self: start; display: flex; flex-direction: column; gap: 2px; padding-top: 6px; }
+.project-nav button { display: flex; justify-content: space-between; padding: 6px 10px; border: 0; border-radius: 8px; background: none; color: var(--ink-2); text-align: left; }
+.project-nav button:hover { background: var(--sunk); color: var(--ink); }
+.nav-count { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.nav-title { margin: 14px 10px 6px; color: var(--ink-3); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; }
+.nav-title:first-child { margin-top: 0; }
+.project-main { min-width: 0; }
+.project-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+.chip { padding: 2px 9px; border: 1px solid var(--rule); border-radius: 999px; color: var(--ink-2); font-size: 12px; font-family: var(--mono); }
+.summary { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 1px; margin-top: 18px; border: 1px solid var(--rule); border-radius: 14px; background: var(--rule); overflow: hidden; }
+.summary > div { padding: 16px 18px; background: var(--surface); min-width: 0; }
+.summary p { margin: 6px 0 0; }
+.summary ul { margin: 6px 0 0; padding-left: 18px; color: var(--ink-2); }
+.summary .next-action { margin-top: 12px; }
+.label { color: var(--ink-3); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; }
+.rows { display: flex; flex-direction: column; border: 1px solid var(--rule); border-radius: 12px; background: var(--surface); overflow: hidden; }
+.row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 10px 14px; border: 0; border-top: 1px solid var(--rule); background: none; text-align: left; }
+.row:first-child { border-top: 0; }
+.row:hover { background: var(--sunk); }
+.row-main { min-width: 0; }
+.row-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-sub { color: var(--ink-3); font-size: 12.5px; }
+.row-when { flex: none; color: var(--ink-3); font-size: 12px; }
+.steps { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.step { display: flex; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.step .tick { flex: none; width: 16px; text-align: center; color: var(--ink-3); }
+.step.done .tick { color: var(--action); }
+.step.now { color: var(--ink); font-weight: 600; }
+.step.now .tick { color: var(--attention); }
+.bar-track { height: 4px; margin-top: 8px; border-radius: 4px; background: var(--sunk); overflow: hidden; }
+.bar-fill { height: 100%; background: var(--action); }
+.finding { padding: 10px 14px; border-top: 1px solid var(--rule); }
+.finding:first-child { border-top: 0; }
+.finding-sources { margin-top: 2px; color: var(--ink-3); font-size: 12px; }
+
+/* Mila: a bar at the foot of the pane; the conversation rises above it while you talk. */
+.dock {
+  position: fixed; left: calc(var(--side-width) + (100vw - var(--side-width)) / 2); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 36; transform: translateX(-50%);
+  width: min(760px, calc(100vw - var(--side-width) - 2 * max(16px, env(safe-area-inset-left, 0px))));
+}
+/* The pane fades out under the bar, so the bar never sits on top of a card. */
+.dock-fade {
+  position: fixed; left: var(--side-width); right: 0; bottom: 0; z-index: 35; height: calc(110px + env(safe-area-inset-bottom, 0px)); pointer-events: none;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--ground) 0%, transparent), var(--ground) 55%);
+}
+.conversation {
+  display: none; flex-direction: column; max-height: min(44vh, 460px); margin-bottom: 8px; overflow: hidden;
+  border: 1px solid var(--rule); border-radius: 16px; background: var(--surface); box-shadow: var(--lift);
+}
+.dock.open .conversation { display: flex; }
+.conversation-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px 10px 16px; border-bottom: 1px solid var(--rule); }
+.conversation-context { flex: 1; min-width: 0; }
+.conversation-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.placement { display: flex; align-items: center; gap: 6px; margin-top: 1px; color: var(--ink-3); font-size: 12px; }
+.placement .where { color: var(--action); }
+.icon-button { display: grid; place-items: center; flex: none; width: 30px; height: 30px; border: 0; border-radius: 8px; background: none; color: var(--ink-2); }
+.icon-button:hover { background: var(--sunk); color: var(--ink); }
+.icon-button svg { width: 17px; height: 17px; }
+.messages { display: flex; flex-direction: column; gap: 14px; min-height: 0; padding: 14px 16px; overflow-y: auto; }
+.message.you { align-self: flex-end; max-width: 85%; padding: 8px 12px; border-radius: 14px 14px 4px 14px; background: var(--sunk); overflow-wrap: anywhere; }
+.message.mila p { margin: 0 0 8px; }
+.message.mila p:last-child { margin-bottom: 0; }
+.message.mila ul { margin: 4px 0 8px; padding-left: 18px; }
+.message.mila li { margin: 2px 0; }
+.who-line { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; color: var(--ink-3); font-size: 12px; }
+.who-line svg { width: 14px; height: 14px; color: var(--brand); }
+.went { display: flex; align-items: center; gap: 6px; color: var(--ink-3); font-size: 12px; }
+.went::before { content: ""; width: 14px; height: 1px; background: var(--ink-3); }
+.placed { padding: 10px 12px; border: 1px dashed color-mix(in srgb, var(--brand) 50%, var(--rule)); border-radius: 12px; color: var(--ink-2); font-size: 13px; }
+.thinking { display: flex; align-items: center; gap: 8px; color: var(--ink-3); font-size: 13px; }
+.ring { width: 13px; height: 13px; border: 2px solid var(--rule); border-top-color: var(--action); border-radius: 50%; animation: turn .9s linear infinite; }
+@keyframes turn { to { transform: rotate(360deg); } }
+.composer { display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 12px; border: 1px solid var(--rule); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
+.composer:focus-within { border-color: var(--action); }
+.composer-mark { flex: none; align-self: center; width: 18px; height: 18px; color: var(--brand); }
+.composer textarea { flex: 1; min-width: 0; max-height: 140px; padding: 5px 0; border: 0; background: none; resize: none; outline: none; line-height: 1.4; }
+.send { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border: 0; border-radius: 10px; background: var(--action); color: var(--surface); }
+.send svg { width: 16px; height: 16px; }
+.composer-note { margin-top: 5px; color: var(--ink-3); font-size: 11.5px; text-align: center; }
+
+/* A creation, a plan and its run: a drawer over the pane. */
+.scrim { position: fixed; inset: 0; z-index: 40; background: var(--scrim); }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 41; width: min(460px, 100%); overflow-y: auto; padding: 20px max(20px, env(safe-area-inset-right, 0px)) 28px 22px; background: var(--surface); box-shadow: var(--shadow); }
+.drawer h3 { margin: 4px 0 0; font-family: var(--mono); font-size: 17px; font-weight: 600; overflow-wrap: anywhere; }
+.provenance { display: flex; flex-direction: column; margin-top: 18px; border-left: 1px solid var(--rule); }
+.prov { position: relative; padding: 0 0 16px 16px; }
+.prov::before { content: ""; position: absolute; left: -4.5px; top: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--brand); }
+.prov .label { display: block; }
+.prov-body { margin-top: 2px; }
+.preview { margin-top: 14px; padding: 12px 14px; border-radius: 10px; background: var(--sunk); font-family: var(--mono); font-size: 12px; white-space: pre-wrap; overflow-x: auto; }
+
+.palette-wrap { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; padding: 12vh 16px 16px; background: var(--scrim); }
+.palette { width: min(560px, 100%); align-self: flex-start; border-radius: 14px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+.palette input { width: 100%; padding: 14px 16px; border: 0; border-bottom: 1px solid var(--rule); background: none; font-size: 15px; outline: none; }
+.palette-list { max-height: 50vh; overflow-y: auto; padding: 6px; }
+.palette-item { display: flex; justify-content: space-between; gap: 12px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: none; text-align: left; }
+.palette-item[aria-selected="true"], .palette-item:hover { background: var(--sunk); }
+.palette-kind { color: var(--ink-3); font-size: 12px; }
+
+.arrive { animation: arrive .9s ease-out; }
+@keyframes arrive { from { transform: translateY(8px) scale(.98); box-shadow: 0 0 0 4px var(--action-soft); } }
+.gather { animation: gather .42s ease-in forwards; }
+@keyframes gather { to { opacity: 0; transform: translateY(-30px) scale(.85); } }
+.flash { animation: flash 1.2s ease-out; }
+@keyframes flash { 0% { box-shadow: 0 0 0 4px var(--action-soft); } 100% { box-shadow: 0 0 0 0 transparent; } }
+.view-enter { animation: enter .28s ease-out; }
+@keyframes enter { from { transform: translateY(6px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .arrive, .gather, .flash, .ring, .view-enter { animation: none; }
+  .side { transition: none; }
+}
+
+@media (max-width: 1180px) {
+  .project-view { grid-template-columns: minmax(0, 1fr); }
+  .project-nav { display: none; }
+}
+
+@media (max-width: 980px) {
+  .project-view { grid-template-columns: minmax(0, 1fr); }
+  .project-nav { display: none; }
+  .table-row { grid-template-columns: minmax(0, 1fr) 110px; }
+  .table-row .cell-latest, .table-row .cell-counts { display: none; }
+}
+
+/* A narrow window: the sidebar slides over the content from the left, from the bar's menu button. */
+@media (max-width: 900px) {
+  :root { --side-width: 0px; }
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .side { position: fixed; top: 0; bottom: 0; left: 0; z-index: 46; width: min(288px, 86vw); box-shadow: var(--shadow); transform: translateX(-105%); transition: transform .22s ease-out; }
+  .side.open { transform: none; }
+  .side-scrim { z-index: 45; }
+  .bar .menu-button { display: grid; }
+}
+
+@media (max-width: 760px) {
+  .prototype-tag { display: none; }
+  .bar { gap: 10px; }
+  .glance { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .summary, .proposal-body { grid-template-columns: minmax(0, 1fr); }
+  .conversation { max-height: 70vh; }
+  h1 { font-size: 25px; }
+}
+</style>
+
+<div class="app">
+  <aside class="side" id="side" aria-label="Mila"></aside>
+  <div class="content">
+    <header class="bar">
+      <button type="button" class="icon-button menu-button" data-do="side-toggle" aria-label="Show the sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      <nav class="crumbs" id="crumbs" aria-label="Where you are"></nav>
+      <div class="spacer"></div>
+      <label class="prototype-tag" for="example">Prototype example:
+        <select id="example" class="example-switch">
+          <option value="full">Projects and chats</option>
+          <option value="chats">Chats only</option>
+        </select>
+      </label>
+    </header>
+    <main class="main" id="main"><div class="main-inner" id="view"></div></main>
+  </div>
+</div>
+<div class="scrim side-scrim" data-do="side-toggle" hidden></div>
+
+<div class="dock-fade" aria-hidden="true"></div>
+<div class="dock" id="dock">
+  <section class="conversation" aria-label="Conversation with Mila">
+    <div class="conversation-head">
+      <div class="conversation-context">
+        <div class="conversation-title" id="conversation-title"></div>
+        <div class="placement" id="placement"></div>
+      </div>
+      <button type="button" class="icon-button" id="expand" data-do="expand" aria-label="Open as a whole chat" title="Open as a whole chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
+      <button type="button" class="icon-button" data-do="new-conversation" aria-label="New conversation" title="New conversation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+      <button type="button" class="icon-button" data-do="lower" aria-label="Lower the conversation" title="Lower the conversation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+    </div>
+    <div class="messages" id="messages" aria-live="polite"></div>
+  </section>
+  <form class="composer" id="composer">
+    <svg class="composer-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 19 8.5 6 12 13.5 15.5 6 21 19"/></svg>
+    <label for="ask" hidden>Ask Mila</label>
+    <textarea id="ask" rows="1" placeholder="Ask Mila: open a project, see what changed, or start something new"></textarea>
+    <button type="submit" class="send" aria-label="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+  </form>
+  <div class="composer-note">Example replies: this page has no model behind it.</div>
+</div>
+<div id="layer"></div>
+
+<script>
+( () => {
+const minute = 60 * 1000;
+const now = Date.now();
+const markSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 19 8.5 6 12 13.5 15.5 6 21 19"/></svg>';
+const reduced = window.matchMedia( '(prefers-reduced-motion: reduce)' ).matches;
+
+// ---- Example work ------------------------------------------------------------------------------------------------
+
+const projects = {
+  calc: { name: 'Calculator app', purpose: 'A small calculator with a history panel, properly tested.', folder: '~/Projects/calc',
+    state: 'waiting', pulse: [ 0, 0, 1, 0, 2, 3, 0, 0, 1, 4, 2, 0, 5, 6 ], ago: 296,
+    understanding: { summary: 'The parser and its tests now live apart, and the suite covers parsing well. Division by zero has no cases yet. The history panel is designed but not built.',
+      questions: [ 'Should history survive a restart?', 'Integer division, or always decimals?' ],
+      next: 'Add the division-by-zero cases: step 3 of the test plan, waiting on you.', nextAction: [ 'continue', 't-tests', 'Answer and continue' ] },
+    threads: [ 't-tests', 't-history' ], made: [ 'm-parser', 'm-testing', 'm-history' ], plans: [ 'p-tidy' ], findings: [] },
+  formats: { name: 'Local LLMs on a 16 GB card', purpose: 'Which 4-bit format keeps answers good at long context.', folder: null,
+    state: 'active', pulse: [ 1, 2, 0, 3, 4, 2, 5, 3, 2, 0, 1, 3, 4, 2 ], ago: 1500,
+    understanding: { summary: 'Two formats compared on two models. They are within a point of each other at 8K tokens; past 32K one of them misses more retrieval questions.',
+      questions: [ 'Is the drift in the attention layers or the rest?', 'Does a larger model hide it?' ],
+      next: 'Finish the comparison table: the last answer was cut short.', nextAction: [ 'continue', 't-formats', 'Ask Mila to finish' ] },
+    threads: [ 't-formats', 't-drift' ], made: [ 'm-formats' ], plans: [], findings: [ 'f1', 'f2', 'f3' ] },
+  kyoto: { name: 'Kyoto in November', purpose: 'Three days for the autumn leaves, without the crowds.', folder: null,
+    state: 'quiet', pulse: [ 3, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ], ago: 6000,
+    understanding: { summary: 'An itinerary for three days: Higashiyama, Arashiyama, Fushimi Inari, each started early. Rail is still open.',
+      questions: [ 'One rail pass, or tickets per trip?' ], next: 'Nothing waiting. You edited the itinerary after Mila wrote it.', nextAction: null },
+    threads: [ 't-kyoto', 't-rail' ], made: [ 'm-itinerary' ], plans: [], findings: [ 'f4' ] },
+  garden: { name: 'Vegetable garden', purpose: 'Raised beds for next spring: what to plant, and when.', folder: null,
+    state: 'quiet', pulse: [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ], ago: 30000,
+    understanding: { summary: 'Three beds, mostly sun. Tomatoes, beans and greens, started indoors in March.', questions: [ 'Drip watering, or by hand?' ], next: 'Nothing waiting.', nextAction: null },
+    threads: [ 't-garden' ], made: [], plans: [], findings: [] },
+  thesis: { name: 'Reading group: memory in agents', purpose: 'Papers on how agents keep and use what they learn.', folder: null,
+    state: 'quiet', pulse: [ 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ], ago: 21000,
+    understanding: { summary: 'Four papers read; notes on two. Retrieval stores and kept model state are the two camps so far.', questions: [ 'Which to read next?' ], next: 'Nothing waiting.', nextAction: null },
+    threads: [ 't-papers' ], made: [], plans: [], findings: [] }
+};
+
+const threads = {
+  't-tests': { title: 'Tidy the calculator project’s tests', project: 'calc', kind: 'Working through a plan', ago: 300,
+    reply: 'Steps 1 and 2 are done: the parser cases are in tests/test_parser.py and the notes in TESTING.md. I stopped before step 3, adding cases for division by zero, because the plan asks you which result division by zero should give.' },
+  't-history': { title: 'Add a history panel', project: 'calc', kind: 'Building', ago: 2900, reply: 'I wrote down the design in docs/history-panel.md: the last 50 calculations, newest first, cleared on request.' },
+  't-formats': { title: 'Compare 4-bit formats for a 16 GB card', project: 'formats', kind: 'Researching', ago: 1500, cut: true,
+    reply: 'At 8K tokens the two formats are within a point of each other. Past 32K the picture changes: one format misses more of the retrieval questions, and the gap grows with' },
+  't-drift': { title: 'Why answers drift past 32K', project: 'formats', kind: 'Exploring', ago: 4400, reply: 'Long-context drift shows first in retrieval: a fact stated early is answered wrongly late.' },
+  't-kyoto': { title: 'Plan a three-day trip to Kyoto', project: 'kyoto', kind: 'Exploring', ago: 6000, reply: 'Day 1 Higashiyama, day 2 Arashiyama, day 3 Fushimi Inari, each started before eight.' },
+  't-rail': { title: 'Which rail pass for Kyoto and Nara?', project: 'kyoto', kind: 'Exploring', ago: 6100, reply: 'For three days within Kyoto and one trip to Nara, single tickets cost less than a regional pass.' },
+  't-garden': { title: 'What grows in three raised beds?', project: 'garden', kind: 'Exploring', ago: 30000, reply: 'With mostly sun: tomatoes, bush beans and salad greens, started indoors in March.' },
+  't-papers': { title: 'Summaries of the four memory papers', project: 'thesis', kind: 'Researching', ago: 21000, reply: 'Two camps: agents that retrieve from a store, and agents that keep their own state.' },
+  't-loops1': { title: 'How autonomous agents manage their own reasoning loops', project: null, kind: 'Exploring', ago: 20,
+    reply: 'A useful way in: what does an agent need to notice about itself? That it is repeating a call, that nothing has changed since the last step, or that it believes it is finished.' },
+  't-loops2': { title: 'How does an agent know it is stuck?', project: null, kind: 'Exploring', ago: 1600, reply: 'Two signals are mechanical: the same call made again with no change between, and a run of steps whose results never differ.' },
+  't-loops3': { title: 'Loop detection by repeated tool calls', project: null, kind: 'Exploring', ago: 5800, reply: 'Comparing a call’s tool and arguments with the ones before it catches the simplest loops.' },
+  't-kv': { title: 'Why does a KV cache make decoding faster?', project: null, kind: 'Exploring', ago: 120, reply: 'Keys and values of earlier tokens never change, so they are kept rather than recomputed.' },
+  't-regex': { title: 'A regular expression for ISO 8601 dates', project: null, kind: 'Exploring', ago: 8600, reply: 'For calendar dates alone: ^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$.' }
+};
+
+const made = {
+  'm-parser': { name: 'test_parser.py', path: 'calc/tests/test_parser.py', project: 'calc', thread: 't-tests', plan: 'p-tidy', step: 2,
+    read: [ 'tests/test_calc.py', 'src/parser.ts' ], writes: [ [ 302, 'Written' ], [ 296, 'Edited: two cases renamed' ] ], changed: false, ago: 296,
+    preview: 'def test_parses_nested_parentheses():\n    assert parse("(1 + (2 * 3))") == 7\n\ndef test_rejects_unbalanced():\n    with pytest.raises(ParseError):\n        parse("(1 + 2")' },
+  'm-testing': { name: 'TESTING.md', path: 'calc/TESTING.md', project: 'calc', thread: 't-tests', plan: 'p-tidy', step: 2,
+    read: [ 'tests/', 'README.md' ], writes: [ [ 299, 'Written' ] ], changed: false, ago: 299, preview: '# Tests\n\nParser cases live in tests/test_parser.py,\nevaluation cases in tests/test_calc.py.' },
+  'm-history': { name: 'history-panel.md', path: 'calc/docs/history-panel.md', project: 'calc', thread: 't-history', plan: null,
+    read: [ 'src/app.ts' ], writes: [ [ 2900, 'Written' ] ], changed: false, ago: 2900, preview: '# History panel\n\nThe last 50 calculations, newest first.' },
+  'm-formats': { name: 'formats-comparison.md', path: 'Documents/formats-comparison.md', project: 'formats', thread: 't-formats', plan: null,
+    read: [ 'Your measurements from Tuesday', 'The two models’ cards' ], writes: [ [ 1500, 'Written, unfinished' ] ], changed: false, ago: 1500,
+    preview: '| Depth | Format A | Format B |\n|------:|---------:|---------:|\n|    8K |     71.2 |     70.6 |\n|   32K |     66.0 |     61.4 |' },
+  'm-itinerary': { name: 'kyoto-itinerary.md', path: 'Documents/Trips/kyoto-itinerary.md', project: 'kyoto', thread: 't-kyoto', plan: null,
+    read: [ 'japan-guide.com', 'Your notes from 2019' ], writes: [ [ 6000, 'Written' ] ], changed: true, ago: 6000, preview: '## Day 1: Higashiyama\nKiyomizu-dera at opening, then down\nSannenzaka to Gion.' }
+};
+
+const plans = {
+  'p-tidy': { goal: 'Tidy the calculator project’s tests: group them, fill the gaps, make them pass.', project: 'calc', thread: 't-tests',
+    steps: [ [ 'Read the tests and list what each covers', 'done' ], [ 'Move the parser cases into their own file', 'done' ], [ 'Add cases for division by zero', 'now' ],
+      [ 'Run the suite and fix what fails', 'pending' ], [ 'Summarize the changes', 'pending' ] ],
+    runs: [ { ago: 300, end: 'Stopped at step 3: waiting for you' } ] }
+};
+
+const findings = {
+  f1: { text: 'At 8K tokens the two formats score within a point of each other.', sources: 'Your measurements, Tuesday' },
+  f2: { text: 'Past 32K, one format misses more retrieval questions, and the gap grows with depth.', sources: 'Your measurements, Wednesday' },
+  f3: { text: 'Either format fits a 12B model and 64K of context on a 16 GB card.', sources: 'Mila’s plan for this computer' },
+  f4: { text: 'Fushimi Inari is quietest before 8 in the morning.', sources: 'japan-guide.com' }
+};
+
+let notices = [
+  { id: 'n-proposal', kind: 'proposal', name: 'Agent reasoning loops', purpose: 'How autonomous agents notice, manage and end their own reasoning loops.',
+    threads: [ 't-loops1', 't-loops2', 't-loops3' ], text: 'Three of your chats keep returning to how agents manage their own reasoning. They could become one project.' },
+  { id: 'n-tests', kind: 'waiting', thread: 't-tests', project: 'calc', title: 'Tidy the calculator project’s tests',
+    text: 'Stopped at step 3 of 5: Add cases for division by zero. Mila needs to know what division by zero should give.', action: 'Answer and continue' },
+  { id: 'n-formats', kind: 'waiting', thread: 't-formats', project: 'formats', title: 'Compare 4-bit formats', text: 'The last answer was cut short, mid-table.', action: 'Ask Mila to finish' },
+  { id: 'n-itinerary', kind: 'changed', made: 'm-itinerary', project: 'kyoto', title: 'kyoto-itinerary.md',
+    text: 'Changed on disk after Mila wrote it. Mila will read your version before writing again.', action: 'Where it came from' }
+];
+
+const events = [
+  { ago: 20, who: 'you', type: 'conversation', text: 'Started a chat: How autonomous agents manage their own reasoning loops', open: [ 'thread', 't-loops1' ] },
+  { ago: 120, who: 'you', type: 'conversation', text: 'Asked: Why does a KV cache make decoding faster?', open: [ 'thread', 't-kv' ] },
+  { ago: 296, who: 'mila', type: 'creation', text: 'Edited test_parser.py', project: 'calc', open: [ 'made', 'm-parser' ] },
+  { ago: 299, who: 'mila', type: 'creation', text: 'Wrote TESTING.md', project: 'calc', open: [ 'made', 'm-testing' ] },
+  { ago: 300, who: 'mila', type: 'plan', text: 'Stopped at step 3 of the test plan to ask you', project: 'calc', open: [ 'plan', 'p-tidy' ] },
+  { ago: 302, who: 'mila', type: 'creation', text: 'Wrote test_parser.py', project: 'calc', open: [ 'made', 'm-parser' ] },
+  { ago: 310, who: 'you', type: 'decision', text: 'Approved a plan of 5 steps', project: 'calc', open: [ 'plan', 'p-tidy' ] },
+  { ago: 1500, who: 'mila', type: 'creation', text: 'Wrote formats-comparison.md, unfinished', project: 'formats', open: [ 'made', 'm-formats' ] },
+  { ago: 1505, who: 'mila', type: 'discovery', text: 'Found: past 32K, one format misses more retrieval questions', project: 'formats', open: [ 'project', 'formats' ] },
+  { ago: 1600, who: 'you', type: 'conversation', text: 'Started a chat: How does an agent know it is stuck?', open: [ 'thread', 't-loops2' ] },
+  { ago: 2900, who: 'mila', type: 'creation', text: 'Wrote history-panel.md', project: 'calc', open: [ 'made', 'm-history' ] },
+  { ago: 4400, who: 'you', type: 'conversation', text: 'Started a chat: Why answers drift past 32K', project: 'formats', open: [ 'thread', 't-drift' ] },
+  { ago: 4420, who: 'you', type: 'decision', text: 'Moved “Why answers drift past 32K” into Local LLMs on a 16 GB card', project: 'formats', open: [ 'project', 'formats' ] },
+  { ago: 5800, who: 'you', type: 'conversation', text: 'Started a chat: Loop detection by repeated tool calls', open: [ 'thread', 't-loops3' ] },
+  { ago: 6000, who: 'mila', type: 'creation', text: 'Wrote kyoto-itinerary.md', project: 'kyoto', open: [ 'made', 'm-itinerary' ] },
+  { ago: 6050, who: 'you', type: 'decision', text: 'Accepted Mila’s suggestion: made the project Kyoto in November', project: 'kyoto', open: [ 'project', 'kyoto' ] },
+  { ago: 6060, who: 'mila', type: 'discovery', text: 'Found: Fushimi Inari is quietest before 8 in the morning', project: 'kyoto', open: [ 'project', 'kyoto' ] },
+  { ago: 21000, who: 'you', type: 'conversation', text: 'Asked for summaries of the four memory papers', project: 'thesis', open: [ 'thread', 't-papers' ] },
+  { ago: 30000, who: 'you', type: 'conversation', text: 'Asked what grows in three raised beds', project: 'garden', open: [ 'thread', 't-garden' ] }
+];
+
+// ---- State -------------------------------------------------------------------------------------------------------
+
+const state = {
+  view: 'workspace',          // workspace | projects | project | chats | chat | activity
+  project: null,
+  chat: null,
+  example: 'full',            // full | chats: the prototype's own switch, a workspace with projects or with chats alone
+  projectsQuery: '', projectsFilter: 'all', projectsSort: 'recent',
+  chatsQuery: '', chatsFilter: 'all',
+  activityFilter: 'all',
+  conversation: null,         // { thread, placing, messages }
+  open: false,                // the conversation risen over the pane
+  arriving: null,
+  undo: null
+};
+let nextThread = 1;
+
+// ---- Words -------------------------------------------------------------------------------------------------------
+
+function escapeText( text )
+{
+  return String( text ).replace( /[&<>"']/g, ( c ) => ( { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } )[ c ] );
+}
+
+/** Text from the page's own reply markup, for a one-line preview. */
+function plainText( html )
+{
+  const holder = document.createElement( 'div' );
+  holder.innerHTML = html;
+
+  return holder.textContent.replace( /\s+/g, ' ' ).trim();
+}
+
+const weekday = new Intl.DateTimeFormat( 'en-US', { weekday: 'long' } );
+const monthDay = new Intl.DateTimeFormat( 'en-US', { month: 'short', day: 'numeric' } );
+const clock = new Intl.DateTimeFormat( 'en-US', { hour: 'numeric', minute: '2-digit' } );
+const longDate = new Intl.DateTimeFormat( 'en-US', { weekday: 'long', month: 'long', day: 'numeric' } );
+
+function dayStart( time ) { const d = new Date( time ); return new Date( d.getFullYear(), d.getMonth(), d.getDate() ).getTime(); }
+
+function when( ago )
+{
+  const time = now - ago * minute;
+  const today = dayStart( now );
+
+  if ( ago < 1 ) return 'Just now';
+  if ( ago < 60 ) return ago + ' min ago';
+  if ( time >= today ) return Math.floor( ago / 60 ) + ' h ago';
+  if ( time >= today - 864e5 ) return 'Yesterday';
+  if ( time >= today - 6 * 864e5 ) return weekday.format( time );
+
+  return monthDay.format( time );
+}
+
+function dayLabel( ago )
+{
+  const time = now - ago * minute;
+  const today = dayStart( now );
+
+  if ( time >= today ) return 'Today';
+  if ( time >= today - 864e5 ) return 'Yesterday';
+
+  return longDate.format( time );
+}
+
+function stateLabel( value ) { return { waiting: 'Waiting on you', active: 'Active', quiet: 'Quiet' }[ value ]; }
+
+function latestOf( id )
+{
+  const event = events.find( ( item ) => item.project === id );
+
+  return event ? event.text + ' · ' + when( event.ago ) : 'Nothing yet';
+}
+
+function seeds() { return Object.entries( threads ).filter( ( [ , thread ] ) => thread.project === null ).sort( ( a, b ) => a[ 1 ].ago - b[ 1 ].ago ); }
+function waitingNotices() { return notices.filter( ( item ) => item.kind === 'waiting' ); }
+function projectsByRecent() { return Object.entries( projects ).sort( ( a, b ) => a[ 1 ].ago - b[ 1 ].ago ); }
+
+// ---- The workspace -------------------------------------------------------------------------------------------------
+
+function renderWorkspace()
+{
+  const waiting = waitingNotices();
+  const forming = seeds();
+  const all = projectsByRecent();
+  const active = all.filter( ( [ , project ] ) => project.state !== 'quiet' ).length;
+
+  const chatCount = Object.keys( threads ).length;
+  let html = '<div class="eyebrow">' + escapeText( longDate.format( now ) ) + '</div><h1>Your Workspace</h1>';
+
+  // With no project yet the workspace is its chats, and says so first.
+  const chatsFigure = figure( chatCount, 'Chats', all.length ? forming.length + ' not in a project' : 'Newest: ' + ( forming[ 0 ] ? forming[ 0 ][ 1 ].title : 'none yet' ), 'all-chats', null );
+  const projectsFigure = all.length ? figure( all.length, 'Projects', active + ' with work under way', 'projects', null ) : '';
+  const waitingFigure = figure( waiting.length, 'Waiting on you', waiting.map( ( item ) => projects[ item.project ].name ).join( ', ' ) || 'Nothing right now', 'noticed', waiting.length ? 'attention' : null );
+
+  html += '<div class="section" style="margin-top:18px"><div class="section-head"><h2>At a glance</h2></div><div class="glance" style="margin-top:0">'
+    + ( all.length ? projectsFigure + waitingFigure + chatsFigure : chatsFigure + waitingFigure )
+    + '</div></div>';
+
+  if ( state.undo )
+    html += '<div class="section"><div class="notice arrive"><div class="notice-text">' + escapeText( state.undo.text ) + '</div><div class="notice-actions"><button type="button" class="button quiet" data-do="undo">Undo</button></div></div></div>';
+
+  if ( notices.length )
+  {
+    html += '<div class="section" id="noticed"><div class="section-head"><h2>Needs you, and what Mila noticed</h2></div><div class="notices">';
+
+    for ( const notice of notices )
+      html += renderNotice( notice );
+
+    html += '</div></div>';
+  }
+
+  if ( all.length )
+  {
+    html += '<div class="section" id="recent-projects"><div class="section-head"><h2>Recent projects</h2><button type="button" class="link" data-do="all-projects">All ' + all.length + ' projects</button></div><div class="projects">';
+
+    for ( const [ id, project ] of all.slice( 0, 3 ) )
+      html += renderProjectCard( id, project );
+
+    html += '</div></div>';
+  }
+
+  const proposal = notices.find( ( item ) => item.kind === 'proposal' );
+  const related = proposal ? proposal.threads : [];
+  const note = all.length ? 'Not in a project' : 'Each one stands on its own';
+
+  html += '<div class="section" id="chats"><div class="section-head"><h2>Chats</h2><span class="section-note">' + note + ' · <button type="button" class="link" data-do="all-chats">All ' + chatCount + ' chats</button></span></div>';
+
+  if ( forming.length )
+  {
+    html += '<div class="rows">';
+
+    for ( const [ id, thread ] of forming.slice( 0, 5 ) )
+      html += chatRow( id, thread, related.includes( id ), false );
+
+    html += '</div>';
+  }
+  else
+  {
+    html += '<div class="rows"><div class="empty">Every chat is in a project. Start a new one below.</div></div>';
+  }
+
+  html += '</div>';
+
+  return html;
+}
+
+/** A chat as a row: its title, the start of Mila's last reply, where it is, and when. */
+function chatRow( id, thread, related, withProject )
+{
+  const lastReply = thread.messages ? [ ...thread.messages ].reverse().find( ( message ) => message.who === 'mila' ) : null;
+  const preview = lastReply ? plainText( lastReply.html ) : thread.reply;
+  const where = withProject ? ( thread.project ? projects[ thread.project ].name + ' · ' : 'No project · ' ) : '';
+  const mark = related ? '<span class="related-mark" title="Mila sees this as part of a bigger topic"></span>' : '';
+
+  return '<button type="button" class="row chat-row' + ( state.arriving === id ? ' arrive' : '' ) + '" data-do="open-thread" data-id="' + id + '" data-seed="' + id + '">'
+    + '<span class="row-main"><div class="row-title">' + mark + escapeText( thread.title ) + '</div><div class="row-sub chat-preview">' + escapeText( where ) + escapeText( preview || 'New chat' ) + '</div></span>'
+    + '<span class="row-when">' + when( thread.ago ) + '</span></button>';
+}
+
+function figure( value, label, note, target, modifier )
+{
+  const action = target === 'projects' ? 'all-projects' : target === 'all-chats' ? 'all-chats' : 'section';
+
+  return '<button type="button" class="figure' + ( modifier ? ' ' + modifier : '' ) + '" data-do="' + action + '" data-id="' + target + '">'
+    + '<span class="figure-value">' + value + '</span><span class="figure-label">' + escapeText( label ) + '</span><span class="figure-note">' + escapeText( note ) + '</span></button>';
+}
+
+function renderNotice( notice )
+{
+  if ( notice.kind === 'proposal' )
+  {
+    const joined = notice.threads.map( ( id ) => '<div class="joined">' + escapeText( threads[ id ].title ) + '</div>' ).join( '' );
+
+    return '<div class="notice proposal"><div class="notice-kind">' + markSvg.replace( 'aria-hidden', 'width="13" height="13" aria-hidden' ) + 'Mila noticed</div>'
+      + '<div class="notice-text">' + escapeText( notice.text ) + '</div>'
+      + '<div class="proposal-body"><div><label class="label" for="proposal-name">Project name</label><input id="proposal-name" class="proposal-name" value="' + escapeText( notice.name ) + '"><div class="notice-text" style="margin-top:6px;font-size:13px">' + escapeText( notice.purpose ) + '</div></div>'
+      + '<div class="proposal-threads"><span class="label">Would gather</span>' + joined + '</div></div>'
+      + '<div class="notice-actions"><button type="button" class="button primary" data-do="make-project" data-id="' + notice.id + '">Make the project</button><button type="button" class="button quiet" data-do="dismiss" data-id="' + notice.id + '">Not now</button></div></div>';
+  }
+
+  const kind = notice.kind === 'waiting' ? 'Needs you' : 'Changed';
+  const action = notice.kind === 'changed'
+    ? '<button type="button" class="button" data-do="open-made" data-id="' + notice.made + '">' + escapeText( notice.action ) + '</button>'
+    : '<button type="button" class="button" data-do="continue" data-id="' + notice.thread + '">' + escapeText( notice.action ) + '</button>';
+
+  return '<div class="notice ' + notice.kind + '"><div class="notice-kind">' + kind + ' · ' + escapeText( projects[ notice.project ].name ) + '</div><div class="notice-title">' + escapeText( notice.title ) + '</div>'
+    + '<div class="notice-text">' + escapeText( notice.text ) + '</div><div class="notice-actions">' + action + '</div></div>';
+}
+
+function renderProjectCard( id, project )
+{
+  const max = Math.max( 1, ...project.pulse );
+  const bars = project.pulse.map( ( value ) => '<i style="height:' + Math.round( 100 * value / max ) + '%"></i>' ).join( '' );
+  const counts = project.threads.length + ' chats · ' + project.made.length + ' made';
+
+  return '<button type="button" class="project-card' + ( state.arriving === id ? ' arrive' : '' ) + '" data-do="open-project" data-id="' + id + '" data-card="' + id + '">'
+    + '<div class="project-top"><div><div class="project-name">' + escapeText( project.name ) + '</div><div class="project-purpose">' + escapeText( project.purpose ) + '</div></div>'
+    + '<span class="state ' + project.state + '">' + stateLabel( project.state ) + '</span></div>'
+    + '<div class="pulse" aria-label="Activity over the last two weeks">' + bars + '</div>'
+    + '<div class="project-foot"><span class="project-latest">' + escapeText( latestOf( id ) ) + '</span><span class="counts">' + counts + '</span></div></button>';
+}
+
+function renderFile( id, item, withProject )
+{
+  const where = ( withProject ? projects[ item.project ].name + ' · ' : '' ) + when( item.ago );
+  const changed = item.changed ? '<span class="changed"> · changed since</span>' : '';
+
+  return '<button type="button" class="file" data-do="open-made" data-id="' + id + '"><span class="file-name">' + escapeText( item.name ) + '</span><span class="file-where">' + escapeText( where ) + changed + '</span></button>';
+}
+
+// ---- All projects ---------------------------------------------------------------------------------------------------
+
+function shownProjects()
+{
+  const query = state.projectsQuery.toLowerCase();
+  let list = Object.entries( projects ).filter( ( [ , project ] ) =>
+    ( state.projectsFilter === 'all' || project.state === state.projectsFilter )
+    && ( !query || project.name.toLowerCase().includes( query ) || project.purpose.toLowerCase().includes( query ) ) );
+
+  list.sort( state.projectsSort === 'name' ? ( a, b ) => a[ 1 ].name.localeCompare( b[ 1 ].name ) : ( a, b ) => a[ 1 ].ago - b[ 1 ].ago );
+
+  return list;
+}
+
+function renderProjectsTable()
+{
+  const list = shownProjects();
+  let rows = '<div class="table-row table-head"><span>Project</span><span>State</span><span class="cell-latest">Latest</span><span class="cell-counts">Contents</span></div>';
+
+  for ( const [ id, project ] of list )
+    rows += '<button type="button" class="table-row" data-do="open-project" data-id="' + id + '"><span style="min-width:0"><div class="cell-name">' + escapeText( project.name ) + '</div><div class="cell-sub">' + escapeText( project.purpose ) + '</div></span>'
+      + '<span><span class="state ' + project.state + '">' + stateLabel( project.state ) + '</span></span><span class="cell-latest">' + escapeText( latestOf( id ) ) + '</span>'
+      + '<span class="cell-counts">' + project.threads.length + ' chats<br>' + project.made.length + ' made</span></button>';
+
+  if ( list.length === 0 )
+    rows += '<div class="empty">No project matches. Ask Mila to start one.</div>';
+
+  return rows;
+}
+
+function renderProjects()
+{
+  const filters = [ [ 'all', 'All' ], [ 'waiting', 'Waiting on you' ], [ 'active', 'Active' ], [ 'quiet', 'Quiet' ] ];
+  let html = '<div class="eyebrow">Your Workspace</div><h1>All projects</h1><p class="lead">Every project in your workspace. Choose one to open it, or ask Mila to find it.</p><div class="tools">'
+    + '<label for="project-search" hidden>Search projects</label><input id="project-search" class="search" placeholder="Search projects" value="' + escapeText( state.projectsQuery ) + '" autocomplete="off">';
+
+  for ( const [ value, label ] of filters )
+    html += '<button type="button" class="filter" data-do="projects-filter" data-value="' + value + '" aria-pressed="' + ( state.projectsFilter === value ) + '">' + label + '</button>';
+
+  html += '<label for="project-sort" hidden>Sort</label><select id="project-sort" class="sort"><option value="recent"' + ( state.projectsSort === 'recent' ? ' selected' : '' ) + '>Most recent</option><option value="name"' + ( state.projectsSort === 'name' ? ' selected' : '' ) + '>By name</option></select></div>';
+  html += '<div class="table" id="projects-table">' + renderProjectsTable() + '</div>';
+
+  return html;
+}
+
+// ---- All chats, and one chat with the pane to itself ---------------------------------------------------------------
+
+function shownChats()
+{
+  const query = state.chatsQuery.toLowerCase();
+
+  return Object.entries( threads ).filter( ( [ , thread ] ) =>
+    ( state.chatsFilter === 'all' || ( state.chatsFilter === 'loose' ? thread.project === null : thread.project !== null ) )
+    && ( !query || thread.title.toLowerCase().includes( query ) || ( thread.reply || '' ).toLowerCase().includes( query ) ) )
+    .sort( ( a, b ) => a[ 1 ].ago - b[ 1 ].ago );
+}
+
+function renderChatList()
+{
+  const list = shownChats();
+
+  if ( list.length === 0 )
+    return '<div class="empty">No chat matches.</div>';
+
+  return list.map( ( [ id, thread ] ) => chatRow( id, thread, false, Object.keys( projects ).length > 0 ) ).join( '' );
+}
+
+function renderChats()
+{
+  const filters = Object.keys( projects ).length ? [ [ 'all', 'All' ], [ 'loose', 'Not in a project' ], [ 'placed', 'In a project' ] ] : [];
+  let html = '<div class="eyebrow">Your Workspace</div><h1>All chats</h1><p class="lead">Every chat, newest first. Choose one to open it, or ask Mila to find it.</p><div class="tools">'
+    + '<label for="chat-search" hidden>Search chats</label><input id="chat-search" class="search" placeholder="Search chats" value="' + escapeText( state.chatsQuery ) + '" autocomplete="off">';
+
+  for ( const [ value, label ] of filters )
+    html += '<button type="button" class="filter" data-do="chats-filter" data-value="' + value + '" aria-pressed="' + ( state.chatsFilter === value ) + '">' + label + '</button>';
+
+  html += '</div><div class="rows" id="chats-list" style="margin-top:14px">' + renderChatList() + '</div>';
+
+  return html;
+}
+
+function chatMessages( id )
+{
+  const thread = threads[ id ];
+
+  if ( !thread.messages )
+  {
+    const ending = thread.cut ? '<p class="row-sub">The answer was cut short here.</p>' : '';
+    thread.messages = [ { who: 'you', text: thread.title }, { who: 'mila', html: '<p>' + escapeText( thread.reply ) + '</p>' + ending } ];
+  }
+
+  return thread.messages;
+}
+
+function renderChat( id )
+{
+  const thread = threads[ id ];
+  const where = thread.project
+    ? 'In <button type="button" class="link" data-do="open-project" data-id="' + thread.project + '">' + escapeText( projects[ thread.project ].name ) + '</button>'
+    : 'Not in a project';
+
+  return '<div class="chat-view"><div class="chat-head"><div class="eyebrow">Chat</div><h1 class="chat-title">' + escapeText( thread.title ) + '</h1>'
+    + '<div class="placement chat-placement">' + where + ' · ' + when( thread.ago ) + '</div></div>'
+    + '<div class="chat-messages">' + chatMessages( id ).map( renderMessage ).join( '' ) + '</div></div>';
+}
+
+// ---- Activity -------------------------------------------------------------------------------------------------------
+
+function renderActivity()
+{
+  const types = [ [ 'all', 'Everything' ], [ 'decision', 'Decisions' ], [ 'creation', 'Creations' ], [ 'plan', 'Plans' ], [ 'discovery', 'Discoveries' ], [ 'conversation', 'Conversations' ] ];
+  let html = '<div class="eyebrow">Your Workspace</div><h1>Activity</h1><p class="lead">Everything that happened across your projects, newest first.</p><div class="tools">';
+
+  for ( const [ value, label ] of types )
+    html += '<button type="button" class="filter" data-do="activity-filter" data-value="' + value + '" aria-pressed="' + ( state.activityFilter === value ) + '">' + label + '</button>';
+
+  html += '</div>';
+
+  const exists = ( event ) => ( !event.project || projects[ event.project ] ) && ( event.open[ 0 ] !== 'thread' || threads[ event.open[ 1 ] ] )
+    && ( event.open[ 0 ] !== 'made' || projects[ made[ event.open[ 1 ] ].project ] );
+  const shown = events.filter( ( event ) => exists( event ) && ( state.activityFilter === 'all' || event.type === state.activityFilter ) ).sort( ( a, b ) => a.ago - b.ago );
+  let current = null;
+
+  for ( const event of shown )
+  {
+    const day = dayLabel( event.ago );
+
+    if ( day !== current )
+    {
+      html += ( current === null ? '' : '</div></div>' ) + '<div class="day"><h2>' + escapeText( day ) + '</h2><div class="timeline">';
+      current = day;
+    }
+
+    const where = event.project && projects[ event.project ] ? projects[ event.project ].name : 'Chats';
+    html += '<div class="event ' + event.who + '"><span class="event-time">' + escapeText( clock.format( now - event.ago * minute ) ) + '</span>'
+      + '<div class="event-text"><button type="button" class="link" data-do="open-' + event.open[ 0 ] + '" data-id="' + event.open[ 1 ] + '">' + escapeText( event.text ) + '</button>'
+      + '<div class="event-where">' + ( event.who === 'mila' ? 'Mila' : 'You' ) + ' · ' + escapeText( where ) + '</div></div></div>';
+  }
+
+  if ( current !== null )
+    html += '</div></div>';
+
+  return html;
+}
+
+// ---- A project: its summary first --------------------------------------------------------------------------------
+
+function renderProject( id )
+{
+  const project = projects[ id ];
+  const understanding = project.understanding;
+  const nav = [ [ 'threads', 'Chats', project.threads.length ], [ 'made-here', 'Made', project.made.length ], [ 'plans', 'Plans', project.plans.length ],
+    [ 'findings', 'Findings', project.findings.length ], [ 'history', 'History', null ] ];
+
+  let html = '<div class="project-view"><nav class="project-nav" aria-label="This project"><div class="nav-title">In this project</div>'
+    + '<button type="button" data-do="scroll-to" data-id="overview"><span>Overview</span><span></span></button>';
+
+  for ( const [ anchor, label, count ] of nav )
+    html += '<button type="button" data-do="scroll-to" data-id="' + anchor + '"><span>' + label + '</span><span class="nav-count">' + ( count === null ? '' : count ) + '</span></button>';
+
+  html += '</nav><div class="project-main"><div id="overview">';
+
+  html += '<div class="eyebrow">Project</div><h1>' + escapeText( project.name ) + '</h1><p class="lead">' + escapeText( project.purpose ) + '</p>'
+    + '<div class="project-meta"><span class="state ' + project.state + '">' + stateLabel( project.state ) + '</span>' + ( project.folder ? '<span class="chip">' + escapeText( project.folder ) + '</span>' : '' )
+    + '<span class="row-sub">Latest: ' + escapeText( latestOf( id ) ) + '</span></div>';
+
+  html += '<div class="glance">'
+    + figure( project.threads.length, 'Chats', 'In this project', 'threads', null )
+    + figure( project.made.length, 'Made', project.made.length ? made[ project.made[ 0 ] ].name : 'Nothing yet', 'made-here', null )
+    + figure( project.plans.length, 'Plans', project.plans.length ? 'Stopped at step 3 of 5' : 'None', 'plans', project.state === 'waiting' ? 'attention' : null )
+    + figure( project.findings.length, 'Findings', project.findings.length ? 'With their sources' : 'None yet', 'findings', null )
+    + '</div>';
+
+  const action = understanding.nextAction
+    ? '<div class="next-action"><button type="button" class="button primary" data-do="' + understanding.nextAction[ 0 ] + '" data-id="' + understanding.nextAction[ 1 ] + '">' + escapeText( understanding.nextAction[ 2 ] ) + '</button></div>'
+    : '';
+
+  html += '<div class="summary"><div><span class="label">What Mila understands</span><p>' + escapeText( understanding.summary ) + '</p>'
+    + ( understanding.questions.length ? '<div style="margin-top:12px"><span class="label">Open questions</span><ul>' + understanding.questions.map( ( q ) => '<li>' + escapeText( q ) + '</li>' ).join( '' ) + '</ul></div>' : '' ) + '</div>'
+    + '<div><span class="label">Next</span><p>' + escapeText( understanding.next ) + '</p>' + action + '</div></div></div>';
+
+  html += '<div class="section" id="threads"><div class="section-head"><h2>Chats</h2></div><div class="rows">';
+
+  for ( const threadId of project.threads )
+  {
+    const thread = threads[ threadId ];
+    html += '<button type="button" class="row" data-do="open-thread" data-id="' + threadId + '"><span class="row-main"><div class="row-title">' + escapeText( thread.title ) + '</div><div class="row-sub">' + escapeText( thread.kind ) + '</div></span><span class="row-when">' + when( thread.ago ) + '</span></button>';
+  }
+
+  html += '</div></div>';
+
+  if ( project.made.length )
+  {
+    html += '<div class="section" id="made-here"><div class="section-head"><h2>Made</h2></div><div class="made">';
+
+    for ( const madeId of project.made )
+      html += renderFile( madeId, made[ madeId ], false );
+
+    html += '</div></div>';
+  }
+
+  if ( project.plans.length )
+  {
+    html += '<div class="section" id="plans"><div class="section-head"><h2>Plans</h2></div><div class="rows">';
+
+    for ( const planId of project.plans )
+    {
+      const plan = plans[ planId ];
+      const done = plan.steps.filter( ( step ) => step[ 1 ] === 'done' ).length;
+      html += '<button type="button" class="row" data-do="open-plan" data-id="' + planId + '"><span class="row-main" style="flex:1"><div class="row-title">' + escapeText( plan.goal ) + '</div><div class="row-sub">' + done + ' of ' + plan.steps.length + ' steps · ' + escapeText( plan.runs[ 0 ].end ) + '</div><div class="bar-track"><div class="bar-fill" style="width:' + ( 100 * done / plan.steps.length ) + '%"></div></div></span><span class="row-when">' + when( plan.runs[ 0 ].ago ) + '</span></button>';
+    }
+
+    html += '</div></div>';
+  }
+
+  if ( project.findings.length )
+  {
+    html += '<div class="section" id="findings"><div class="section-head"><h2>Findings</h2></div><div class="rows">';
+
+    for ( const findingId of project.findings )
+      html += '<div class="finding"><div>' + escapeText( findings[ findingId ].text ) + '</div><div class="finding-sources">From ' + escapeText( findings[ findingId ].sources ) + '</div></div>';
+
+    html += '</div></div>';
+  }
+
+  html += '<div class="section" id="history"><div class="section-head"><h2>History</h2></div><div class="timeline">';
+
+  for ( const event of events.filter( ( item ) => item.project === id ) )
+    html += '<div class="event ' + event.who + '"><span class="event-time">' + escapeText( when( event.ago ) ) + '</span><div class="event-text"><button type="button" class="link" data-do="open-' + event.open[ 0 ] + '" data-id="' + event.open[ 1 ] + '">' + escapeText( event.text ) + '</button><div class="event-where">' + ( event.who === 'mila' ? 'Mila' : 'You' ) + '</div></div></div>';
+
+  html += '</div></div></div></div>';
+
+  return html;
+}
+
+// ---- Rendering ------------------------------------------------------------------------------------------------------
+
+const icon = ( body ) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + body + '</svg>';
+const icons = {
+  workspace: icon( '<rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/>' ),
+  projects: icon( '<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>' ),
+  chats: icon( '<path d="M20 12a7.5 7.5 0 0 1-11 6.6L4.5 20l1.3-4.2A7.5 7.5 0 1 1 20 12z"/>' ),
+  activity: icon( '<path d="M3.5 12h4l2.5-6 4 12 2.5-6h4"/>' ),
+  search: icon( '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4-4"/>' ),
+  settings: icon( '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>' ),
+  plus: icon( '<path d="M12 5v14M5 12h14"/>' ),
+  chevrons: icon( '<path d="m8 9 4-4 4 4M16 15l-4 4-4-4"/>' )
+};
+const shortcut = /Mac|iPhone|iPad/.test( navigator.platform || navigator.userAgent ) ? '⌘K' : 'Ctrl K';
+
+function sideItem( action, id, label, iconName, current, trailing )
+{
+  return '<button type="button" class="side-item" data-do="' + action + '"' + ( id ? ' data-id="' + id + '"' : '' ) + ( current ? ' aria-current="page"' : '' ) + '>'
+    + ( iconName ? icons[ iconName ] : '' ) + '<span class="side-label">' + label + '</span>' + ( trailing ?? '' ) + '</button>';
+}
+
+/** The sidebar: always the same places, and the project or chat you are in marked among them. */
+function renderSide()
+{
+  const view = state.view;
+  const all = projectsByRecent();
+  const chatCount = Object.keys( threads ).length;
+  const count = ( value ) => '<span class="side-count">' + value + '</span>';
+  // One workspace for each person (Todd, 2026-11-16): it is named here and switches nothing.
+  let html = '<button type="button" class="side-workspace" data-do="workspace"><span class="side-mark">' + markSvg + '</span>'
+    + '<span class="side-name"><b>Your Workspace</b><span>Mila Assistant</span></span></button>';
+
+  html += sideItem( 'palette', null, 'Search', 'search', false, '<kbd>' + shortcut + '</kbd>' );
+  html += '<div class="side-rule"></div>';
+  html += sideItem( 'workspace', null, 'Workspace', 'workspace', view === 'workspace' );
+  html += sideItem( 'all-projects', null, 'Projects', 'projects', view === 'projects', count( all.length ) );
+  html += sideItem( 'all-chats', null, 'Chats', 'chats', view === 'chats', count( chatCount ) );
+  html += sideItem( 'activity', null, 'Activity', 'activity', view === 'activity' );
+
+  if ( all.length )
+  {
+    html += '<div class="side-title"><span>Projects</span><span>' + all.length + '</span></div>';
+
+    for ( const [ id, project ] of all.slice( 0, 5 ) )
+      html += sideItem( 'open-project', id, escapeText( project.name ), null, view === 'project' && state.project === id ).replace( '<span class="side-label">', '<span class="side-dot ' + project.state + '"></span><span class="side-label">' );
+
+    html += sideItem( 'new-project', null, 'New project', 'plus', false ).replace( 'class="side-item"', 'class="side-item side-quiet"' );
+  }
+
+  const recent = Object.entries( threads ).sort( ( a, b ) => a[ 1 ].ago - b[ 1 ].ago ).slice( 0, 4 );
+  html += '<div class="side-title"><span>Recent chats</span></div>';
+
+  for ( const [ id, thread ] of recent )
+    html += sideItem( 'open-thread', id, escapeText( thread.title ), null, view === 'chat' && state.chat === id ).replace( '<span class="side-label">', '<span class="side-dot" style="background:transparent;border:1.5px solid var(--ink-3)"></span><span class="side-label">' );
+
+  html += '<div class="side-foot">' + sideItem( 'settings', null, 'Settings', 'settings', false )
+    + '<button type="button" class="side-item side-model" data-do="model" aria-haspopup="dialog"><span class="dot"></span><span class="side-label">Gemma 4 12B</span><span>Model</span></button>'
+    + '<button type="button" class="side-user" data-do="user-menu" aria-haspopup="menu"><span class="avatar">TT</span><span class="side-name"><b>Todd Thomson</b><span>Workspace owner</span></span><span class="side-chevrons">' + icons.chevrons + '</span></button></div>';
+
+  document.getElementById( 'side' ).innerHTML = html;
+}
+
+function renderCrumbs()
+{
+  const home = icons.workspace + '<button type="button" data-do="workspace">Your Workspace</button><span>/</span>';
+  const here = ( text ) => '<span class="here">' + escapeText( text ) + '</span>';
+
+  if ( state.view === 'project' ) return home + '<button type="button" data-do="all-projects">Projects</button><span>/</span>' + here( projects[ state.project ].name );
+  if ( state.view === 'projects' ) return home + here( 'Projects' );
+  if ( state.view === 'chats' ) return home + here( 'Chats' );
+  if ( state.view === 'activity' ) return home + here( 'Activity' );
+
+  if ( state.view === 'chat' )
+  {
+    const thread = threads[ state.chat ];
+    const place = thread.project
+      ? '<button type="button" data-do="open-project" data-id="' + thread.project + '">' + escapeText( projects[ thread.project ].name ) + '</button><span>/</span>'
+      : '<button type="button" data-do="all-chats">Chats</button><span>/</span>';
+
+    return home + place + here( thread.title );
+  }
+
+  return icons.workspace + here( 'Your Workspace' );
+}
+
+let lastView = null;
+
+function render()
+{
+  const view = document.getElementById( 'view' );
+  const key = state.view + ':' + state.project + ':' + state.chat;
+  const main = document.getElementById( 'main' );
+
+  if ( state.view === 'activity' ) view.innerHTML = renderActivity();
+  else if ( state.view === 'projects' ) view.innerHTML = renderProjects();
+  else if ( state.view === 'project' ) view.innerHTML = renderProject( state.project );
+  else if ( state.view === 'chats' ) view.innerHTML = renderChats();
+  else if ( state.view === 'chat' ) view.innerHTML = renderChat( state.chat );
+  else view.innerHTML = renderWorkspace();
+
+  if ( key !== lastView )
+  {
+    view.classList.remove( 'view-enter' );
+    void view.offsetWidth;
+    view.classList.add( 'view-enter' );
+    main.scrollTop = 0;
+    lastView = key;
+  }
+
+  // A chat reads to its latest turn.
+  if ( state.view === 'chat' )
+    main.scrollTop = main.scrollHeight;
+
+  document.getElementById( 'crumbs' ).innerHTML = renderCrumbs();
+  renderSide();
+
+  wireProjectTools();
+  renderDock();
+  state.arriving = null;
+}
+
+function wireProjectTools()
+{
+  const search = document.getElementById( 'project-search' );
+  const sort = document.getElementById( 'project-sort' );
+
+  if ( search )
+    search.addEventListener( 'input', () => { state.projectsQuery = search.value; document.getElementById( 'projects-table' ).innerHTML = renderProjectsTable(); } );
+
+  if ( sort )
+    sort.addEventListener( 'change', () => { state.projectsSort = sort.value; document.getElementById( 'projects-table' ).innerHTML = renderProjectsTable(); } );
+
+  const chatSearch = document.getElementById( 'chat-search' );
+
+  if ( chatSearch )
+    chatSearch.addEventListener( 'input', () => { state.chatsQuery = chatSearch.value; document.getElementById( 'chats-list' ).innerHTML = renderChatList(); } );
+}
+
+function go( view, id )
+{
+  state.view = view;
+  state.project = view === 'project' ? id : null;
+  state.chat = view === 'chat' ? id : null;
+}
+
+/** The conversation is drawn where it is shown: in the pane for a chat opened whole, else in the bar's conversation. */
+function refreshConversation()
+{
+  if ( state.view === 'chat' )
+    render();
+  else
+    renderDock();
+}
+
+// ---- Mila: the conversation, and where it takes you -----------------------------------------------------------------
+
+function placementHtml( conversation )
+{
+  if ( conversation.placing )
+    return '<span class="ring" aria-hidden="true"></span> Mila is placing this conversation';
+
+  if ( conversation.thread === null )
+  {
+    if ( state.view === 'project' )
+      return 'Talking about <button type="button" class="link where" data-do="open-project" data-id="' + state.project + '">' + escapeText( projects[ state.project ].name ) + '</button>';
+
+    return 'Talking about <span class="where">your workspace</span>';
+  }
+
+  const thread = threads[ conversation.thread ];
+
+  if ( thread.project )
+    return 'In <button type="button" class="link where" data-do="open-project" data-id="' + thread.project + '">' + escapeText( projects[ thread.project ].name ) + '</button>';
+
+  return 'Not in a project';
+}
+
+
+function renderDock()
+{
+  const conversation = state.conversation;
+  const dock = document.getElementById( 'dock' );
+  dock.classList.toggle( 'open', state.open );
+  dock.classList.toggle( 'in-chat', state.view === 'chat' );
+
+  document.getElementById( 'ask' ).placeholder = state.view === 'chat' ? 'Reply to Mila'
+    : state.view === 'project' ? 'Ask Mila about ' + projects[ state.project ].name + ', or go anywhere in your workspace'
+    : Object.keys( projects ).length ? 'Ask Mila: open a project, see what changed, or start something new'
+    : 'Ask Mila anything, or open one of your chats';
+
+  const title = conversation.thread === null ? 'Mila' : threads[ conversation.thread ].title;
+  document.getElementById( 'conversation-title' ).textContent = title;
+  document.getElementById( 'expand' ).hidden = conversation.thread === null;
+  document.getElementById( 'placement' ).innerHTML = placementHtml( conversation );
+
+  const list = document.getElementById( 'messages' );
+  list.innerHTML = conversation.messages.map( renderMessage ).join( '' );
+  list.scrollTop = list.scrollHeight;
+}
+
+function renderMessage( message )
+{
+  if ( message.who === 'you' ) return '<div class="message you">' + escapeText( message.text ) + '</div>';
+  if ( message.who === 'thinking' ) return '<div class="thinking"><span class="ring" aria-hidden="true"></span>Thinking</div>';
+  if ( message.who === 'went' ) return '<div class="went">' + escapeText( message.text ) + '</div>';
+  if ( message.who === 'placed' ) return '<div class="placed"><div>' + message.html + '</div></div>';
+
+  return '<div class="message mila"><div class="who-line">' + markSvg + 'Mila</div>' + message.html + '</div>';
+}
+
+function startConversation()
+{
+  state.conversation = { thread: null, placing: false, messages: [] };
+}
+
+/** Mila answers, then takes the pane where the answer is, and says where it went. */
+function reply( html, suggestions, navigate, wentText )
+{
+  const messages = state.conversation.messages;
+  messages.push( { who: 'thinking' } );
+  refreshConversation();
+
+  setTimeout( () =>
+  {
+    const thinking = messages.findIndex( ( message ) => message.who === 'thinking' );
+
+    if ( thinking >= 0 )
+      messages.splice( thinking, 1 );
+
+    messages.push( { who: 'mila', html, suggestions } );
+
+    if ( navigate )
+    {
+      const from = state.view;
+      navigate();
+
+      // Leaving a chat for somewhere else, the conversation goes on in the bar, risen over the new place.
+      if ( from === 'chat' && state.view !== 'chat' )
+        state.open = true;
+
+      if ( wentText )
+        messages.push( { who: 'went', text: wentText } );
+    }
+
+    render();
+  }, reduced ? 0 : 600 );
+}
+
+/** A chat opens whole: the pane is the chat, and the bar below is its reply box. */
+function openThread( id )
+{
+  state.conversation = { thread: id, placing: false, messages: chatMessages( id ) };
+  go( 'chat', id );
+  state.open = false;
+  render();
+}
+
+function flash( selector )
+{
+  setTimeout( () =>
+  {
+    const target = document.querySelector( selector );
+
+    if ( target )
+    {
+      target.scrollIntoView( { block: 'center', behavior: reduced ? 'auto' : 'smooth' } );
+      target.classList.add( 'flash' );
+    }
+  }, 40 );
+}
+
+function projectMatching( text )
+{
+  const found = projectNamed( text );
+
+  return found && projects[ found ] ? found : null;
+}
+
+function projectNamed( text )
+{
+  const lower = text.toLowerCase();
+
+  if ( /calc/.test( lower ) ) return 'calc';
+  if ( /kyoto|trip|japan/.test( lower ) ) return 'kyoto';
+  if ( /format|llm|16 ?gb|quant/.test( lower ) ) return 'formats';
+  if ( /garden|bed|plant/.test( lower ) ) return 'garden';
+  if ( /paper|reading|memory/.test( lower ) ) return 'thesis';
+  if ( /loop|reasoning/.test( lower ) && projects.loops ) return 'loops';
+
+  return null;
+}
+
+/** The prototype's stand-in for the model: a few kinds of request, answered from the example workspace. */
+function respond( text )
+{
+  const lower = text.toLowerCase();
+  const project = projectMatching( text );
+
+  if ( /back|home|workspace|overview|glance/.test( lower ) && !project )
+  {
+    const waiting = waitingNotices().length;
+    reply( '<p>Here is your workspace. ' + waiting + ' things are waiting on you, and you have ' + seeds().length + ' chats outside any project.</p>', null, () => go( 'workspace' ), 'Opened your workspace' );
+
+    return;
+  }
+
+  if ( /all (my )?chats|show (me )?(my )?chats|list .*chats|my chats|every chat/.test( lower ) )
+  {
+    reply( '<p>You have ' + Object.keys( threads ).length + ' chats' + ( Object.keys( projects ).length ? ', ' + seeds().length + ' of them outside any project' : '' ) + '. The newest is “' + escapeText( Object.values( threads ).sort( ( a, b ) => a.ago - b.ago )[ 0 ].title ) + '”.</p>', null,
+      () => { go( 'chats' ); state.chatsFilter = 'all'; state.chatsQuery = ''; }, 'Opened all chats' );
+
+    return;
+  }
+
+  if ( /projects?\b/.test( lower ) && Object.keys( projects ).length === 0 )
+  {
+    reply( '<p>You have no projects yet, and you don’t need one: each chat stands on its own. When several chats turn out to belong together, I’ll suggest making them a project.</p>', null, () => go( 'chats' ), 'Opened all chats' );
+
+    return;
+  }
+
+  if ( /all (my )?projects|list .*projects|show .*projects|every project/.test( lower ) )
+  {
+    reply( '<p>You have ' + Object.keys( projects ).length + ' projects. The most recent is ' + escapeText( projectsByRecent()[ 0 ][ 1 ].name ) + '.</p>', [ 'Which projects are waiting on me?', 'Open the most recent one' ],
+      () => { go( 'projects' ); state.projectsFilter = 'all'; state.projectsQuery = ''; }, 'Opened all projects' );
+
+    return;
+  }
+
+  if ( /which projects .*(wait|need)/.test( lower ) )
+  {
+    const list = Object.values( projects ).filter( ( item ) => item.state === 'waiting' );
+    reply( '<p>' + ( list.length === 1 ? 'One: ' : list.length + ': ' ) + list.map( ( item ) => escapeText( item.name ) ).join( ', ' ) + '.</p>', [ 'Open the calculator project' ],
+      () => { go( 'projects' ); state.projectsFilter = 'waiting'; }, 'Showed the projects waiting on you' );
+
+    return;
+  }
+
+  if ( /most recent/.test( lower ) )
+  {
+    const [ id, item ] = projectsByRecent()[ 0 ];
+    reply( projectSummaryHtml( item ), null, () => go( 'project', id ), 'Opened ' + item.name );
+
+    return;
+  }
+
+  if ( /what('|’)?s waiting|waiting on me|needs? me\b|needs my|anything pending/.test( lower ) )
+  {
+    const waiting = waitingNotices();
+    const list = waiting.map( ( item ) => '<li><button type="button" class="link" data-do="continue" data-id="' + item.thread + '">' + escapeText( item.title ) + '</button> in ' + escapeText( projects[ item.project ].name ) + ': ' + escapeText( item.text ) + '</li>' ).join( '' );
+    reply( waiting.length ? '<p>' + waiting.length + ' things:</p><ul>' + list + '</ul>' : '<p>Nothing is waiting on you.</p>', [ 'Answer and continue', 'Show all my projects' ],
+      () => { go( 'workspace' ); flash( '#noticed' ); }, 'Showed what needs you' );
+
+    return;
+  }
+
+  if ( /answer and continue|continue the test/.test( lower ) )
+  {
+    openThread( 't-tests' );
+
+    return;
+  }
+
+  if ( /ask mila to finish|finish the (comparison|table|answer)/.test( lower ) )
+  {
+    openThread( 't-formats' );
+
+    return;
+  }
+
+  if ( /what('|’)?s next|still open|open questions/.test( lower ) && state.view === 'project' )
+  {
+    const item = projects[ state.project ];
+    reply( '<p>' + escapeText( item.understanding.next ) + '</p>' + ( item.understanding.questions.length ? '<p>Still open:</p><ul>' + item.understanding.questions.map( ( q ) => '<li>' + escapeText( q ) + '</li>' ).join( '' ) + '</ul>' : '' ), null, null, null );
+
+    return;
+  }
+
+  if ( /(what|which).*(made|make|wrote|write|creat)|recently made|show .*files/.test( lower ) )
+  {
+    const scope = state.view === 'project' && !project ? state.project : project;
+    const items = Object.entries( made ).filter( ( [ , item ] ) => !scope || item.project === scope ).sort( ( a, b ) => a[ 1 ].ago - b[ 1 ].ago ).slice( 0, 3 );
+    const list = items.map( ( [ id, item ] ) => '<li><button type="button" class="link" data-do="open-made" data-id="' + id + '">' + escapeText( item.name ) + '</button> in ' + escapeText( projects[ item.project ].name ) + ', ' + when( item.ago ) + '</li>' ).join( '' );
+    reply( items.length ? '<p>The most recent:</p><ul>' + list + '</ul><p>Each keeps where it came from.</p>' : '<p>Nothing made here yet.</p>', null,
+      scope ? () => { go( 'project', scope ); flash( '#made-here' ); } : null, scope ? 'Opened ' + projects[ scope ].name : null );
+
+    return;
+  }
+
+  if ( /what happened|activity|what('|’)?s new/.test( lower ) )
+  {
+    reply( '<p>Today you started thinking about reasoning loops and asked about the KV cache; the test plan wrote two files before stopping to ask you something.</p>', null, () => go( 'activity' ), 'Opened Activity' );
+
+    return;
+  }
+
+  if ( project && /open|show|go|take me|where|let('|’)?s|work on/.test( lower ) )
+  {
+    reply( projectSummaryHtml( projects[ project ] ), [ 'What’s next here?', 'Back to my workspace' ], () => go( 'project', project ), 'Opened ' + projects[ project ].name );
+
+    return;
+  }
+
+  if ( /^start (something new|a new project)$/i.test( text.trim() ) )
+  {
+    reply( '<p>Tell me what’s on your mind, however unformed. I’ll find where it fits as we go.</p>', null, null, null );
+
+    return;
+  }
+
+  brainstorm( text );
+}
+
+function projectSummaryHtml( project )
+{
+  return '<p><b>' + escapeText( project.name ) + '</b>. ' + escapeText( project.understanding.summary ) + '</p><p><span class="label">Next</span><br>' + escapeText( project.understanding.next ) + '</p>';
+}
+
+/** Something new: a thread begins in no project, and Mila places it as the conversation shows what it is. */
+function brainstorm( text )
+{
+  const id = 't-new-' + nextThread++;
+  const title = text.length > 70 ? text.slice( 0, text.lastIndexOf( ' ', 68 ) ) + '…' : text;
+  const loops = /agent|loop|reason|stuck|autonom/i.test( text );
+  const inProject = state.view === 'project' ? state.project : null;
+
+  threads[ id ] = { title, project: inProject, kind: 'Exploring', ago: 0, reply: '' };
+  events.unshift( { ago: 0, who: 'you', type: 'conversation', text: 'Started a chat: ' + title, project: inProject ?? undefined, open: [ 'thread', id ] } );
+
+  if ( inProject )
+    projects[ inProject ].threads.unshift( id );
+
+  // The new chat holds only what belongs to it: the thought that started it.
+  threads[ id ].messages = [ { who: 'you', text } ];
+  state.conversation = { thread: id, placing: !inProject, messages: threads[ id ].messages };
+
+  if ( !inProject )
+  {
+    go( 'workspace' );
+    state.arriving = id;
+  }
+
+  render();
+
+  if ( !inProject )
+    flash( '[data-seed="' + id + '"]' );
+
+  const html = loops
+    ? '<p>A good thread to pull. Three questions frame it: what the agent watches in itself, what counts as progress, and who decides it is finished.</p><p>This is close to three chats you already started.</p>'
+    : '<p>Let’s explore it. What do you already know, and what made you think of it today?</p>';
+
+  reply( html, null, () =>
+  {
+    state.conversation.placing = false;
+
+    if ( inProject )
+    {
+      state.conversation.messages.push( { who: 'placed', html: 'This conversation is part of <b>' + escapeText( projects[ inProject ].name ) + '</b>, where you started it.' } );
+    }
+    else if ( loops && projects.loops )
+    {
+      threads[ id ].project = 'loops';
+      projects.loops.threads.unshift( id );
+      state.conversation.messages.push( { who: 'placed', html: 'Mila placed this conversation in <b>' + escapeText( projects.loops.name ) + '</b>. Say “keep it separate” to leave it in no project.' } );
+      state.conversation.pending = { kind: 'unplace', thread: id };
+    }
+    else if ( loops )
+    {
+      const proposal = notices.find( ( item ) => item.kind === 'proposal' );
+
+      if ( proposal && !proposal.threads.includes( id ) )
+        proposal.threads.unshift( id );
+
+      state.conversation.messages.push( { who: 'placed', offer: true, html: 'This belongs with your chats on reasoning loops. Gather all four into a project called <b>Agent reasoning loops</b>? Say yes, or keep talking.' } );
+      state.conversation.pending = { kind: 'gather', notice: 'n-proposal' };
+    }
+    else
+    {
+      state.conversation.messages.push( { who: 'placed', html: 'This is a chat of its own, in no project. If it grows into one, Mila will suggest it.' } );
+    }
+  }, null );
+}
+
+function send( text )
+{
+  const trimmed = text.trim();
+
+  if ( !trimmed )
+    return;
+
+  state.open = state.view !== 'chat';
+  state.conversation.messages.push( { who: 'you', text: trimmed } );
+
+  if ( state.conversation.thread )
+    threads[ state.conversation.thread ].ago = 0;
+
+  refreshConversation();
+
+  // An offer Mila made is answered in words: yes takes it, no or anything else leaves it.
+  const pending = state.conversation.pending;
+  state.conversation.pending = null;
+
+  if ( pending && pending.kind === 'gather' && /^(yes|yeah|sure|ok|okay|please|do it|make it)\b/i.test( trimmed ) )
+  {
+    reply( '<p>Gathering them now.</p>', null, () => makeProject( pending.notice ), null );
+
+    return;
+  }
+
+  if ( pending && pending.kind === 'gather' && /^(no|not now|later)\b/i.test( trimmed ) )
+  {
+    reply( '<p>Leaving them as they are. I won’t suggest it again for these chats.</p>', null, () => { notices = notices.filter( ( item ) => item.id !== pending.notice ); }, null );
+
+    return;
+  }
+
+  if ( pending && pending.kind === 'unplace' && /keep it (separate|unplaced)|in no project|take it out/i.test( trimmed ) )
+  {
+    reply( '<p>Done: this conversation is in no project.</p>', null, () => { threads[ pending.thread ].project = null; projects.loops.threads = projects.loops.threads.filter( ( item ) => item !== pending.thread ); }, null );
+
+    return;
+  }
+
+  const thread = state.conversation.thread;
+  const inChat = state.view === 'chat';
+  const exploring = thread !== null && ( /^t-new/.test( thread ) || inChat );
+  const navigating = projectMatching( trimmed ) || /waiting on me|what did mila make|what happened|activity|\bopen\b|\bshow\b|projects?\b|all (my )?chats|my chats|back to|workspace|what('|’)?s next|ask mila to finish|continue/.test( trimmed.toLowerCase() );
+
+  // Asking to go somewhere is not part of the chat: it starts a conversation of its own, about the workspace.
+  if ( thread !== null && navigating )
+  {
+    state.conversation.messages.pop();
+    startConversation();
+    state.conversation.messages.push( { who: 'you', text: trimmed } );
+    state.open = true;
+    renderDock();
+  }
+
+  if ( exploring && !navigating )
+  {
+    reply( inChat && !/^t-new/.test( thread ) ? '<p>An example reply: in Mila this is the model’s answer, and the chat goes on here.</p>' : '<p>Go on. Each turn tells me more about where this belongs.</p>', null, null, null );
+
+    return;
+  }
+
+  respond( trimmed );
+}
+
+// ---- Making structure ------------------------------------------------------------------------------------------------
+
+function makeProject( noticeId )
+{
+  const notice = notices.find( ( item ) => item.id === noticeId );
+
+  if ( !notice )
+    return;
+
+  const input = document.getElementById( 'proposal-name' );
+  const name = input && input.value.trim() ? input.value.trim() : notice.name;
+
+  for ( const id of notice.threads )
+    document.querySelector( '[data-seed="' + id + '"]' )?.classList.add( 'gather' );
+
+  setTimeout( () =>
+  {
+    projects.loops = { name, purpose: notice.purpose, folder: null, state: 'active', pulse: [ 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 1, 3 ], ago: 0,
+      understanding: { summary: 'Gathered from your chats: what an agent watches in itself, how it knows it is stuck, and catching repeated calls.',
+        questions: [ 'What counts as progress for an agent?', 'Who decides a task is finished: the agent, or a check?' ],
+        next: 'Look at how existing agents detect loops, then design an experiment.', nextAction: null },
+      threads: notice.threads.slice(), made: [], plans: [], findings: [] };
+
+    for ( const id of notice.threads )
+      threads[ id ].project = 'loops';
+
+    notices = notices.filter( ( item ) => item.id !== noticeId );
+    events.unshift( { ago: 0, who: 'you', type: 'decision', text: 'Accepted Mila’s suggestion: made the project ' + name, project: 'loops', open: [ 'project', 'loops' ] } );
+    state.undo = { text: 'Made “' + name + '” from ' + notice.threads.length + ' chats. It is now your most recent project.', notice };
+    state.arriving = 'loops';
+    go( 'workspace' );
+    state.conversation.messages = state.conversation.messages.filter( ( message ) => !message.offer );
+
+    if ( state.conversation.thread && threads[ state.conversation.thread ].project === 'loops' )
+      state.conversation.messages.push( { who: 'placed', html: 'Mila made <b>' + escapeText( name ) + '</b> and placed this conversation in it.' } );
+
+    render();
+    flash( '[data-card="loops"]' );
+  }, reduced ? 0 : 420 );
+}
+
+function undoProject()
+{
+  for ( const id of projects.loops.threads )
+    threads[ id ].project = null;
+
+  delete projects.loops;
+
+  const index = events.findIndex( ( event ) => event.project === 'loops' && event.type === 'decision' );
+
+  if ( index >= 0 )
+    events.splice( index, 1 );
+
+  notices.unshift( state.undo.notice );
+  state.undo = null;
+  render();
+}
+
+// ---- Drawers and the palette -----------------------------------------------------------------------------------------
+
+function closeLayer() { document.getElementById( 'layer' ).innerHTML = ''; }
+
+function openDrawer( html )
+{
+  document.getElementById( 'layer' ).innerHTML = '<div class="scrim" data-do="close"></div><div class="drawer" role="dialog" aria-modal="true">'
+    + '<div style="display:flex;justify-content:flex-end"><button type="button" class="icon-button" data-do="close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>' + html + '</div>';
+  document.querySelector( '.drawer .icon-button' ).focus();
+}
+
+function openMade( id )
+{
+  const item = made[ id ];
+  const project = projects[ item.project ];
+  const thread = threads[ item.thread ];
+  const plan = item.plan ? plans[ item.plan ] : null;
+  const writes = item.writes.map( ( [ ago, what ] ) => escapeText( what ) + ', ' + when( ago ) ).join( '<br>' );
+
+  let html = '<span class="label">Made by Mila</span><h3>' + escapeText( item.name ) + '</h3><div class="row-sub">' + escapeText( item.path ) + '</div>';
+
+  if ( item.changed )
+    html += '<div class="notice waiting" style="margin-top:14px"><div class="notice-text">Changed on disk after Mila last wrote it. Mila reads your version before writing again.</div></div>';
+
+  html += '<div class="preview">' + escapeText( item.preview ) + '</div><div class="provenance">'
+    + '<div class="prov"><span class="label">For</span><div class="prov-body"><button type="button" class="link" data-do="open-project" data-id="' + item.project + '">' + escapeText( project.name ) + '</button>: ' + escapeText( project.purpose ) + '</div></div>'
+    + '<div class="prov"><span class="label">In the conversation</span><div class="prov-body"><button type="button" class="link" data-do="open-thread" data-id="' + item.thread + '">' + escapeText( thread.title ) + '</button></div></div>'
+    + ( plan ? '<div class="prov"><span class="label">During</span><div class="prov-body">Step ' + item.step + ' of <button type="button" class="link" data-do="open-plan" data-id="' + item.plan + '">the test plan</button>: ' + escapeText( plan.steps[ item.step - 1 ][ 0 ] ) + '</div></div>' : '' )
+    + '<div class="prov"><span class="label">Read first</span><div class="prov-body">' + item.read.map( escapeText ).join( '<br>' ) + '</div></div>'
+    + '<div class="prov"><span class="label">By</span><div class="prov-body">Mila, with Gemma 4 12B</div></div>'
+    + '<div class="prov"><span class="label">Writes</span><div class="prov-body">' + writes + '</div></div></div>';
+
+  openDrawer( html );
+}
+
+function openPlan( id )
+{
+  const plan = plans[ id ];
+  const ticks = { done: '✓', now: '●', pending: '○' };
+  const steps = plan.steps.map( ( [ text, status ], index ) => '<div class="step ' + status + '"><span class="tick">' + ticks[ status ] + '</span><span>' + ( index + 1 ) + '. ' + escapeText( text ) + '</span></div>' ).join( '' );
+  const runs = plan.runs.map( ( run, index ) => '<div class="row-sub">Run ' + ( index + 1 ) + ', ' + when( run.ago ) + ': ' + escapeText( run.end ) + '</div>' ).join( '' );
+
+  openDrawer( '<span class="label">Plan</span><h3 style="font-family:var(--sans)">' + escapeText( plan.goal ) + '</h3><div class="steps" style="margin-top:16px">' + steps + '</div>'
+    + '<div style="margin-top:18px"><span class="label">Runs</span>' + runs + '</div>'
+    + '<div class="notice-actions" style="margin-top:16px"><button type="button" class="button primary" data-do="continue" data-id="' + plan.thread + '">Continue this run</button><button type="button" class="button">Run again</button></div>'
+    + '<p class="row-sub" style="margin-top:12px">Running again starts a new run of the same steps beside this one; the model will not do it identically.</p>' );
+}
+
+function paletteItems()
+{
+  const items = [];
+
+  for ( const [ id, project ] of projectsByRecent() ) items.push( { kind: 'Project', label: project.name, act: [ 'open-project', id ] } );
+  for ( const [ id, thread ] of Object.entries( threads ) ) items.push( { kind: thread.project ? 'Chat in ' + projects[ thread.project ].name : 'Chat', label: thread.title, act: [ 'open-thread', id ] } );
+  for ( const [ id, item ] of Object.entries( made ) ) if ( projects[ item.project ] ) items.push( { kind: 'File', label: item.name, act: [ 'open-made', id ] } );
+
+  return items;
+}
+
+function openPalette()
+{
+  document.getElementById( 'layer' ).innerHTML = '<div class="palette-wrap" data-do="close-outside"><div class="palette" role="dialog" aria-modal="true" aria-label="Jump to">'
+    + '<label for="palette-input" hidden>Jump to</label><input id="palette-input" placeholder="Jump to a project, a chat or a file" autocomplete="off"><div class="palette-list" id="palette-list" role="listbox"></div></div></div>';
+
+  const input = document.getElementById( 'palette-input' );
+  let selected = 0;
+
+  function fill()
+  {
+    const query = input.value.toLowerCase();
+    const matches = paletteItems().filter( ( item ) => item.label.toLowerCase().includes( query ) || item.kind.toLowerCase().includes( query ) ).slice( 0, 12 );
+    selected = Math.min( selected, Math.max( 0, matches.length - 1 ) );
+    document.getElementById( 'palette-list' ).innerHTML = matches.map( ( item, index ) => '<button type="button" class="palette-item" role="option" aria-selected="' + ( index === selected ) + '" data-do="' + item.act[ 0 ] + '" data-id="' + item.act[ 1 ] + '"><span>' + escapeText( item.label ) + '</span><span class="palette-kind">' + escapeText( item.kind ) + '</span></button>' ).join( '' );
+  }
+
+  input.addEventListener( 'input', () => { selected = 0; fill(); } );
+  input.addEventListener( 'keydown', ( event ) =>
+  {
+    const options = document.querySelectorAll( '.palette-item' );
+
+    if ( event.key === 'ArrowDown' ) { selected = Math.min( selected + 1, options.length - 1 ); fill(); event.preventDefault(); }
+    if ( event.key === 'ArrowUp' ) { selected = Math.max( selected - 1, 0 ); fill(); event.preventDefault(); }
+    if ( event.key === 'Enter' && options[ selected ] ) options[ selected ].click();
+  } );
+
+  fill();
+  input.focus();
+}
+
+let popoverFor = null;
+
+/** A small panel beside the control that opened it: below it, or above it for the sidebar's foot. Fixed, so the sidebar's scrolling never clips it. */
+function togglePopover( kind, button )
+{
+  const open = document.querySelector( '.popover' );
+  open?.remove();
+
+  if ( open && popoverFor === kind )
+  {
+    popoverFor = null;
+
+    return;
+  }
+
+  const contents = {
+    model: '<span class="label">The intelligence</span><div style="margin-top:4px;font-weight:600">Gemma 4 12B</div>'
+      + '<dl><dt>Chosen</dt><dd>By Mila, for this computer</dd><dt>Context</dt><dd>56,320 tokens, automatic</dd><dt>Thinking</dt><dd>On</dd><dt>This conversation</dt><dd>18% of its context</dd></dl>'
+      + '<p>Change the model in Settings.</p>',
+    'user-menu': '<div style="font-weight:600">Todd Thomson</div><div class="row-sub">Workspace owner</div><div class="menu">'
+      + '<button type="button" class="menu-item" data-do="settings"><span>Settings</span><small>' + ( shortcut.startsWith( '⌘' ) ? '⌘,' : 'Ctrl ,' ) + '</small></button>'
+      + '<button type="button" class="menu-item"><span>Mila’s licence</span><small></small></button>'
+      + '<button type="button" class="menu-item"><span>About Mila Assistant</span><small>0.21.0</small></button>'
+      + '<button type="button" class="menu-item"><span>Quit Mila</span><small></small></button></div>'
+  };
+
+  const popover = document.createElement( 'div' );
+  const rect = button.getBoundingClientRect();
+  const up = rect.top > window.innerHeight / 2;
+
+  popover.className = 'popover';
+  popover.innerHTML = contents[ kind ];
+  popover.style.left = Math.max( 8, Math.min( rect.left, window.innerWidth - 288 ) ) + 'px';
+
+  if ( up )
+    popover.style.bottom = ( window.innerHeight - rect.top + 6 ) + 'px';
+  else
+    popover.style.top = ( rect.bottom + 6 ) + 'px';
+
+  document.body.append( popover );
+  popoverFor = kind;
+}
+
+function openSettings()
+{
+  openDrawer( '<span class="label">Mila Assistant</span><h3 style="font-family:var(--sans)">Settings</h3>'
+    + '<div class="rows" style="margin-top:16px">'
+    + '<div class="row"><span class="row-main"><div class="row-title">Models</div><div class="row-sub">Gemma 4 12B, chosen by Mila for this computer</div></span><span class="row-when">Manage</span></div>'
+    + '<div class="row"><span class="row-main"><div class="row-title">Responses</div><div class="row-sub">Thinking on, context automatic</div></span></div>'
+    + '<div class="row"><span class="row-main"><div class="row-title">Web search</div><div class="row-sub">Not set up</div></span></div>'
+    + '<div class="row"><span class="row-main"><div class="row-title">Build &amp; Code</div><div class="row-sub">Running commands is off</div></span></div>'
+    + '<div class="row"><span class="row-main"><div class="row-title">Display</div><div class="row-sub">Light and dark follow the system</div></span></div>'
+    + '</div><p class="row-sub" style="margin-top:12px">The areas the app’s Settings window has today.</p>' );
+}
+
+function toggleSide( open )
+{
+  const side = document.getElementById( 'side' );
+  const show = open ?? !side.classList.contains( 'open' );
+
+  side.classList.toggle( 'open', show );
+  document.querySelector( '.side-scrim' ).hidden = !show;
+}
+
+// ---- Wiring ----------------------------------------------------------------------------------------------------------
+
+document.addEventListener( 'click', ( event ) =>
+{
+  const target = event.target.closest( '[data-do]' );
+
+  if ( !target )
+  {
+    if ( !event.target.closest( '.popover' ) )
+      document.querySelector( '.popover' )?.remove();
+
+    return;
+  }
+
+  const id = target.dataset.id;
+  const action = target.dataset.do;
+  const popoverKinds = [ 'model', 'user-menu' ];
+
+  if ( !popoverKinds.includes( action ) )
+  {
+    document.querySelector( '.popover' )?.remove();
+    popoverFor = null;
+  }
+
+  // On a narrow window the sidebar closes once you have gone somewhere from it.
+  if ( target.closest( '#side' ) && !popoverKinds.includes( action ) )
+    toggleSide( false );
+
+  if ( action === 'close-outside' && event.target !== target )
+    return;
+
+  if ( [ 'open-project', 'open-thread', 'open-made', 'open-plan', 'close', 'close-outside', 'continue', 'all-projects', 'all-chats' ].includes( action ) )
+    closeLayer();
+
+  switch ( action )
+  {
+    case 'activity': go( 'activity' ); render(); break;
+    case 'side-toggle': toggleSide(); break;
+    case 'settings': openSettings(); break;
+    case 'new-project': send( 'Start a new project' ); break;
+    case 'workspace': go( 'workspace' ); render(); break;
+    case 'all-projects': go( 'projects' ); render(); break;
+    case 'all-chats': go( 'chats' ); render(); break;
+    case 'chats-filter': state.chatsFilter = target.dataset.value; render(); break;
+    case 'expand': if ( state.conversation.thread ) { go( 'chat', state.conversation.thread ); state.open = false; render(); } break;
+    case 'section': flash( '#' + id ); break;
+    case 'projects-filter': state.projectsFilter = target.dataset.value; render(); break;
+    case 'activity-filter': state.activityFilter = target.dataset.value; render(); break;
+    case 'open-project': go( 'project', id ); render(); break;
+    case 'open-thread': case 'continue': openThread( id ); break;
+    case 'open-made': openMade( id ); break;
+    case 'open-plan': openPlan( id ); break;
+    case 'make-project': makeProject( id ); break;
+    case 'dismiss': notices = notices.filter( ( item ) => item.id !== id ); state.conversation.messages = state.conversation.messages.filter( ( message ) => !message.offer ); render(); break;
+    case 'undo': undoProject(); break;
+    case 'new-conversation': startConversation(); renderDock(); document.getElementById( 'ask' ).focus(); break;
+    case 'lower': state.open = false; renderDock(); break;
+    case 'palette': openPalette(); break;
+    case 'model': case 'user-menu': togglePopover( action, target ); break;
+    case 'scroll-to': document.getElementById( id )?.scrollIntoView( { block: 'start', behavior: reduced ? 'auto' : 'smooth' } ); break;
+  }
+} );
+
+const ask = document.getElementById( 'ask' );
+
+document.getElementById( 'composer' ).addEventListener( 'submit', ( event ) =>
+{
+  event.preventDefault();
+  const text = ask.value;
+  ask.value = '';
+  ask.style.height = '';
+  send( text );
+} );
+
+ask.addEventListener( 'keydown', ( event ) =>
+{
+  if ( event.key === 'Enter' && !event.shiftKey )
+  {
+    event.preventDefault();
+    document.getElementById( 'composer' ).requestSubmit();
+  }
+} );
+
+ask.addEventListener( 'input', () => { ask.style.height = ''; ask.style.height = Math.min( ask.scrollHeight, 140 ) + 'px'; } );
+ask.addEventListener( 'focus', () => { if ( state.conversation.messages.length ) { state.open = true; renderDock(); } } );
+
+document.addEventListener( 'keydown', ( event ) =>
+{
+  if ( ( event.metaKey || event.ctrlKey ) && event.key.toLowerCase() === 'k' )
+  {
+    event.preventDefault();
+    openPalette();
+  }
+
+  if ( ( event.metaKey || event.ctrlKey ) && event.key === ',' )
+  {
+    event.preventDefault();
+    openSettings();
+  }
+
+  if ( event.key === 'Escape' )
+  {
+    if ( document.getElementById( 'layer' ).innerHTML ) closeLayer();
+    else if ( state.open ) { state.open = false; renderDock(); }
+
+    document.querySelector( '.popover' )?.remove();
+  }
+} );
+
+
+// ---- The prototype's own switch: the same person, with projects or with chats alone --------------------------------
+
+let stash = null;
+
+function setExample( kind )
+{
+  if ( kind === state.example )
+    return;
+
+  if ( kind === 'chats' )
+  {
+    stash = { projects: { ...projects }, placed: Object.fromEntries( Object.entries( threads ).map( ( [ id, thread ] ) => [ id, thread.project ] ) ), notices };
+
+    for ( const id of Object.keys( projects ) )
+      delete projects[ id ];
+
+    // Someone who only chats has the chats, and none of the work a project holds.
+    for ( const [ id, thread ] of Object.entries( threads ) )
+    {
+      if ( thread.project !== null )
+        delete threads[ id ];
+    }
+
+    notices = notices.filter( ( item ) => item.kind === 'proposal' );
+  }
+  else if ( stash )
+  {
+    Object.assign( projects, stash.projects );
+    notices = stash.notices;
+    stash = null;
+    location.reload();
+
+    return;
+  }
+
+  state.example = kind;
+  state.undo = null;
+  startConversation();
+  go( 'workspace' );
+  state.open = false;
+  render();
+}
+
+document.getElementById( 'example' ).addEventListener( 'change', ( event ) => setExample( event.target.value ) );
+
+startConversation();
+render();
+} )();
+</script>
