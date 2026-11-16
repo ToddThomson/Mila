@@ -101,6 +101,7 @@ namespace Mila::Desktop
                 nlohmann::json item = {
                     { "id", conversation->value( "id", std::string{} ) },
                     { "title", conversation->value( "title", std::string{} ) },
+                    { "created", conversation->value( "created", std::string{} ) },
                     { "updated", conversation->value( "updated", std::string{} ) },
                     { "model", conversation->value( "model", std::string{} ) },
                     { "activity", conversation->value( "activity", std::string( "ask" ) ) },

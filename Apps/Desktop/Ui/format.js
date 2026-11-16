@@ -214,21 +214,13 @@ export function readableJson( text )
     }
 }
 
-const activities = {
-    ask: { name: 'Ask & Explore', line: 'Questions, explanations, ideas, working a problem through.', prompt: 'Ask Mila anything' },
-    build: { name: 'Build & Code', line: 'Write and improve software in a folder you choose.', prompt: 'What should Mila build or change?' },
-    research: { name: 'Research & Analyze', line: 'Investigate a question across web pages, with sources.', prompt: 'What should Mila look into?' },
-    tasks: { name: 'Get Things Done', line: 'Give Mila an outcome: it plans the steps, you approve, it works through them.', prompt: 'What should Mila get done?' }
-};
-
 /**
- * What the empty message box says: the conversation's activity, in Mila's name. The model is not who answers.
+ * What the empty Mila bar says (AssistantInterface.md 5.1): in a chat it is the reply box; elsewhere it takes
+ * anything, and the person's chats are a click away.
  */
-export function composerPrompt( activity )
+export function barPrompt( place )
 {
-    const known = activities[ activity ];
-
-    return known === undefined ? activities.ask.prompt : known.prompt;
+    return place === 'chat' ? 'Reply to Mila' : 'Ask Mila anything, or open one of your chats';
 }
 
 /**
@@ -239,17 +231,6 @@ export function planProgress( plan )
     const finished = plan.filter( ( step ) => step.status === 'done' || step.status === 'skipped' ).length;
 
     return finished + ' of ' + plan.length + ' done';
-}
-
-/**
- * An activity's card: its name and what it is for. An activity this page does not know is shown by
- * its identifier, so a newer session's card still appears.
- */
-export function activityCard( activity )
-{
-    const known = activities[ activity ];
-
-    return known === undefined ? { name: activity, line: '' } : known;
 }
 
 const minuteMilliseconds = 60 * 1000;
@@ -335,4 +316,119 @@ export function folderName( folder )
     const parts = folder.split( /[\\/]/ ).filter( ( part ) => part.length > 0 );
 
     return parts.length === 0 ? folder : parts[ parts.length - 1 ];
+}
+
+/**
+ * A reply's start as one line of plain text for a list: the markdown's marks taken out, its words kept.
+ */
+export function plainLine( text )
+{
+    if ( !text )
+        return '';
+
+    return text
+        .replace( /```[^\n]*/g, ' ' )
+        .replace( /!?\[([^\]]*)\]\([^)]*\)?/g, '$1' )
+        .replace( /(^|\s)#{1,6}\s+/g, '$1' )
+        .replace( /(^|\s)>\s+/g, '$1' )
+        .replace( /\*\*|__|[*`~]/g, '' )
+        .replace( /\s+/g, ' ' )
+        .trim();
+}
+
+/** The names of the files a chat wrote, the latest first: two named, then how many more. */
+function filesNamed( wrote )
+{
+    const names = wrote.slice().reverse().map( ( file ) => folderName( file.path ) );
+
+    if ( names.length === 1 )
+        return names[ 0 ];
+
+    if ( names.length === 2 )
+        return names[ 0 ] + ' and ' + names[ 1 ];
+
+    const more = names.length - 2;
+
+    return names[ 0 ] + ', ' + names[ 1 ] + ' and ' + more + ( more === 1 ? ' more' : ' others' );
+}
+
+/** What an Activity entry says (AssistantInterface.md 4.8). */
+export function activityText( event )
+{
+    const item = event.item;
+
+    if ( event.kind === 'chat' )
+        return 'Started a chat: ' + item.title;
+
+    if ( event.kind === 'file' )
+        return 'Wrote ' + filesNamed( item.wrote );
+
+    const progress = item.progress;
+
+    if ( progress.current === null )
+        return 'Worked through a plan of ' + progress.steps + ( progress.steps === 1 ? ' step' : ' steps' );
+
+    return 'Stopped at step ' + Math.min( progress.finished + 1, progress.steps ) + ' of ' + progress.steps + ': ' + progress.current;
+}
+
+const longDateFormat = new Intl.DateTimeFormat( 'en-US', { weekday: 'long', month: 'long', day: 'numeric' } );
+const clockFormat = new Intl.DateTimeFormat( 'en-US', { hour: 'numeric', minute: '2-digit' } );
+
+/** The date at the head of the overview: "Monday, November 16". */
+export function longDate( date )
+{
+    return longDateFormat.format( date );
+}
+
+/** A day's heading in Activity: Today, Yesterday, then the date. `day` is its local midnight in milliseconds. */
+export function dayLabel( day, now )
+{
+    const today = new Date( now.getFullYear(), now.getMonth(), now.getDate() ).getTime();
+    const yesterday = new Date( now.getFullYear(), now.getMonth(), now.getDate() - 1 ).getTime();
+
+    if ( day === today )
+        return 'Today';
+
+    if ( day === yesterday )
+        return 'Yesterday';
+
+    return longDateFormat.format( new Date( day ) );
+}
+
+/** The time of day an entry happened: "3:05 PM". */
+export function clockLabel( time )
+{
+    return clockFormat.format( new Date( time ) );
+}
+
+/**
+ * Up to two letters for a person's name: the first of its first two words, or of a name written as one, its first
+ * letter and the next capital ("ToddT" is TT).
+ */
+export function initials( name )
+{
+    const words = name.split( /[\s._-]+/ ).filter( ( word ) => word.length > 0 );
+
+    if ( words.length === 0 )
+        return '';
+
+    if ( words.length > 1 )
+        return ( words[ 0 ][ 0 ] + words[ 1 ][ 0 ] ).toUpperCase();
+
+    const capital = words[ 0 ].slice( 1 ).match( /\p{Lu}/u );
+
+    return ( words[ 0 ][ 0 ] + ( capital === null ? '' : capital[ 0 ] ) ).toUpperCase();
+}
+
+/**
+ * The licence as paragraphs a box wraps: its text is broken at eighty columns, which a narrower box would break again
+ * mid-line. Blank lines still part its paragraphs, and every word stays as written.
+ */
+export function licenseParagraphs( text )
+{
+    const normalized = text.replace( /\r\n/g, '\n' ).trim();
+    const blocks = normalized.split( /\n[ \t]*\n/ );
+    const joined = blocks.map( ( block ) => block.replace( /[ \t]*\n[ \t]*/g, ' ' ) );
+
+    return joined.join( '\n\n' );
 }

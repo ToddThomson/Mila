@@ -1,6 +1,8 @@
 /**
  * @file ConversationSummary.cpp
  * @brief Reading a stored conversation's plan, last reply and written files.
+ *
+ * Every field is derived from the stored messages and plan, so a conversation written before a field existed has it.
  */
 
 module Desktop.ConversationSummary;
@@ -13,6 +15,7 @@ namespace Mila::Desktop
     namespace
     {
         constexpr std::size_t kMostFilesWritten = 20;
+        constexpr std::size_t kReplyStartBytes = 160;
 
         nlohmann::json planProgress( const nlohmann::json& plan )
         {
@@ -71,6 +74,86 @@ namespace Mila::Desktop
                 }
 
                 return nullptr;
+            }
+
+            return nullptr;
+        }
+
+        /// Runs of white space become one space, so a reply's paragraphs read as one line.
+        std::string flattened( std::string_view text, std::size_t most_bytes )
+        {
+            std::string line;
+            bool space = false;
+
+            for ( const char c : text )
+            {
+                if ( line.size() >= most_bytes )
+                {
+                    break;
+                }
+
+                if ( c == ' ' || c == '\t' || c == '\r' || c == '\n' )
+                {
+                    space = !line.empty();
+
+                    continue;
+                }
+
+                if ( space )
+                {
+                    line.push_back( ' ' );
+                    space = false;
+                }
+
+                line.push_back( c );
+            }
+
+            // A UTF-8 character's continuation bytes are 10xxxxxx: one cut among them takes its lead byte too.
+            if ( line.size() > most_bytes )
+            {
+                line.resize( most_bytes );
+            }
+
+            if ( !line.empty() && ( static_cast<unsigned char>( line.back() ) & 0x80u ) != 0 )
+            {
+                std::size_t lead = line.size() - 1;
+
+                while ( lead > 0 && ( static_cast<unsigned char>( line[ lead ] ) & 0xC0u ) == 0x80u )
+                {
+                    --lead;
+                }
+
+                const unsigned char first = static_cast<unsigned char>( line[ lead ] );
+                const std::size_t length = first >= 0xF0u ? 4 : first >= 0xE0u ? 3 : first >= 0xC0u ? 2 : 1;
+
+                if ( lead + length > line.size() )
+                {
+                    line.resize( lead );
+                }
+            }
+
+            return line;
+        }
+
+        nlohmann::json replyStart( const nlohmann::json& messages )
+        {
+            for ( auto message = messages.rbegin(); message != messages.rend(); ++message )
+            {
+                if ( !message->is_object() || message->value( "role", std::string{} ) != "assistant" )
+                {
+                    continue;
+                }
+
+                const nlohmann::json content = message->value( "content", nlohmann::json( nullptr ) );
+
+                if ( !content.is_string() )
+                {
+                    return nullptr;
+                }
+
+                const std::string line = flattened( content.get<std::string>(), kReplyStartBytes );
+
+                return line.empty() ? nlohmann::json( nullptr ) : nlohmann::json( line );
             }
 
             return nullptr;
@@ -155,6 +238,6 @@ namespace Mila::Desktop
         const nlohmann::json messages = stored.is_array() ? stored : nlohmann::json::array();
 
         return { { "progress", planProgress( plan ) }, { "finish", lastFinish( messages ) },
-            { "wrote", filesWritten( messages ) } };
+            { "reply_start", replyStart( messages ) }, { "wrote", filesWritten( messages ) } };
     }
 }

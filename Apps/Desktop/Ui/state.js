@@ -27,9 +27,18 @@ export function createInitialState()
         modelsError: null,
         attachments: [],
         logs: [],
-        nextEntryNumber: 1
+        nextEntryNumber: 1,
+        // Where the person is (AssistantInterface.md 4): the workspace, all chats, activity, or the open chat.
+        place: 'workspace',
+        // The session's conversation was begun from the Mila bar, so the bar goes on with it away from the chat.
+        barOwned: true,
+        // The conversation risen over the pane above the bar (5.1).
+        risen: false,
+        about: null
     };
 }
+
+export const places = [ 'workspace', 'chats', 'activity', 'chat' ];
 
 export function reduce( state, message )
 {
@@ -111,8 +120,30 @@ export function reduce( state, message )
         case 'turn.tool_decision':
             return updateTurn( state, message.turn_id, reduceToolDecision, message );
 
+        // Every new conversation is the bar's: it goes on there wherever the person goes, until another is opened.
         case 'conversation.new':
-            return { ...state, conversationId: null, transcript: [], attachments: [] };
+            return { ...state, conversationId: null, transcript: [], attachments: [], barOwned: true, risen: false };
+
+        case 'conversation.open':
+            return { ...state, place: 'chat', barOwned: false, risen: false };
+
+        case 'conversation.delete':
+            return reduceConversationDelete( state, message );
+
+        // The page's alone, never sent: where the person goes, and the conversation risen or lowered over it.
+        case 'place.open':
+            return reducePlaceOpen( state, message );
+
+        case 'conversation.raise':
+            return { ...state, risen: message.risen && state.place !== 'chat' };
+
+        // A chat begun from the bar takes the attachments waiting in it, which the new conversation would clear.
+        case 'attachments.keep':
+            return { ...state, attachments: message.attachments };
+
+        // From the window, not the session: who is signed in to this computer, and the app's version.
+        case 'about':
+            return { ...state, about: { userName: message.user_name ?? '', version: message.version ?? '' } };
 
         case 'attachment.add':
             return reduceAttachmentAdd( state, message );
@@ -141,7 +172,7 @@ export function reduce( state, message )
             return reduceSetupBack( state );
 
         case 'setup.done':
-            return { ...state, setupStep: 'done' };
+            return { ...state, setupStep: 'done', place: 'workspace' };
 
         // An install from the setup's model pane ends on its conclusion once the model is loaded.
         case 'model.install':
@@ -273,6 +304,7 @@ function sentAttachment( attachment )
     return { kind: attachment.kind, name: attachment.name, previewUrl: attachment.previewUrl };
 }
 
+/** Sent from anywhere but the open chat, the conversation rises over the place the person is in. */
 function reduceTurnSend( state, message )
 {
     const included = state.attachments.filter( ( attachment ) => message.attachment_ids.includes( attachment.id ) );
@@ -280,7 +312,35 @@ function reduceTurnSend( state, message )
     const entry = { kind: 'user', text: message.text, attachments };
     const added = appendEntry( state, entry );
 
-    return { ...added, attachments: [] };
+    return { ...added, attachments: [], risen: state.place !== 'chat' };
+}
+
+/**
+ * A chat opens with the pane to itself, its conversation lowered. Leaving a chat while Mila is still replying, the
+ * reply goes on in the conversation risen over the new place, so it is never out of sight while it runs.
+ */
+function reducePlaceOpen( state, message )
+{
+    if ( !places.includes( message.place ) )
+        return state;
+
+    if ( message.place === 'chat' )
+        return { ...state, place: 'chat', risen: false };
+
+    const leavingReply = state.place === 'chat' && isBusy( state ) && state.transcript.length > 0;
+
+    return { ...state, place: message.place, risen: state.risen || leavingReply };
+}
+
+/** The open chat deleted, the session starts a new conversation, which is the bar's; the pane goes to all chats. */
+function reduceConversationDelete( state, message )
+{
+    if ( message.id !== state.conversationId )
+        return state;
+
+    const place = state.place === 'chat' ? 'chats' : state.place;
+
+    return { ...state, place, conversationId: null, transcript: [], attachments: [], barOwned: true, risen: false };
 }
 
 function reduceTurnBegin( state, message )
@@ -787,8 +847,6 @@ export function streamIdentifier( state )
     return state.session.streams[ 0 ].stream_id;
 }
 
-const dayMilliseconds = 24 * 60 * 60 * 1000;
-
 function startOfDay( date )
 {
     const year = date.getFullYear();
@@ -799,93 +857,205 @@ function startOfDay( date )
     return midnight.getTime();
 }
 
-/**
- * Conversations newest first, in the sidebar's four groups. Days are the viewer's local days;
- * an empty group is left out.
- */
-export function groupConversations( items, now )
-{
-    const today = startOfDay( now );
-    const yesterday = today - dayMilliseconds;
-    const weekAgo = today - 7 * dayMilliseconds;
-    const groups = [
-        { label: 'Today', items: [] },
-        { label: 'Yesterday', items: [] },
-        { label: 'Previous 7 days', items: [] },
-        { label: 'Older', items: [] }
-    ];
-
-    const sorted = items.slice().sort( compareUpdatedDescending );
-
-    for ( const item of sorted )
-    {
-        const updated = new Date( item.updated ).getTime();
-        const index = updated >= today ? 0 : updated >= yesterday ? 1 : updated >= weekAgo ? 2 : 3;
-        groups[ index ].items.push( item );
-    }
-
-    return groups.filter( ( group ) => group.items.length > 0 );
-}
-
 function compareUpdatedDescending( left, right )
 {
     return new Date( right.updated ).getTime() - new Date( left.updated ).getTime();
 }
 
-const homeRows = 5;
-const homeFiles = 6;
+// ---- The workspace (AssistantInterface.md 4) ----------------------------------------------------
+
+const overviewChats = 5;
+const sidebarChats = 4;
+const searchLimit = 12;
 
 // The endings of a reply the person has to act on; a stop, a call or their own stop is not one.
 const attentionEndings = [ 'length', 'context', 'error' ];
 
-/**
- * The home screen's sections (AssistantInterface.md 4.2), from what each stored conversation reports of itself
- * (`conversations.list`): what needs the person, plans and how far they came, the files Mila wrote, recent work and
- * the ideas being explored. Each list is newest first; an empty one is the view's to leave out. The conversation a
- * reply is under way in needs nothing yet.
- */
-export function homeSections( state )
+/** Every stored chat, the most recently changed first. */
+export function chatsNewestFirst( state )
 {
-    const sorted = state.conversations.slice().sort( compareUpdatedDescending );
-    const working = isBusy( state ) ? state.conversationId : null;
-    const idle = sorted.filter( ( item ) => item.id !== working );
-
-    const stoppedPlans = idle.filter( ( item ) => item.progress && item.progress.current !== null )
-        .map( ( item ) => ( { kind: 'plan', item } ) );
-    const endedReplies = idle.filter( ( item ) => attentionEndings.includes( item.finish ) && !( item.progress && item.progress.current !== null ) )
-        .map( ( item ) => ( { kind: 'reply', item } ) );
-    const needsYou = stoppedPlans.concat( endedReplies )
-        .sort( ( left, right ) => compareUpdatedDescending( left.item, right.item ) ).slice( 0, homeRows );
-
-    const plans = sorted.filter( ( item ) => item.progress ).slice( 0, homeRows );
-    const made = filesMade( sorted );
-    const recent = sorted.filter( ( item ) => item.activity !== undefined && item.activity !== 'ask' ).slice( 0, homeRows );
-    const ideas = sorted.filter( ( item ) => item.activity === undefined || item.activity === 'ask' ).slice( 0, homeRows );
-
-    return { needsYou, plans, made, recent, ideas };
+    return state.conversations.slice().sort( compareUpdatedDescending );
 }
 
-/** The files written, the most recent first, each once: a file is its conversation's folder and its path there. */
-function filesMade( sorted )
+/** The open chat as the list names it, or null for a conversation not yet stored. */
+export function currentChat( state )
 {
-    const seen = new Set();
-    const made = [];
+    if ( state.conversationId === null )
+        return null;
 
-    for ( const item of sorted )
+    return state.conversations.find( ( item ) => item.id === state.conversationId ) ?? null;
+}
+
+function planStopped( item )
+{
+    return Boolean( item.progress ) && item.progress.current !== null;
+}
+
+/**
+ * What needs the person (4.3): a plan stopped short of its end, and a reply that ended before it finished, newest
+ * first. The chat a reply is under way in needs nothing yet.
+ */
+export function needsYou( state )
+{
+    const working = isBusy( state ) ? state.conversationId : null;
+    const idle = chatsNewestFirst( state ).filter( ( item ) => item.id !== working );
+    const rows = [];
+
+    for ( const item of idle )
     {
-        const wrote = Array.isArray( item.wrote ) ? item.wrote.slice().reverse() : [];
+        if ( planStopped( item ) )
+            rows.push( { kind: 'plan', item } );
+        else if ( attentionEndings.includes( item.finish ) )
+            rows.push( { kind: 'reply', item } );
+    }
 
-        for ( const file of wrote )
+    return rows;
+}
+
+/**
+ * The workspace overview (4.3) of a workspace of chats: how many there are and the newest, what is waiting on the
+ * person, and the most recent chats. Projects join it at phase 4.
+ */
+export function workspaceOverview( state )
+{
+    const chats = chatsNewestFirst( state );
+
+    return {
+        chatCount: chats.length,
+        newest: chats.length > 0 ? chats[ 0 ] : null,
+        waiting: needsYou( state ),
+        chats: chats.slice( 0, overviewChats )
+    };
+}
+
+/** The sidebar's recent chats (4.1). */
+export function recentChats( state )
+{
+    return chatsNewestFirst( state ).slice( 0, sidebarChats );
+}
+
+function wordsOf( query )
+{
+    return query.toLowerCase().split( /\s+/ ).filter( ( word ) => word.length > 0 );
+}
+
+function holdsEvery( text, words )
+{
+    const lower = text.toLowerCase();
+
+    return words.every( ( word ) => lower.includes( word ) );
+}
+
+/** All chats (4.6), newest first: with words typed, those whose title or start of Mila's last reply holds each. */
+export function matchingChats( state, query )
+{
+    const words = wordsOf( query );
+    const chats = chatsNewestFirst( state );
+
+    if ( words.length === 0 )
+        return chats;
+
+    return chats.filter( ( item ) => holdsEvery( item.title + ' ' + ( item.reply_start ?? '' ), words ) );
+}
+
+/**
+ * Search (4.11): the chats whose title holds every word, then the files Mila wrote whose path does, each file once
+ * at its latest chat. Nothing typed lists the most recent chats.
+ */
+export function searchResults( state, query )
+{
+    const words = wordsOf( query );
+    const chats = chatsNewestFirst( state );
+    const results = [];
+    const seen = new Set();
+
+    for ( const item of chats )
+    {
+        if ( words.length === 0 || holdsEvery( item.title, words ) )
+            results.push( { kind: 'chat', item } );
+    }
+
+    if ( words.length > 0 )
+    {
+        for ( const item of chats )
         {
-            const key = ( item.folder ?? '' ) + '\u0000' + file.path;
+            const wrote = Array.isArray( item.wrote ) ? item.wrote.slice().reverse() : [];
 
-            if ( seen.has( key ) )
-                continue;
+            for ( const file of wrote )
+            {
+                const key = ( item.folder ?? '' ) + '\u0000' + file.path;
 
-            seen.add( key );
-            made.push( { path: file.path, tool: file.tool, item } );
+                if ( seen.has( key ) || !holdsEvery( file.path, words ) )
+                    continue;
+
+                seen.add( key );
+                results.push( { kind: 'file', path: file.path, item } );
+            }
         }
     }
 
-    return made.slice( 0, homeFiles );
+    return results.slice( 0, searchLimit );
+}
+
+export const activityKinds = [ 'all', 'chat', 'file', 'plan' ];
+
+/**
+ * Activity (4.8), from what the store says of each chat today: when it was started, and the files Mila wrote in it
+ * and how far its plan came, both as of the chat's last change, since the store keeps no time for either. Newest
+ * first, by the viewer's local day; `kind` keeps one kind, or `'all'`.
+ */
+export function activityDays( state, kind )
+{
+    const events = [];
+
+    for ( const item of state.conversations )
+    {
+        const started = item.created ? item.created : item.updated;
+
+        events.push( { kind: 'chat', who: 'you', time: started, item } );
+
+        if ( Array.isArray( item.wrote ) && item.wrote.length > 0 )
+            events.push( { kind: 'file', who: 'mila', time: item.updated, item } );
+
+        if ( item.progress )
+            events.push( { kind: 'plan', who: 'mila', time: item.updated, item } );
+    }
+
+    const kept = kind === 'all' ? events : events.filter( ( event ) => event.kind === kind );
+    const order = { plan: 0, file: 1, chat: 2 };
+
+    kept.sort( ( left, right ) => new Date( right.time ).getTime() - new Date( left.time ).getTime() || order[ left.kind ] - order[ right.kind ] );
+
+    const days = [];
+
+    for ( const event of kept )
+    {
+        const day = startOfDay( new Date( event.time ) );
+        const last = days.length > 0 ? days[ days.length - 1 ] : null;
+
+        if ( last !== null && last.day === day )
+            last.events.push( event );
+        else
+            days.push( { day, events: [ event ] } );
+    }
+
+    return days;
+}
+
+/**
+ * What the Mila bar does with what is typed (5.1, 5.3): reply in the open chat; elsewhere, go on with the
+ * conversation begun from the bar, or begin a new chat when the session holds one opened from a list.
+ */
+export function barMode( state )
+{
+    if ( state.place === 'chat' )
+        return 'reply';
+
+    return state.barOwned ? 'continue' : 'start';
+}
+
+/** Whether the conversation shows risen over the place: raised, and with something in it. */
+export function isRisen( state )
+{
+    return state.risen && state.place !== 'chat' && ( state.transcript.length > 0 || isBusy( state ) );
 }

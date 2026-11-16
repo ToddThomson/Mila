@@ -182,6 +182,7 @@ export function createMockSession( options )
         return {
             id: conversation.id,
             title: conversation.title,
+            created: conversation.created,
             updated: conversation.updated,
             model: conversation.model,
             activity: conversation.activity,

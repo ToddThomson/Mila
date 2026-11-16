@@ -125,7 +125,8 @@ function assistantWithCalls( content, calls, replyStats )
 
 /**
  * What a stored conversation reports of itself in `conversations.list`, as the session's summary does
- * (Desktop.ConversationSummary): how far its plan came, how its last reply ended, and the files its calls wrote.
+ * (Desktop.ConversationSummary): how far its plan came, how its last reply began and ended, and the files its calls
+ * wrote.
  */
 export function summarizeConversation( conversation )
 {
@@ -144,6 +145,8 @@ export function summarizeConversation( conversation )
     const replies = messages.filter( ( message ) => message.role === 'assistant' );
     const last = replies.length === 0 ? null : replies[ replies.length - 1 ];
     const finish = last !== null && last.stats ? last.stats.finish ?? null : null;
+    const line = last !== null && typeof last.content === 'string' ? last.content.replace( /\s+/g, ' ' ).trim().slice( 0, 160 ) : '';
+    const replyStart = line.length > 0 ? line : null;
     let wrote = [];
 
     for ( const message of messages )
@@ -159,7 +162,7 @@ export function summarizeConversation( conversation )
         }
     }
 
-    return { progress, finish, wrote };
+    return { progress, finish, reply_start: replyStart, wrote };
 }
 
 /**

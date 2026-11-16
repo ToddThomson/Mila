@@ -1,102 +1,19 @@
-// The main pane's header: the loaded model as a picker, and the session's facts as quiet text.
+// The bar over the pane (AssistantInterface.md 4.2): where the person is, as a path they can step back along. A narrow
+// window's sidebar opens from its menu button.
 
 import { element, button, iconButton, setIcon, clear } from '../dom.js';
-import { contextShare, contextDetails, thinkingFact, activityCard, folderName, modelTitle, namedTitle } from '../format.js';
-import { appStatus, isAskingForModel } from '../state.js';
+import { currentChat } from '../state.js';
 
-// The ring's arc: a circle of radius 7 drawn from twelve o'clock, filled by the share of the context used.
-const ringRadius = 7;
-const ringLength = 2 * Math.PI * ringRadius;
-const ringMarkup = '<svg viewBox="0 0 20 20" aria-hidden="true">'
-    + '<circle class="context-ring-track" cx="10" cy="10" r="7"></circle>'
-    + '<circle class="context-ring-used" cx="10" cy="10" r="7" transform="rotate(-90 10 10)"></circle></svg>';
+const placeNames = { chats: 'Chats', activity: 'Activity' };
 
 export function createHeaderView( root, actions )
 {
-    const toggle = iconButton( 'quiet-icon sidebar-toggle', 'sidebar', 'Show conversations', 'toggle-sidebar' );
-    const picker = element( 'div', 'model-picker' );
-    const pickerButton = button( 'model-picker-button', null, 'toggle-picker' );
-    const pickerLabel = element( 'span', 'model-picker-label' );
-    const pickerChevron = element( 'span', 'chevron' );
-    const menu = element( 'div', 'menu model-menu' );
-    const facts = element( 'div', 'session-facts' );
-    const conversationTitle = element( 'div', 'conversation-title' );
-    const status = element( 'span', 'app-status' );
-    const statusLabel = element( 'span', 'app-status-label' );
-    const context = element( 'div', 'context-control' );
-    const contextButton = button( 'context-ring', null, 'toggle-context' );
-    const contextPopup = element( 'div', 'menu context-popup' );
-    let open = false;
-    let contextOpen = false;
+    const toggle = iconButton( 'quiet-icon sidebar-toggle', 'menu', 'Show the sidebar', 'toggle-sidebar' );
+    const crumbs = element( 'nav', 'crumbs' );
     let lastKey = '';
 
-    setIcon( pickerChevron, 'chevronDown' );
-    pickerButton.setAttribute( 'aria-haspopup', 'menu' );
-    pickerButton.append( pickerLabel, pickerChevron );
-    picker.append( pickerButton, menu );
-    status.hidden = true;
-    status.setAttribute( 'role', 'status' );
-    const ring = element( 'span', 'caret' );
-    ring.setAttribute( 'aria-hidden', 'true' );
-    status.append( ring, statusLabel );
-    contextButton.innerHTML = ringMarkup;
-    contextButton.setAttribute( 'aria-haspopup', 'dialog' );
-    context.append( contextButton, contextPopup );
-    context.hidden = true;
-    root.append( toggle, picker, status, conversationTitle, facts, context );
-    menu.hidden = true;
-    contextPopup.hidden = true;
-
-    function setOpen( value )
-    {
-        open = value;
-        menu.hidden = !open;
-        pickerButton.setAttribute( 'aria-expanded', open ? 'true' : 'false' );
-    }
-
-    function setContextOpen( value )
-    {
-        contextOpen = value;
-        contextPopup.hidden = !contextOpen;
-        contextButton.setAttribute( 'aria-expanded', contextOpen ? 'true' : 'false' );
-    }
-
-    /** The ring filled by the share used, and the popup's rows, for the session as it stands. */
-    function renderContext( session )
-    {
-        const share = contextShare( session );
-        const used = contextButton.querySelector( '.context-ring-used' );
-        const filled = share === null ? 0 : share * ringLength;
-
-        used.setAttribute( 'stroke-dasharray', filled + ' ' + ringLength );
-        contextButton.classList.toggle( 'full', share !== null && share >= 0.9 );
-
-        const rows = contextDetails( session );
-        const label = 'Context: ' + rows[ 0 ][ 1 ];
-        contextButton.setAttribute( 'aria-label', label );
-        contextButton.title = label;
-
-        clear( contextPopup );
-        contextPopup.append( element( 'div', 'menu-label', 'Context' ) );
-
-        for ( const [ name, value ] of rows )
-        {
-            const row = element( 'div', 'context-row' );
-            row.append( element( 'span', 'context-row-name', name ), element( 'span', 'context-row-value', value ) );
-            contextPopup.append( row );
-        }
-    }
-
-    function loadModel( name )
-    {
-        const state = actions.getState();
-
-        if ( state.session !== null && state.session.model === name )
-            return;
-
-        const message = { type: 'model.load', name, quantization: null };
-        actions.send( message );
-    }
+    crumbs.setAttribute( 'aria-label', 'Where you are' );
+    root.append( toggle, crumbs );
 
     function onClick( event )
     {
@@ -105,143 +22,73 @@ export function createHeaderView( root, actions )
         if ( target === null )
             return;
 
-        const action = target.dataset.action;
-
-        if ( action === 'toggle-sidebar' )
+        if ( target.dataset.action === 'toggle-sidebar' )
             actions.toggleSidebar();
 
-        if ( action === 'toggle-picker' )
-            setOpen( !open );
-
-        if ( action === 'toggle-context' )
-            setContextOpen( !contextOpen );
-
-        if ( action === 'load-model' )
-        {
-            setOpen( false );
-            loadModel( target.dataset.name );
-        }
-
-        if ( action === 'manage-models' )
-        {
-            setOpen( false );
-            actions.openSettings( 'models' );
-        }
-    }
-
-    function onDocumentClick( event )
-    {
-        if ( open && !picker.contains( event.target ) )
-            setOpen( false );
-
-        if ( contextOpen && !context.contains( event.target ) )
-            setContextOpen( false );
+        if ( target.dataset.action === 'open-place' )
+            actions.openPlace( target.dataset.place );
     }
 
     root.addEventListener( 'click', onClick );
-    document.addEventListener( 'click', onDocumentClick );
 
-    function buildMenu( state )
+    function step( place, label )
     {
-        clear( menu );
+        const made = button( 'crumb', label, 'open-place' );
+        made.dataset.place = place;
 
-        const current = state.session === null ? null : state.session.model;
-        const heading = element( 'div', 'menu-label', 'Installed' );
-        menu.append( heading );
+        return made;
+    }
 
-        for ( const model of state.installedModels )
+    /** The place shown last, and the steps back to the workspace before it. */
+    function path( state )
+    {
+        if ( state.place === 'workspace' )
+            return [ [ null, 'Your Workspace' ] ];
+
+        if ( state.place === 'chat' )
         {
-            const item = button( 'menu-item model-menu-item', null, 'load-model' );
-            const check = element( 'span', 'menu-check' );
-            const name = element( 'span', 'menu-item-name', modelTitle( model ) );
+            const chat = currentChat( state );
 
-            item.dataset.name = model.name;
-            item.classList.toggle( 'current', model.name === current );
-
-            if ( model.name === current )
-                setIcon( check, 'check' );
-
-            item.append( check, name );
-            menu.append( item );
+            return [ [ 'workspace', 'Your Workspace' ], [ 'chats', 'Chats' ], [ null, chat === null ? 'New chat' : chat.title ] ];
         }
 
-        const separator = element( 'div', 'menu-separator' );
-        const manage = button( 'menu-item', 'Manage models…', 'manage-models' );
-        menu.append( separator, manage );
+        return [ [ 'workspace', 'Your Workspace' ], [ null, placeNames[ state.place ] ] ];
     }
 
     function render( state, surface )
     {
-        // A wide window's collapsed sidebar is a rail, which has the way back itself.
-        toggle.hidden = !surface.narrow || surface.sidebarOverlay;
-        picker.hidden = isAskingForModel( state );
+        toggle.hidden = !surface.narrow;
 
-        // Ahead of the facts' early return: the status and the title change while they do not.
-        const working = appStatus( state );
-        status.hidden = working === null;
-        statusLabel.textContent = working === null ? '' : working;
-
-        const current = state.conversations.find( ( item ) => item.id === state.conversationId );
-        conversationTitle.textContent = current === undefined ? '' : current.title;
-        conversationTitle.title = conversationTitle.textContent;
-
-        const key = JSON.stringify( [ state.session, state.installedModels ] );
+        const steps = path( state );
+        const key = JSON.stringify( steps );
 
         if ( key === lastKey )
             return;
 
         lastKey = key;
-        buildMenu( state );
-        clear( facts );
+        clear( crumbs );
 
-        if ( state.session === null )
+        const icon = element( 'span', 'crumb-icon' );
+        setIcon( icon, 'workspace' );
+        crumbs.append( icon );
+
+        steps.forEach( ( [ place, label ], index ) =>
         {
-            pickerLabel.textContent = '';
-            context.hidden = true;
-            setContextOpen( false );
+            if ( index > 0 )
+                crumbs.append( element( 'span', 'crumb-separator', '/' ) );
 
-            return;
-        }
+            if ( place === null )
+            {
+                const here = element( 'span', 'crumb-here', label );
+                here.setAttribute( 'aria-current', 'page' );
+                here.title = label;
+                crumbs.append( here );
 
-        // A model being loaded is named at once: the header's status says it is loading.
-        const session = state.session;
-        const named = session.loading ? session.loading : session.model;
-        pickerButton.classList.toggle( 'empty', !named );
-        pickerLabel.textContent = named ? namedTitle( state, named ) : 'No model loaded';
+                return;
+            }
 
-        // The ring is the resident model's: with none, there is no context to fill.
-        context.hidden = session.model === null;
-
-        if ( session.model === null )
-        {
-            setContextOpen( false );
-
-            return;
-        }
-
-        renderContext( session );
-
-        if ( session.activity !== undefined && session.activity !== 'ask' )
-        {
-            const where = session.folder ? ' · ' + folderName( session.folder ) : '';
-            const activity = element( 'span', 'fact', activityCard( session.activity ).name + where );
-            const separator = element( 'span', 'fact-separator', '·' );
-
-            if ( session.folder )
-                activity.title = session.folder;
-
-            facts.append( activity );
-        }
-
-        const thinking = thinkingFact( session );
-
-        if ( thinking !== null )
-        {
-            if ( facts.childElementCount > 0 )
-                facts.append( element( 'span', 'fact-separator', '·' ) );
-
-            facts.append( element( 'span', 'fact', thinking ) );
-        }
+            crumbs.append( step( place, label ) );
+        } );
     }
 
     return { render };

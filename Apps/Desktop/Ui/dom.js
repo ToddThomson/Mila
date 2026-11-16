@@ -82,5 +82,22 @@ export const icons = {
     tool: svg( '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.2L3.6 17.2a1.4 1.4 0 0 0 2 2l5.7-5.7a4 4 0 0 0 5.2-5.4l-2.5 2.5-2.1-.4-.4-2.1z"/>' ),
     close: svg( '<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/>' ),
     image: svg( '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.75"/><polyline points="21 16 15.5 11 5 20"/>' ),
-    audio: svg( '<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>' )
+    audio: svg( '<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>' ),
+    workspace: svg( '<rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/>' ),
+    chats: svg( '<path d="M20 12a7.5 7.5 0 0 1-11 6.6L4.5 20l1.3-4.2A7.5 7.5 0 1 1 20 12z"/>' ),
+    activity: svg( '<path d="M3.5 12h4l2.5-6 4 12 2.5-6h4"/>' ),
+    search: svg( '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4-4"/>' ),
+    menu: svg( '<path d="M4 7h16M4 12h16M4 17h16"/>' ),
+    chevronUpDown: svg( '<path d="m8 9 4-4 4 4M16 15l-4 4-4-4"/>' ),
+    expand: svg( '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>' )
 };
+
+/** Mila's mark, the page's own file. */
+export function milaMark( className )
+{
+    const mark = element( 'img', className );
+    mark.src = 'mila-mark.svg';
+    mark.alt = '';
+
+    return mark;
+}

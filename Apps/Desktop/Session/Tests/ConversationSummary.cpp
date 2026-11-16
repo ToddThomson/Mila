@@ -75,6 +75,43 @@ namespace Mila::Tests::Apps::Desktop
         EXPECT_EQ( summarizeConversation( conversation )[ "finish" ], "length" );
     }
 
+    TEST( ConversationSummaryTest, TheLastReplyStartsOnOneLine )
+    {
+        nlohmann::json earlier = reply( nullptr, "stop" );
+        nlohmann::json last = reply( nullptr, "stop" );
+        last[ "content" ] = "  Keys and values\n\nnever change,\tso they are kept.  ";
+
+        const nlohmann::json conversation = { { "id", "conversation-1" }, { "messages", nlohmann::json::array( {
+            earlier, { { "role", "user" }, { "content", "Why?" } }, last } ) } };
+
+        EXPECT_EQ( summarizeConversation( conversation )[ "reply_start" ], "Keys and values never change, so they are kept." );
+    }
+
+    TEST( ConversationSummaryTest, ALongReplyIsCutAtACharacterNeverInsideOne )
+    {
+        // 159 ASCII bytes, then a three-byte character the 160-byte cut would land inside.
+        nlohmann::json last = reply( nullptr, "stop" );
+        last[ "content" ] = std::string( 159, 'a' ) + "\xE2\x80\x94" + "more";
+
+        const nlohmann::json conversation = { { "id", "conversation-1" }, { "messages", nlohmann::json::array( { last } ) } };
+        const std::string start = summarizeConversation( conversation )[ "reply_start" ].get<std::string>();
+
+        EXPECT_EQ( start, std::string( 159, 'a' ) );
+    }
+
+    TEST( ConversationSummaryTest, NoReplyOrAnEmptyAnswerHasNoStart )
+    {
+        nlohmann::json empty = reply( nullptr, "cancelled" );
+        empty[ "content" ] = " \n ";
+
+        const nlohmann::json asked = { { "id", "conversation-1" }, { "messages", nlohmann::json::array( {
+            { { "role", "user" }, { "content", "Hello" } } } ) } };
+        const nlohmann::json stopped = { { "id", "conversation-2" }, { "messages", nlohmann::json::array( { empty } ) } };
+
+        EXPECT_TRUE( summarizeConversation( asked )[ "reply_start" ].is_null() );
+        EXPECT_TRUE( summarizeConversation( stopped )[ "reply_start" ].is_null() );
+    }
+
     TEST( ConversationSummaryTest, FilesWrittenAreListedOnceTheLatestLastAndFailuresLeftOut )
     {
         const nlohmann::json conversation = { { "id", "conversation-1" }, { "messages", nlohmann::json::array( {

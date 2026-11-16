@@ -1,9 +1,10 @@
-// The composer: a growing text box, attachment chips above it, and Send that becomes Stop while a
-// reply is written. A file dropped anywhere on the main pane attaches.
+// The Mila bar (AssistantInterface.md 5.1): a growing text box with Mila's mark, attachment chips above it, and Send
+// that becomes Stop while a reply is written. In a chat it is the reply box; elsewhere what is typed goes on with the
+// conversation begun here, or begins a chat. A file dropped anywhere on the main pane attaches.
 
-import { element, iconButton, setIcon, clear, previewOrIcon } from '../dom.js';
-import { isBusy, streamIdentifier, isAskingForModel } from '../state.js';
-import { composerPrompt } from '../format.js';
+import { element, iconButton, setIcon, clear, previewOrIcon, milaMark } from '../dom.js';
+import { isBusy } from '../state.js';
+import { barPrompt } from '../format.js';
 
 const maximumRows = 12;
 
@@ -15,6 +16,7 @@ export function createComposerView( root, dropZone, actions )
     const form = element( 'form', 'composer' );
     const chips = element( 'div', 'attachment-chips' );
     const input = element( 'textarea', 'composer-input' );
+    const line = element( 'div', 'composer-line' );
     const row = element( 'div', 'composer-row' );
     const attach = iconButton( 'quiet-icon attach-button', 'attach', 'Attach a file', 'attach' );
     const hint = element( 'span', 'composer-hint' );
@@ -34,7 +36,8 @@ export function createComposerView( root, dropZone, actions )
     dropOverlay.hidden = true;
     dropOverlay.append( dropLabel );
     row.append( attach, hint, submit );
-    form.append( chips, input, row );
+    line.append( milaMark( 'composer-mark' ), input );
+    form.append( chips, line, row );
     root.append( form, picker );
     dropZone.append( dropOverlay );
 
@@ -59,21 +62,15 @@ export function createComposerView( root, dropZone, actions )
             return;
 
         const attachmentIds = state.attachments.filter( ( attachment ) => attachment.status !== 'refused' ).map( ( attachment ) => attachment.id );
-        const stream = streamIdentifier( state );
-        const message = { type: 'turn.send', stream_id: stream, text, attachment_ids: attachmentIds };
 
-        actions.send( message );
+        actions.sendTurn( text, attachmentIds );
         input.value = '';
         resize();
     }
 
     function stopTurn()
     {
-        const state = actions.getState();
-        const stream = streamIdentifier( state );
-        const message = { type: 'turn.stop', stream_id: stream };
-
-        actions.send( message );
+        actions.stopTurn();
     }
 
     function onSubmit( event )
@@ -310,15 +307,13 @@ export function createComposerView( root, dropZone, actions )
         const session = state.session;
         const loaded = session !== null && session.model !== null;
 
-        root.hidden = isAskingForModel( state );
-
         attachRefusal = refusalFor( session );
         attach.classList.toggle( 'disabled', attachRefusal !== null );
         attach.setAttribute( 'aria-disabled', attachRefusal === null ? 'false' : 'true' );
         attach.title = attachRefusal === null ? 'Attach an image or audio clip' : attachRefusal;
         picker.accept = acceptFor( session );
 
-        input.placeholder = loaded ? composerPrompt( session.activity ) : 'Load a model to start a conversation';
+        input.placeholder = loaded ? barPrompt( state.place ) : 'Load a model to start a conversation';
         input.disabled = !loaded;
 
         setIcon( submit, busy ? 'stop' : 'send' );

@@ -2,17 +2,20 @@
 // animation frame however many messages arrived in it.
 
 import { createTransport } from './transport.js';
-import { setIcon } from './dom.js';
-import { createInitialState, reduce, isBusy, isWelcoming, streamIdentifier } from './state.js';
+import { createInitialState, reduce, isBusy, isWelcoming, isAskingForModel, isRisen, barMode, streamIdentifier } from './state.js';
 import { createSidebarView } from './views/sidebar.js';
 import { createHeaderView } from './views/header.js';
+import { createPlacesView } from './views/places.js';
+import { createChatHeadView } from './views/chat-head.js';
 import { createTranscriptView } from './views/transcript.js';
+import { createDockView } from './views/dock.js';
 import { createComposerView } from './views/composer.js';
 import { createSettingsView } from './views/settings.js';
+import { createSearchView } from './views/search.js';
+import { createLicenseView } from './views/license.js';
 import { createDevelopmentView } from './views/development.js';
 import { createLogView } from './views/log.js';
 import { createPlanView } from './views/plan.js';
-import { createRailView } from './views/rail.js';
 
 const narrowQuery = window.matchMedia( '(max-width: 899.98px)' );
 
@@ -25,12 +28,14 @@ const transport = await createTransport( window.location );
 
 let state = createInitialState();
 let renderPending = false;
-let pendingActivity = null;
 let setupShown = null;
+let shownPlace = null;
+
+// A turn to send once a chat opened from a button has loaded: "Ask Mila to finish".
+let afterOpen = null;
 
 const surface = {
     narrow: narrowQuery.matches,
-    sidebarCollapsed: false,
     sidebarOverlay: false,
     settingsOpen: false,
     settingsArea: 'models',
@@ -67,16 +72,7 @@ function changeSurface( change )
 
 function toggleSidebar()
 {
-    if ( surface.narrow )
-    {
-        const overlay = { sidebarOverlay: !surface.sidebarOverlay };
-        changeSurface( overlay );
-
-        return;
-    }
-
-    const collapsed = { sidebarCollapsed: !surface.sidebarCollapsed };
-    changeSurface( collapsed );
+    changeSurface( { sidebarOverlay: !surface.sidebarOverlay } );
 }
 
 function toggleExpanded( identifier )
@@ -91,104 +87,114 @@ function toggleExpanded( identifier )
 
 function closeOverlay()
 {
-    const closed = { sidebarOverlay: false };
-
-    changeSurface( closed );
+    changeSurface( { sidebarOverlay: false } );
 }
 
+/** Going somewhere from the sidebar, the path or a figure; a narrow window's sidebar closes once the person has. */
+function openPlace( place )
+{
+    dispatch( { type: 'place.open', place } );
+    changeSurface( { sidebarOverlay: false, settingsOpen: false } );
+}
+
+/** A chat opened from anywhere has the pane to itself; `then` is a turn to send once it has loaded. */
+function openConversation( identifier, then )
+{
+    afterOpen = then === undefined ? null : { id: identifier, text: then };
+
+    // The chat already open is shown whole without being read again from the store.
+    if ( identifier === state.conversationId && state.transcript.length > 0 && afterOpen === null )
+        dispatch( { type: 'place.open', place: 'chat' } );
+    else
+        send( { type: 'conversation.open', id: identifier } );
+
+    changeSurface( { sidebarOverlay: false, settingsOpen: false } );
+}
+
+/** A new conversation is the bar's; from a chat the person goes back to the workspace to begin it. */
 function newConversation()
 {
-    const message = { type: 'conversation.new', activity: 'ask' };
+    send( { type: 'conversation.new', activity: 'ask' } );
 
-    const closed = { sidebarOverlay: false, settingsOpen: false };
+    if ( state.place === 'chat' )
+        dispatch( { type: 'place.open', place: 'workspace' } );
 
-    send( message );
-    changeSurface( closed );
+    changeSurface( { sidebarOverlay: false, settingsOpen: false } );
     composer.focus();
+}
+
+/**
+ * What the bar sends (AssistantInterface.md 5.3): a reply in the open chat; elsewhere the next turn of the bar's
+ * conversation, or the first of a new chat when the session holds one opened from a list. The attachments waiting
+ * in the bar go with the new chat.
+ */
+function sendTurn( text, attachmentIds )
+{
+    if ( barMode( state ) === 'start' )
+    {
+        const waiting = state.attachments;
+
+        send( { type: 'conversation.new', activity: 'ask' } );
+        dispatch( { type: 'attachments.keep', attachments: waiting } );
+    }
+
+    const stream = streamIdentifier( state );
+
+    send( { type: 'turn.send', stream_id: stream, text, attachment_ids: attachmentIds } );
+}
+
+function stopTurn()
+{
+    const stream = streamIdentifier( state );
+
+    send( { type: 'turn.stop', stream_id: stream } );
 }
 
 /** Opens Settings at an area, or with none named at the one last shown. */
 function openSettings( area )
 {
     const settingsArea = area === undefined || area === null ? surface.settingsArea : area;
-    const opened = { settingsOpen: true, settingsArea, sidebarOverlay: false };
 
-    changeSurface( opened );
+    changeSurface( { settingsOpen: true, settingsArea, sidebarOverlay: false } );
 }
 
 function closeSettings()
 {
-    const closed = { settingsOpen: false };
-
-    changeSurface( closed );
-}
-
-/**
- * A card on the home screen. Ask & Explore is the conversation already open; an activity that works in
- * a folder starts once the person has chosen one in the window's picker.
- */
-function startActivity( activity )
-{
-    if ( activity === 'ask' )
-    {
-        composer.focus();
-
-        return;
-    }
-
-    // Build & Code and Get Things Done work in a folder; the others start at once.
-    if ( activity !== 'build' && activity !== 'tasks' )
-    {
-        const start = { type: 'conversation.new', activity };
-        send( start );
-        composer.focus();
-
-        return;
-    }
-
-    const choose = { type: 'folder.choose' };
-    transport.send( choose );
-    pendingActivity = activity;
-}
-
-function onFolderChosen( message )
-{
-    const activity = pendingActivity;
-    pendingActivity = null;
-
-    if ( activity === null || message.path === null )
-        return;
-
-    const start = { type: 'conversation.new', activity, folder: message.path };
-    send( start );
-    composer.focus();
+    changeSurface( { settingsOpen: false } );
 }
 
 function onTransportMessage( message )
 {
     if ( message.type === 'folder.chosen' )
-    {
-        onFolderChosen( message );
-
         return;
-    }
 
     dispatch( message );
+
+    if ( message.type === 'conversation.loaded' && afterOpen !== null && afterOpen.id === message.id )
+    {
+        const text = afterOpen.text;
+
+        afterOpen = null;
+        sendTurn( text, [] );
+    }
 }
 
 function decideTool( turnId, callId, decision )
 {
     const stream = streamIdentifier( state );
-    const message = { type: 'turn.tool_decision', stream_id: stream, turn_id: turnId, call_id: callId, decision };
 
-    send( message );
+    send( { type: 'turn.tool_decision', stream_id: stream, turn_id: turnId, call_id: callId, decision } );
 }
 
 function openLink( url )
 {
-    const message = { type: 'link.open', url };
+    transport.send( { type: 'link.open', url } );
+}
 
-    transport.send( message );
+/** A shortcut's name in the keys of the computer the window runs on. */
+function shortcutLabel( key )
+{
+    return ( onMac ? '⌘' : 'Ctrl ' ) + key;
 }
 
 const actions = {
@@ -198,48 +204,91 @@ const actions = {
     toggleSidebar,
     toggleExpanded,
     closeOverlay,
+    openPlace,
+    openConversation,
     newConversation,
+    sendTurn,
+    stopTurn,
     openSettings,
     closeSettings,
-    startActivity,
+    openSearch: () => search.open(),
+    openLicense: () => license.open(),
     decideTool,
     openLink,
+    shortcutLabel,
     transmit: ( message ) => transport.send( message ),
     pathForFile: ( file ) => transport.pathForFile( file ),
     getState: () => state
 };
 
 const application = document.getElementById( 'app' );
-const sidebarElement = document.getElementById( 'sidebar' );
-const headerElement = document.getElementById( 'header' );
-const transcriptScroller = document.getElementById( 'transcript-scroll' );
-const transcriptElement = document.getElementById( 'transcript' );
-const composerElement = document.getElementById( 'composer-area' );
 const mainElement = document.getElementById( 'main' );
-const settingsElement = document.getElementById( 'settings' );
-const developmentElement = document.getElementById( 'development' );
-const logElement = document.getElementById( 'log-drawer' );
+const paneScroller = document.getElementById( 'pane-scroll' );
+const transcriptScroller = document.getElementById( 'transcript-scroll' );
+const conversationElement = document.getElementById( 'conversation' );
+const dockElement = document.getElementById( 'dock' );
+const dockFade = mainElement.querySelector( '.dock-fade' );
 const planElement = document.getElementById( 'plan' );
+const logElement = document.getElementById( 'log-drawer' );
 
-const rail = createRailView( document.getElementById( 'rail' ), actions );
-const sidebar = createSidebarView( sidebarElement, actions );
-const header = createHeaderView( headerElement, actions );
-const transcript = createTranscriptView( transcriptScroller, transcriptElement, actions );
-const composer = createComposerView( composerElement, mainElement, actions );
-const settings = createSettingsView( settingsElement, actions );
-const development = createDevelopmentView( developmentElement, transport.development, composer );
+const sidebar = createSidebarView( document.getElementById( 'sidebar' ), actions );
+const header = createHeaderView( document.getElementById( 'header' ), actions );
+const places = createPlacesView( paneScroller, document.getElementById( 'pane' ), actions );
+const chatHead = createChatHeadView( document.getElementById( 'chat-head' ) );
+const transcript = createTranscriptView( transcriptScroller, document.getElementById( 'transcript' ), actions );
+const dock = createDockView( document.getElementById( 'conversation-head' ), actions );
+const composer = createComposerView( document.getElementById( 'composer-area' ), mainElement, actions );
+const settings = createSettingsView( document.getElementById( 'settings' ), actions );
+const search = createSearchView( document.getElementById( 'search' ), actions );
+const license = createLicenseView( document.getElementById( 'license-window' ), actions );
+const development = createDevelopmentView( sidebar.development, transport.development, composer );
 const log = createLogView( logElement, actions );
 const plan = createPlanView( planElement );
+
+/**
+ * What the pane shows: the first-run setup, which has the window to itself; the screen asking for a model, in the
+ * workspace's place while none is loaded; the open chat; or a place, with the conversation risen over it or not.
+ */
+function paneMode()
+{
+    if ( isWelcoming( state ) )
+        return 'setup';
+
+    if ( state.place === 'workspace' && isAskingForModel( state ) )
+        return 'model';
+
+    return state.place === 'chat' ? 'chat' : 'place';
+}
+
+/** The transcript is the chat's pane, or the risen conversation's: one element, moved to where it shows. */
+function placeTranscript( risen )
+{
+    const home = risen ? conversationElement : mainElement;
+
+    if ( transcriptScroller.parentElement === home )
+        return false;
+
+    if ( risen )
+        conversationElement.append( transcriptScroller );
+    else
+        mainElement.insertBefore( transcriptScroller, dockFade );
+
+    return true;
+}
 
 function render()
 {
     renderPending = false;
 
-    const sidebarHidden = surface.narrow ? !surface.sidebarOverlay : surface.sidebarCollapsed;
-    application.classList.toggle( 'sidebar-hidden', sidebarHidden );
+    const mode = paneMode();
+    const risen = mode === 'place' && isRisen( state );
+
+    application.dataset.mode = mode;
+    application.classList.toggle( 'risen', risen );
     application.classList.toggle( 'sidebar-overlay', surface.narrow && surface.sidebarOverlay );
-    const welcoming = isWelcoming( state );
-    application.classList.toggle( 'welcoming', welcoming );
+    application.classList.toggle( 'busy', isBusy( state ) );
+
+    const welcoming = mode === 'setup';
 
     // The window gives a setup assistant's menus while the setup shows.
     if ( welcoming !== setupShown )
@@ -248,24 +297,49 @@ function render()
         transport.send( { type: 'setup.showing', showing: welcoming } );
     }
 
-    const busy = isBusy( state );
-    application.classList.toggle( 'busy', busy );
+    if ( state.place !== shownPlace )
+    {
+        places.reset();
+        paneScroller.scrollTop = 0;
+        shownPlace = state.place;
+    }
 
-    rail.render( state, surface );
+    const moved = placeTranscript( risen );
+
     sidebar.render( state, surface );
     header.render( state, surface );
+    places.render( state );
+    chatHead.render( state );
     transcript.render( state, surface );
+    dock.render( state );
     composer.render( state, surface );
     settings.render( state, surface );
     log.render( state, surface );
     plan.render( state );
+
+    // A moved transcript starts again at its latest turn.
+    if ( moved )
+        transcriptScroller.scrollTop = transcriptScroller.scrollHeight;
+
+    document.getElementById( 'composer-area' ).hidden = mode === 'setup' || mode === 'model';
+
+    const conversing = mode === 'chat' || risen;
+
+    planElement.hidden = planElement.hidden || !conversing;
+    logElement.hidden = logElement.hidden || !conversing;
 }
+
+// The pane's content scrolls beneath the bar, so it is padded by the bar's height, plan and log included.
+const dockSize = new ResizeObserver( () =>
+{
+    mainElement.style.setProperty( '--dock-height', dockElement.offsetHeight + 'px' );
+} );
+
+dockSize.observe( dockElement );
 
 function onNarrowChange( event )
 {
-    const change = { narrow: event.matches, sidebarOverlay: false };
-
-    changeSurface( change );
+    changeSurface( { narrow: event.matches, sidebarOverlay: false } );
 }
 
 function isShortcut( event, key )
@@ -275,8 +349,10 @@ function isShortcut( event, key )
 
 function onKeyDown( event )
 {
-    // The setup's panes are the one way forward: no new conversation and no Settings beside them.
-    if ( isWelcoming( state ) && ( isShortcut( event, 'n' ) || isShortcut( event, ',' ) ) )
+    const shortcut = isShortcut( event, 'n' ) || isShortcut( event, ',' ) || isShortcut( event, 'k' );
+
+    // The setup's panes are the one way forward: no new conversation, Search or Settings beside them.
+    if ( isWelcoming( state ) && shortcut )
     {
         event.preventDefault();
 
@@ -299,7 +375,19 @@ function onKeyDown( event )
         return;
     }
 
+    if ( isShortcut( event, 'k' ) )
+    {
+        event.preventDefault();
+        search.open();
+
+        return;
+    }
+
     if ( event.key !== 'Escape' )
+        return;
+
+    // Search and the licence are dialogs, which Esc closes itself.
+    if ( search.isOpen() || license.isOpen() )
         return;
 
     // Settings is over everything, so Esc closes it before it stops a reply.
@@ -313,29 +401,19 @@ function onKeyDown( event )
 
     if ( isBusy( state ) )
     {
-        const stop = { type: 'turn.stop' };
-        send( stop );
+        stopTurn();
 
         return;
     }
 
-    const closed = { sidebarOverlay: false };
-    changeSurface( closed );
-}
-
-/** The shortcuts' names, in the keys of the computer the window runs on. */
-function fillShortcuts()
-{
-    const prefix = onMac ? '⌘ ' : 'Ctrl ';
-
-    for ( const holder of document.querySelectorAll( '[data-shortcut]' ) )
-        holder.textContent = prefix + holder.dataset.shortcut;
-
-    for ( const holder of document.querySelectorAll( '[data-shortcut-title]' ) )
+    if ( isRisen( state ) )
     {
-        const [ label, key ] = holder.dataset.shortcutTitle.split( '|' );
-        holder.title = label + ' (' + prefix + key + ')';
+        dispatch( { type: 'conversation.raise', risen: false } );
+
+        return;
     }
+
+    closeOverlay();
 }
 
 /**
@@ -355,25 +433,24 @@ function onLinkActivate( event )
     openLink( link.dataset.url );
 }
 
-function fillIcons()
+/** Focusing the bar with a conversation in it raises the conversation again. */
+function onBarFocus()
 {
-    for ( const holder of document.querySelectorAll( '[data-icon]' ) )
-        setIcon( holder, holder.dataset.icon );
+    if ( state.place !== 'chat' && state.transcript.length > 0 && state.barOwned && !state.risen )
+        dispatch( { type: 'conversation.raise', risen: true } );
 }
 
 const scrim = document.querySelector( '.scrim' );
 
-fillIcons();
-fillShortcuts();
 scrim.addEventListener( 'click', closeOverlay );
 narrowQuery.addEventListener( 'change', onNarrowChange );
 document.addEventListener( 'keydown', onKeyDown );
 document.addEventListener( 'click', onLinkActivate );
 document.addEventListener( 'keydown', onLinkActivate );
+document.getElementById( 'composer-area' ).addEventListener( 'focusin', onBarFocus );
 transport.onMessage( onTransportMessage );
 
 development.render();
 render();
 
-const ready = { type: 'ready' };
-send( ready );
+send( { type: 'ready' } );

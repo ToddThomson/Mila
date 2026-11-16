@@ -4,9 +4,9 @@
 
 import { element, button, iconButton, setIcon, clear, previewOrIcon } from '../dom.js';
 import { renderMarkdown } from '../markdown.js';
-import { summarizeTurn, isBusy, emptyScreen, firstRunStep, suggestedModel, setupPane, homeSections } from '../state.js';
-import { thoughtLabel, statsLine, finishNotice, readableJson, activityCard, formatBytes, modelAbilities,
-    fitLine, modelTitle, namedTitle, whenLabel, attentionLine, progressLine, folderName } from '../format.js';
+import { summarizeTurn, isBusy, emptyScreen, firstRunStep, suggestedModel, setupPane } from '../state.js';
+import { thoughtLabel, statsLine, finishNotice, readableJson, formatBytes, modelAbilities, fitLine, modelTitle, namedTitle,
+    licenseParagraphs } from '../format.js';
 
 const stickDistance = 80;
 
@@ -53,15 +53,6 @@ export function createTranscriptView( scroller, container, actions )
 
         if ( action === 'tool-decision' )
             actions.decideTool( target.dataset.turn, target.dataset.call, target.dataset.decision );
-
-        if ( action === 'start-activity' )
-            actions.startActivity( target.dataset.activity );
-
-        if ( action === 'open-conversation' )
-        {
-            const open = { type: 'conversation.open', id: target.dataset.identifier };
-            actions.send( open );
-        }
 
         if ( action === 'load-model' )
         {
@@ -113,19 +104,6 @@ export function createTranscriptView( scroller, container, actions )
         // Declining the licence is quitting, which the window does.
         if ( action === 'quit' )
             actions.transmit( { type: 'app.quit' } );
-    }
-
-    /**
-     * The licence as paragraphs the box wraps: its text is broken at eighty columns, which a narrower box would
-     * break again mid-line. Blank lines still part its paragraphs, and every word stays as written.
-     */
-    function licenseParagraphs( text )
-    {
-        const normalized = text.replace( /\r\n/g, '\n' ).trim();
-        const blocks = normalized.split( /\n[ \t]*\n/ );
-        const joined = blocks.map( ( block ) => block.replace( /[ \t]*\n[ \t]*/g, ' ' ) );
-
-        return joined.join( '\n\n' );
     }
 
     /** The end of the licence has been in view once its last line is: within a pixel, for a fractional scroll. */
@@ -198,8 +176,8 @@ export function createTranscriptView( scroller, container, actions )
 
         placeChildren( container, children );
 
-        // The home screen reads from the top, and keeps where the person scrolled to while it is redrawn; only a
-        // conversation keeps to its latest turn.
+        // A screen asking for a model reads from the top, and keeps where the person scrolled to while it is redrawn;
+        // only a conversation keeps to its latest turn.
         if ( state.transcript.length === 0 )
         {
             if ( !showingEmpty )
@@ -224,7 +202,7 @@ export function createTranscriptView( scroller, container, actions )
     function renderEmptyState( state )
     {
         clear( emptyState );
-        emptyState.classList.remove( 'first-run', 'home' );
+        emptyState.classList.remove( 'first-run' );
 
         const screen = emptyScreen( state );
 
@@ -246,20 +224,7 @@ export function createTranscriptView( scroller, container, actions )
             return;
         }
 
-        const activity = state.session.activity;
-
-        if ( screen === 'activity' )
-        {
-            const card = activityCard( activity );
-            const detailText = state.session.folder ? 'Working in ' + state.session.folder : card.line;
-            const heading = element( 'p', 'empty-heading', card.name );
-            const detail = element( 'p', 'empty-detail', detailText );
-            emptyState.append( heading, detail );
-
-            return;
-        }
-
-        renderHome( state );
+        // A conversation not yet begun shows nothing: the bar below is where it begins (AssistantInterface.md 5.1).
     }
 
     /** Why no model is loaded, when there is a reason: a load just refused, or the remembered model not opening. */
@@ -582,115 +547,6 @@ export function createTranscriptView( scroller, container, actions )
 
         const all = button( 'link-button', 'See every model', 'open-models' );
         target.append( all );
-    }
-
-    /**
-     * The home screen: what the person came to do, as the box below and a card for each activity the session can
-     * start, then the work so far (AssistantInterface.md 4.2). With nothing stored it is the line and the cards.
-     */
-    function renderHome( state )
-    {
-        const heading = element( 'p', 'empty-heading', 'What would you like to do?' );
-        const cards = element( 'div', 'activity-cards' );
-        const offered = state.session.activities === undefined ? [ 'ask' ] : state.session.activities;
-
-        for ( const activity of offered )
-        {
-            const card = activityCard( activity );
-            const tile = button( 'activity-card', null, 'start-activity' );
-            const name = element( 'span', 'activity-name', card.name );
-            const line = element( 'span', 'activity-line', card.line );
-
-            tile.dataset.activity = activity;
-            tile.append( name, line );
-            cards.append( tile );
-        }
-
-        emptyState.append( heading, cards );
-
-        const dashboard = renderDashboard( state );
-
-        if ( dashboard !== null )
-        {
-            emptyState.classList.add( 'home' );
-            emptyState.append( dashboard );
-        }
-    }
-
-    /** The work so far, a panel per section that has something in it; null when none has. */
-    function renderDashboard( state )
-    {
-        const sections = homeSections( state );
-        const now = new Date();
-        const panels = [];
-
-        const attention = sections.needsYou.map( ( row ) => homeRow( row.item.id, row.item.title, attentionLine( row ), row.item.updated, now ) );
-        const plans = sections.plans.map( ( item ) => homeRow( item.id, item.title, progressLine( item.progress ), item.updated, now ) );
-        const made = sections.made.map( ( file ) => homeRow( file.item.id, folderName( file.path ), madeLine( file ), file.item.updated, now ) );
-        const recent = sections.recent.map( ( item ) => homeRow( item.id, item.title, workLine( item ), item.updated, now ) );
-        const ideas = sections.ideas.map( ( item ) => homeRow( item.id, item.title, null, item.updated, now ) );
-
-        addPanel( panels, 'Needs you', attention, 'attention' );
-        addPanel( panels, 'Plans', plans, null );
-        addPanel( panels, 'Recently made', made, null );
-        addPanel( panels, 'Recent work', recent, null );
-        addPanel( panels, 'Ideas', ideas, null );
-
-        if ( panels.length === 0 )
-            return null;
-
-        const dashboard = element( 'div', 'home-dashboard' );
-        dashboard.append( ...panels );
-
-        return dashboard;
-    }
-
-    /** Where a file is, in its folder, and the conversation that wrote it. */
-    function madeLine( file )
-    {
-        const place = file.item.folder ? folderName( file.item.folder ) + '/' + file.path : file.path;
-
-        return place + ' · ' + file.item.title;
-    }
-
-    /** The activity a conversation was, and the folder it worked in. */
-    function workLine( item )
-    {
-        const name = activityCard( item.activity ).name;
-
-        return item.folder ? name + ' · ' + folderName( item.folder ) : name;
-    }
-
-    function addPanel( panels, title, rows, modifier )
-    {
-        if ( rows.length === 0 )
-            return;
-
-        const panel = element( 'section', modifier ? 'home-panel ' + modifier : 'home-panel' );
-        const heading = element( 'h2', 'home-panel-title', title );
-        const list = element( 'div', 'home-rows' );
-
-        list.append( ...rows );
-        panel.append( heading, list );
-        panels.push( panel );
-    }
-
-    function homeRow( identifier, title, line, updated, now )
-    {
-        const row = button( 'home-row', null, 'open-conversation' );
-        const top = element( 'span', 'home-row-top' );
-        const name = element( 'span', 'home-row-title', title );
-        const when = element( 'span', 'home-row-when', whenLabel( updated, now ) );
-
-        row.dataset.identifier = identifier;
-        row.title = title;
-        top.append( name, when );
-        row.append( top );
-
-        if ( line )
-            row.append( element( 'span', 'home-row-line', line ) );
-
-        return row;
     }
 
     function renderEntry( entry, surface )

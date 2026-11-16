@@ -1,29 +1,28 @@
-// The sidebar: a new conversation, the stored conversations by date, and the way to settings, where
-// models are managed. A row's menu renames in place and asks before deleting.
+// The sidebar (AssistantInterface.md 4.1): always the same places, with where the person is marked among them; the
+// recent chats; and at its foot Settings, the model as a quiet fact, and the person.
 
-import { element, button, iconButton, clear } from '../dom.js';
-import { groupConversations } from '../state.js';
-import { activityCard, folderName } from '../format.js';
+import { element, button, setIcon, clear, milaMark } from '../dom.js';
+import { recentChats, appStatus } from '../state.js';
+import { contextShare, contextDetails, thinkingFact, namedTitle, initials } from '../format.js';
+
+// The ring's arc: a circle of radius 7 drawn from twelve o'clock, filled by the share of the context used.
+const ringRadius = 7;
+const ringLength = 2 * Math.PI * ringRadius;
+const ringMarkup = '<svg viewBox="0 0 20 20" aria-hidden="true">'
+    + '<circle class="context-ring-track" cx="10" cy="10" r="7"></circle>'
+    + '<circle class="context-ring-used" cx="10" cy="10" r="7" transform="rotate(-90 10 10)"></circle></svg>';
 
 export function createSidebarView( root, actions )
 {
-    const list = root.querySelector( '.conversation-list' );
-    const local = { menuFor: null, renaming: null, confirming: null };
-    const noConfirmation = { confirming: null };
-    const noRename = { renaming: null };
-    const noMenu = { menuFor: null };
-    let lastConversations = null;
-    let lastConversationId = null;
-    let lastLocal = '';
+    const top = element( 'div', 'sidebar-top' );
+    const foot = element( 'div', 'sidebar-foot' );
+    const development = element( 'div', 'development' );
+    const local = { popover: null };
+    let lastKey = '';
 
-    function changeLocal( change )
-    {
-        Object.assign( local, change );
-        lastConversations = null;
-
-        const state = actions.getState();
-        renderList( state );
-    }
+    development.id = 'development';
+    development.hidden = true;
+    root.append( top, foot );
 
     function onClick( event )
     {
@@ -33,241 +32,281 @@ export function createSidebarView( root, actions )
             return;
 
         const action = target.dataset.action;
-        const identifier = target.dataset.identifier;
 
-        if ( action === 'new-conversation' )
-            actions.newConversation();
+        if ( action === 'toggle-model' || action === 'toggle-person' )
+        {
+            const popover = action === 'toggle-model' ? 'model' : 'person';
+            togglePopover( popover );
 
-        if ( action === 'collapse-sidebar' )
-            actions.toggleSidebar();
+            return;
+        }
+
+        closePopover();
+
+        if ( action === 'open-place' )
+            actions.openPlace( target.dataset.place );
+
+        if ( action === 'open-conversation' )
+            actions.openConversation( target.dataset.identifier );
+
+        if ( action === 'open-search' )
+            actions.openSearch();
 
         if ( action === 'open-settings' )
             actions.openSettings( null );
 
-        if ( action === 'open-conversation' )
-            openConversation( identifier );
+        if ( action === 'manage-models' )
+            actions.openSettings( 'models' );
 
-        if ( action === 'row-menu' )
-            toggleMenu( identifier );
+        if ( action === 'open-license' )
+            actions.openLicense();
 
-        if ( action === 'rename' )
-            startRename( identifier );
-
-        if ( action === 'delete' )
-            confirmDelete( identifier );
-
-        if ( action === 'delete-confirmed' )
-            deleteConversation( identifier );
-
-        if ( action === 'delete-cancelled' )
-            changeLocal( noConfirmation );
+        if ( action === 'quit' )
+            actions.transmit( { type: 'app.quit' } );
     }
 
-    function openConversation( identifier )
+    function togglePopover( popover )
     {
-        const message = { type: 'conversation.open', id: identifier };
-        const closed = { sidebarOverlay: false };
-
-        actions.send( message );
-        actions.changeSurface( closed );
+        local.popover = local.popover === popover ? null : popover;
+        lastKey = '';
+        render( actions.getState(), null );
     }
 
-    function toggleMenu( identifier )
+    function closePopover()
     {
-        const menuFor = local.menuFor === identifier ? null : identifier;
-        const change = { menuFor, confirming: null };
-
-        changeLocal( change );
-    }
-
-    function startRename( identifier )
-    {
-        const change = { menuFor: null, renaming: identifier };
-
-        changeLocal( change );
-    }
-
-    function confirmDelete( identifier )
-    {
-        const change = { menuFor: null, confirming: identifier };
-
-        changeLocal( change );
-    }
-
-    function deleteConversation( identifier )
-    {
-        const message = { type: 'conversation.delete', id: identifier };
-        const change = { confirming: null };
-
-        actions.send( message );
-        changeLocal( change );
-    }
-
-    function commitRename( input )
-    {
-        const identifier = input.dataset.identifier;
-        const title = input.value.trim();
-        const state = actions.getState();
-        const conversation = state.conversations.find( ( item ) => item.id === identifier );
-        const change = { renaming: null };
-
-        if ( conversation !== undefined && title.length > 0 && title !== conversation.title )
-        {
-            const message = { type: 'conversation.rename', id: identifier, title };
-            actions.send( message );
-        }
-
-        changeLocal( change );
-    }
-
-    function onKeyDown( event )
-    {
-        const input = event.target.closest( '.rename-input' );
-
-        if ( input === null )
+        if ( local.popover === null )
             return;
 
-        event.stopPropagation();
-
-        if ( event.key === 'Enter' )
-            commitRename( input );
-
-        if ( event.key === 'Escape' )
-            changeLocal( noRename );
-    }
-
-    function onFocusOut( event )
-    {
-        const input = event.target.closest( '.rename-input' );
-
-        if ( input !== null && local.renaming !== null )
-            commitRename( input );
+        local.popover = null;
+        lastKey = '';
+        render( actions.getState(), null );
     }
 
     function onDocumentClick( event )
     {
-        if ( local.menuFor === null || event.target.closest( '.row-menu, .row-menu-button' ) !== null )
-            return;
-
-        changeLocal( noMenu );
+        if ( local.popover !== null && !event.target.closest( '.sidebar-popover, .model-button, .person-button' ) )
+            closePopover();
     }
 
     root.addEventListener( 'click', onClick );
-    root.addEventListener( 'keydown', onKeyDown );
-    root.addEventListener( 'focusout', onFocusOut );
     document.addEventListener( 'click', onDocumentClick );
 
-    function buildRow( item, active )
+    function placeItem( place, label, icon, current, count )
     {
-        const row = element( 'div', 'conversation-row' );
-        row.classList.toggle( 'active', active );
-        row.title = 'Held with ' + item.model;
+        const item = button( 'side-item', null, 'open-place' );
+        const holder = element( 'span', 'side-icon' );
+        const name = element( 'span', 'side-label', label );
 
-        if ( local.renaming === item.id )
-        {
-            const input = element( 'input', 'rename-input' );
-            input.value = item.title;
-            input.dataset.identifier = item.id;
-            input.setAttribute( 'aria-label', 'Conversation title' );
-            row.append( input );
+        setIcon( holder, icon );
+        item.dataset.place = place;
+        item.append( holder, name );
 
-            return row;
-        }
+        if ( count !== null )
+            item.append( element( 'span', 'side-count', String( count ) ) );
 
-        if ( local.confirming === item.id )
-        {
-            row.classList.add( 'confirming' );
+        if ( current )
+            item.setAttribute( 'aria-current', 'page' );
 
-            const question = element( 'span', 'confirm-question', 'Delete this conversation?' );
-            const confirm = button( 'confirm-delete', 'Delete', 'delete-confirmed' );
-            const cancel = button( 'confirm-cancel', 'Cancel', 'delete-cancelled' );
-            confirm.dataset.identifier = item.id;
-            row.append( question, confirm, cancel );
-
-            return row;
-        }
-
-        const open = button( 'conversation-open', item.title, 'open-conversation' );
-        const menuButton = iconButton( 'row-menu-button quiet-icon', 'more', 'Conversation options', 'row-menu' );
-        open.dataset.identifier = item.id;
-
-        // Ask & Explore is the default, so only another activity is named, with the folder it works in.
-        if ( item.activity !== undefined && item.activity !== 'ask' )
-        {
-            const where = item.folder ? ' · ' + folderName( item.folder ) : '';
-            const label = element( 'span', 'conversation-activity', activityCard( item.activity ).name + where );
-            open.append( label );
-        }
-        menuButton.dataset.identifier = item.id;
-        row.append( open, menuButton );
-
-        if ( local.menuFor === item.id )
-        {
-            row.classList.add( 'menu-open' );
-
-            const menu = element( 'div', 'row-menu menu' );
-            const rename = button( 'menu-item', 'Rename', 'rename' );
-            const remove = button( 'menu-item danger', 'Delete', 'delete' );
-            rename.dataset.identifier = item.id;
-            remove.dataset.identifier = item.id;
-            menu.append( rename, remove );
-            row.append( menu );
-        }
-
-        return row;
+        return item;
     }
 
-    function renderList( state )
+    function renderTop( state )
     {
-        const localKey = JSON.stringify( local );
+        const workspace = button( 'side-workspace', null, 'open-place' );
+        const name = element( 'span', 'side-name' );
 
-        if ( state.conversations === lastConversations && state.conversationId === lastConversationId && localKey === lastLocal )
+        workspace.dataset.place = 'workspace';
+        name.append( element( 'b', null, 'Your Workspace' ), element( 'span', null, 'Mila Assistant' ) );
+        workspace.append( milaMark( 'side-mark' ), name );
+
+        const search = button( 'side-item', null, 'open-search' );
+        const searchIcon = element( 'span', 'side-icon' );
+        const shortcut = element( 'kbd' );
+        setIcon( searchIcon, 'search' );
+        shortcut.dataset.shortcut = 'K';
+        shortcut.textContent = actions.shortcutLabel( 'K' );
+        search.append( searchIcon, element( 'span', 'side-label', 'Search' ), shortcut );
+
+        const place = state.place;
+        const places = [
+            placeItem( 'workspace', 'Workspace', 'workspace', place === 'workspace', null ),
+            placeItem( 'chats', 'Chats', 'chats', place === 'chats', state.conversations.length ),
+            placeItem( 'activity', 'Activity', 'activity', place === 'activity', null )
+        ];
+
+        clear( top );
+        top.append( workspace, search, element( 'div', 'side-rule' ), ...places );
+
+        const recent = recentChats( state );
+
+        if ( recent.length === 0 )
             return;
 
-        lastConversations = state.conversations;
-        lastConversationId = state.conversationId;
-        lastLocal = localKey;
+        top.append( element( 'div', 'side-title', 'Recent chats' ) );
 
-        const now = new Date();
-        const groups = groupConversations( state.conversations, now );
-
-        clear( list );
-
-        if ( groups.length === 0 )
+        for ( const item of recent )
         {
-            const empty = element( 'p', 'conversation-empty', 'Your conversations will appear here.' );
-            list.append( empty );
+            const row = button( 'side-item side-chat', null, 'open-conversation' );
+            row.dataset.identifier = item.id;
+            row.title = item.title;
+            row.append( element( 'span', 'side-dot' ), element( 'span', 'side-label', item.title ) );
+
+            if ( place === 'chat' && item.id === state.conversationId )
+                row.setAttribute( 'aria-current', 'page' );
+
+            top.append( row );
+        }
+    }
+
+    /** The model's row: what the app is doing to it while it works, else its name and the open chat's share of the context. */
+    function modelButton( state )
+    {
+        const session = state.session;
+        const model = button( 'side-item model-button', null, 'toggle-model' );
+        const working = appStatus( state );
+        const named = session === null ? null : session.loading ? session.loading : session.model;
+
+        model.setAttribute( 'aria-haspopup', 'dialog' );
+        model.setAttribute( 'aria-expanded', local.popover === 'model' ? 'true' : 'false' );
+
+        if ( working !== null )
+        {
+            const ring = element( 'span', 'caret' );
+            ring.setAttribute( 'aria-hidden', 'true' );
+            model.append( ring, element( 'span', 'side-label', named ? namedTitle( state, named ) : working ),
+                element( 'span', 'side-note', working ) );
+
+            return model;
         }
 
-        for ( const group of groups )
+        if ( !named )
         {
-            const section = element( 'section', 'conversation-group' );
-            const heading = element( 'h2', 'conversation-group-label', group.label );
-            section.append( heading );
+            model.append( element( 'span', 'side-dot empty' ), element( 'span', 'side-label', 'No model loaded' ) );
 
-            for ( const item of group.items )
+            return model;
+        }
+
+        model.append( element( 'span', 'side-dot model' ), element( 'span', 'side-label', namedTitle( state, named ) ) );
+
+        const share = contextShare( session );
+
+        if ( share === null )
+        {
+            model.append( element( 'span', 'side-note', 'Model' ) );
+
+            return model;
+        }
+
+        const ring = element( 'span', 'context-ring' );
+        ring.innerHTML = ringMarkup;
+        ring.querySelector( '.context-ring-used' ).setAttribute( 'stroke-dasharray', share * ringLength + ' ' + ringLength );
+        ring.classList.toggle( 'full', share >= 0.9 );
+        model.title = 'Context: ' + contextDetails( session )[ 0 ][ 1 ];
+        model.append( ring );
+
+        return model;
+    }
+
+    /** What Mila is running on, and the open chat's share of its context; the model is changed in Settings. */
+    function modelPopover( state )
+    {
+        const session = state.session;
+        const popover = element( 'div', 'sidebar-popover menu' );
+        const named = session === null ? null : session.loading ? session.loading : session.model;
+
+        popover.setAttribute( 'role', 'dialog' );
+        popover.setAttribute( 'aria-label', 'Model' );
+        popover.append( element( 'div', 'menu-label', 'Model' ),
+            element( 'div', 'popover-title', named ? namedTitle( state, named ) : 'No model loaded' ) );
+
+        if ( session !== null && session.model !== null )
+        {
+            const rows = contextDetails( session );
+            const thinking = thinkingFact( session );
+
+            if ( thinking !== null )
+                rows.push( [ 'Thinking', thinking.replace( /^Thinking /, '' ) ] );
+
+            for ( const [ name, value ] of rows )
             {
-                const active = item.id === state.conversationId;
-                const row = buildRow( item, active );
-                section.append( row );
+                const row = element( 'div', 'context-row' );
+                row.append( element( 'span', 'context-row-name', name ), element( 'span', 'context-row-value', value ) );
+                popover.append( row );
             }
-
-            list.append( section );
         }
 
-        const input = list.querySelector( '.rename-input' );
+        popover.append( element( 'div', 'menu-separator' ), button( 'menu-item', 'Manage models…', 'manage-models' ) );
 
-        if ( input !== null )
-        {
-            input.focus();
-            input.select();
-        }
+        return popover;
+    }
+
+    function personButton( state )
+    {
+        const name = state.about === null || state.about.userName === '' ? 'You' : state.about.userName;
+        const person = button( 'person-button', null, 'toggle-person' );
+        const text = element( 'span', 'side-name' );
+        const chevrons = element( 'span', 'side-chevrons' );
+
+        person.setAttribute( 'aria-haspopup', 'menu' );
+        person.setAttribute( 'aria-expanded', local.popover === 'person' ? 'true' : 'false' );
+        text.append( element( 'b', null, name ), element( 'span', null, 'Workspace owner' ) );
+        setIcon( chevrons, 'chevronUpDown' );
+        person.append( element( 'span', 'avatar', initials( name ) ), text, chevrons );
+
+        return person;
+    }
+
+    function personMenu( state )
+    {
+        const menu = element( 'div', 'sidebar-popover menu' );
+        const settings = button( 'menu-item', null, 'open-settings' );
+        const shortcut = element( 'kbd' );
+        const version = state.about === null ? '' : state.about.version;
+
+        menu.setAttribute( 'role', 'menu' );
+        shortcut.textContent = actions.shortcutLabel( ',' );
+        settings.append( element( 'span', 'menu-item-name', 'Settings' ), shortcut );
+        menu.append( settings, button( 'menu-item', 'Mila’s licence', 'open-license' ),
+            element( 'div', 'menu-separator' ),
+            element( 'div', 'menu-label', version ? 'Mila Assistant ' + version : 'Mila Assistant' ),
+            button( 'menu-item', 'Quit Mila', 'quit' ) );
+
+        return menu;
+    }
+
+    function renderFoot( state )
+    {
+        const settings = button( 'side-item', null, 'open-settings' );
+        const settingsIcon = element( 'span', 'side-icon' );
+        const shortcut = element( 'kbd' );
+
+        setIcon( settingsIcon, 'settings' );
+        shortcut.textContent = actions.shortcutLabel( ',' );
+        settings.append( settingsIcon, element( 'span', 'side-label', 'Settings' ), shortcut );
+
+        clear( foot );
+        foot.append( settings, modelButton( state ), personButton( state ), development );
+
+        if ( local.popover === 'model' )
+            foot.append( modelPopover( state ) );
+
+        if ( local.popover === 'person' )
+            foot.append( personMenu( state ) );
     }
 
     function render( state )
     {
-        renderList( state );
+        const chats = state.conversations.map( ( item ) => [ item.id, item.title, item.updated ] );
+        const key = JSON.stringify( [ chats, state.place, state.conversationId, state.session, state.progress, state.restore,
+            state.installedModels, state.publishedModels === null, state.about, local ] );
+
+        if ( key === lastKey )
+            return;
+
+        lastKey = key;
+        renderTop( state );
+        renderFoot( state );
     }
 
-    return { render };
+    return { render, development };
 }
