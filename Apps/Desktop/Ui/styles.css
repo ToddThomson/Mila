@@ -548,9 +548,7 @@ kbd {
 
 .suggestion-facts { margin-top: 4px; font-size: 13px; color: var(--muted); }
 
-/* The first run is a welcome as well as a choice: the mark and a larger heading, the card and its one decision. */
-
-/* A first run has the whole window: no sidebar, rail or header beside the welcome. */
+/* The first run is a setup assistant, with the whole window: no sidebar, rail or header beside its panes. */
 .app.welcoming .sidebar,
 .app.welcoming .rail,
 .app.welcoming .header,
@@ -564,10 +562,59 @@ kbd {
 
 .first-run-byline { margin: 0; font-size: 17px; font-weight: 500; color: var(--accent); }
 
-/* Skip stays in the window's corner on every step of the welcome, the suggestion found or not. */
-.first-run-skip { position: fixed; top: 14px; right: 20px; margin: 0; color: var(--muted); }
+/* The setup's panes: the pane's own content, then Go Back and the way forward at the bottom right, with the
+   progress of what the pane is doing beside them on the left (AssistantOnboarding.md 4.1). */
+.setup-body { max-width: 520px; margin: 0 auto; }
 
-.first-run-skip:hover { color: var(--fg); }
+.first-run-introduction.setup-line { margin-top: 28px; }
+
+.first-run-introduction.setup-line + .setup-line { margin-top: 8px; }
+
+.setup-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 520px;
+  margin: 36px auto 0;
+}
+
+.setup-progress { flex: 1; min-width: 0; text-align: left; }
+
+.setup-progress .progress { width: 100%; }
+
+.setup-button {
+  min-width: 96px;
+  padding: 6px 16px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 14px;
+}
+
+.setup-button:hover:not(:disabled) { border-color: var(--accent-2); color: var(--accent-2); }
+
+.setup-button.primary { border-color: transparent; background: var(--accent-2); color: var(--on-accent); font-weight: 600; }
+
+.setup-button.primary:hover:not(:disabled) { color: var(--on-accent); filter: brightness(1.08); }
+
+.setup-button:disabled { opacity: .45; cursor: default; }
+
+/* The licence's paragraphs, in a box that scrolls; Accept waits for its end to have been in view. */
+.license-text {
+  max-height: 38vh;
+  margin-top: 14px;
+  padding: 14px 16px;
+  overflow-y: auto;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--faint);
+  font-size: 13.5px;
+  line-height: 1.55;
+  text-align: left;
+  white-space: pre-wrap;
+}
+
+.license-text:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
 
 /* The introduction, the card and the way to another model share the card's left edge. */
 .first-run-introduction { max-width: 520px; margin: 40px auto 0; font-size: 15px; text-align: left; }
@@ -579,22 +626,6 @@ kbd {
 .first-run .start-finding,
 .first-run .start-refusal { margin-top: 40px; }
 
-.start-action { margin-top: 16px; text-align: center; }
-
-.start-action .progress { width: 100%; }
-
-.start-install {
-  min-width: 240px;
-  padding: 9px 22px;
-  border: 0;
-  border-radius: 9px;
-  background: var(--accent-2);
-  color: var(--on-accent);
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.start-install:hover { filter: brightness(1.08); }
 
 .model-note { font-size: 12px; color: var(--muted); }
 

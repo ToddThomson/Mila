@@ -36,6 +36,12 @@ namespace Mila::Desktop
         /// Whether Build & Code offers the experimental command tool (ContainedPrograms.md 4.11).
         bool run_commands{ false };
 
+        /// The SHA-256 of the licence text the person accepted; empty until they have (AssistantOnboarding.md 4.1).
+        std::string license_accepted;
+
+        /// When they accepted it, ISO 8601 in UTC; empty until they have.
+        std::string license_accepted_at;
+
         Mila::Agents::SamplingOverride sampling;
     };
 

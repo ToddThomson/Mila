@@ -134,6 +134,23 @@ namespace Mila::Desktop
                     passOver( "sampling" );
             }
 
+            // An acceptance that cannot be read is no acceptance: the licence is asked for again.
+            if ( const auto* license = find( stored, "license" ) )
+            {
+                const auto* digest = license->is_object() ? find( *license, "sha256" ) : nullptr;
+                const auto* accepted_at = license->is_object() ? find( *license, "accepted_at" ) : nullptr;
+
+                if ( digest != nullptr && digest->is_string() && accepted_at != nullptr && accepted_at->is_string() )
+                {
+                    settings.license_accepted = digest->get<std::string>();
+                    settings.license_accepted_at = accepted_at->get<std::string>();
+                }
+                else
+                {
+                    passOver( "license" );
+                }
+            }
+
             return settings;
         }
 
@@ -160,6 +177,8 @@ namespace Mila::Desktop
             stored[ "detail" ] = settings.detail;
             stored[ "run_commands" ] = settings.run_commands;
             stored[ "sampling" ] = std::move( sampling );
+            stored[ "license" ] = settings.license_accepted.empty() ? nlohmann::ordered_json( nullptr )
+                : nlohmann::ordered_json{ { "sha256", settings.license_accepted }, { "accepted_at", settings.license_accepted_at } };
 
             std::filesystem::create_directories( path_.parent_path() );
 

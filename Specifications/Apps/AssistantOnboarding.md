@@ -1,9 +1,11 @@
 # Mila Assistant Onboarding
 
-**Status:** design, round 2 (2026-11-13). Round 1 set out the facts and twelve questions. Round 2 is a one-shot
-build at `0.21.0-dev+142`, which Todd asked for to see how Claude would design and build it ("test out how you would
-design and implement this in a one shot attempt", Mac first). Every answer in section 6 is Claude's provisional one,
-marked as such, until Todd settles it.
+**Status:** design, round 3 built (2026-11-15). Round 1 set out the facts and twelve questions. Round 2 is a
+one-shot build at `0.21.0-dev+142`, which Todd asked for to see how Claude would design and build it ("test out how
+you would design and implement this in a one shot attempt", Mac first). Every answer in questions 1 to 12 is
+Claude's provisional one, marked as such, until Todd settles it. Round 3 (section 4.1) makes the first run a setup
+assistant, with a licence accepted before any model: Todd took every proposed answer to questions 13 to 20 "to
+start", to be tried and changed where it needs to be (2026-11-15), and it is built at `0.21.0-dev+146`.
 
 What a person meets from Mila Assistant's first launch to its first reply, and how the model Mila suggests for
 their computer is chosen. The suggestion is the planner's answer, never the app's (Todd, 2026-11-13).
@@ -58,6 +60,9 @@ memory other applications hold (`Deployment.md` 12.10).
 
 ## 4. The first run, as built at +142
 
+Section 4.1 replaces step 1 and *Skip* at `+146`: the welcome and the licence are panes of their own before steps 2
+to 6, which are its model pane.
+
 1. With nothing installed and nothing loading, the empty conversation is one screen that welcomes and asks: Mila's
    mark, *Welcome to Mila* and Mila's byline *Local LLMs on hardware you own -- at the metal* (Todd, 2026-11-14;
    the wording is being chosen across every surface). *Skip* in the window's corner on every step passes the
@@ -86,6 +91,93 @@ memory other applications hold (`Deployment.md` 12.10).
 The page is `Apps/Desktop/Ui/views/transcript.js` (`renderFirstRun`), its state `state.js` (`firstRunStep`,
 `suggestedModel`), its words `format.js` (`modelAbilities`, `suggestionFacts`). The mock plays it as scenario 8 and,
 with the publisher unreachable, 12.
+
+## 4.1 The first run as a setup assistant: welcome, licence, model (round 3, built at +146)
+
+Todd, 2026-11-15: Mila Assistant does not reach a person without a licence they have accepted (as is, no
+liability), and the first run follows Apple's setup assistant: welcome, licence, model.
+
+**What Apple's setup assistant guidelines say.** Today's HIG has no page for it. The rules are in the Mac's
+*Aqua Human Interface Guidelines* (June 2002, chapter 14, *Setup Assistants*, pages 241-243; the 2004 edition drops
+the section and keeps only the glossary entry). Read from the archived PDF, 2026-11-15:
+
+- A setup assistant guides people through a product's setup, opens on its own when appropriate (the first time the
+  application opens, for example), and is ideally used once.
+- **Go Back** and **Continue** move between panes.
+- The first pane is titled *Introduction* and explains the purpose of the panes that follow.
+- The last pane is titled *Conclusion*: it says what changed and how to change it later, with a default **Done**
+  and a dimmed **Go Back**.
+- In most cases, one question per pane.
+- Feedback where it helps; a progress bar may sit to the left of **Go Back**.
+- While it is open, only the application menu (About, Quit) and the Edit menu; no Help menu or help button, as the
+  assistant is the help. The title bar's close and zoom buttons are dimmed and minimize is available.
+- It does not fill the screen: the rest of the system stays reachable.
+
+The same guidelines name accepting a licence agreement as a modal step a single-window utility asks for (chapter
+on sheets). Today's HIG *Onboarding* page (read 2026-11-15) adds two things that still bear on this: agreements are
+the App Store's to show, else included in a balanced way that does not disrupt; and setup waits for defaults unless
+the app cannot work without it. Mila Assistant is not in the App Store, and cannot work without either step.
+
+**The panes.** The window keeps its size; the panes fill it, as section 4 step 1 does. Each pane ends in **Go Back**
+and its forward button at the bottom right, the forward button the default, and the progress of what the pane is
+doing on the left beside them, as the guidelines lay them out. There is no *Skip*: a setup assistant has none, and
+two of the three steps cannot be passed by. Within the window the panes are the one way forward: no message box,
+and the new-conversation and Settings shortcuts do nothing.
+
+1. **Introduction: Welcome.** The mark, *Welcome to Mila*, the byline, and what follows: *Two steps to start:
+   accept Mila's licence, then install the model that suits this computer*; with models already installed, *To
+   start, accept Mila's licence*; with the licence accepted at an earlier launch, *To start, install the model that
+   suits this computer*. **Continue**; **Go Back** dimmed. Nothing is asked of the network yet.
+2. **Licence.** Titled *Licence*, then one line: *Mila is yours to use under this licence. Read it to the end to
+   accept it.* The text in a box that scrolls, and keeps the place read to. **Accept** in **Continue**'s place,
+   enabled once the end of the text has been in view, which a text that fits without scrolling meets at once; a
+   licence accepted earlier on this run shows **Continue**. **Go Back** returns to the welcome, and **Quit** declines
+   (question 13). A refused acceptance is said on this pane. A package whose licence cannot be read says so here, with
+   **Go Back** and **Quit** and no way past.
+3. **Model.** Titled *A model for this computer*, then section 4's steps 2 to 6 as built, the publisher asked when
+   this pane first shows. **Install** is the pane's forward button, enabled once a model is suggested; the install's
+   progress, then the load's, sits on the left while they run, and **Go Back** and **Install** are dimmed until they
+   end. *Choose another model* stays below the card. **Go Back** returns to the licence when it was read on this run,
+   else to the welcome. A model installed and then refused at its load leaves the setup for *Choose a model to start*,
+   which says why.
+4. **Conclusion** (question 18, not one of Todd's three). *Mila is ready*, *<the model's display name> is installed
+   and loaded*, and *To change the model, open Settings, then Models*. **Done**, default; **Go Back** dimmed.
+   **Done** opens the home screen. It follows an install begun on the model pane, Settings' included.
+
+With models installed and the licence not yet accepted, the welcome and the licence show, and once it is accepted the
+session opens the remembered model: the window returns at once.
+
+While the panes show, a packaged Mac's menu bar is the application menu (About, Quit) and Edit only (question 19).
+The page tells the window (`setup.showing`), which builds the menu.
+
+**What is accepted, and who keeps it.** The session decides, not the page:
+
+- The licence text ships in the package beside the session, the same `License.md` the repository carries
+  (`Desktop.MilaLicense`; the build copies it, the `mila-session` install component carries it). A package
+  without it, or with an empty one, starts and says the licence is missing; nothing can be accepted.
+- The session records an acceptance in its own settings, `settings.json`'s `license`: the text's SHA-256 digest and
+  the time, in UTC. A package whose licence text has a different digest asks again at the next launch, and an
+  acceptance the file holds in a form that cannot be read is no acceptance.
+- Until the licence is accepted the session refuses `model.install`, `model.load` and a turn, and does not open the
+  remembered model, so a front end other than this page meets the same refusal. The page learns where the person
+  stands from the session's `license` event, the reply to `ready`, and accepts by the digest of the text it showed
+  (`license.accept`), so an acceptance is always of the text that was read (`MilaDesktop.md` 4).
+
+**Two licences.** Mila's own, accepted once, here. Each model's (Gemma's terms, Llama's community licence) at its
+install, question 16.
+
+**The installers.** Checked in the electron-builder the app uses (26.15.3, `app-builder-lib/scheme.json` and its NSIS
+templates): `dmg.license` shows a licence agreement when the DMG is mounted (`.rtf`, `.txt`, `.html`), and
+`nsis.license` adds a licence page, which the templates insert in the one-click installer as well
+(`oneClick.nsh`). Linux packages as a folder (`dir`), with no installer to carry one. The proposal is the in-app step
+as the one acceptance: the same on all three systems and recorded. The installers' licence pages are question 15.
+
+**Not Claude's to say:** whether a click-through adds legal force, and the licence's wording. Those are counsel's.
+
+The page's pieces: `setupPane` in `state.js` says which pane shows, from the session's `license` and the page's own
+`setup.continue`, `setup.back` and `setup.done`; `renderSetup` in `views/transcript.js` draws it; `welcome.skip` is
+gone. The mock carries the licence as the session does: scenarios 8 and 12 begin with it not accepted, and 13 has
+models installed and the licence not accepted.
 
 ## 5. The suggestion, as built at +142
 
@@ -139,9 +231,33 @@ Each answer below is Claude's, built at `+142` so it can be looked at; none is s
    Not run on a two-GPU machine.
 8. *The download.* Its size before it starts. Free disk space is not checked first.
 9. *Per activity or overall.* One overall.
-10. *Before the suggestion.* *Welcome to Mila* and one line.
+10. *Before the suggestion.* *Welcome to Mila* and one line. Round 3 replaces it: a welcome, then the licence
+    (section 4.1).
 11. *None fits, or no publisher.* Section 4, step 6.
-12. *The licence.* Shown by name. No agreement wording: what installing means for the licence is Todd's.
+12. *The licence.* Shown by name. No agreement wording: what installing means for the licence is Todd's. Round 3
+    takes Mila's own licence to section 4.1; the model's is question 16.
+
+**Round 3's questions (section 4.1).** Todd took every answer below to start, to be tried and changed where it needs
+to be (2026-11-15):
+
+13. *Declining Mila's licence.* Quit, from the menu or a **Quit** beside **Go Back** on the licence pane; nothing is
+    recorded, and the next launch opens the assistant again at the welcome.
+14. *A step indicator.* None: the guidelines name none, and each pane says what it asks.
+15. *The installers' licence pages.* Not added: the in-app step is the one acceptance, so a person is not asked
+    twice on the Mac and Windows and not at all on Linux.
+16. *A model's licence at its install.* Its name on the card becomes a link that opens the text. Whether *Install*
+    says the person accepts it, and in which words, is counsel's and Todd's. **Not built at +146:** `models.list`
+    carries the licence's name only, not where its text is, so the link needs the published model's licence
+    address in the list first.
+17. *Which text.* Mila's MIT licence as it stands, or one written for the app's end users. Counsel's.
+18. *A Conclusion pane.* The guidelines end on one; Todd's three steps do not. Proposed: add it, since today the home
+    screen follows the load with nothing said about where the model is changed.
+19. *The 2002 window rules.* The reduced menu bar: yes, on a packaged Mac. Windows and Linux packages have no menu
+    bar at all (`Window/src/main.js`), so there is nothing to reduce. The dimmed close and zoom buttons: no, since a
+    person who closes the window has declined, which quitting already covers, and Windows has no dimmed close.
+20. *The model pane when the publisher cannot be reached, or nothing runs here.* Section 4 step 6's screens, with
+    **Go Back** to the licence; nothing past the model pane opens until a model is installed, and the window with
+    *Install a model to start* is no longer reached from the first run.
 
 **Open, found in the build:**
 

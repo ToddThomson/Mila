@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createInitialState, reduce, summarizeTurn, groupConversations, appStatus, emptyScreen, isAskingForModel,
-    isWelcoming, firstRunStep, suggestedModel } from '../state.js';
+    isWelcoming, firstRunStep, suggestedModel, setupPane } from '../state.js';
 import { statsLine, thoughtLabel, contextShare, contextDetails, thinkingFact, finishNotice, activityCard, folderName, planProgress, composerPrompt,
     modelAbilities, fitLine, modelTitle, namedTitle } from '../format.js';
 
@@ -489,31 +489,92 @@ function aScreenAskingForAModelIsTheOneWayForward()
 
 test( 'a screen asking for a model is the one way forward', aScreenAskingForAModelIsTheOneWayForward );
 
-function aFirstRunWelcomeHasTheWholeWindow()
+const licenseText = { type: 'license', text: 'THE SOFTWARE IS PROVIDED "AS IS"', sha256: 'digest', accepted: false, problem: null };
+const licenseAccepted = { ...licenseText, accepted: true };
+
+function setupState( messages )
 {
-    const missing = { model: null, loading: null };
-    const firstRun = { session: missing, modelsKnown: true, installedModels: [], transcript: [] };
-    const installed = { ...firstRun, installedModels: [ { name: 'gemma-4-12b-it-q4_0' } ] };
-    const loading = { ...installed, session: { model: null, loading: 'gemma-4-12b-it-q4_0' } };
-    const midConversation = { ...firstRun, transcript: [ { kind: 'user', text: 'Hello' } ] };
+    const missing = { ...sessionState( null, null ), loading: null };
+    const listed = { type: 'models.list', installed: [], published: null, suggested: null };
+
+    return apply( [ missing, listed, ...messages ] );
+}
+
+function aFirstRunSetupHasTheWholeWindow()
+{
+    const firstRun = setupState( [ licenseAccepted ] );
+    const installed = reduce( firstRun, { type: 'models.list', installed: [ { name: 'gemma-4-12b-it-q4_0' } ], published: null } );
+    const loading = reduce( installed, { ...sessionState( null, null ), loading: 'gemma-4-12b-it-q4_0' } );
+    const midConversation = reduce( firstRun, { type: 'turn.send', text: 'Hello', attachment_ids: [] } );
 
     assert.equal( isWelcoming( firstRun ), true );
+    assert.equal( isAskingForModel( firstRun ), true, 'no message box beside the setup' );
     assert.equal( isWelcoming( installed ), false, 'choosing among installed models keeps the sidebar' );
     assert.equal( isWelcoming( loading ), false, 'the installed model loading brings the window back' );
     assert.equal( isWelcoming( midConversation ), false );
+    assert.equal( isWelcoming( setupState( [] ) ), false, 'nothing until the session says where the licence stands' );
 }
 
-test( 'a first-run welcome has the whole window', aFirstRunWelcomeHasTheWholeWindow );
+test( 'a first-run setup has the whole window', aFirstRunSetupHasTheWholeWindow );
 
-function aSkippedWelcomeLeavesTheWayToAModel()
+function theLicenceComesBeforeAnyModel()
 {
-    const firstRun = { ...createInitialState(), session: { model: null, loading: null }, modelsKnown: true };
-    const skipped = reduce( firstRun, { type: 'welcome.skip' } );
+    const welcome = setupState( [ licenseText ] );
+    const license = reduce( welcome, { type: 'setup.continue' } );
 
-    assert.equal( emptyScreen( firstRun ), 'first-run' );
-    assert.equal( emptyScreen( skipped ), 'install-model' );
-    assert.equal( isWelcoming( skipped ), false, 'the window comes back' );
-    assert.equal( isAskingForModel( skipped ), true, 'still no message box without a model' );
+    assert.equal( setupPane( welcome ), 'welcome' );
+    assert.equal( setupPane( license ), 'license' );
+    assert.equal( setupPane( reduce( license, { type: 'setup.continue' } ) ), 'license', 'Continue does not pass an unaccepted licence' );
+    assert.equal( setupPane( reduce( license, { type: 'setup.back' } ) ), 'welcome' );
+
+    const read = reduce( license, { type: 'license.read' } );
+    assert.equal( read.licenseRead, true );
+
+    const accepting = reduce( read, { type: 'license.accept', sha256: 'digest' } );
+    assert.equal( setupPane( accepting ), 'license', 'the pane waits for the session to say it is accepted' );
+
+    const accepted = reduce( accepting, licenseAccepted );
+    assert.equal( setupPane( accepted ), 'model' );
+    assert.equal( setupPane( reduce( accepted, { type: 'setup.back' } ) ), 'license', 'Go Back returns to the licence read' );
+
+    const refused = reduce( accepting, { type: 'error', text: 'The licence shown is not the one Mila carries.', during: 'license' } );
+    assert.equal( setupPane( refused ), 'license' );
+    assert.equal( refused.licenseError, 'The licence shown is not the one Mila carries.' );
+    assert.equal( refused.transcript.length, 0 );
 }
 
-test( 'a skipped welcome leaves the way to a model', aSkippedWelcomeLeavesTheWayToAModel );
+test( 'the licence comes before any model', theLicenceComesBeforeAnyModel );
+
+function aLicenceAcceptedBeforeSkipsItsPane()
+{
+    const welcome = setupState( [ licenseAccepted ] );
+    const model = reduce( welcome, { type: 'setup.continue' } );
+
+    assert.equal( setupPane( model ), 'model' );
+    assert.equal( setupPane( reduce( model, { type: 'setup.back' } ) ), 'welcome', 'a licence not read on this run is not shown again' );
+
+    const installedBefore = reduce( setupState( [ licenseText ] ), { type: 'models.list', installed: [ { name: 'gemma-4-12b-it-q4_0' } ], published: null } );
+    assert.equal( setupPane( installedBefore ), 'welcome', 'a licence not yet accepted is asked for with models installed' );
+    assert.equal( setupPane( reduce( installedBefore, licenseAccepted ) ), null, 'then the installed models are chosen among' );
+}
+
+test( 'a licence accepted before skips its pane', aLicenceAcceptedBeforeSkipsItsPane );
+
+function aModelInstalledFromTheSetupEndsOnItsConclusion()
+{
+    const model = reduce( setupState( [ licenseAccepted ] ), { type: 'setup.continue' } );
+    const installing = reduce( model, { type: 'model.install', name: 'gemma-4-12b-it-fp4' } );
+    const loading = reduce( installing, { ...sessionState( null, null ), loading: 'gemma-4-12b-it-fp4' } );
+    const loaded = reduce( loading, { ...sessionState( 'gemma-4-12b-it-fp4', null ), loading: null } );
+
+    assert.equal( installing.setupInstalling, true );
+    assert.equal( setupPane( loading ), 'model', 'the load after the install is the model pane’s' );
+    assert.equal( setupPane( loaded ), 'conclusion' );
+    assert.equal( isAskingForModel( loaded ), true, 'no message box beside the conclusion' );
+    assert.equal( setupPane( reduce( loaded, { type: 'setup.done' } ) ), null );
+
+    const refused = reduce( installing, { type: 'error', text: 'Could not load gemma-4-12b-it-fp4: too large.', during: 'load' } );
+    assert.equal( setupPane( refused ), null, 'a model refused at its load is chosen among the installed' );
+}
+
+test( 'a model installed from the setup ends on its conclusion', aModelInstalledFromTheSetupEndsOnItsConclusion );

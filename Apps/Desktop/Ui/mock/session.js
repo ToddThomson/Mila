@@ -3,7 +3,7 @@
 // and no timers of its own -- the host passes a clock -- so one implementation serves the page in
 // a browser, a Node wrapper on stdio, and node --test.
 
-import { findModel, models, seedConversations, titleFor } from './fixtures.js';
+import { findModel, mockLicense, models, seedConversations, titleFor } from './fixtures.js';
 import { findScenario } from './scenarios.js';
 
 const streamId = 'stream-1';
@@ -31,11 +31,15 @@ export function createMockSession( options )
     const installed = new Set( scenario.installed === undefined ? everyModel : scenario.installed );
     let publishedListed = false;
 
+    // As the session's: until the licence is accepted nothing is installed, loaded or answered, and the remembered
+    // model opens once it is.
+    let licenseAccepted = scenario.licenseAccepted !== false;
+
     for ( const seed of seeds )
         conversations.set( seed.id, seed );
 
     const session = {
-        model: startModel,
+        model: licenseAccepted ? startModel : null,
         noModelReason: null,
         loading: null,
         contextLength: startModel === null ? 0 : startModel.context_length,
@@ -130,10 +134,47 @@ export function createMockSession( options )
             plan: null,
             web_search: session.webSearch,
             busy: session.busy,
+            license_accepted: licenseAccepted,
             streams: [ stream ]
         };
 
         emit( state );
+    }
+
+    function emitLicense()
+    {
+        const message = { type: 'license', text: mockLicense.text, sha256: mockLicense.sha256, accepted: licenseAccepted, problem: null };
+
+        emit( message );
+    }
+
+    function acceptLicense( request )
+    {
+        if ( request.sha256 !== mockLicense.sha256 )
+        {
+            emitError( 'The licence shown is not the one Mila carries. Close Mila and open it again.', 'license' );
+            emitLicense();
+
+            return;
+        }
+
+        licenseAccepted = true;
+        emitLicense();
+        emitState();
+
+        if ( startModel !== null && session.model === null && installed.has( startModel.name ) )
+            loadModel( { name: startModel.name } );
+    }
+
+    /** As the session's: a request the licence holds back says so where it was asked. */
+    function heldByLicense( during )
+    {
+        if ( licenseAccepted )
+            return false;
+
+        emitError( 'Accept Mila’s licence first. It is shown when Mila starts.', during );
+
+        return true;
     }
 
     function conversationItem( conversation )
@@ -219,6 +260,9 @@ export function createMockSession( options )
 
     function startTurn( request )
     {
+        if ( heldByLicense( 'turn' ) )
+            return;
+
         if ( session.busy )
         {
             emitError( 'A reply is still being written. Stop it first, or wait for it to finish.', 'turn' );
@@ -790,6 +834,9 @@ export function createMockSession( options )
 
     function loadModel( request )
     {
+        if ( heldByLicense( 'load' ) )
+            return;
+
         const model = findModel( request.name );
 
         if ( model === null || !installed.has( model.name ) )
@@ -902,6 +949,9 @@ export function createMockSession( options )
 
     function installModel( request )
     {
+        if ( heldByLicense( 'install' ) )
+            return;
+
         const model = findModel( request.name );
 
         if ( model === null )
@@ -982,11 +1032,15 @@ export function createMockSession( options )
         switch ( request.type )
         {
             case 'ready':
+                emitLicense();
                 emitState();
                 emitConversations();
                 emitModels();
 
                 return;
+
+            case 'license.accept':
+                return acceptLicense( request );
 
             case 'turn.send':
                 return startTurn( request );

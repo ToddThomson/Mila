@@ -10,6 +10,15 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## A model's licence on Mila Assistant's first-run card is a name, with no way to read its text
+
+`Apps/Desktop/Ui/views/transcript.js` (`renderSuggestion`, *Licence:*), `Apps/Desktop/Session/Src/Desktop.Models.ixx` (`publishedModels`, `license`) @ 0.21.0-dev+146
+
+Found 2026-11-15 building the first-run setup (AssistantOnboarding.md 4.1, question 16, which Todd took): the card's
+licence name was to become a link that opens the text, but `models.list` carries the manifest's licence name only,
+not where its text is published, so the page has nothing to open. Whether *Install* then says the person accepts it
+is counsel's and Todd's.
+
 ## Mila Assistant's web search has no test, and nothing lets one give it a scripted server
 
 `Apps/Desktop/Session/Src/Tools/Desktop.WebSearch.ixx` (`search`, `kEndpoint`), `Lib/Src/Agents/Grants/ToolGrant.ixx` (`transport()`); an absence -- no test names `WebSearch` @ 0.21.0-dev+145

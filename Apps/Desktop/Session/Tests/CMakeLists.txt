@@ -1,4 +1,4 @@
-# Mila Desktop's tests: its settings file and activity prompts (MilaDesktop.md 3.1, 3.7), which need no model.
+# Mila Desktop's tests: its settings file, licence and activity prompts (MilaDesktop.md 3.1, 3.7), which need no model.
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
 include( GoogleTest )
@@ -6,6 +6,8 @@ include( GoogleTest )
 add_executable( DesktopSessionTests
     "SettingsFile.cpp"
     "PromptFile.cpp"
+    "MilaLicense.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Settings/Implementation/MilaLicense.cpp"
 )
 
 # BASE_DIRS is explicit because a module file set otherwise roots itself at this directory, and the modules being tested
@@ -18,6 +20,7 @@ PRIVATE
     FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Settings/Desktop.Settings.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Settings/Desktop.SettingsFile.ixx"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Settings/Desktop.MilaLicense.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Tools/Desktop.PromptTool.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Tools/Desktop.PromptFile.ixx"
 )

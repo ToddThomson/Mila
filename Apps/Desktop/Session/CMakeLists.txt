@@ -16,6 +16,7 @@ PUBLIC
         "Src/Desktop.ResidentAgent.ixx"
         "Src/Settings/Desktop.Settings.ixx"
         "Src/Settings/Desktop.SettingsFile.ixx"
+        "Src/Settings/Desktop.MilaLicense.ixx"
         "Src/Tools/Desktop.PromptTool.ixx"
         "Src/Tools/Desktop.PromptFile.ixx"
         "Src/Desktop.Models.ixx"
@@ -26,6 +27,10 @@ PUBLIC
         "Src/Tools/Desktop.TaskPlan.ixx"
         "Src/Settings/Desktop.SearchKeyFile.ixx"
         "Src/Tools/Desktop.WebSearch.ixx"
+)
+
+target_sources( mila-session PRIVATE
+    "Src/Settings/Implementation/MilaLicense.cpp"
 )
 
 # Desktop.ProgramSetup has two candidate files and exactly one is compiled, as Agents.MxcProgramContainer does:
@@ -55,6 +60,14 @@ add_custom_command( TARGET mila-session POST_BUILD
         "$<TARGET_FILE_DIR:mila-session>/Prompts"
 )
 
+# Mila's licence beside the executable, where the session reads it: nothing is used until it is accepted
+# (AssistantOnboarding.md 4.1), so a package without it does not start.
+set( MILA_SESSION_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/../../../License.md" )
+
+add_custom_command( TARGET mila-session POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MILA_SESSION_LICENSE}" "$<TARGET_FILE_DIR:mila-session>/License.md"
+)
+
 # MXC's library beside the session, which loads it from there when commands are on (ContainedPrograms.md 4.10).
 if( MILA_ENABLE_MXC AND MILA_MXC_LIBRARY )
     get_filename_component( MILA_MXC_FOLDER "${MILA_MXC_LIBRARY}" DIRECTORY )
@@ -76,7 +89,7 @@ elseif( MILA_ENABLE_MXC )
     message( STATUS "MILA_MXC_LIBRARY names no mxc_ffi.dll: Mila Desktop will say it cannot run commands." )
 endif()
 
-# What the window's package carries (MilaDesktop.md 9.4): the session, its prompts, and the CUDA libraries it loads,
+# What the window's package carries (MilaDesktop.md 9.4): the session, its prompts, its licence, and the CUDA libraries it loads,
 # found by reading the program's imports, so a toolkit that renames them needs no edit here. Installed only on request:
 #   cmake --install <build directory> --component mila-session --prefix Apps/Desktop/Window/session
 # The CUDA 13 toolkit keeps its Windows libraries in bin/x64.
@@ -88,6 +101,8 @@ install( TARGETS mila-session
 install( DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../Prompts"
     DESTINATION . COMPONENT mila-session EXCLUDE_FROM_ALL
 )
+
+install( FILES "${MILA_SESSION_LICENSE}" DESTINATION . COMPONENT mila-session EXCLUDE_FROM_ALL )
 
 # The filters come before the RUNTIME group: CMake 4.0 refuses them after it, whatever its documentation's order.
 # macOS's own libraries are under /System and /usr/lib, which the package never carries.

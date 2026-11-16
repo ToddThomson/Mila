@@ -3,6 +3,28 @@
 // 12 GB card, not measurements. Only Gemma declares a display name, as a manifest written before
 // the field leaves it out.
 
+// The licence the session carries beside it (License.md), and a digest standing for its own.
+export const mockLicense = {
+    sha256: 'mock-license-sha256',
+    text: 'The MIT License (MIT)\n\n'
+        + 'Copyright (c) 2021..2026 Todd J. Thomson\n\n'
+        + 'Permission is hereby granted, free of charge, to any person obtaining a copy\n'
+        + 'of this software and associated documentation files (the "Software"), to deal\n'
+        + 'in the Software without restriction, including without limitation the rights\n'
+        + 'to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n'
+        + 'copies of the Software, and to permit persons to whom the Software is\n'
+        + 'furnished to do so, subject to the following conditions:\n\n'
+        + 'The above copyright notice and this permission notice shall be included in all\n'
+        + 'copies or substantial portions of the Software.\n\n'
+        + 'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n'
+        + 'IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n'
+        + 'FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n'
+        + 'AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n'
+        + 'LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n'
+        + 'OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n'
+        + 'SOFTWARE.\n'
+};
+
 export const weatherTool = {
     name: 'get_weather',
     summary: 'Getting weather for {location}'

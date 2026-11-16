@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <expected>
 #include <string>
 #include <string_view>
 #include <optional>
@@ -28,6 +29,7 @@
 
 import Mila;
 import Desktop.ConversationStore;
+import Desktop.MilaLicense;
 import Desktop.Models;
 import Desktop.SessionProcess;
 import Desktop.Settings;
@@ -261,8 +263,11 @@ int main( int argc, char* argv[] )
             devices = Mila::Deployment::AllowedDevices( Mila::Dnn::Compute::DeviceId{ *type, 0 } );
         }
 
+        // Beside the session, as its prompts are; the window's page shows it before anything else (AssistantOnboarding.md 4.1).
+        std::expected<MilaLicense, std::string> license = MilaLicense::read( executable_directory() / "License.md" );
+
         SessionProcess process( std::move( settings ), std::move( settings_file ), std::move( problems ),
-            std::move( devices ), conversations, executable_directory() / "Prompts", protocol_out );
+            std::move( license ), std::move( devices ), conversations, executable_directory() / "Prompts", protocol_out );
 
         return process.run( std::cin );
     }

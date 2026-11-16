@@ -164,6 +164,45 @@ namespace Mila::Tests::Apps::Desktop
         EXPECT_TRUE( read.model.empty() );
     }
 
+    TEST_F( SettingsFileTest, AnAcceptedLicenceIsKept )
+    {
+        Settings settings;
+        settings.license_accepted = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        settings.license_accepted_at = "2026-11-15T21:40:00Z";
+
+        SettingsFile( path() ).write( settings );
+
+        std::vector<std::string> problems;
+        const Settings read = SettingsFile( path() ).read( problems );
+
+        EXPECT_TRUE( problems.empty() );
+        EXPECT_EQ( read.license_accepted, settings.license_accepted );
+        EXPECT_EQ( read.license_accepted_at, settings.license_accepted_at );
+    }
+
+    TEST_F( SettingsFileTest, NoLicenceIsAcceptedUntilOneIs )
+    {
+        SettingsFile( path() ).write( Settings{} );
+
+        std::vector<std::string> problems;
+        const Settings read = SettingsFile( path() ).read( problems );
+
+        EXPECT_TRUE( problems.empty() );
+        EXPECT_TRUE( read.license_accepted.empty() );
+    }
+
+    TEST_F( SettingsFileTest, AnAcceptanceThatCannotBeReadIsNoAcceptance )
+    {
+        store( R"({ "model": "gemma-4-12b-it-q4_0", "license": { "sha256": 7 } })" );
+
+        std::vector<std::string> problems;
+        const Settings read = SettingsFile( path() ).read( problems );
+
+        EXPECT_TRUE( mentions( problems, "license" ) );
+        EXPECT_TRUE( read.license_accepted.empty() );
+        EXPECT_EQ( read.model, "gemma-4-12b-it-q4_0" );
+    }
+
     TEST_F( SettingsFileTest, AWriteReplacesTheFileWholeAndLeavesNoPartOfItBehind )
     {
         Settings first;

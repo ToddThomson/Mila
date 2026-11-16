@@ -26,6 +26,7 @@ const transport = await createTransport( window.location );
 let state = createInitialState();
 let renderPending = false;
 let pendingActivity = null;
+let setupShown = null;
 
 const surface = {
     narrow: narrowQuery.matches,
@@ -237,7 +238,16 @@ function render()
     const sidebarHidden = surface.narrow ? !surface.sidebarOverlay : surface.sidebarCollapsed;
     application.classList.toggle( 'sidebar-hidden', sidebarHidden );
     application.classList.toggle( 'sidebar-overlay', surface.narrow && surface.sidebarOverlay );
-    application.classList.toggle( 'welcoming', isWelcoming( state ) );
+    const welcoming = isWelcoming( state );
+    application.classList.toggle( 'welcoming', welcoming );
+
+    // The window gives a setup assistant's menus while the setup shows.
+    if ( welcoming !== setupShown )
+    {
+        setupShown = welcoming;
+        transport.send( { type: 'setup.showing', showing: welcoming } );
+    }
+
     const busy = isBusy( state );
     application.classList.toggle( 'busy', busy );
 
@@ -265,6 +275,14 @@ function isShortcut( event, key )
 
 function onKeyDown( event )
 {
+    // The setup's panes are the one way forward: no new conversation and no Settings beside them.
+    if ( isWelcoming( state ) && ( isShortcut( event, 'n' ) || isShortcut( event, ',' ) ) )
+    {
+        event.preventDefault();
+
+        return;
+    }
+
     if ( isShortcut( event, 'n' ) )
     {
         event.preventDefault();

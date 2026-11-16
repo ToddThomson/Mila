@@ -17,7 +17,11 @@ export function createInitialState()
         publishedModels: null,
         suggestedModel: null,
         publishedRequested: false,
-        welcomeSkipped: false,
+        license: null,
+        licenseError: null,
+        licenseRead: false,
+        setupStep: 'welcome',
+        setupInstalling: false,
         progress: null,
         restore: null,
         modelsError: null,
@@ -119,12 +123,31 @@ export function reduce( state, message )
         case 'models.refresh':
             return reduceModelsRefresh( state, message );
 
-        // The page's alone, never sent: the first-run welcome passed by for this run of the window.
-        case 'welcome.skip':
-            return { ...state, welcomeSkipped: true };
+        case 'license':
+            return reduceLicense( state, message );
+
+        // Accepting moves on to the model at once; a refusal keeps the licence's pane, which then says why.
+        case 'license.accept':
+            return { ...state, licenseError: null, setupStep: 'model' };
+
+        // The page's alone, never sent: moving through the first-run setup (AssistantOnboarding.md 4.1).
+        case 'license.read':
+            return { ...state, licenseRead: true };
+
+        case 'setup.continue':
+            return reduceSetupContinue( state );
+
+        case 'setup.back':
+            return reduceSetupBack( state );
+
+        case 'setup.done':
+            return { ...state, setupStep: 'done' };
+
+        // An install from the setup's model pane ends on its conclusion once the model is loaded.
+        case 'model.install':
+            return { ...state, modelsError: null, setupInstalling: state.setupInstalling || setupPane( state ) === 'model' };
 
         case 'model.load':
-        case 'model.install':
         case 'model.remove':
             return { ...state, modelsError: null };
 
@@ -167,6 +190,41 @@ function reduceModelsRefresh( state, message )
     return { ...state, publishedRequested: true, modelsError };
 }
 
+/** The licence the session carries and whether it is accepted; a text that fits its box needs no scrolling to be read. */
+function reduceLicense( state, message )
+{
+    const license = { text: message.text, sha256: message.sha256, accepted: message.accepted, problem: message.problem };
+    const changed = state.license !== null && state.license.sha256 !== message.sha256;
+
+    return { ...state, license, licenseRead: changed ? false : state.licenseRead };
+}
+
+/** Continue from the welcome: to the licence, or once it is accepted, to the model. */
+function reduceSetupContinue( state )
+{
+    const accepted = state.license !== null && state.license.accepted;
+
+    if ( state.setupStep === 'welcome' )
+        return { ...state, setupStep: accepted ? 'model' : 'license' };
+
+    if ( state.setupStep === 'license' && accepted )
+        return { ...state, setupStep: 'model' };
+
+    return state;
+}
+
+/** Go Back: the model's pane returns to the licence read on this run, or to the welcome. */
+function reduceSetupBack( state )
+{
+    if ( state.setupStep === 'license' )
+        return { ...state, setupStep: 'welcome' };
+
+    if ( state.setupStep === 'model' )
+        return { ...state, setupStep: state.licenseRead ? 'license' : 'welcome' };
+
+    return state;
+}
+
 /**
  * What an install or a load says as it ends is a conversation's line only once one has begun: before, the
  * header already names the model, and the empty conversation keeps its screen.
@@ -189,6 +247,10 @@ function reduceInfo( state, message )
  */
 function reduceError( state, message )
 {
+    // A refused acceptance is said on the licence's pane, and the person is back on it.
+    if ( message.during === 'license' )
+        return { ...state, licenseError: message.text, setupStep: 'license' };
+
     const entry = { kind: 'error', text: message.text, during: message.during };
     const aboutModels = message.during === 'load' || message.during === 'install' || message.during === 'models';
 
@@ -597,8 +659,7 @@ export function appStatus( state )
 
 /**
  * What an empty conversation shows. With no model loaded or loading: the installed models to choose from, or,
- * with none installed, the first-run welcome, or once it is skipped the way to install one; nothing until the
- * session has said which. A model being loaded
+ * with none installed, the first run; nothing until the session has said which. A model being loaded
  * is shown as the screen it is about to have, since the header already says it is loading.
  */
 export function emptyScreen( state )
@@ -613,10 +674,7 @@ export function emptyScreen( state )
         if ( !state.modelsKnown )
             return null;
 
-        if ( state.installedModels.length > 0 )
-            return 'choose-model';
-
-        return state.welcomeSkipped ? 'install-model' : 'first-run';
+        return state.installedModels.length > 0 ? 'choose-model' : 'first-run';
     }
 
     if ( session.activity !== undefined && session.activity !== 'ask' )
@@ -655,20 +713,65 @@ export function suggestedModel( state )
  */
 export function isAskingForModel( state )
 {
+    // The setup is the one way forward too, its conclusion included.
+    if ( setupPane( state ) !== null )
+        return true;
+
     const screen = emptyScreen( state );
 
-    const asking = screen === 'first-run' || screen === 'choose-model' || screen === 'install-model';
+    const asking = screen === 'first-run' || screen === 'choose-model';
 
     return state.transcript.length === 0 && asking;
 }
 
 /**
- * Whether the page is welcoming a first run: nothing installed, an empty conversation. The welcome then fills the
- * window, with no sidebar or header beside it, as there is nothing yet to go back to or to show.
+ * The first-run setup's pane (AssistantOnboarding.md 4.1), or null when it is not showing: until the licence is
+ * accepted, its welcome and the licence; then, with nothing installed, the welcome and the model; and once the
+ * model it installed is loaded, the conclusion until Done. Nothing until the session has said where the licence
+ * stands.
+ */
+export function setupPane( state )
+{
+    if ( state.session === null || state.license === undefined || state.license === null )
+        return null;
+
+    if ( !state.license.accepted )
+        return state.setupStep === 'welcome' ? 'welcome' : 'license';
+
+    if ( state.setupStep === 'done' )
+        return null;
+
+    if ( state.setupInstalling )
+        return setupInstallPane( state );
+
+    // A line the session said before the setup, a setting it could not read, does not end it; a conversation does.
+    const conversed = state.transcript.some( ( entry ) => entry.kind === 'user' || entry.kind === 'assistant' );
+
+    if ( emptyScreen( state ) !== 'first-run' || conversed )
+        return null;
+
+    return state.setupStep;
+}
+
+/** An install begun from the setup: its pane until the model is loaded, then the conclusion. */
+function setupInstallPane( state )
+{
+    if ( state.session.model !== null )
+        return 'conclusion';
+
+    // A model installed and refused at its load is chosen among the installed, with the reason.
+    const refused = state.modelsError !== null && state.modelsError.during === 'load';
+
+    return refused && !state.session.loading ? null : 'model';
+}
+
+/**
+ * Whether the page is in the first-run setup. It then fills the window, with no sidebar or header beside it, as
+ * there is nothing yet to go back to or to show.
  */
 export function isWelcoming( state )
 {
-    return state.transcript.length === 0 && emptyScreen( state ) === 'first-run';
+    return setupPane( state ) !== null;
 }
 
 export function isBusy( state )

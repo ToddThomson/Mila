@@ -39,13 +39,14 @@ function readyIsAnsweredWithTheSessionStateTheConversationsAndTheMode()
     session.handle( ready );
 
     const types = events.map( ( event ) => event.type );
-    assert.deepEqual( types, [ 'session.state', 'conversations.list', 'models.list' ] );
-    assert.equal( events[ 0 ].model, 'gemma-4-12b-it-fp4' );
-    assert.equal( events[ 0 ].busy, false );
-    assert.equal( events[ 1 ].items.length, 5 );
+    assert.deepEqual( types, [ 'license', 'session.state', 'conversations.list', 'models.list' ] );
+    assert.equal( events[ 0 ].accepted, true );
+    assert.equal( events[ 1 ].model, 'gemma-4-12b-it-fp4' );
+    assert.equal( events[ 1 ].busy, false );
+    assert.equal( events[ 2 ].items.length, 5 );
 }
 
-test( 'ready is answered with the session state, the conversations and the models', readyIsAnsweredWithTheSessionStateTheConversationsAndTheMode );
+test( 'ready is answered with the licence, the session state, the conversations and the models', readyIsAnsweredWithTheSessionStateTheConversationsAndTheMode );
 
 function everyEventCarriesTheVersionAndSurvivesJson()
 {
@@ -646,6 +647,11 @@ function aFirstRunInstallsTheSuggestionWhichThenLoads()
     assert.equal( first.published, null );
     assert.equal( ofType( events, 'session.state' ).pop().model, null );
 
+    const license = ofType( events, 'license' ).pop();
+    assert.equal( license.accepted, false );
+    session.handle( { v: 1, type: 'license.accept', sha256: license.sha256 } );
+    assert.equal( ofType( events, 'license' ).pop().accepted, true );
+
     session.handle( { v: 1, type: 'models.refresh', online: true } );
     clock.run();
 
@@ -676,6 +682,38 @@ function aFirstRunInstallsTheSuggestionWhichThenLoads()
 }
 
 test( 'a first run installs the suggestion, which then loads', aFirstRunInstallsTheSuggestionWhichThenLoads );
+
+function nothingIsInstalledLoadedOrAnsweredUntilTheLicenceIsAccepted()
+{
+    const { clock, events, session } = startSession( 13 );
+
+    session.handle( { v: 1, type: 'ready' } );
+    assert.equal( ofType( events, 'license' ).pop().accepted, false );
+    assert.equal( ofType( events, 'session.state' ).pop().model, null, 'the remembered model waits for the licence' );
+
+    session.handle( { v: 1, type: 'model.load', name: 'gemma-4-12b-it-fp4', quantization: null } );
+    session.handle( { v: 1, type: 'model.install', name: 'qwen3.8-27b-fp4' } );
+    sendTurn( session, 'Hello' );
+    clock.run();
+
+    const refusals = ofType( events, 'error' ).map( ( error ) => error.during );
+    assert.deepEqual( refusals, [ 'load', 'install', 'turn' ] );
+    assert.equal( ofType( events, 'turn.begin' ).length, 0 );
+
+    session.handle( { v: 1, type: 'license.accept', sha256: 'another-text' } );
+    assert.equal( ofType( events, 'error' ).pop().during, 'license', 'an acceptance is of the text that was shown' );
+    assert.equal( ofType( events, 'license' ).pop().accepted, false );
+
+    const license = ofType( events, 'license' ).pop();
+    session.handle( { v: 1, type: 'license.accept', sha256: license.sha256 } );
+    clock.run();
+
+    assert.equal( ofType( events, 'license' ).pop().accepted, true );
+    assert.equal( ofType( events, 'session.state' ).pop().license_accepted, true );
+    assert.equal( ofType( events, 'session.state' ).pop().model, 'gemma-4-12b-it-fp4', 'the remembered model opens' );
+}
+
+test( 'nothing is installed, loaded or answered until the licence is accepted', nothingIsInstalledLoadedOrAnsweredUntilTheLicenceIsAccepted );
 
 function aModelResidentStillHasThePublishedListPlanned()
 {

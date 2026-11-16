@@ -279,14 +279,15 @@ at standard error and writes the protocol to the real standard output, as `mila-
 for its answer (`Chat::runOnce`). End of input ends the session process. Between the page and the
 window process, the window's own bridge (section 6.2).
 
-The window relays every message unchanged in both directions, except the three it handles itself:
-`link.open`, `folder.choose`, and resolving a dropped file to a path (section 6.4).
+The window relays every message unchanged in both directions, except those it handles itself:
+`link.open`, `folder.choose`, `app.quit`, `setup.showing`, and resolving a dropped file to a path (section 6.4).
 
 ### 4.1 Session to page
 
 | type | fields | meaning |
 |---|---|---|
-| `session.state` | `model` (name or null), `loading` (the model a load is opening, while it does, or null: the header names it at once), `no_model_reason` (string or null), `context_length`, `context_automatic`, `context_used` (the tokens the conversation takes, system prompt and tools included: counted by the agent between turns, said by each round's start within one; null with no model resident), `compacts_at` (the prompt length at which the session's compaction policy compacts, or null), `thinking_capable`, `thinking` (`"off"`, `"on"` or the effort in effect), `effort` (the effort in effect, one of `effort_levels`, or null), `effort_levels` (the model's template's own effort values, in its order, or null where it has none), `detail` (`"off"`, `"thoughts"`, `"all"`), `sampling` ({`temperature`, `top_k`, `top_p`, `presence_penalty`}, each `{value, is_model_default}`), `modalities` (subset of `["image","audio"]`), `activities` (the activities this session can start, in card order, a subset of `["ask","build","research","tasks"]`), `activity` (the conversation's), `folder` (the conversation's project folder, or null), `plan` (Get Things Done's approved plan, [{`text`, `status`: `"pending"`, `"in_progress"`, `"done"` or `"skipped"`}], or null), `web_search` (bool: a search key is set; the key itself is never sent), `run_commands` (bool: the setting), `run_commands_problem` (why commands cannot run here, or null), `program_folders` (the folders commands may read, empty while they are off), `busy` (bool), `streams` ([{`stream_id`, `parent_stream_id` (or null), `conversation_id`, `busy`}]) | The whole session state. Sent after every change, never as a delta. |
+| `session.state` | `model` (name or null), `loading` (the model a load is opening, while it does, or null: the header names it at once), `no_model_reason` (string or null), `context_length`, `context_automatic`, `context_used` (the tokens the conversation takes, system prompt and tools included: counted by the agent between turns, said by each round's start within one; null with no model resident), `compacts_at` (the prompt length at which the session's compaction policy compacts, or null), `thinking_capable`, `thinking` (`"off"`, `"on"` or the effort in effect), `effort` (the effort in effect, one of `effort_levels`, or null), `effort_levels` (the model's template's own effort values, in its order, or null where it has none), `detail` (`"off"`, `"thoughts"`, `"all"`), `sampling` ({`temperature`, `top_k`, `top_p`, `presence_penalty`}, each `{value, is_model_default}`), `modalities` (subset of `["image","audio"]`), `activities` (the activities this session can start, in card order, a subset of `["ask","build","research","tasks"]`), `activity` (the conversation's), `folder` (the conversation's project folder, or null), `plan` (Get Things Done's approved plan, [{`text`, `status`: `"pending"`, `"in_progress"`, `"done"` or `"skipped"`}], or null), `web_search` (bool: a search key is set; the key itself is never sent), `run_commands` (bool: the setting), `run_commands_problem` (why commands cannot run here, or null), `program_folders` (the folders commands may read, empty while they are off), `busy` (bool), `license_accepted` (bool: the person accepted the licence the package carries), `streams` ([{`stream_id`, `parent_stream_id` (or null), `conversation_id`, `busy`}]) | The whole session state. Sent after every change, never as a delta. |
+| `license` | `text` (the licence the package carries beside the session, `License.md`, or null when it cannot be read), `sha256` (its digest, or null), `accepted` (bool), `problem` (why it cannot be read, or null) | Reply to `ready`, before `session.state`, and to `license.accept`. Until `accepted` the session refuses `model.install`, `model.load` and `turn.send` with `error`, and does not open the remembered model; an acceptance is kept in the settings by the text's digest, so a package carrying another text asks again (`Apps/AssistantOnboarding.md` 4.1). |
 | `models.list` | `installed` ([{`name`, `display_name`, `size_bytes`, `quantization`, `family`}]), `published` ([{`name`, `display_name`, `size_bytes`, `quantization`, `installed`, `license`, `agentic`, `thinking`, `tools`, `modalities`, `fits`, `agentic_here`, `context_length`, `why_not`}] or null when not fetched), `suggested` (a published `name`, or null) | Reply to `models.refresh`, and after install or remove. Each published model is planned on this computer for the request a load sends -- against the whole card when a model is resident, as a listing is (`Deployment.md` 12.5) -- and the list is the library's ranking, `suggested` its first that fits and takes turns (`Apps/AssistantOnboarding.md` 5). `display_name` is the manifest's name for a person to read ("Gemma 4 12B"), empty when it declares none; the page shows `name` then. |
 | `progress` | `task` (`"load"`, `"install"`, `"rebuild"`, `"restore"`), `label`, `done`, `total` (both null when unknown) | A long task's progress; a final one has `done == total`. `"restore"` is the model's memory coming back from the compressor or swap as Mila is used again, in bytes; a waiting turn's `turn.begin` follows it. The header shows the task in progress beside the model, a ring and its `label`, with no bar: a restore lasts seconds and its total is an estimate (Todd, 2026-11-13). |
 | `turn.begin` | `turn_id`, `conversation_id` | A reply starts. |
@@ -302,7 +303,7 @@ The window relays every message unchanged in both directions, except the three i
 | `attachment.accepted` | `attachment_id`, `kind`, `name`, `size_bytes` | The session has read and decoded the file. |
 | `attachment.refused` | `attachment_id`, `reason` | Not found, not decodable, too large, or no such modality on this model. |
 | `info` | `text`, `during` (`"load"`, `"install"`, or absent) | A sentence the console would print with `printInfo`. Shown as a quiet line in the transcript; one said during a load or install is not shown in a conversation that has not begun, which keeps its screen. |
-| `error` | `text`, `during` (`"load"`, `"turn"`, `"install"`, `"models"`, `"settings"`, `"conversation"`, or null) | Shown where it happened, never as a modal. `"models"` is the publisher's list not read, said on the screens that asked for it. |
+| `error` | `text`, `during` (`"load"`, `"turn"`, `"install"`, `"models"`, `"settings"`, `"conversation"`, `"license"`, or null) | Shown where it happened, never as a modal. `"models"` is the publisher's list not read, said on the screens that asked for it; `"license"` an acceptance refused, said on the licence's pane. |
 | `folder.chosen` | `path` (or null when the person cancelled) | From the window, not the session: the answer to `folder.choose`. |
 | `log` | `level`, `text` | Only at detail `all`; shown in a collapsible log drawer. |
 
@@ -310,7 +311,8 @@ The window relays every message unchanged in both directions, except the three i
 
 | type | fields | meaning |
 |---|---|---|
-| `ready` | -- | The page has loaded; the session replies with `session.state`, `conversations.list` and `models.list`. |
+| `ready` | -- | The page has loaded; the session replies with `license`, `session.state`, `conversations.list` and `models.list`. |
+| `license.accept` | `sha256` (the digest of the text the person read, from `license`) | The person accepted the licence. One naming another text is refused with `error` (`during: "license"`). The reply is `license` and `session.state`, and the remembered model then opens. |
 | `turn.send` | `text`, `attachment_ids` | A user turn. Refused with `error` while `busy`. |
 | `turn.stop` | -- | Stop the reply in flight; it ends with `finish: "cancelled"`. A call waiting for approval is not run. |
 | `turn.tool_decision` | `turn_id`, `call_id`, `decision` (one of the approval's `choices`) | The person's answer to a `turn.tool_approval`. One for a call not waiting is ignored. |
@@ -327,6 +329,8 @@ The window relays every message unchanged in both directions, except the three i
 | `attachment.add` | `attachment_id`, `kind`, `name`, `path` | The file on this machine; the session reads it (section 6.4). |
 | `attachment.remove` | `attachment_id` | |
 | `link.open` | `url` | Handled by the window, which opens it in the system browser. The page never navigates. |
+| `app.quit` | -- | Handled by the window, which quits: the licence's pane's *Quit*. |
+| `setup.showing` | `showing` (bool) | Handled by the window: while the first-run setup shows, a packaged Mac's menu bar is the application menu and Edit only (`Apps/AssistantOnboarding.md` 4.1). |
 
 ### 4.2.1 Window to session
 
@@ -410,14 +414,16 @@ tool the person has not allowed is asked about.
   5. No model loaded, then a load with progress, then a load refused with the refusal's text.
   6. An image attached to a model with the modality, and refused on one without.
   7. Five conversations across the date groups; open, rename, delete.
-  8. A first run, nothing installed: the published list planned for this computer, the suggestion installed with
-     its progress and loaded, a remove.
+  8. A first run, nothing installed: the welcome, the licence accepted, the published list planned for this
+     computer, the suggestion installed with its progress and loaded, the conclusion, a remove.
   9. Detail `all`: log lines in the drawer.
   10. A reply of 20,000 tokens, to see that appending stays smooth.
   11. A tool call that asks first (section 4.5): allowed, the reply continues with the result; denied, the
       model says it could not check and answers without it. A second message in the same conversation
       after *Allow in this conversation* runs the call without asking.
   12. Scenario 8 with the publisher unreachable: the first run says so and offers *Try again*.
+  13. Models installed and the licence not yet accepted: the welcome and the licence, then the remembered model
+      opens.
 - **Tests:** `node --test` over `state.js`, the markdown renderer and the mock's scenario scripts. No
   committed test dependency beyond Node itself. The visual checks of phase 1's gate may use whatever
   headless browser the building session has, with nothing of it committed.

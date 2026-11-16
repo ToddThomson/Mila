@@ -11,6 +11,7 @@ import nlohmann.json;
 import Desktop.CommandTool;
 import Desktop.ConversationStore;
 import Desktop.MemoryHolder;
+import Desktop.MilaLicense;
 import Desktop.Models;
 import Desktop.PromptFile;
 import Desktop.ProgramSetup;
@@ -110,14 +111,16 @@ namespace Mila::Desktop
          * @param settings The settings as read and overridden by the command line; written back to @p settings_file
          *                 as each one changes.
          * @param problems What could not be read from the settings file, said once the session starts.
+         * @param license The licence the package carries, or why it could not be read. Until the person accepts this
+         *                text the session installs, loads and answers nothing (AssistantOnboarding.md 4.1).
          * @param prompt_directory The activities' prompts: `ask.json`, `files.json`, `research.json` and `tasks.json`,
          *                         the last two each with a `-search` version for when a search key is set.
          */
         SessionProcess( Settings settings, SettingsFile settings_file, std::vector<std::string> problems,
-            Mila::Deployment::AllowedDevices devices,
+            std::expected<MilaLicense, std::string> license, Mila::Deployment::AllowedDevices devices,
             std::filesystem::path conversation_directory, std::filesystem::path prompt_directory, std::ostream& protocol_out )
             : settings_( std::move( settings ) ), settings_file_( std::move( settings_file ) ),
-              settings_problems_( std::move( problems ) ), devices_( std::move( devices ) ),
+              settings_problems_( std::move( problems ) ), license_( std::move( license ) ), devices_( std::move( devices ) ),
               store_( std::move( conversation_directory ) ), prompts_( std::move( prompt_directory ) ), out_( protocol_out ),
               search_key_file_( store_.directory().parent_path() / "search.json" )
         {
@@ -177,7 +180,7 @@ namespace Mila::Desktop
 
             useActivity( "ask", {} );
 
-            if ( !settings_.model.empty() )
+            if ( !settings_.model.empty() && licenseAccepted() )
             {
                 openRemembered();
             }
@@ -208,6 +211,9 @@ namespace Mila::Desktop
         /// Ask & Explore's rounds, a number no measurement has set. Its reply has no limit of the app's: no publisher's
         /// card sets one, and Qwen 3.8's names its whole context (Todd, 2026-11-13).
         static constexpr int kAskRounds = 4;
+
+        /// What a request the licence holds back is told; the page asks for the licence before it sends one.
+        static constexpr std::string_view kLicenseFirst = "Accept Mila's licence first. It is shown when Mila starts.";
 
         /// What the session's thread is doing, for an error to say where it happened.
         enum class Work
@@ -387,9 +393,14 @@ namespace Mila::Desktop
 
             if ( type == "ready" )
             {
+                sendLicense();
                 sendState();
                 sendConversations();
                 sendModels( false );
+            }
+            else if ( type == "license.accept" )
+            {
+                acceptLicense( request.value( "sha256", std::string{} ) );
             }
             else if ( type == "turn.send" )
             {
@@ -460,6 +471,15 @@ namespace Mila::Desktop
         void respond( const nlohmann::json& request )
         {
             const std::string text = request.value( "text", std::string{} );
+
+            if ( !licenseAccepted() )
+            {
+                busy_ = false;
+                sendError( std::string( kLicenseFirst ), "turn" );
+                sendState();
+
+                return;
+            }
 
             if ( !model_.resident() )
             {
@@ -1285,6 +1305,13 @@ namespace Mila::Desktop
 
         void loadModel( const nlohmann::json& request )
         {
+            if ( !licenseAccepted() )
+            {
+                sendError( std::string( kLicenseFirst ), "load" );
+
+                return;
+            }
+
             std::optional<WeightQuantization> quantization;
 
             if ( request.contains( "quantization" ) && request[ "quantization" ].is_string() )
@@ -1440,6 +1467,13 @@ namespace Mila::Desktop
 
         void installModel( const std::string& name )
         {
+            if ( !licenseAccepted() )
+            {
+                sendError( std::string( kLicenseFirst ), "install" );
+
+                return;
+            }
+
             const auto published = published_display_names_.find( name );
             install_name_ = published != published_display_names_.end() ? published->second : name;
             install_total_ = 0;
@@ -1906,6 +1940,68 @@ namespace Mila::Desktop
                 : Mila::Logging::LogLevel::Warning );
         }
 
+        // ---- The licence ------------------------------------------------------------------
+
+        /// Whether the person accepted the very text this package carries; a package with another text asks again.
+        bool licenseAccepted() const
+        {
+            return license_.has_value() && !settings_.license_accepted.empty()
+                && settings_.license_accepted == license_->sha256;
+        }
+
+        void sendLicense()
+        {
+            if ( !license_.has_value() )
+            {
+                send( "license", { { "text", nullptr }, { "sha256", nullptr }, { "accepted", false },
+                    { "problem", license_.error() } } );
+
+                return;
+            }
+
+            send( "license", { { "text", license_->text }, { "sha256", license_->sha256 },
+                { "accepted", licenseAccepted() }, { "problem", nullptr } } );
+        }
+
+        /**
+         * @brief The person accepted the licence the page showed them, named by its digest, so an acceptance is
+         *        always of the text that was read. Kept for the next launch; the remembered model then opens.
+         */
+        void acceptLicense( const std::string& sha256 )
+        {
+            if ( !license_.has_value() )
+            {
+                sendError( license_.error(), "license" );
+
+                return;
+            }
+
+            if ( sha256 != license_->sha256 )
+            {
+                sendError( "The licence shown is not the one Mila carries. Close Mila and open it again.", "license" );
+                sendLicense();
+
+                return;
+            }
+
+            if ( !licenseAccepted() )
+            {
+                const auto now = std::chrono::floor<std::chrono::seconds>( std::chrono::system_clock::now() );
+                settings_.license_accepted = license_->sha256;
+                settings_.license_accepted_at = std::format( "{:%FT%TZ}", now );
+                saveSettings();
+            }
+
+            sendLicense();
+            sendState();
+
+            if ( !settings_.model.empty() && !model_.resident() )
+            {
+                openRemembered();
+                sendState();
+            }
+        }
+
         /// Kept for the next launch; a file that cannot be written is said, and the setting still applies now.
         void saveSettings()
         {
@@ -2112,6 +2208,7 @@ namespace Mila::Desktop
                     ? nlohmann::ordered_json( nullptr ) : nlohmann::ordered_json( container_problem_ ) },
                 { "program_folders", programFoldersShown() },
                 { "busy", busy },
+                { "license_accepted", licenseAccepted() },
                 { "streams", nlohmann::ordered_json::array( { stream } ) } } );
         }
 
@@ -2378,6 +2475,7 @@ namespace Mila::Desktop
         Settings settings_;
         SettingsFile settings_file_;
         std::vector<std::string> settings_problems_;
+        std::expected<MilaLicense, std::string> license_;
         Mila::Deployment::AllowedDevices devices_;
 
         ResidentAgent model_;

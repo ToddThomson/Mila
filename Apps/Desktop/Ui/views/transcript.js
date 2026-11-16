@@ -4,9 +4,9 @@
 
 import { element, button, iconButton, setIcon, clear, previewOrIcon } from '../dom.js';
 import { renderMarkdown } from '../markdown.js';
-import { summarizeTurn, isBusy, emptyScreen, firstRunStep, suggestedModel } from '../state.js';
+import { summarizeTurn, isBusy, emptyScreen, firstRunStep, suggestedModel, setupPane } from '../state.js';
 import { thoughtLabel, statsLine, finishNotice, readableJson, activityCard, formatBytes, modelAbilities,
-    fitLine, modelTitle } from '../format.js';
+    fitLine, modelTitle, namedTitle } from '../format.js';
 
 const stickDistance = 80;
 
@@ -16,6 +16,12 @@ export function createTranscriptView( scroller, container, actions )
     const emptyState = element( 'div', 'empty-state' );
     const waiting = element( 'div', 'turn assistant waiting' );
     let lastLength = 0;
+
+    // Kept across renders, so the place the person has read to stays while the pane is drawn again.
+    const licenseBox = element( 'div', 'license-text' );
+    licenseBox.tabIndex = 0;
+    licenseBox.setAttribute( 'role', 'document' );
+    licenseBox.addEventListener( 'scroll', onLicenseScroll );
 
     waiting.append( readingLine() );
 
@@ -82,11 +88,49 @@ export function createTranscriptView( scroller, container, actions )
             actions.send( message );
         }
 
-        if ( action === 'skip-welcome' )
+        if ( action === 'setup-continue' )
+            actions.dispatch( { type: 'setup.continue' } );
+
+        if ( action === 'setup-back' )
+            actions.dispatch( { type: 'setup.back' } );
+
+        if ( action === 'setup-done' )
+            actions.dispatch( { type: 'setup.done' } );
+
+        if ( action === 'accept-license' )
         {
-            const skip = { type: 'welcome.skip' };
-            actions.dispatch( skip );
+            const accept = { type: 'license.accept', sha256: actions.getState().license.sha256 };
+            actions.send( accept );
         }
+
+        // Declining the licence is quitting, which the window does.
+        if ( action === 'quit' )
+            actions.transmit( { type: 'app.quit' } );
+    }
+
+    /**
+     * The licence as paragraphs the box wraps: its text is broken at eighty columns, which a narrower box would
+     * break again mid-line. Blank lines still part its paragraphs, and every word stays as written.
+     */
+    function licenseParagraphs( text )
+    {
+        const normalized = text.replace( /\r\n/g, '\n' ).trim();
+        const blocks = normalized.split( /\n[ \t]*\n/ );
+        const joined = blocks.map( ( block ) => block.replace( /[ \t]*\n[ \t]*/g, ' ' ) );
+
+        return joined.join( '\n\n' );
+    }
+
+    /** The end of the licence has been in view once its last line is: within a pixel, for a fractional scroll. */
+    function licenseEndSeen()
+    {
+        return licenseBox.scrollHeight - licenseBox.scrollTop - licenseBox.clientHeight <= 1;
+    }
+
+    function onLicenseScroll()
+    {
+        if ( !actions.getState().licenseRead && licenseEndSeen() )
+            actions.dispatch( { type: 'license.read' } );
     }
 
     function copyReply( target )
@@ -104,6 +148,17 @@ export function createTranscriptView( scroller, container, actions )
 
     function render( state, surface )
     {
+        // The first-run setup has the window to itself: what was said before it ends waits in the transcript.
+        const pane = setupPane( state );
+
+        if ( pane !== null )
+        {
+            renderSetup( state, pane );
+            placeChildren( container, [ emptyState ] );
+
+            return;
+        }
+
         const stick = nearBottom();
         const seen = new Set();
         const children = [];
@@ -147,9 +202,9 @@ export function createTranscriptView( scroller, container, actions )
     function renderEmptyState( state )
     {
         clear( emptyState );
+        emptyState.classList.remove( 'first-run' );
 
         const screen = emptyScreen( state );
-        emptyState.classList.toggle( 'first-run', screen === 'first-run' );
 
         if ( screen === null )
             return;
@@ -161,14 +216,8 @@ export function createTranscriptView( scroller, container, actions )
             return;
         }
 
+        // A first run whose setup is done or refused at its load: the way to a model, as Settings has it.
         if ( screen === 'first-run' )
-        {
-            renderFirstRun( state );
-
-            return;
-        }
-
-        if ( screen === 'install-model' )
         {
             renderInstallModel();
 
@@ -240,10 +289,123 @@ export function createTranscriptView( scroller, container, actions )
     }
 
     /**
-     * Nothing is installed: Mila's suggestion for this computer, installed with one click, or the way through
-     * when there is none (AssistantOnboarding.md 4). The publisher is asked as the screen first shows.
+     * The first-run setup (AssistantOnboarding.md 4.1): one pane at a time, each with Go Back and its way forward
+     * at the bottom right, and the progress of what it is doing beside them.
      */
-    function renderFirstRun( state )
+    function renderSetup( state, pane )
+    {
+        // Where the person has read the licence to, kept while the pane is drawn again.
+        const readTo = licenseBox.scrollTop;
+
+        clear( emptyState );
+        emptyState.classList.add( 'first-run' );
+
+        const body = element( 'div', 'setup-body' );
+        const footer = element( 'div', 'setup-footer' );
+        const progressSlot = element( 'div', 'setup-progress' );
+        footer.append( progressSlot );
+
+        if ( pane === 'welcome' )
+            renderWelcomePane( state, body, footer );
+        else if ( pane === 'license' )
+            renderLicensePane( state, body, footer );
+        else if ( pane === 'model' )
+            renderModelPane( state, body, footer, progressSlot );
+        else
+            renderConclusionPane( state, body, footer );
+
+        emptyState.append( body, footer );
+
+        if ( pane !== 'license' )
+            return;
+
+        licenseBox.scrollTop = readTo;
+
+        // A licence that fits its box is read once it is shown.
+        if ( !state.licenseRead && state.license.text !== null )
+            requestAnimationFrame( onLicenseScroll );
+    }
+
+    function setupButton( label, action, enabled, primary )
+    {
+        const made = button( primary ? 'setup-button primary' : 'setup-button', label, action );
+        made.disabled = !enabled;
+
+        return made;
+    }
+
+    function renderWelcomePane( state, body, footer )
+    {
+        const mark = element( 'img', 'first-run-mark' );
+        mark.src = 'mila-mark.svg';
+        mark.alt = '';
+        const heading = element( 'h1', 'empty-heading', 'Welcome to Mila' );
+        const byline = element( 'p', 'first-run-byline', 'Local LLMs on hardware you own — at the metal' );
+        const line = element( 'p', 'first-run-introduction setup-line', welcomeLine( state ) );
+
+        body.append( mark, heading, byline, line );
+        footer.append( setupButton( 'Go Back', 'setup-back', false, false ),
+            setupButton( 'Continue', 'setup-continue', true, true ) );
+    }
+
+    /** What the panes after the welcome ask, in the order they ask it. */
+    function welcomeLine( state )
+    {
+        if ( state.license.accepted )
+            return 'To start, install the model that suits this computer.';
+
+        if ( state.installedModels.length > 0 )
+            return 'To start, accept Mila’s licence.';
+
+        return 'Two steps to start: accept Mila’s licence, then install the model that suits this computer.';
+    }
+
+    function renderLicensePane( state, body, footer )
+    {
+        const license = state.license;
+        const heading = element( 'h1', 'empty-heading', 'Licence' );
+
+        body.append( heading );
+
+        if ( license.text === null )
+        {
+            const problem = element( 'p', 'empty-detail start-refusal', license.problem );
+            problem.setAttribute( 'role', 'alert' );
+            body.append( problem );
+            footer.append( setupButton( 'Go Back', 'setup-back', true, false ), setupButton( 'Quit', 'quit', true, false ) );
+
+            return;
+        }
+
+        const line = element( 'p', 'first-run-introduction setup-line',
+            'Mila is yours to use under this licence. Read it to the end to accept it.' );
+
+        const paragraphs = licenseParagraphs( license.text );
+
+        if ( licenseBox.textContent !== paragraphs )
+            licenseBox.textContent = paragraphs;
+
+        body.append( line, licenseBox );
+
+        if ( state.licenseError !== null )
+        {
+            const refusal = element( 'p', 'empty-detail start-refusal', state.licenseError );
+            refusal.setAttribute( 'role', 'alert' );
+            body.append( refusal );
+        }
+
+        const forward = license.accepted
+            ? setupButton( 'Continue', 'setup-continue', true, true )
+            : setupButton( 'Accept', 'accept-license', state.licenseRead, true );
+
+        footer.append( setupButton( 'Go Back', 'setup-back', true, false ), setupButton( 'Quit', 'quit', true, false ), forward );
+    }
+
+    /**
+     * Nothing is installed: Mila's suggestion for this computer, or the way through when there is none
+     * (AssistantOnboarding.md 4). The publisher is asked as the pane first shows; Install is its way forward.
+     */
+    function renderModelPane( state, body, footer, progressSlot )
     {
         const step = firstRunStep( state );
 
@@ -253,21 +415,29 @@ export function createTranscriptView( scroller, container, actions )
             queueMicrotask( () => actions.send( refresh ) );
         }
 
-        const mark = element( 'img', 'first-run-mark' );
-        mark.src = 'mila-mark.svg';
-        mark.alt = '';
-        const heading = element( 'p', 'empty-heading', 'Welcome to Mila' );
-        const byline = element( 'p', 'first-run-byline', 'Local LLMs on hardware you own — at the metal' );
-        const skip = button( 'link-button first-run-skip', 'Skip', 'skip-welcome' );
-
-        emptyState.append( skip, mark, heading, byline );
+        body.append( element( 'h1', 'empty-heading', 'A model for this computer' ) );
 
         if ( state.modelsError !== null && state.modelsError.during === 'install' )
         {
             const refusal = element( 'p', 'empty-detail start-refusal', state.modelsError.text );
             refusal.setAttribute( 'role', 'alert' );
-            emptyState.append( refusal );
+            body.append( refusal );
         }
+
+        const working = setupWork( state );
+
+        if ( working !== null )
+            progressSlot.append( working );
+        else if ( isBusy( state ) && state.setupInstalling )
+            progressSlot.append( element( 'div', 'progress-label', 'Starting the download' ) );
+
+        const model = step === 'suggested' ? suggestedModel( state ) : null;
+        const install = setupButton( 'Install', 'install-model', model !== null && working === null && !isBusy( state ), true );
+
+        if ( model !== null )
+            install.dataset.name = model.name;
+
+        footer.append( setupButton( 'Go Back', 'setup-back', working === null && !isBusy( state ), false ), install );
 
         if ( step === 'not-asked' || step === 'asking' )
         {
@@ -275,7 +445,7 @@ export function createTranscriptView( scroller, container, actions )
             const ring = element( 'span', 'caret' );
             ring.setAttribute( 'aria-hidden', 'true' );
             finding.append( ring, element( 'span', 'reading-label', 'Finding the model that suits this computer' ) );
-            emptyState.append( finding );
+            body.append( finding );
 
             return;
         }
@@ -286,22 +456,58 @@ export function createTranscriptView( scroller, container, actions )
                 + 'Check the internet connection, then try again.' );
             problem.setAttribute( 'role', 'alert' );
             const again = button( 'chip-button start-choose', 'Try again', 'retry-models' );
-            emptyState.append( problem, again );
+            body.append( problem, again );
 
             return;
         }
 
         if ( step === 'none-fits' )
         {
-            renderNoneFits( state );
+            renderNoneFits( state, body );
 
             return;
         }
 
-        renderSuggestion( state, suggestedModel( state ) );
+        renderSuggestion( state, model, body, working === null && !isBusy( state ) );
     }
 
-    /** The first-run welcome skipped with nothing installed: the way to a model, without the suggestion. */
+    /** The install, then the load it ends in, while either runs: its label and a bar when its size is known. */
+    function setupWork( state )
+    {
+        const progress = state.progress;
+        const running = progress !== null && ( progress.task === 'install' || progress.task === 'load' )
+            && ( progress.total === null || progress.done < progress.total );
+
+        if ( !running && !state.session.loading )
+            return null;
+
+        const shown = element( 'div', 'progress' );
+        const label = running ? progress.label : 'Loading';
+        shown.append( element( 'div', 'progress-label', label ) );
+
+        if ( running && progress.total !== null )
+        {
+            const bar = element( 'progress', 'progress-bar' );
+            bar.max = progress.total;
+            bar.value = progress.done;
+            shown.append( bar );
+        }
+
+        return shown;
+    }
+
+    function renderConclusionPane( state, body, footer )
+    {
+        const title = namedTitle( state, state.session.model );
+        const heading = element( 'h1', 'empty-heading', 'Mila is ready' );
+        const line = element( 'p', 'first-run-introduction setup-line', title + ' is installed and loaded.' );
+        const change = element( 'p', 'first-run-introduction setup-line', 'To change the model, open Settings, then Models.' );
+
+        body.append( heading, line, change );
+        footer.append( setupButton( 'Go Back', 'setup-back', false, false ), setupButton( 'Done', 'setup-done', true, true ) );
+    }
+
+    /** A first run whose setup is passed: the way to a model, without the suggestion. */
     function renderInstallModel()
     {
         const heading = element( 'p', 'empty-heading', 'Install a model to start' );
@@ -311,7 +517,8 @@ export function createTranscriptView( scroller, container, actions )
         emptyState.append( heading, detail, choose );
     }
 
-    function renderSuggestion( state, model )
+    /** The model the planner suggests, described by what it can do here; Install is the pane's own button. */
+    function renderSuggestion( state, model, target, offerOther )
     {
         const introduction = element( 'p', 'first-run-introduction',
             'To start, install the model Mila suggests for this computer.' );
@@ -320,7 +527,7 @@ export function createTranscriptView( scroller, container, actions )
         const abilities = element( 'div', 'suggestion-line', modelAbilities( model ) );
         const fit = fitLine( model );
 
-        emptyState.append( introduction );
+        target.append( introduction );
         card.append( name, abilities );
 
         if ( fit !== null )
@@ -329,62 +536,30 @@ export function createTranscriptView( scroller, container, actions )
         if ( model.license !== '' )
             card.append( element( 'div', 'suggestion-facts', 'Licence: ' + model.license ) );
 
-        // The decision is the card's last line, and its progress takes its place once made.
-        const action = element( 'div', 'start-action' );
-        const progress = state.progress;
-        const installing = progress !== null && progress.task === 'install'
-            && ( progress.total === null || progress.done < progress.total );
+        target.append( card );
 
-        if ( installing )
-        {
-            const shown = element( 'div', 'progress' );
-            const bar = element( 'progress', 'progress-bar' );
-
-            if ( progress.total !== null )
-            {
-                bar.max = progress.total;
-                bar.value = progress.done;
-            }
-
-            shown.append( element( 'div', 'progress-label', progress.label ), bar );
-            action.append( shown );
-        }
-        else if ( isBusy( state ) )
-        {
-            action.append( element( 'div', 'progress-label', 'Starting the download' ) );
-        }
-        else
-        {
-            const install = button( 'start-install', 'Install', 'install-model' );
-            install.dataset.name = model.name;
-            action.append( install );
-        }
-
-        card.append( action );
-        emptyState.append( card );
-
-        // Once Install is pressed the choice is made: the way to another model goes until the window returns.
-        if ( !installing && !isBusy( state ) )
+        // Once Install is pressed the choice is made: the way to another model goes.
+        if ( offerOther )
         {
             const other = button( 'link-button start-other', 'Choose another model', 'open-models' );
-            emptyState.append( other );
+            target.append( other );
         }
     }
 
     /** The publisher answered and nothing it offers runs here: why, for the model nearest to running, and the list. */
-    function renderNoneFits( state )
+    function renderNoneFits( state, target )
     {
         const reason = element( 'p', 'empty-detail start-refusal', 'None of the models published for Mila runs on this computer.' );
         reason.setAttribute( 'role', 'alert' );
-        emptyState.append( reason );
+        target.append( reason );
 
         const nearest = state.publishedModels.find( ( model ) => model.why_not !== null );
 
         if ( nearest !== undefined )
-            emptyState.append( element( 'p', 'empty-detail start-why', nearest.name + ': ' + nearest.why_not ) );
+            target.append( element( 'p', 'empty-detail start-why', nearest.name + ': ' + nearest.why_not ) );
 
         const all = button( 'link-button', 'See every model', 'open-models' );
-        emptyState.append( all );
+        target.append( all );
     }
 
     /**

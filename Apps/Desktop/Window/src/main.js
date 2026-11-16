@@ -1,5 +1,5 @@
 // Mila's window: starts the session, hosts the page, and relays messages between them
-// unchanged, except link.open and folder.choose, which it handles itself (MilaDesktop.md 6.2). The
+// unchanged, except link.open, folder.choose, app.quit and setup.showing, which it handles itself (MilaDesktop.md 6.2). The
 // page reaches nothing else: no Node, no navigation, no new windows, no permissions but the clipboard.
 
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, powerMonitor, session, shell } from 'electron';
@@ -18,6 +18,9 @@ let mainWindow = null;
 let sessionProcess = null;
 let pageReady = false;
 let held = [];
+
+// The page opens on the first-run setup until it says otherwise (AssistantOnboarding.md 4.1).
+let setupShowing = true;
 
 function argumentValue( name )
 {
@@ -155,6 +158,22 @@ function onPageMessage( event, message )
         return;
     }
 
+    // Declining Mila's licence is quitting.
+    if ( message.type === 'app.quit' )
+    {
+        app.quit();
+
+        return;
+    }
+
+    if ( message.type === 'setup.showing' )
+    {
+        setupShowing = message.showing === true;
+        buildMenu();
+
+        return;
+    }
+
     if ( message.type === 'ready' )
     {
         pageReady = true;
@@ -174,7 +193,8 @@ function onPageMessage( event, message )
 
 /**
  * Release builds have no menu bar on Windows and Linux, so no menu shortcut opens developer
- * tools; macOS keeps the menus its shortcuts for copy and paste live in.
+ * tools; macOS keeps the menus its shortcuts for copy and paste live in. While the first-run
+ * setup shows, a setup assistant's menus: the application's and Edit (AssistantOnboarding.md 4.1).
  */
 function buildMenu()
 {
@@ -188,7 +208,8 @@ function buildMenu()
         return;
     }
 
-    const template = [ { role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' } ];
+    const setup = [ { role: 'appMenu' }, { role: 'editMenu' } ];
+    const template = setupShowing ? setup : [ ...setup, { role: 'windowMenu' } ];
     const menu = Menu.buildFromTemplate( template );
     Menu.setApplicationMenu( menu );
 }

@@ -109,7 +109,7 @@ async function readyIsAnsweredOverStdio()
     await session.waitFor( isType( 'models.list' ) );
 
     const types = session.events.map( ( event ) => event.type );
-    assert.deepEqual( types, [ 'session.state', 'conversations.list', 'models.list' ] );
+    assert.deepEqual( types, [ 'license', 'session.state', 'conversations.list', 'models.list' ] );
 
     session.child.stdin.end();
 
@@ -191,7 +191,7 @@ async function badLinesAndUnknownTypesAreIgnoredAndLogged()
     session.send( ready );
     await session.waitFor( isType( 'models.list' ) );
 
-    assert.equal( session.events.length, 3 );
+    assert.equal( session.events.length, 4, 'ready is answered with the licence, the state, the conversations and the models' );
     assert.match( session.stderr(), /not JSON/ );
     assert.match( session.stderr(), /something\.new/ );
 
