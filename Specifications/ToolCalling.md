@@ -219,6 +219,81 @@ opened.
     what `F_GETPATH` can report. `GrantPath.cpp` tests both forms on every platform. Passed 2026-11-17 at
     0.21.0-dev+152: 129 of 129 grant, file-tool, gate and program tests in `x64-claude-verify` (MXC 1.1.0 named), and
     98 of 98 grant, file-tool, gate and session tests on the development Mac, none skipped on either.
+- **Files on Linux** (designed 2026-11-17 from the Linux man pages 6.17 -- `open(2)`, `openat2(2)`, `readlink(2)`,
+  `proc_pid_fd(5)`, `stat(2)`, `mkdir(2)`, `link(2)`, `readdir(3)` -- and measured the same day in WSL, kernel 6.18,
+  as `Agents/Grants/GrantFileSystem.Linux.ixx`). The same rule by Linux's own calls, each on a file descriptor as on
+  macOS.
+  - *The path.* macOS's form (`GrantPathForm::Posix`): a path from `/` or relative to the granted folder, each part an
+    ordinary name, no `..`, no control character. `..namedfork` is refused as on macOS, since the form is one; on
+    Linux it is only an unusual name.
+  - *Opening.* Every open is `openat2` with `RESOLVE_NO_MAGICLINKS` (Linux 5.6), with `O_CLOEXEC`, `O_NONBLOCK` and
+    `O_NOCTTY`; then `fstat`, and anything that is neither a regular file nor a folder is refused, as on macOS. A
+    *magic link* -- `/proc/<pid>/fd/<n>`, `/proc/<pid>/cwd`, `/proc/<pid>/root`, and `/dev/stdin` through them -- is
+    not a path at all but a reference to something a process holds open, which may be a file deleted, outside the
+    process's root, or in another program's mount namespace (`openat2(2)`); a grant never follows one, at the end of a
+    path or within it, and the refusal says so. Windows and macOS have no such link, so this refuses nothing there. A
+    kernel older than 5.6, or a sandbox that refuses `openat2`, fails every open, saying why; no older call is used
+    in its place.
+  - *The final path.* `readlink` on `/proc/self/fd/<n>`, the path the kernel keeps for the open descriptor, every
+    symbolic link resolved (`proc_pid_fd(5)`). Kept only when it lies within a granted folder's path, as on the other
+    two. Without `/proc` mounted nothing can be checked, so every open is refused, saying why. Paths past 4,096 bytes
+    cannot be reported (`ENAMETOOLONG`), and such a file is refused, saying so, as macOS refuses past its 1,024.
+  - *Case.* On a volume that ignores case -- a Windows drive in WSL, FAT and exFAT, an ext4 folder made
+    case-insensitive -- `/proc` reports each name in the case it was looked up by, not the one stored on disk
+    (measured), where Windows and macOS report the stored case. So a granted folder's path is taken in the names the
+    volume stores (`onDiskPath`): each folder up to `/` found by its device and inode in its parent's listing, which
+    crosses a mount as `..` does. A file whose reported path lies outside every granted folder is looked at the same
+    way before it is refused, so a path that differs from the folder's only by case is accepted, as on the other two.
+    The reported path is always compared first: equal names lead to the same folders whether the volume heeds case or
+    not, so it never lets in what the stored names would keep out, and the listing walk, which costs a listing per
+    folder up to `/`, is made only for what would otherwise be refused. A folder on the way up that cannot be listed
+    leaves the file refused. On Windows and macOS `onDiskPath` is the final path.
+  - *More than one name.* `st_nlink` from `fstat`, read after every open, as Windows' link count is; Linux has no
+    `O_UNIQUE`. `link` on a folder is refused (`EPERM`) on every file system tried, so a folder reports one, its own
+    count being its subfolders'.
+  - *Creating.* A file by `O_CREAT | O_EXCL | O_NOFOLLOW` in a folder already opened, which fails with `EEXIST` when
+    anything has the name, a link to nothing included, and makes nothing where the link points; a folder by `mkdirat`,
+    then opened through the same folder with `O_DIRECTORY | O_NOFOLLOW`, which a link swapped in fails with `ENOTDIR`.
+  - *Listing.* As on macOS: `fdopendir` on a duplicate, each name described by `fstatat` on the folder.
+  - *Mounts.* A file reached through a mount -- a bind mount, a FUSE mount, another volume -- inside a granted folder is
+    reported by the path it was reached through, so it lies inside, as a volume mounted inside a granted folder does on
+    macOS. Only an administrator, or the owner of a mount namespace Mila is not in, can make one.
+  - *Not chosen:* `RESOLVE_BENEATH` and `RESOLVE_IN_ROOT` as the rule, which would refuse a link from one granted folder
+    into another, accepted on the other two; `RESOLVE_NO_XDEV`, which would refuse a mount inside a granted folder,
+    accepted on macOS; opening with `O_PATH` and opening again through `/proc` once checked, so that a device is never
+    opened before it is refused -- a link to a device opens it before `fstat` refuses it on all three platforms alike,
+    so that is a shared question, filed, not a Linux one; and comparing every path in a case-blind way, which would
+    let a folder named `PROJECT` pass for a granted `project` on a volume that heeds case.
+  - *Measured 2026-11-17* in WSL (Ubuntu 26.04, kernel 6.18.58) on tmpfs (`/tmp`), ext4 (the home folder) and the
+    Windows drive (`/mnt/d`, 9p), with a probe outside the repository (`D:\Claude\linuxgrant\probe`):
+    - `/proc/self/fd` reports one path for a file or folder however it was reached -- through a symbolic link out or
+      in, with `./` and doubled slashes -- on all three; a file still open after it is deleted reports its last path
+      and ` (deleted)`, and a folder renamed while open reports its new path, so the check is made as the file is
+      opened, as on the other two.
+    - On `/mnt/d`, `PROJECT/INSIDE.TXT` opened `project/inside.txt` and `/proc` reported it in upper case; tmpfs and
+      ext4 refused the name, as volumes that heed case do.
+    - A second name made by `link` is reported as itself, `st_nlink` 2, on all three; `link` on a folder fails with
+      `EPERM` on all three.
+    - A named pipe opened with `O_NONBLOCK`, to read or to read and write, opens at once and `fstat` reports it a pipe;
+      a socket file fails to open with `ENXIO`; the Windows drive makes neither (`EOPNOTSUPP`).
+    - `O_CREAT | O_EXCL | O_NOFOLLOW` through a link to nothing fails with `EEXIST` and makes nothing outside; a folder
+      swapped for a link fails `O_DIRECTORY | O_NOFOLLOW` with `ENOTDIR`, on all three.
+    - With `RESOLVE_NO_MAGICLINKS`, a link in the folder to `/proc/self/fd/<n>`, that path itself, a link to
+      `/proc/self/cwd`, and `/dev/stdin` each fail with `ELOOP`; an ordinary link in or out, `/proc/self/status`, and
+      creating a file open as before. Without it, the link to `/proc/self/fd/<n>` opened the outside file it held.
+    - `/proc` reports paths up to about 4,060 bytes and fails with `ENAMETOOLONG` past 4,096; a file there can still be
+      made through its folder, and is then refused as unreportable; an open by its whole path fails the same way.
+    - A file reached through a bind mount, made in a user namespace with `unshare -rm`, is reported by the path through
+      the mount.
+  - *Tests:* `ToolGrant.Files.cpp` and `FileTools.cpp` run on Linux as on the other two, with a symbolic link for a
+    folder link; on Linux also a link through `/proc` to an open file outside beside a link to a file inside, a named
+    pipe, a socket file, and a path past what `/proc` can report beside one within it; and on every platform a folder
+    whose name differs from the granted one's only by case, refused where the volume heeds case, beside the same path
+    inside in another case, allowed where it does not. Linux runs them in WSL, on tmpfs and on the Windows drive.
+    Passed 2026-11-17 at 0.21.0-dev+153, the grant, file-tool, path and gate tests: in WSL (`linux-clang-cpu-release`,
+    Clang 22) 98 on tmpfs, the case-ignoring test skipped, and 95 on the Windows drive, which makes no pipe or socket
+    and ignores case, so the path in another case is allowed there through the stored names; 98 on Windows and 99 on
+    the development Mac, each skipping the case-heeding test its temporary folder cannot run.
 - **Network.** The grant connects only to public addresses. *Decided 2026-10-27 (Todd):* public is globally
   reachable as IANA's IPv4 and IPv6 special-purpose registries record it, multicast refused too, and an IPv6
   address that carries an IPv4 one -- IPv4-mapped, NAT64, 6to4 -- is public only when that IPv4 address is
@@ -228,14 +303,13 @@ opened.
   environment included, since the connection checked would be the proxy's.
 - **Where.** *Decided 2026-10-27 (Todd):* Windows only for now. *Decided 2026-11-15 (Todd):* macOS too, in
   v0.21.0, macOS being a platform at parity with Windows (`BACKLOG.md`, *Mila on Apple Silicon*), by the design under
-  *Files on macOS* above, built in 0.21.0-dev+152. `Agents.GrantFileSystem` has three candidate files: Windows',
-  macOS's (`.Apple`) and one that refuses every call (`.Null`), compiled elsewhere. Each gives the path's form
-  (`GrantPathForm`) and where a full path starts (`rootPath`: `\\?\D:\` on Windows, `/` on macOS), so `ToolGrant` is
-  the same code on both. *Decided 2026-11-17 (Todd):* Linux too, at parity with the other two (`CLAUDE.md`); until
-  its candidate is built a Linux grant holds no folder, which is a defect, not Linux's design (`BACKLOG.md`, *On
-  Linux a tool cannot read or write a file in the folder a person names*). The likely route is `openat2` with
-  `RESOLVE_BENEATH` (Linux 5.6) beside the final path, unmeasured; it is tested in WSL, where Mila Assistant's window
-  cannot run.
+  *Files on macOS* above, built in 0.21.0-dev+152. *Decided 2026-11-17 (Todd):* Linux too, at parity with the other
+  two (`CLAUDE.md`), by the design under *Files on Linux* above, built in 0.21.0-dev+153 and tested in WSL, where
+  Mila Assistant's window cannot run, so the window on Linux is unverified. `Agents.GrantFileSystem` has four
+  candidate files: Windows', macOS's (`.Apple`), Linux's (`.Linux`) and one that refuses every call (`.Null`),
+  compiled on any other system. Each gives the path's form (`GrantPathForm`), where a full path starts (`rootPath`:
+  `\\?\D:\` on Windows, `/` elsewhere), the final path and the path in stored names (`onDiskPath`), so `ToolGrant` is
+  the same code on all three.
 - **What it holds.** A tool that works through its grant is held to it. One that opens files directly is not; an
   in-process tool is the application's own code, and that is the application's choice.
 - **Programs.** *Decided 2026-10-27 (Todd):* the grant also runs a program for a tool that declares it runs

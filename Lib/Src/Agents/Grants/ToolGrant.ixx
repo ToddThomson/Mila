@@ -100,10 +100,12 @@ namespace Mila::Agents
      *        each at that moment.
      *
      * A path is accepted in one form only, the platform's (grantPathNames): a full path -- from a drive letter on
-     * Windows, from the root on macOS -- or a path relative to the first folder granted. A file or folder is opened,
-     * the final path the operating system reports for the open handle is taken, and it is kept only when that path
-     * lies within a granted folder's own final path, taken when the grant was made. Short names, differences of
-     * case, symbolic links, junctions, firmlinks and mount points all lead to that final path. A file with more than one name on disk -- a hard link -- is refused, since the name reported may
+     * Windows, from the root on macOS and Linux -- or a path relative to the first folder granted. A file or folder is
+     * opened, the final path the operating system reports for the open handle is taken, and it is kept only when that
+     * path lies within a granted folder's own path in stored names, taken when the grant was made -- or, on a volume
+     * that ignores case, when the file's own path in stored names does. Short names, differences of case, symbolic
+     * links, junctions, firmlinks and mount points all lead to that path; Linux's links in /proc are never followed.
+     * A file with more than one name on disk -- a hard link -- is refused, since the name reported may
      * be one inside while another is outside. A file or folder is created only in a folder already opened and
      * checked, and never through a name that already exists, a link included.
      *
@@ -517,7 +519,16 @@ namespace Mila::Agents
                 throw std::invalid_argument( std::format( "'{}' is not a folder", shown( folder ) ) );
             }
 
-            return GrantFileSystem::finalPath( held.get() );
+            // In the names the volume stores, so a file reached in another case on a volume that ignores it is found
+            // inside (ToolCalling.md 3.4, Case); where a folder on the way cannot be listed, as the final path reports.
+            try
+            {
+                return GrantFileSystem::onDiskPath( held.get() );
+            }
+            catch ( const std::runtime_error& )
+            {
+                return GrantFileSystem::finalPath( held.get() );
+            }
         }
 
         void requireFolders( std::string_view path ) const
@@ -585,9 +596,41 @@ namespace Mila::Agents
             return { readable, writable };
         }
 
+        /**
+         * Whether a granted folder holds an open file or folder, and whether one granted read-write does: by the path
+         * the operating system reports and, where that is not enough, by the path in the names the volume stores,
+         * which differ only in case on a volume that ignores it (Linux; ToolCalling.md 3.4, Case). Equal names lead to
+         * the same folders either way, so the reported path is never wrongly let in, and the stored names, which cost
+         * a listing per folder, are read only for what would otherwise be refused.
+         */
+        std::pair<bool, bool> holdersOf( GrantFileSystem::NativeHandle handle, bool write ) const
+        {
+            const auto reported = holders( GrantFileSystem::finalPath( handle ) );
+
+            if ( reported.first && ( reported.second || !write ) )
+            {
+                return reported;
+            }
+
+            std::filesystem::path stored;
+
+            try
+            {
+                stored = GrantFileSystem::onDiskPath( handle );
+            }
+            catch ( const std::runtime_error& )
+            {
+                return reported;
+            }
+
+            const auto by_stored_names = holders( stored );
+
+            return { reported.first || by_stored_names.first, reported.second || by_stored_names.second };
+        }
+
         void requireReadable( GrantFileSystem::NativeHandle handle, std::string_view path ) const
         {
-            if ( !holders( GrantFileSystem::finalPath( handle ) ).first )
+            if ( !holdersOf( handle, false ).first )
             {
                 throw std::runtime_error( std::format( "'{}' lies outside the folders this tool was granted", path ) );
             }
@@ -595,7 +638,7 @@ namespace Mila::Agents
 
         void requireWritable( GrantFileSystem::NativeHandle handle, std::string_view path ) const
         {
-            const auto [readable, writable] = holders( GrantFileSystem::finalPath( handle ) );
+            const auto [readable, writable] = holdersOf( handle, true );
 
             if ( !readable )
             {
@@ -688,7 +731,7 @@ namespace Mila::Agents
 
                     child = ToolGrantDetail::HeldHandle( *opened );
 
-                    if ( !holders( GrantFileSystem::finalPath( child.get() ) ).first )
+                    if ( !holdersOf( child.get(), false ).first )
                     {
                         ++not_entered;
 

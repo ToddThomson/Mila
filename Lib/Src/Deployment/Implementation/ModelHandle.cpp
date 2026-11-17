@@ -69,10 +69,11 @@ namespace Mila::Deployment
         /**
          * @brief Run action at the device type given, for each device type this build carries.
          *
-         * The one run-time to compile-time bridge for device types, as createExecutionContext is for contexts.
+         * The one run-time to compile-time bridge for device types, as createExecutionContext is for contexts. The
+         * result is named rather than deduced: a build with no compute backend has no branch to deduce it from.
          */
-        template<typename TAction>
-        auto onDeviceType( DeviceType device_type, TAction&& action )
+        template<typename TResult, typename TAction>
+        TResult onDeviceType( DeviceType device_type, TAction&& action )
         {
             switch ( device_type )
             {
@@ -309,7 +310,7 @@ namespace Mila::Deployment
             throw DeploymentRefusedError( "ModelHandle::open", device_type.error() );
         }
 
-        LoadedModel loaded = onDeviceType( *device_type, [&]<DeviceType TDeviceType>()
+        LoadedModel loaded = onDeviceType<LoadedModel>( *device_type, [&]<DeviceType TDeviceType>()
             {
                 return loadOn<TDeviceType>( installed, request );
             } );
@@ -329,7 +330,7 @@ namespace Mila::Deployment
             return std::unexpected( device_type.error() );
         }
 
-        return onDeviceType( *device_type, [&]<DeviceType TDeviceType>()
+        return onDeviceType<std::expected<DeploymentPlans, DeploymentRefusal>>( *device_type, [&]<DeviceType TDeviceType>()
             {
                 return planDeployment<TDeviceType, DeviceTypeTraits<TDeviceType>::language_model_precision>(
                     installed, request );
@@ -398,7 +399,7 @@ namespace Mila::Deployment
 
         const std::filesystem::path header = published.weightsHeader( hub, store );
 
-        return onDeviceType( *device_type, [&]<DeviceType TDeviceType>()
+        return onDeviceType<std::expected<DeploymentPlans, DeploymentRefusal>>( *device_type, [&]<DeviceType TDeviceType>()
             {
                 return planWeightsAt<TDeviceType>( published.manifest()->architecture, header, request );
             } );
@@ -414,7 +415,7 @@ namespace Mila::Deployment
             return std::vector<WeightQuantization>{};
         }
 
-        return onDeviceType( *device_type, [&]<DeviceType TDeviceType>()
+        return onDeviceType<std::optional<std::vector<WeightQuantization>>>( *device_type, [&]<DeviceType TDeviceType>()
             {
                 return Mila::Deployment::fittingWeightQuantizations<TDeviceType,
                     DeviceTypeTraits<TDeviceType>::language_model_precision>( model, request );

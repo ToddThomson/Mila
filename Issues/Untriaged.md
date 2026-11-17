@@ -10,6 +10,16 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## A grant opens a device a link leads to before it refuses it, on every platform
+
+`Lib/Src/Agents/Grants/GrantFileSystem.*.ixx` (`openExisting`, `openChild`); `Specifications/ToolCalling.md` 3.4 *Files on Linux*, *Not chosen* @ 0.21.0-dev+153
+
+Found 2026-11-17 designing the Linux grant. A symbolic link in a granted folder to a device (`/dev/...` on macOS and
+Linux) is followed and the device opened, and only then is it refused as not a file or folder; on Linux a device whose
+open has an effect of its own is reached the same way. Windows' path form refuses device names, but a link to a device
+was not looked at there. Linux could open with `O_PATH` and open again through `/proc` once checked; macOS and Windows
+have no such call, so whether it is worth one platform's design differing is not decided.
+
 ## The terms a person accepts in Mila Assistant are Mila's MIT licence alone, while NVIDIA's and Microsoft's ask more
 
 `Apps/Desktop/Session/Src/Settings/Desktop.MilaLicense.ixx` (what is accepted); `NOTICE.md` *What Mila Assistant carries*; `Specifications/AssistantOnboarding.md` 4.1 @ 0.21.0-dev+151

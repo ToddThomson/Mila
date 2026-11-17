@@ -1,6 +1,6 @@
 // Mila's window: starts the session, hosts the page, and relays messages between them
-// unchanged, except link.open, folder.choose, app.quit and setup.showing, which it handles itself, and about, which it
-// sends the page when the page is ready (MilaDesktop.md 6.2). The
+// unchanged, except link.open, folder.choose, licence.open, app.quit and setup.showing, which it handles itself, and
+// about, which it sends the page when the page is ready (MilaDesktop.md 6.2). The
 // page reaches nothing else: no Node, no navigation, no new windows, no permissions but the clipboard.
 
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, powerMonitor, session, shell } from 'electron';
@@ -9,8 +9,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { registerPageScheme, servePage, isPageUrl, pageUrl } from './page-protocol.js';
 import { startSessionProcess } from './session-process.js';
+import { licenceLocations, findLicences, describeLicences, readLicence } from './licences.js';
 
 const here = path.dirname( fileURLToPath( import.meta.url ) );
+const windowRoot = path.resolve( here, '..' );
 const pageRoot = app.isPackaged ? path.join( process.resourcesPath, 'Ui' ) : path.resolve( here, '..', '..', 'Ui' );
 const iconPath = path.join( here, '..', 'icons', 'icon.png' );
 const allowedPermissions = [ 'clipboard-sanitized-write' ];
@@ -20,6 +22,7 @@ let mainWindow = null;
 let sessionProcess = null;
 let pageReady = false;
 let held = [];
+let licences = [];
 
 // The page opens on the first-run setup until it says otherwise (AssistantOnboarding.md 4.1).
 let setupShowing = true;
@@ -132,8 +135,9 @@ async function chooseFolder()
 }
 
 /**
- * What the window knows and the session does not: who is signed in to this computer, by their login name, and the
- * app's version, for the person at the sidebar's foot (AssistantInterface.md 4.1).
+ * What the window knows and the session does not: who is signed in to this computer, by their login name, the
+ * app's version, and the third-party licences it carries, for the person at the sidebar's foot and About Mila
+ * Assistant (AssistantInterface.md 4.1).
  */
 function aboutMessage()
 {
@@ -148,7 +152,33 @@ function aboutMessage()
         userName = '';
     }
 
-    return { v: 1, type: 'about', user_name: userName, version: app.getVersion() };
+    return { v: 1, type: 'about', user_name: userName, version: app.getVersion(), licences: describeLicences( licences ) };
+}
+
+/**
+ * A licence the page names by its id: Chromium's opens in the system's browser, and every other's text is sent to
+ * the page. An id the window did not give names nothing.
+ */
+async function openLicence( id )
+{
+    const entry = licences.find( ( candidate ) => candidate.id === id );
+
+    if ( entry === undefined )
+        return;
+
+    if ( entry.opens === 'browser' )
+    {
+        const failure = await shell.openPath( entry.file );
+
+        if ( failure.length > 0 )
+            deliver( { v: 1, type: 'licence.text', id, text: null, problem: 'Mila could not open this licence.' } );
+
+        return;
+    }
+
+    const read = readLicence( entry );
+
+    deliver( { v: 1, type: 'licence.text', id, text: read.text, problem: read.problem } );
 }
 
 function isFromPage( event )
@@ -176,6 +206,13 @@ function onPageMessage( event, message )
     if ( message.type === 'folder.choose' )
     {
         chooseFolder();
+
+        return;
+    }
+
+    if ( message.type === 'licence.open' )
+    {
+        openLicence( message.id );
 
         return;
     }
@@ -351,6 +388,9 @@ function watchUse()
 
 function onReady()
 {
+    const locations = licenceLocations( app.isPackaged, process.platform, process.resourcesPath, process.execPath, windowRoot );
+
+    licences = findLicences( locations );
     session.defaultSession.setPermissionRequestHandler( onPermissionRequest );
     session.defaultSession.setPermissionCheckHandler( onPermissionCheck );
     servePage( pageRoot );

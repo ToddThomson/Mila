@@ -13,6 +13,7 @@ import { createComposerView } from './views/composer.js';
 import { createSettingsView } from './views/settings.js';
 import { createSearchView } from './views/search.js';
 import { createLicenseView } from './views/license.js';
+import { createAboutView } from './views/about.js';
 import { createDevelopmentView } from './views/development.js';
 import { createLogView } from './views/log.js';
 import { createPlanView } from './views/plan.js';
@@ -175,6 +176,13 @@ function onTransportMessage( message )
         return;
     }
 
+    if ( message.type === 'licence.text' )
+    {
+        about.received( message );
+
+        return;
+    }
+
     dispatch( message );
 
     if ( message.type === 'conversation.loaded' && afterOpen !== null && afterOpen.id === message.id )
@@ -246,6 +254,7 @@ const actions = {
     closeSettings,
     openSearch: () => search.open(),
     openLicense: () => license.open(),
+    openAbout: () => about.open(),
     decideTool,
     chooseFolder,
     openLink,
@@ -275,6 +284,7 @@ const composer = createComposerView( document.getElementById( 'composer-area' ),
 const settings = createSettingsView( document.getElementById( 'settings' ), actions );
 const search = createSearchView( document.getElementById( 'search' ), actions );
 const license = createLicenseView( document.getElementById( 'license-window' ), actions );
+const about = createAboutView( document.getElementById( 'about-window' ), actions );
 const development = createDevelopmentView( sidebar.development, transport.development, composer );
 const log = createLogView( logElement, actions );
 const plan = createPlanView( planElement );
@@ -420,8 +430,8 @@ function onKeyDown( event )
     if ( event.key !== 'Escape' )
         return;
 
-    // Search and the licence are dialogs, which Esc closes itself.
-    if ( search.isOpen() || license.isOpen() )
+    // Search, the licence and About are dialogs, which Esc closes itself.
+    if ( search.isOpen() || license.isOpen() || about.isOpen() )
         return;
 
     // Settings is over everything, so Esc closes it before it stops a reply.

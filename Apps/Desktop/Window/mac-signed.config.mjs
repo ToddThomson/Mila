@@ -9,6 +9,8 @@ const base = JSON.parse( readFileSync( new URL( './package.json', import.meta.ur
 export default {
     ...base,
     mac: {
+        // Electron's and Chromium's licences, which electron-builder removes from a Mac app.
+        extraResources: base.mac.extraResources,
         target: [ { target: 'dmg', arch: [ 'arm64' ] } ],
         hardenedRuntime: true,
         entitlements: 'entitlements/mac.plist',

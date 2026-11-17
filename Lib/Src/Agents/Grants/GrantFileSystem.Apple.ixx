@@ -3,7 +3,7 @@
  * @brief The operating system's file calls a grant makes on macOS: open, create, list, and what an open file
  *        descriptor reports of itself.
  *
- * One of three candidate files for Agents.GrantFileSystem; CMake compiles this one on Apple platforms. Every function
+ * One of four candidate files for Agents.GrantFileSystem; CMake compiles this one on Apple platforms. Every function
  * works on an open descriptor or opens one, so a check is made on what was opened rather than on a name
  * (ToolCalling.md 3.4, Files on macOS).
  */
@@ -290,6 +290,13 @@ namespace Mila::Agents::GrantFileSystem
         }
 
         return std::filesystem::path( path.data() );
+    }
+
+    /// The path in the names the volume stores, case included: the final path, which F_GETPATH already reports that
+    /// way (measured, ToolCalling.md 3.4).
+    export std::filesystem::path onDiskPath( NativeHandle handle )
+    {
+        return finalPath( handle );
     }
 
     export bool isFolder( NativeHandle handle )

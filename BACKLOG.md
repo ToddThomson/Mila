@@ -335,20 +335,19 @@ Gate: the clean-room install passes from TestPyPI on the release-step-1 snapshot
 
 `Apps/Server/pyproject.toml` · `RELEASING.md` *Publishing the wheels*
 
-#### Mila Assistant shows no one the licences of the third-party code it carries
+#### Mila Assistant may carry Rust code inside MXC's library without that code's licences
 
 `in progress` · `apps` · `distribution`
 
-The installer carries each third-party licence text in the session's `Licences/` on Windows and on the Mac, its
-install fails without one, and `NOTICE.md` *What Mila Assistant carries* names each, held by `check_pins.py
---verify-notice`. Nothing shows them: the window has no *Licences* in its About, so a person finds them only by
-opening the app's folder. Work: the window lists `Licences/` under *Licences* in its About, beside Electron's and
-Chromium's at the app's root, the same on both platforms. Not known: which crates `mxc_ffi.dll` compiles in, since
-MXC's release carries no notice for them -- answered by reading its dependency list, or by the build of Mila's own that
-`ContainedPrograms.md` 4.10 ships. Before any build reaches a tester, since handing one out is distributing it. No
-success criterion names it; admitted by Todd, 2026-11-17.
+The installer carries each third-party licence text in the session's `Licences/<name>/` on Windows and on the Mac,
+Electron's and Chromium's beside the app, and every package build fails without them; *About Mila Assistant* lists
+each and opens it. What is not known is which crates `mxc_ffi.dll` compiles in (`mxc-sdk`, `serde`, `serde_json`,
+`serde_ignored` and what they pull in on Windows x64), since MXC's release carries no notice for them, so their texts
+are not carried. Answered by `cargo tree` on the build of Mila's own that `ContainedPrograms.md` 4.10 ships: neither
+the PC nor WSL has a Rust toolchain, and a lock file read by hand lists every target's crates. Before any build reaches
+a tester, since handing one out is distributing it. No success criterion names it; admitted by Todd, 2026-11-17.
 
-`NOTICE.md` · `Apps/Desktop/Session/CMakeLists.txt` (`mila_session_licence`) · `Apps/Desktop/Window`
+`NOTICE.md` · `Apps/Desktop/Session/CMakeLists.txt` (`mila_session_licence`) · `Specifications/ContainedPrograms.md` 4.10
 
 #### What a model can do is inferred from its family name, not read from its manifest
 
@@ -472,23 +471,6 @@ Gemma 4 is validated through both applications across plain-chat, single-tool an
 3.1 8B has never been driven through a single tool call, from Chat or over the wire; the framework is family-neutral,
 and what is missing is the evidence that Llama's grammar reaches it. Moved from `Vnext.md`, where moving it out had
 narrowed the Models criterion and `README.md`'s Llama section; the theme's criterion now restates it.
-
-#### On Linux a tool cannot read or write a file in the folder a person names
-
-`open` · `agents` · `apps` · `mila-src`
-
-The grant holds a tool to its folders on Windows and macOS; Linux compiles the refusing candidate
-(`Agents/Grants/GrantFileSystem.Null.ixx`), so a grant of folders throws there and Mila Assistant offers no file tool.
-Work: a Linux candidate for `Agents.GrantFileSystem` making the checks the other two make -- the final path of each
-open descriptor kept only inside a granted folder's own, a file with more than one name refused, creation only through
-a folder already opened and checked and never through a name that exists -- then `ToolGrant.Files.cpp` and
-`FileTools.cpp` run on Linux as on the other two. Absent: how Linux gives those answers has not been looked at from
-its man pages; the likely calls are `openat2` with `RESOLVE_BENEATH` from a held folder descriptor (Linux 5.6, as a
-check beside the final path, since alone it would refuse a link between two granted folders, which the other two
-accept), the final path from `/proc/self/fd`, and `st_nlink`. Tested in WSL (Ubuntu-Dev); the window on Linux cannot be
-run here. Admitted by Todd, 2026-11-17, Linux joining the platforms at parity (`CLAUDE.md`).
-
-`Specifications/ToolCalling.md` 3.4 *Where*
 
 ### A Developer Can Start
 
@@ -1009,9 +991,12 @@ Gate: a model installed under a store path with characters outside the code page
 
 `Lib/Src/Dnn/Serialization/WeightsReader.ixx:193` · `Lib/Src/Dnn/Serialization/SafeTensors.ixx:188`
 
-#### The published binaries and images are built on CUDA 13.3 while 13.4 is current
+#### The published binaries and images are built on CUDA 13.3, and v0.21.0 is to ship on 13.5
 
 `in progress` · `build` · `ci` · `distribution`
+
+*Decided 2026-11-17 (Todd):* v0.21.0 moves to CUDA 13.5 before it releases. Which 13.5 patch, and when, is not decided;
+the sites below then move from 13.4 to it as one move, and the gate's 13.4.3 reads as that patch. Until then:
 
 The declared toolkit is 13.4.3 in the tree; what remains is building and verifying on it. Docker Hub has
 carried `nvidia/cuda:13.4.3-{base,runtime,devel}-ubuntu{22,24,26}.04` since 2026-10-17 (read on Docker Hub

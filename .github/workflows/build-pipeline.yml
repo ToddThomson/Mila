@@ -186,10 +186,9 @@ jobs:
           cp -r cmake-4.2.3-linux-x86_64/bin/* /usr/local/bin/
           cp -r cmake-4.2.3-linux-x86_64/share/* /usr/local/share/
 
-      # Mirrors the linux-clang-cpu-release preset (CMakePresets.json). Kept as explicit
-      # flags rather than --preset so the job is self-contained and pins clang-22 (the
-      # preset uses the generic `clang` name, which is the dev's WSL default but not the
-      # runner's).
+      # Mirrors the linux-clang-cpu-release preset (CMakePresets.json), clang-22 as the
+      # preset names it. Kept as explicit flags rather than --preset so the job is
+      # self-contained.
       #
       # MILA_ENABLE_NETWORKING=OFF is the Linux mila-llm wheel's configuration, which had no
       # Linux coverage anywhere -- the only OFF preset is a Windows Debug build. Taking it

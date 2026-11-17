@@ -1,17 +1,19 @@
 /**
  * @file ToolGrant.Files.cpp
  * @brief What a grant's files reach: each access the grant refuses beside the same kind of access inside it,
- *        allowed (ToolCalling.md 3.4). Windows and macOS, each by its own ways to the same access.
+ *        allowed (ToolCalling.md 3.4). Windows, macOS and Linux, each by its own ways to the same access.
  *
  * Each test builds its folders under the system's temporary folder: a granted project, a sibling whose name begins
  * with the project's, and a folder outside holding a secret. A link to a folder is a junction on Windows, which needs
- * no privilege, and a symbolic link on macOS. A symbolic link on Windows needs Developer Mode or an administrator,
+ * no privilege, and a symbolic link elsewhere. A symbolic link on Windows needs Developer Mode or an administrator,
  * so those tests skip there where one cannot be made. A mount point needs an administrator and is not tested: it
  * leads to a final path as a junction does. macOS's temporary folder is under /var, a link to /private/var, so every
- * full path a test gives on a Mac goes through a link.
+ * full path a test gives on a Mac goes through a link. On Linux TMPDIR chooses the volume, so the same tests run on
+ * one that heeds case and one that ignores it.
  */
 
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
@@ -25,8 +27,13 @@
 #include <string_view>
 #include <vector>
 
-#ifdef __APPLE__
+#ifndef _WIN32
+#  include <cerrno>
+#  include <fcntl.h>
+#  include <sys/socket.h>
 #  include <sys/stat.h>
+#  include <sys/un.h>
+#  include <unistd.h>
 #endif
 
 import Mila;
@@ -164,6 +171,35 @@ namespace Mila::Tests::AI
 
         EXPECT_EQ( grant().openFile( text( root_ / "PROJECT" / "INSIDE.TXT" ) ).read(), "inside" );
         EXPECT_EQ( grant().openFile( "SUB/A.TXT" ).read(), "a" );
+        grant().openFileToWrite( text( root_ / "PROJECT" / "SUB" / "NEW.TXT" ), true ).replace( "made" );
+        EXPECT_EQ( contentOf( project_ / "sub" / "NEW.TXT" ), "made" );
+
+        ToolGrant granted = grant();
+        std::size_t files = 0;
+        const std::size_t not_entered = granted.walk( "SUB", [&files]( std::string_view, const FolderEntry& entry )
+            {
+                files += entry.is_folder ? 0 : 1;
+
+                return true;
+            } );
+
+        EXPECT_EQ( not_entered, 0u );
+        EXPECT_EQ( files, 2u );
+    }
+
+    TEST_F( ToolGrantFilesTest, AFolderWhoseNameDiffersOnlyByCaseIsAnotherFolderWhereCaseIsHeeded )
+    {
+        if ( std::filesystem::exists( root_ / "PROJECT" ) )
+        {
+            GTEST_SKIP() << "the temporary folder is on a volume that ignores case";
+        }
+
+        write( root_ / "PROJECT" / "secret.txt", "another folder" );
+
+        expectRefused( [&] { (void)grant().openFile( text( root_ / "PROJECT" / "secret.txt" ) ); }, kOutside );
+        expectRefused( [&] { (void)grant().openFileToWrite( text( root_ / "PROJECT" / "new.txt" ), true ); }, kOutside );
+        expectRefused( [&] { (void)grant().list( text( root_ / "PROJECT" ) ); }, kOutside );
+        EXPECT_FALSE( std::filesystem::exists( root_ / "PROJECT" / "new.txt" ) );
     }
 
     TEST_F( ToolGrantFilesTest, AFolderThatDoesNotExistIsNeverGranted )
@@ -425,6 +461,139 @@ namespace Mila::Tests::AI
         EXPECT_EQ( seen, FolderAccess::Read ) << "a read-write folder is given read-only to a tool that only reads";
     }
 
+#ifndef _WIN32
+    // ================================================================
+    // Pipes, sockets and long paths: macOS's and Linux's ways in
+    // ================================================================
+
+    namespace
+    {
+        /// Makes a named pipe in the project; false where the volume makes none, as a Windows drive in WSL does not.
+        bool makePipe( const std::filesystem::path& pipe )
+        {
+            return ::mkfifo( pipe.c_str(), 0644 ) == 0;
+        }
+
+#ifdef __APPLE__
+        // F_GETPATH reports up to MAXPATHLEN (ToolCalling.md 3.4, Files on macOS).
+        constexpr std::size_t kReportedPathLimit = 1024;
+#else
+        // /proc reports up to 4,096 bytes (ToolCalling.md 3.4, Files on Linux).
+        constexpr std::size_t kReportedPathLimit = 4096;
+#endif
+
+        /// Folders of 200 characters each under the project, with a file name: just past the limit, or within it.
+        std::string deepPath( const std::filesystem::path& project, bool past )
+        {
+            const std::string level( 200, 'd' );
+            const std::size_t room = kReportedPathLimit - project.native().size() - std::string_view( "/deep.txt" ).size();
+            const std::size_t depth = past ? room / ( level.size() + 1 ) + 2 : room / ( level.size() + 1 ) - 1;
+            std::string path;
+
+            for ( std::size_t index = 0; index < depth; ++index )
+            {
+                path += level + "/";
+            }
+
+            return path + "deep.txt";
+        }
+    }
+
+    TEST_F( ToolGrantFilesTest, ANamedPipeIsRefusedWithoutWaiting )
+    {
+        if ( !makePipe( project_ / "pipe" ) )
+        {
+            GTEST_SKIP() << "this volume makes no named pipe: " << std::generic_category().message( errno );
+        }
+
+        // With no writer, an open that waited would never return.
+        expectRefused( [&] { (void)grant().openFile( "pipe" ); }, "not a file or folder" );
+        expectRefused( [&] { (void)grant().openFileToWrite( "pipe", false ); }, "not a file or folder" );
+    }
+
+    TEST_F( ToolGrantFilesTest, ARegularFileBesideAPipeIsAllowed )
+    {
+        if ( !makePipe( project_ / "pipe" ) )
+        {
+            GTEST_SKIP() << "this volume makes no named pipe: " << std::generic_category().message( errno );
+        }
+
+        EXPECT_EQ( grant().openFile( "inside.txt" ).read(), "inside" );
+        EXPECT_EQ( grant().list( "." ).size(), 3u ) << "inside.txt, sub and the pipe are all listed";
+    }
+
+    TEST_F( ToolGrantFilesTest, ASocketFileIsRefused )
+    {
+        const std::string path = ( project_ / "socket" ).native();
+        sockaddr_un address{};
+
+        if ( path.size() >= sizeof( address.sun_path ) )
+        {
+            GTEST_SKIP() << "the temporary folder's path is too long for a socket's name";
+        }
+
+        const int listening = ::socket( AF_UNIX, SOCK_STREAM, 0 );
+        ASSERT_NE( listening, -1 );
+        address.sun_family = AF_UNIX;
+        std::ranges::copy( path, address.sun_path );
+
+        if ( ::bind( listening, reinterpret_cast<const sockaddr*>( &address ), sizeof( address ) ) != 0 )
+        {
+            const int error = errno;
+            ::close( listening );
+            GTEST_SKIP() << "this volume makes no socket file: " << std::generic_category().message( error );
+        }
+
+        expectRefused( [&] { (void)grant().openFile( "socket" ); }, "not a file or folder" );
+        expectRefused( [&] { (void)grant().openFileToWrite( "socket", false ); }, "not a file or folder" );
+        EXPECT_EQ( grant().openFile( "inside.txt" ).read(), "inside" ) << "a file beside it is read";
+        ::close( listening );
+    }
+
+    TEST_F( ToolGrantFilesTest, APathPastWhatTheSystemCanReportIsRefused )
+    {
+        expectRefused( [&] { (void)grant().openFileToWrite( deepPath( project_, true ), true ); }, "longer than" );
+    }
+
+    TEST_F( ToolGrantFilesTest, ALongPathWithinWhatTheSystemCanReportIsAllowed )
+    {
+        const std::string path = deepPath( project_, false );
+
+        grant().openFileToWrite( path, true ).replace( "deep" );
+
+        EXPECT_EQ( grant().openFile( path ).read(), "deep" );
+    }
+#endif
+
+#ifdef __linux__
+    // ================================================================
+    // Linux's own ways in
+    // ================================================================
+
+    TEST_F( ToolGrantFilesTest, ALinkThroughProcToAFileOutsideIsRefused )
+    {
+        // The test's own descriptor on the secret: /proc/self/fd/<n> leads to it from anywhere.
+        const int held = ::open( ( outside_ / "secret.txt" ).c_str(), O_RDONLY | O_CLOEXEC );
+        ASSERT_NE( held, -1 );
+
+        const std::string magic = std::format( "/proc/self/fd/{}", held );
+        std::filesystem::create_symlink( magic, project_ / "held.txt" );
+
+        expectRefused( [&] { (void)grant().openFile( "held.txt" ); }, "link in /proc" );
+        expectRefused( [&] { (void)grant().openFileToWrite( "held.txt", false ); }, "link in /proc" );
+        expectRefused( [&] { (void)grant().openFile( magic ); }, "link in /proc" );
+        EXPECT_EQ( contentOf( outside_ / "secret.txt" ), "secret" );
+        ::close( held );
+    }
+
+    TEST_F( ToolGrantFilesTest, AnOrdinaryLinkToTheSameKindOfFileInsideIsAllowed )
+    {
+        std::filesystem::create_symlink( project_ / "inside.txt", project_ / "held.txt" );
+
+        EXPECT_EQ( grant().openFile( "held.txt" ).read(), "inside" );
+    }
+#endif
+
 #ifdef __APPLE__
     // ================================================================
     // macOS's own ways in
@@ -440,51 +609,6 @@ namespace Mila::Tests::AI
     TEST_F( ToolGrantFilesTest, TheFilesOwnContentIsAllowed )
     {
         EXPECT_EQ( grant().openFile( text( project_ / "inside.txt" ) ).read(), "inside" );
-    }
-
-    TEST_F( ToolGrantFilesTest, ANamedPipeIsRefusedWithoutWaiting )
-    {
-        ASSERT_EQ( ::mkfifo( ( project_ / "pipe" ).c_str(), 0644 ), 0 );
-
-        // With no writer, an open that waited would never return.
-        expectRefused( [&] { (void)grant().openFile( "pipe" ); }, "not a file or folder" );
-        expectRefused( [&] { (void)grant().openFileToWrite( "pipe", false ); }, "not a file or folder" );
-    }
-
-    TEST_F( ToolGrantFilesTest, ARegularFileBesideAPipeIsAllowed )
-    {
-        ASSERT_EQ( ::mkfifo( ( project_ / "pipe" ).c_str(), 0644 ), 0 );
-
-        EXPECT_EQ( grant().openFile( "inside.txt" ).read(), "inside" );
-        EXPECT_EQ( grant().list( "." ).size(), 3u ) << "inside.txt, sub and the pipe are all listed";
-    }
-
-    TEST_F( ToolGrantFilesTest, APathPastWhatMacOsCanReportIsRefused )
-    {
-        const std::string level( 200, 'd' );
-        std::string path;
-
-        for ( int depth = 0; depth < 6; ++depth )
-        {
-            path += level + "/";
-        }
-
-        expectRefused( [&] { (void)grant().openFileToWrite( path + "deep.txt", true ); }, "longer than" );
-    }
-
-    TEST_F( ToolGrantFilesTest, ALongPathWithinWhatMacOsCanReportIsAllowed )
-    {
-        const std::string level( 200, 'd' );
-        std::string path;
-
-        for ( int depth = 0; depth < 4; ++depth )
-        {
-            path += level + "/";
-        }
-
-        grant().openFileToWrite( path + "deep.txt", true ).replace( "deep" );
-
-        EXPECT_EQ( grant().openFile( path + "deep.txt" ).read(), "deep" );
     }
 
     /// /tmp is a link to /private/tmp, as /var is to /private/var: a folder granted by one name is reached by both.

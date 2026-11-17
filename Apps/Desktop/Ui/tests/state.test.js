@@ -386,10 +386,25 @@ function theWindowSaysWhoIsSignedInAndTheVersion()
 {
     const state = apply( [ { type: 'about', user_name: 'ToddT', version: '0.21.0' } ] );
 
-    assert.deepEqual( state.about, { userName: 'ToddT', version: '0.21.0' } );
+    assert.deepEqual( state.about, { userName: 'ToddT', version: '0.21.0', licences: [] } );
 }
 
 test( 'the window says who is signed in, and the version', theWindowSaysWhoIsSignedInAndTheVersion );
+
+function theWindowNamesEachLicenceByIdAndNameAlone()
+{
+    const licences = [
+        { id: '1', name: 'Electron', file: 'C:\\somewhere\\LICENSE.electron.txt' },
+        { id: '2', name: 'nlohmann/json' },
+        { id: 3, name: 'not an id' },
+        null
+    ];
+    const state = apply( [ { type: 'about', user_name: 'ToddT', version: '0.21.0', licences } ] );
+
+    assert.deepEqual( state.about.licences, [ { id: '1', name: 'Electron' }, { id: '2', name: 'nlohmann/json' } ] );
+}
+
+test( 'the window names each licence by its id and name alone', theWindowNamesEachLicenceByIdAndNameAlone );
 
 function whenSaysTheTimeAsAPersonWould()
 {

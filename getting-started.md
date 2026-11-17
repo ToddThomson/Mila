@@ -238,7 +238,7 @@ Available presets, from `CMakePresets.json`:
 ## 4. Build with Docker / dev container
 
 If you do not want to install the CUDA/Clang/CMake toolchain locally, the development
-container provides a reproducible Linux build environment (CUDA 13.4, clang-21, gcc-15 as nvcc's
+container provides a reproducible Linux build environment (CUDA 13.4, clang-22, gcc-15 as nvcc's
 host, CMake 4.2.3, Ninja) — handy from WSL. It mounts the repo at `/mila` with GPU access. Note this **still
 builds Mila from source** inside the container; it removes toolchain setup, not the build.
 (To run a model without building anything, use the published runtime image — see the note at the

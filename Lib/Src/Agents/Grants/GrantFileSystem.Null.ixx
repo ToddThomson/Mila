@@ -2,7 +2,8 @@
  * @file GrantFileSystem.Null.ixx
  * @brief The grant's file calls where they are not written: every one refuses, so no folder can be granted.
  *
- * One of three candidate files for Agents.GrantFileSystem; CMake compiles this one off Windows and Apple platforms.
+ * One of four candidate files for Agents.GrantFileSystem; CMake compiles this one off Windows, Apple platforms and
+ * Linux.
  * Mila never claims containment it does not enforce (ToolCalling.md 3.4), so a grant here holds no folder and a tool
  * reaches none.
  */
@@ -54,6 +55,11 @@ namespace Mila::Agents::GrantFileSystem
     }
 
     export std::filesystem::path finalPath( NativeHandle )
+    {
+        refuse();
+    }
+
+    export std::filesystem::path onDiskPath( NativeHandle )
     {
         refuse();
     }

@@ -1366,7 +1366,39 @@ kbd {
 
 .license-window .license-text { max-height: 56vh; }
 
-.license-foot { display: flex; justify-content: flex-end; margin-top: 16px; }
+.license-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+/* About Mila Assistant: the version, then each licence as a row that opens it. */
+.about-head { display: flex; align-items: center; gap: 12px; }
+
+.about-mark { width: 40px; height: 40px; flex: none; }
+
+.about-version { margin: 2px 0 0; color: var(--faint-text); font-size: 13px; }
+
+.about-heading { margin: 18px 0 6px; font-size: 13px; font-weight: 600; color: var(--faint-text); }
+
+.about-licences {
+  max-height: 44vh;
+  overflow-y: auto;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 4px;
+}
+
+.about-licence {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  text-align: left;
+  font-size: 14px;
+}
+
+.about-licence:hover, .about-licence:focus-visible { background: var(--sunk); }
+
+.about-text { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5; }
 
 /* ---- Panels ------------------------------------------------------------------------------ */
 

@@ -57,14 +57,38 @@ async function mockTransport( location )
     const options = { scenario: requested === null ? 1 : requested, emit: deliver, schedule, cancel, now };
     const session = module.createMockSession( options );
 
-    // With no window, as in a browser, the transport says what the window would on ready: who is signed in and the
-    // app's version.
-    const about = { v: 1, type: 'about', user_name: 'Alex Morgan', version: '0.21.0' };
+    // With no window, as in a browser, the transport says what the window would on ready: who is signed in, the
+    // app's version and the licences it carries; and it answers licence.open as the window does.
+    const licences = [
+        { id: '1', name: 'Electron' },
+        { id: '2', name: 'Chromium' },
+        { id: '3', name: 'nlohmann/json' }
+    ];
+    const about = { v: 1, type: 'about', user_name: 'Alex Morgan', version: '0.21.0', licences };
+
+    function openLicence( id )
+    {
+        // Chromium's opens in the browser, so nothing comes back.
+        if ( id === '2' || !licences.some( ( entry ) => entry.id === id ) )
+            return;
+
+        const text = 'MIT License\n\nCopyright (c) the ' + licences.find( ( entry ) => entry.id === id ).name + ' authors\n\n'
+            + 'Permission is hereby granted, free of charge, to any person obtaining a copy of this software.';
+
+        deliver( { v: 1, type: 'licence.text', id, text, problem: null } );
+    }
 
     function send( message )
     {
         const copy = roundTrip( message );
         const handleLater = () => session.handle( copy );
+
+        if ( copy.type === 'licence.open' )
+        {
+            setTimeout( () => openLicence( copy.id ), 0 );
+
+            return;
+        }
 
         if ( copy.type === 'ready' )
             setTimeout( () => deliver( about ), 0 );

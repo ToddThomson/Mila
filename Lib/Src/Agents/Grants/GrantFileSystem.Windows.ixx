@@ -260,6 +260,13 @@ namespace Mila::Agents::GrantFileSystem
         }
     }
 
+    /// The path in the names the volume stores, case included: the final path, which FILE_NAME_NORMALIZED already
+    /// reports that way.
+    export std::filesystem::path onDiskPath( NativeHandle handle )
+    {
+        return finalPath( handle );
+    }
+
     export bool isFolder( NativeHandle handle )
     {
         return standardInformation( handle ).Directory != FALSE;

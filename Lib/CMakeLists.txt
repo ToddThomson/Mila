@@ -1316,9 +1316,9 @@ target_sources(Mila
 # ----------------------------------------------------------------------------
 # Mila::Agents -- the file calls a tool's grant makes
 #
-# Agents.GrantFileSystem has three candidate source files and exactly one is compiled, as
-# Networking.HttpTransportBackend does. Windows and macOS hold a tool to its folders, each by its
-# own calls; elsewhere every call refuses, so no folder can be granted where none can be enforced
+# Agents.GrantFileSystem has four candidate source files and exactly one is compiled, as
+# Networking.HttpTransportBackend does. Windows, macOS and Linux hold a tool to its folders, each by
+# its own calls; elsewhere every call refuses, so no folder can be granted where none can be enforced
 # (ToolCalling.md 3.4).
 # ----------------------------------------------------------------------------
 if(WIN32)
@@ -1337,6 +1337,13 @@ elseif(APPLE)
             FILE_SET module_files
             TYPE CXX_MODULES FILES
                 "Src/Agents/Grants/GrantFileSystem.Apple.ixx"
+    )
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(Mila
+        PUBLIC
+            FILE_SET module_files
+            TYPE CXX_MODULES FILES
+                "Src/Agents/Grants/GrantFileSystem.Linux.ixx"
     )
 else()
     target_sources(Mila

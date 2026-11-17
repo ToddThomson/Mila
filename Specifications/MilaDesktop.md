@@ -264,7 +264,7 @@ for its answer (`Chat::runOnce`). End of input ends the session process. Between
 window process, the window's own bridge (section 6.2).
 
 The window relays every message unchanged in both directions, except those it handles itself:
-`link.open`, `folder.choose`, `app.quit`, `setup.showing`, and resolving a dropped file to a path (section 6.4); and it
+`link.open`, `folder.choose`, `licence.open`, `app.quit`, `setup.showing`, and resolving a dropped file to a path (section 6.4); and it
 sends the page one of its own, `about`, when the page says `ready`.
 
 ### 4.1 Session to page
@@ -290,7 +290,8 @@ sends the page one of its own, `about`, when the page says `ready`.
 | `info` | `text`, `during` (`"load"`, `"install"`, or absent) | A sentence the console would print with `printInfo`. Shown as a quiet line in the transcript; one said during a load or install is not shown in a conversation that has not begun, which keeps its screen. |
 | `error` | `text`, `during` (`"load"`, `"turn"`, `"install"`, `"models"`, `"settings"`, `"conversation"`, `"license"`, or null) | Shown where it happened, never as a modal. `"models"` is the publisher's list not read, said on the screens that asked for it; `"license"` an acceptance refused, said on the licence's pane. |
 | `folder.chosen` | `path` (or null when the person cancelled) | From the window, not the session: the answer to `folder.choose`. |
-| `about` | `user_name` (the login name of the person signed in to this computer, or empty), `version` (the app's) | From the window, not the session, on `ready`: the person and the version at the sidebar's foot (`Apps/AssistantInterface.md` 4.1). With no window, as in a browser, the mock's transport sends it. |
+| `about` | `user_name` (the login name of the person signed in to this computer, or empty), `version` (the app's), `licences` (each third-party licence the app carries, as `{ id, name }`: Electron, Chromium, then the session's by name) | From the window, not the session, on `ready`: the person at the sidebar's foot, and the version and licences in *About Mila Assistant* (`Apps/AssistantInterface.md` 4.1). The page is told no path. With no window, as in a browser, the mock's transport sends it. |
+| `licence.text` | `id`, `text` (or null), `problem` (why it cannot be shown, or null) | From the window, not the session: the answer to `licence.open` for a licence whose text the page shows. |
 | `log` | `level`, `text` | Only at detail `all`; shown in a collapsible log drawer. |
 
 ### 4.2 Page to session
@@ -304,6 +305,7 @@ sends the page one of its own, `about`, when the page says `ready`.
 | `turn.tool_decision` | `turn_id`, `call_id`, `decision` (one of the approval's `choices`), `folder` (for `request_folder` allowed: the path the window's picker gave) | The person's answer to a `turn.tool_approval`. One for a call not waiting is ignored, and so is one allowing `request_folder` that names no folder. |
 | `conversation.new` | -- | Clear the session's history and start a new chat, with no folder (`Apps/AssistantInterface.md` 5.5). An `activity` or `folder` an older page sends is not read. |
 | `folder.choose` | -- | Handled by the window, which shows the system's folder picker and answers `folder.chosen`. |
+| `licence.open` | `id` (one `about` gave) | Handled by the window: Chromium's opens in the system browser, being a web page of hundreds of projects, and every other's text comes back as `licence.text`. An id the window did not give opens nothing. |
 | `conversation.open` | `id` | Replace the session's history with that conversation's. |
 | `conversation.rename` | `id`, `title` | |
 | `conversation.delete` | `id` | |
@@ -696,8 +698,13 @@ interrupted the reply printed after the trace line; the renderer now writes it f
    `MXC-LICENSE.md`; the session loads it from there only when *Run commands* is on. Moved to MXC v1.1.0's
    (about 8 MB) on 2026-11-17; what ships is an unrouted build of Mila's own (`ContainedPrograms.md` 4.10).
    *Built 2026-11-17 (0.21.0-dev+152):* the component carries every third-party licence text in `Licences/` beside
-   the session, MXC's as `Licences/MXC-LICENSE.md`, each named in `NOTICE.md` *What Mila Assistant carries*; the
-   install fails without one and the window's packaging refuses a session staged without the folder.
+   the session, each named in `NOTICE.md` *What Mila Assistant carries*; the install fails without one and the
+   window's packaging refuses a session staged without the folder. *Changed 2026-11-17 (+153):* each text is in
+   `Licences/<name>/` under its own file name, `<name>` being NOTICE.md's (`Licences/nlohmann/json/LICENSE.MIT`,
+   `Licences/MXC/LICENSE.md`), so the window shows the folder's path as the name. electron-builder keeps Electron's
+   and Chromium's licences at the app's root on Windows and Linux but deletes them from a Mac app; the Mac package puts
+   them back in its `Resources` (`package.json` `mac.extraResources`, carried into `mac-signed.config.mjs`), and every
+   platform's build fails afterwards unless the app carries both and the session's (`packaging/check-licences.mjs`).
    *Decided 2026-11-14 (Todd):* the Mac's first testers get a Developer ID build, signed, notarized and handed out as
    a disk image, not TestFlight. TestFlight takes only a Mac App Store build, and the store's App Sandbox would move
    the model store into the app's container, need the inherit entitlement on `mila-session` and a security-scoped

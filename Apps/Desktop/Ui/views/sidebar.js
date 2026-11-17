@@ -61,6 +61,9 @@ export function createSidebarView( root, actions )
         if ( action === 'open-license' )
             actions.openLicense();
 
+        if ( action === 'open-about' )
+            actions.openAbout();
+
         if ( action === 'quit' )
             actions.transmit( { type: 'app.quit' } );
     }
@@ -261,14 +264,13 @@ export function createSidebarView( root, actions )
         const menu = element( 'div', 'sidebar-popover menu' );
         const settings = button( 'menu-item', null, 'open-settings' );
         const shortcut = element( 'kbd' );
-        const version = state.about === null ? '' : state.about.version;
 
         menu.setAttribute( 'role', 'menu' );
         shortcut.textContent = actions.shortcutLabel( ',' );
         settings.append( element( 'span', 'menu-item-name', 'Settings' ), shortcut );
         menu.append( settings, button( 'menu-item', 'Mila’s licence', 'open-license' ),
             element( 'div', 'menu-separator' ),
-            element( 'div', 'menu-label', version ? 'Mila Assistant ' + version : 'Mila Assistant' ),
+            button( 'menu-item', 'About Mila Assistant', 'open-about' ),
             button( 'menu-item', 'Quit Mila', 'quit' ) );
 
         return menu;

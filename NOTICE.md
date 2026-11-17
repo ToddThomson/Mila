@@ -56,17 +56,18 @@ licence.
 ## What Mila Assistant carries
 
 Mila Assistant's installer is a binary distribution too. Its session carries Mila's own licence beside the
-program, and in `Licences/` the text of each dependency marked in the table above and of what it carries beside
-them:
+program, and in `Licences/<name>/` the text of each dependency marked in the table above (`Licences/nlohmann/json/`)
+and of what it carries beside them:
 
 | Name | What | Platform | Terms | Text in `Licences/` |
 |---|---|---|---|---|
-| `CUDA` | NVIDIA's cuBLASLt and cuRAND libraries | Windows | NVIDIA CUDA Toolkit EULA; both are distributable under its Attachment A | `CUDA-EULA.txt` |
-| `LLVM` | LLVM's libc++, libc++abi and libunwind, linked into the session | macOS | Apache-2.0 with LLVM Exceptions | `LLVM-LICENSE.TXT` |
-| `MXC` | Microsoft's MXC library, which runs commands in a container | Windows | MIT | `MXC-LICENSE.md` |
+| `CUDA` | NVIDIA's cuBLASLt and cuRAND libraries | Windows | NVIDIA CUDA Toolkit EULA; both are distributable under its Attachment A | `CUDA/EULA.txt` |
+| `LLVM` | LLVM's libc++, libc++abi and libunwind, linked into the session | macOS | Apache-2.0 with LLVM Exceptions | `LLVM/LICENSE.TXT` |
+| `MXC` | Microsoft's MXC library, which runs commands in a container | Windows | MIT | `MXC/LICENSE.md` |
 | Visual C++ runtime | Microsoft's runtime libraries, beside the session from Visual Studio's redistributable folder | Windows | Visual Studio's licence terms, *Distributable Code* | None; Visual Studio gives no text with the files |
-| Electron and Chromium | The window | Windows and macOS | MIT; Chromium's are many | Added at the app's root by electron-builder |
+| Electron and Chromium | The window | Windows and macOS | MIT; Chromium's are many | Not in `Licences/`: `LICENSE.electron.txt` and `LICENSES.chromium.html` at the app's root on Windows and Linux, where electron-builder leaves them, and in its `Resources` on a Mac, where the package puts them back after electron-builder removes them |
 
 The session's install refuses to run without each of those texts, and the window's packaging refuses a session staged
-without them. `check_pins.py --verify-notice` holds both tables to the texts the session's install names
+without them, and a package without Electron's and Chromium's. The window lists every one under *Licences* in *About
+Mila Assistant*, with Mila's own. `check_pins.py --verify-notice` holds both tables to the texts the session's install names
 (`Apps/Desktop/Session/CMakeLists.txt`, `mila_session_licence`).

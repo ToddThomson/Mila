@@ -141,9 +141,10 @@ export function reduce( state, message )
         case 'attachments.keep':
             return { ...state, attachments: message.attachments };
 
-        // From the window, not the session: who is signed in to this computer, and the app's version.
+        // From the window, not the session: who is signed in to this computer, the app's version, and the
+        // third-party licences it carries, each by an id the window gave and its name.
         case 'about':
-            return { ...state, about: { userName: message.user_name ?? '', version: message.version ?? '' } };
+            return { ...state, about: reduceAbout( message ) };
 
         case 'attachment.add':
             return reduceAttachmentAdd( state, message );
@@ -219,6 +220,16 @@ function reduceModelsRefresh( state, message )
     const modelsError = state.modelsError !== null && state.modelsError.during === 'models' ? null : state.modelsError;
 
     return { ...state, publishedRequested: true, modelsError };
+}
+
+function reduceAbout( message )
+{
+    const given = Array.isArray( message.licences ) ? message.licences : [];
+    const licences = given
+        .filter( ( entry ) => entry !== null && typeof entry === 'object' && typeof entry.id === 'string' && typeof entry.name === 'string' )
+        .map( ( entry ) => ( { id: entry.id, name: entry.name } ) );
+
+    return { userName: message.user_name ?? '', version: message.version ?? '', licences };
 }
 
 /** The licence the session carries and whether it is accepted; a text that fits its box needs no scrolling to be read. */

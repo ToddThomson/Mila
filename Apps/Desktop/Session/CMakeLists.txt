@@ -71,14 +71,13 @@ add_custom_command( TARGET mila-session POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MILA_SESSION_LICENSE}" "$<TARGET_FILE_DIR:mila-session>/License.md"
 )
 
-# The licence text of something the session carries, compiled in or beside it, installed in Licences/ as
-# <name>-<file name>, "/" in the name read as "-". The name is NOTICE.md's for it -- a fetched dependency's GitHub
-# owner/repo, or the name in its table of what Mila Assistant carries -- and check_pins.py --verify-notice holds the
-# two to each other. A text that is not there fails the install, so no package is made without it.
+# The licence text of something the session carries, compiled in or beside it, installed under its own name in
+# Licences/<name>/. The name is NOTICE.md's for it -- a fetched dependency's GitHub owner/repo, or the name in its
+# table of what Mila Assistant carries -- and check_pins.py --verify-notice holds the two to each other; the window's
+# About shows the folder's path as the name (Apps/Desktop/Window/src/licences.js). A text that is not there fails the
+# install, so no package is made without it.
 function( mila_session_licence name file )
-    string( REPLACE "/" "-" prefix "${name}" )
-    get_filename_component( file_name "${file}" NAME )
-    install( FILES "${file}" DESTINATION Licences RENAME "${prefix}-${file_name}" COMPONENT mila-session EXCLUDE_FROM_ALL )
+    install( FILES "${file}" DESTINATION "Licences/${name}" COMPONENT mila-session EXCLUDE_FROM_ALL )
 endfunction()
 
 mila_session_licence( nlohmann/json "${nlohmann_json_SOURCE_DIR}/LICENSE.MIT" )

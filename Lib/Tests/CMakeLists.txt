@@ -203,8 +203,8 @@ if(MILA_ENABLE_CUDA)
 endif()
 
 # What a tool's grant reaches (ToolCalling.md 3.4). Files only where a folder can be granted,
-# Windows and macOS; the network below.
-if(WIN32 OR APPLE)
+# Windows, macOS and Linux; the network below.
+if(WIN32 OR APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_sources( MilaTests PRIVATE
         "Agents/ToolGrant.Files.cpp"
         "Agents/FileTools.cpp"

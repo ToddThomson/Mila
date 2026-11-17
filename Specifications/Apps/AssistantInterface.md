@@ -158,8 +158,11 @@ Always the same places, with where the person is marked among them.
 
 As built at phase 2: the model's row ends in the ring of the open chat's share of the context, and while the app
 loads, installs or restores, a turning ring and what it is doing take its place. The person is named by the login
-name of whoever is signed in to the computer, which the window sends (`about`, section 10), and *About Mila
-Assistant* is the version, shown in the menu above *Quit Mila*.
+name of whoever is signed in to the computer, which the window sends (`about`, section 10). *About Mila Assistant*,
+in the menu above *Quit Mila*, opens a dialog with Mila's mark, the version and *Licences*: Mila's, then each the app
+carries -- Electron, Chromium, and the session's by NOTICE.md's names (`nlohmann/json`, `CUDA`) -- each opening its
+text in the dialog with *Back*, except Chromium's, which opens in the browser (`../MilaDesktop.md` 4, `licence.open`;
+as built 2026-11-17, +153).
 
 ### 4.2 The bar
 
