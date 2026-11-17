@@ -2603,8 +2603,8 @@ namespace Mila::Desktop
         // The folder the person chose in answer to request_folder, until its call takes it. Under approval_mutex_.
         std::optional<std::string> chosen_folder_;
 
-        // Whether a grant can hold a folder on this computer: false off Windows until the grant's file checks exist
-        // there (ToolCalling.md 3.4), when no tool that needs one is offered. Found by asking for one.
+        // Whether a grant can hold a folder on this computer: true on Windows and macOS, false where the grant has no
+        // file checks (ToolCalling.md 3.4), when no tool that needs one is offered. Found by asking for one.
         bool folders_enforced_ = []
             {
                 try

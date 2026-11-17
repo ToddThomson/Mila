@@ -6,6 +6,7 @@
 export module Agents.GrantPath;
 
 import std;
+import Agents.GrantPathForm;
 
 namespace Mila::Agents
 {
@@ -62,13 +63,18 @@ namespace Mila::Agents
                 || digit == "\xC2\xB9" || digit == "\xC2\xB2" || digit == "\xC2\xB3";
         }
 
-        void checkName( std::string_view path, std::string_view name )
+        void refuseStepUp( std::string_view path, std::string_view name )
         {
             if ( name == ".." )
             {
                 throw std::invalid_argument( std::format(
                     "'{}' leads up out of a folder with '..'; give the path from the project folder down", path ) );
             }
+        }
+
+        void checkWindowsName( std::string_view path, std::string_view name )
+        {
+            refuseStepUp( path, name );
 
             for ( const char character : name )
             {
@@ -91,72 +97,129 @@ namespace Mila::Agents
                 throw std::invalid_argument( std::format( "in '{}', '{}' is the name of a device, not a file", path, name ) );
             }
         }
+
+        void checkPosixName( std::string_view path, std::string_view name )
+        {
+            refuseStepUp( path, name );
+
+            for ( const char character : name )
+            {
+                if ( static_cast<unsigned char>( character ) < 32 )
+                {
+                    throw std::invalid_argument( std::format( "'{}' has a control character, which no file name may hold", path ) );
+                }
+            }
+
+            // macOS opens a file's resource fork through this name, as Windows opens a stream through ':'.
+            if ( upperAscii( name ) == "..NAMEDFORK" )
+            {
+                throw std::invalid_argument( std::format(
+                    "in '{}', '..namedfork' opens a file's hidden resource fork, which a grant never opens", path ) );
+            }
+        }
+
+        std::vector<std::string> windowsNames( std::string_view path )
+        {
+            std::string text( path );
+            std::ranges::replace( text, '\\', '/' );
+
+            std::vector<std::string> names;
+            std::string_view rest = text;
+
+            if ( rest.starts_with( "//" ) )
+            {
+                throw std::invalid_argument( std::format( "'{}' is a network or device path, which a grant never opens", path ) );
+            }
+
+            if ( rest.starts_with( '/' ) )
+            {
+                throw std::invalid_argument( std::format(
+                    "'{}' starts at the root of no drive; give a drive letter, or a path from the project folder", path ) );
+            }
+
+            if ( rest.size() >= 2 && rest[ 1 ] == ':' && isAsciiLetter( rest[ 0 ] ) )
+            {
+                if ( rest.size() == 2 || rest[ 2 ] != '/' )
+                {
+                    throw std::invalid_argument( std::format(
+                        "'{}' names a drive but not where on it; write the drive as \"{}:\\\"", path, rest[ 0 ] ) );
+                }
+
+                names.push_back( upperAscii( rest.substr( 0, 2 ) ) );
+                rest.remove_prefix( 3 );
+            }
+
+            for ( const auto part : std::views::split( rest, '/' ) )
+            {
+                const std::string_view name( part.begin(), part.end() );
+
+                if ( name.empty() || name == "." )
+                {
+                    continue;
+                }
+
+                checkWindowsName( path, name );
+                names.emplace_back( name );
+            }
+
+            return names;
+        }
+
+        std::vector<std::string> posixNames( std::string_view path )
+        {
+            std::vector<std::string> names;
+
+            if ( path.starts_with( '/' ) )
+            {
+                names.emplace_back( "/" );
+            }
+
+            for ( const auto part : std::views::split( path, '/' ) )
+            {
+                const std::string_view name( part.begin(), part.end() );
+
+                if ( name.empty() || name == "." )
+                {
+                    continue;
+                }
+
+                checkPosixName( path, name );
+                names.emplace_back( name );
+            }
+
+            return names;
+        }
     }
 
     /**
      * @brief The names a path is made of, refused unless it is in the one form a grant accepts (ToolCalling.md 3.4).
      *
-     * Accepted: a drive-letter path, whose first name is the drive ("D:"), or a path relative to the granted folder,
-     * with / or \ between names. "." stands for the folder it is in and adds no name, so "." alone is the folder
-     * itself. Every other name is an ordinary file or folder name, so nothing the operating system would read as
-     * something else gets through: no network or device path (\\server, \\?\, \\.\), no path from the root of no
-     * drive, no drive-relative "C:name", no "..", no ":" (an alternate stream), no reserved or control character,
-     * no name ending in a space or period, and no device name such as NUL or COM1, with an extension or without.
+     * "." stands for the folder it is in and adds no name, so "." alone is the folder itself, and no form accepts
+     * "..". Every other name is an ordinary file or folder name, so nothing the operating system would read as
+     * something else gets through.
+     *
+     * Windows: a drive-letter path, whose first name is the drive ("D:"), or a path relative to the granted folder,
+     * with / or \ between names. Refused: a network or device path (\\server, \\?\, \\.\), a path from the root of no
+     * drive, a drive-relative "C:name", ":" (an alternate stream), a reserved or control character, a name ending in
+     * a space or period, and a device name such as NUL or COM1, with an extension or without.
+     *
+     * Posix: a path from the root, whose first name is "/", or a path relative to the granted folder, with / between
+     * names; \ is a character of a name, as the file system reads it. Refused: a control character, and the name
+     * "..namedfork" in any case, which opens a file's resource fork on macOS.
      *
      * Passing is not permission: what a path leads to is decided when the grant opens it.
      *
      * @param path In UTF-8.
+     * @param form The platform's form, which is the grant's own.
      * @throws std::invalid_argument naming what the path holds that a grant refuses.
      */
-    export std::vector<std::string> grantPathNames( std::string_view path )
+    export std::vector<std::string> grantPathNames( std::string_view path, GrantPathForm form )
     {
         if ( path.empty() )
         {
             throw std::invalid_argument( "the path is empty" );
         }
 
-        std::string text( path );
-        std::ranges::replace( text, '\\', '/' );
-
-        std::vector<std::string> names;
-        std::string_view rest = text;
-
-        if ( rest.starts_with( "//" ) )
-        {
-            throw std::invalid_argument( std::format( "'{}' is a network or device path, which a grant never opens", path ) );
-        }
-
-        if ( rest.starts_with( '/' ) )
-        {
-            throw std::invalid_argument( std::format(
-                "'{}' starts at the root of no drive; give a drive letter, or a path from the project folder", path ) );
-        }
-
-        if ( rest.size() >= 2 && rest[ 1 ] == ':' && isAsciiLetter( rest[ 0 ] ) )
-        {
-            if ( rest.size() == 2 || rest[ 2 ] != '/' )
-            {
-                throw std::invalid_argument( std::format(
-                    "'{}' names a drive but not where on it; write the drive as \"{}:\\\"", path, rest[ 0 ] ) );
-            }
-
-            names.push_back( upperAscii( rest.substr( 0, 2 ) ) );
-            rest.remove_prefix( 3 );
-        }
-
-        for ( const auto part : std::views::split( rest, '/' ) )
-        {
-            const std::string_view name( part.begin(), part.end() );
-
-            if ( name.empty() || name == "." )
-            {
-                continue;
-            }
-
-            checkName( path, name );
-            names.emplace_back( name );
-        }
-
-        return names;
+        return form == GrantPathForm::Windows ? windowsNames( path ) : posixNames( path );
     }
 }

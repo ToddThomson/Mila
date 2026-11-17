@@ -1260,6 +1260,7 @@ target_sources(Mila
             "Src/Agents/Grants/FolderAccess.ixx"
             "Src/Agents/Grants/GrantFolder.ixx"
             "Src/Agents/Grants/FolderEntry.ixx"
+            "Src/Agents/Grants/GrantPathForm.ixx"
             "Src/Agents/Grants/GrantPath.ixx"
             "Src/Agents/Grants/GrantFile.ixx"
             "Src/Agents/Programs/ProgramRequest.ixx"
@@ -1315,9 +1316,10 @@ target_sources(Mila
 # ----------------------------------------------------------------------------
 # Mila::Agents -- the file calls a tool's grant makes
 #
-# Agents.GrantFileSystem has two candidate source files and exactly one is compiled, as
-# Networking.HttpTransportBackend does. Windows holds a tool to its folders; elsewhere every call
-# refuses, so no folder can be granted where none can be enforced (ToolCalling.md 3.4).
+# Agents.GrantFileSystem has three candidate source files and exactly one is compiled, as
+# Networking.HttpTransportBackend does. Windows and macOS hold a tool to its folders, each by its
+# own calls; elsewhere every call refuses, so no folder can be granted where none can be enforced
+# (ToolCalling.md 3.4).
 # ----------------------------------------------------------------------------
 if(WIN32)
     target_sources(Mila
@@ -1329,12 +1331,19 @@ if(WIN32)
 
     # NtCreateFile: creating a name inside a folder already opened, rather than by walking a path again.
     target_link_libraries(Mila PRIVATE ntdll)
+elseif(APPLE)
+    target_sources(Mila
+        PUBLIC
+            FILE_SET module_files
+            TYPE CXX_MODULES FILES
+                "Src/Agents/Grants/GrantFileSystem.Apple.ixx"
+    )
 else()
     target_sources(Mila
         PUBLIC
             FILE_SET module_files
             TYPE CXX_MODULES FILES
-                "Src/Agents/Grants/GrantFileSystem.Posix.ixx"
+                "Src/Agents/Grants/GrantFileSystem.Null.ixx"
     )
 endif()
 

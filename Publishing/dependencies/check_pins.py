@@ -33,8 +33,11 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 ROOT_CMAKE = os.path.join(REPO_ROOT, "CMakeLists.txt")
 TESTS_CMAKE = os.path.join(REPO_ROOT, "Lib", "Tests", "CMakeLists.txt")
 NOTICE = os.path.join(REPO_ROOT, "NOTICE.md")
+SESSION_CMAKE = os.path.join(REPO_ROOT, "Apps", "Desktop", "Session", "CMakeLists.txt")
 
 GITHUB_SLUG = re.compile(r"github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)")
+SESSION_LICENCE = re.compile(r"mila_session_licence\(\s*([^\s)]+)")
+CARRIED_NAME = re.compile(r"^`([^`]+)`$")
 
 
 def strip_comments(text):
@@ -170,6 +173,61 @@ def verify_notice():
     return 0
 
 
+def verify_app_licences():
+    """Mila Assistant's licence texts: what NOTICE.md says the app carries, against what its session installs.
+
+    A fetched dependency is carried when its row's last cell is not "No"; what the app carries beside them is a row
+    of the second table whose name is written as code. Each must be a mila_session_licence() in the session's
+    CMakeLists, and each of those must be one of them.
+    """
+    with open(SESSION_CMAKE, encoding="utf-8") as handle:
+        installed = set(SESSION_LICENCE.findall(strip_comments(handle.read())))
+
+    expected = set()
+    problems = []
+    section = ""
+
+    with open(NOTICE, encoding="utf-8") as handle:
+        for line in handle:
+            if line.startswith("## "):
+                section = line[3:].strip()
+
+            if not line.lstrip().startswith("|"):
+                continue
+
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            slug = GITHUB_SLUG.search(cells[0])
+            carried = CARRIED_NAME.match(cells[0]) if section == "What Mila Assistant carries" else None
+
+            if slug:
+                if len(cells) < 5:
+                    problems.append(f"{slug.group(1)}: NOTICE.md does not say whether Mila Assistant carries it")
+                elif cells[4] != "No":
+                    expected.add(slug.group(1))
+            elif carried:
+                expected.add(carried.group(1))
+
+    for name in sorted(expected - installed):
+        problems.append(f"{name}: NOTICE.md says Mila Assistant carries it, but the session installs no licence text for it")
+
+    for name in sorted(installed - expected):
+        problems.append(f"{name}: the session installs a licence text for it, but NOTICE.md does not say the app carries it")
+
+    print(f"\nChecked {len(installed)} licence texts Mila Assistant's session installs against NOTICE.md.")
+
+    if problems:
+        print("\nNOTICE.md does not match what Mila Assistant carries:\n")
+
+        for problem in problems:
+            print(f"  - {problem}")
+
+        return 1
+
+    print("NOTICE.md matches what Mila Assistant carries.")
+
+    return 0
+
+
 def latest_release(slug, token):
     """Latest non-prerelease tag for a repo, or None if the API will not say."""
     request = urllib.request.Request(
@@ -290,6 +348,7 @@ def main():
 
     if args.verify_notice:
         status |= verify_notice()
+        status |= verify_app_licences()
 
     if args.check_upstream:
         if args.verify_notice:

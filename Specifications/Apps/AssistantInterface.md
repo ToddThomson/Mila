@@ -569,9 +569,12 @@ updated when a phase changes what it shows. This document is amended in the chan
    target built in `x64-claude-verify`; scenario 14 over the mock at 1280 and 900 px in light and dark; the real session
    over stdio on Q4_0 in a scratch store: a chat asked about a project, Mila asked for a folder, was given one, listed
    and read it, and answered. On the Mac (packaged, Q4_0) the same question was answered without files, since no folder
-   can be granted there yet. **Not done:** the file tools and `request_folder` on the Mac, which wait on the grant's
-   macOS file checks (5.5, *On a Mac*); `request_folder` measured on questions needing no files; every model's final
-   run; the window on the real session.
+   could be granted there then. *Built 2026-11-17 (`0.21.0-dev+152`):* the grant's macOS file checks
+   (`../ToolCalling.md` 3.4); the session on the Mac, staged, over stdio on Q4_0: asked what was in its project folder,
+   Mila called `request_folder`, was given a folder, listed it and read `notes.txt`. **Not done:** the same through
+   the window's open panel on the Mac, and a chat reopened with its folder after the app restarts (`../ToolCalling.md`
+   3.4, *Not measured*); `request_folder` measured on questions needing no files; every model's final run; the window
+   on the real session.
 4. **Projects.** The store's `Projects/`; the sidebar's projects; *All projects* (4.4); a project's head, glance and
    chats (4.5); *New project*; moving a chat by its menu; the overview's projects; a project's folders in its chats'
    grant.

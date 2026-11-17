@@ -140,14 +140,16 @@ opened.
   is refused. A new file or folder is created only in a folder already opened and checked, through the handle
   that folder was opened by, and never through a name that already exists, a link included; nothing is truncated
   before the file is checked.
-- **Files on macOS** (proposed 2026-11-17, from Apple's man pages on macOS 27.2.1 -- `open(2)`, `fcntl(2)`,
-  `stat(2)`, `mkdir(2)` -- and the xnu source; unmeasured). The same rule by the platform's own calls, each on a file
+- **Files on macOS** (designed 2026-11-17 from Apple's man pages on macOS 27.2.1 -- `open(2)`, `fcntl(2)`,
+  `stat(2)`, `mkdir(2)` -- and the xnu source, measured the same day, built in 0.21.0-dev+152 as
+  `Agents/Grants/GrantFileSystem.Apple.ixx`). The same rule by the platform's own calls, each on a file
   descriptor as Windows' are on a handle; every macOS Mila runs on is 27 or later (`CMakePresets.json`), so each call
   below exists on all of them.
   - *The path.* A path from the root (`/Users/...`) or relative to the granted folder, each part an ordinary name: no
-    `..`, no control character, and not `..namedfork` (which opens a file's resource fork, as `:` opens a stream on
-    Windows). The names Windows reserves -- devices, a trailing space or period -- are ordinary names on macOS and
-    are not refused there.
+    `..`, no control character, and not `..namedfork` in any case (which opens a file's resource fork, as `:` opens a
+    stream on Windows). The names Windows reserves -- devices, a trailing space or period -- are ordinary names on
+    macOS and are not refused there; nor are `:` and `\`, which are characters of a name, `/` alone separating names.
+    The form is the platform's (`GrantPathForm`), and both forms are tested on every platform.
   - *Opening.* `open` and `openat` with `O_CLOEXEC`, so no program a tool later starts inherits the descriptor, and
     `O_NONBLOCK`, so a named pipe in the folder cannot hold the call; then `fstat`, and anything that is neither a
     regular file nor a folder -- a pipe, a socket, a device -- is refused.
@@ -155,9 +157,11 @@ opened.
     for each file as it is opened; symbolic links, `/tmp` and `/var` (links into `/private`) and the firmlinks between
     the system and data volumes all lead to it. Kept only when it lies within a granted folder's own final path, as on
     Windows. A path longer than `MAXPATHLEN` cannot be reported, so it is refused, saying why.
-  - *More than one name.* A file is opened with `O_UNIQUE`, which fails with `ENOTCAPABLE` when it has more than one
-    hard link (xnu's own test, `tests/vfs/unique.c`), so the refusal is made in the same call as the open; `st_nlink`
-    from `fstat` is checked as well, as Windows checks its link count.
+  - *More than one name.* A file opened by its name in an open folder is opened with `O_UNIQUE`, which fails with
+    `ENOTCAPABLE` when it has more than one hard link (xnu's own test, `tests/vfs/unique.c`), so the refusal is made in
+    the same call as the open. One opened by its whole path is not, and `st_nlink` from `fstat` decides, as Windows'
+    link count does; so a search that only asks what is at a path finds such a file on both platforms, and opening it
+    is refused on both. A folder's `st_nlink` counts its subfolders, not its names, so a folder reports one.
   - *Creating.* A file by `openat( folder, name, O_CREAT | O_EXCL | O_NOFOLLOW )`, which fails when anything has the
     name, a symbolic link included (`open(2)`); a folder by `mkdirat( folder, name )`, then opened through the same
     folder with `O_DIRECTORY | O_NOFOLLOW` and checked by its final path before anything is made in it.
@@ -207,10 +211,14 @@ opened.
     - **Not measured:** whether a folder chosen in the open panel stays open to the app's child after the app is
       quit and started again, which a chat reopened with its folder needs (`Apps/AssistantInterface.md` 5.5); a real
       external drive; iCloud Drive and network volumes, which the development Mac does not have.
-  - *Tests:* the Windows suite's refused-beside-allowed pairs on the Mac, each with macOS's own way to the same
-    access -- a symbolic link to a file outside and to a folder outside, a hard link (`link`) to a file outside, a
-    path through `/tmp`, a case other than the one on disk, a named pipe, `..namedfork`, a file created through a
-    name that is a link, a folder replaced by a link between its check and its use -- run on the Mac as on Windows.
+  - *Tests:* `Lib/Tests/Agents/ToolGrant.Files.cpp` and `FileTools.cpp` run on both platforms, each refused access
+    beside the same access allowed, with each platform's own way to it -- a link to a folder outside (a junction on
+    Windows, a symbolic link on macOS), a symbolic link to a file outside, a hard link to a file outside, a case other
+    than the one on disk, a file created through a name that is a link, a folder replaced by a link once the grant has
+    used it -- and on macOS also a path through `/tmp` and through `/var`, a named pipe, `..namedfork`, and a path past
+    what `F_GETPATH` can report. `GrantPath.cpp` tests both forms on every platform. Passed 2026-11-17 at
+    0.21.0-dev+152: 129 of 129 grant, file-tool, gate and program tests in `x64-claude-verify` (MXC 1.1.0 named), and
+    98 of 98 grant, file-tool, gate and session tests on the development Mac, none skipped on either.
 - **Network.** The grant connects only to public addresses. *Decided 2026-10-27 (Todd):* public is globally
   reachable as IANA's IPv4 and IPv6 special-purpose registries record it, multicast refused too, and an IPv6
   address that carries an IPv4 one -- IPv4-mapped, NAT64, 6to4 -- is public only when that IPv4 address is
@@ -220,10 +228,14 @@ opened.
   environment included, since the connection checked would be the proxy's.
 - **Where.** *Decided 2026-10-27 (Todd):* Windows only for now. *Decided 2026-11-15 (Todd):* macOS too, in
   v0.21.0, macOS being a platform at parity with Windows (`BACKLOG.md`, *Mila on Apple Silicon*), by the design under
-  *Files on macOS* above; until it is built a Mac grant holds no folder, which is a defect, not the Mac's design.
-  `Agents.GrantFileSystem` gains a macOS candidate file beside Windows' and the refusing one, which stays for Linux;
-  the path's form (`GrantPath`) and where a path starts (`ToolGrant`'s drive-letter root) become the platform's. Elsewhere a grant holds no folder, so no tool reaches one; Linux's `openat2` with `RESOLVE_BENEATH` (Linux 5.6) is the likely route there and is filed in
-  `Untriaged.md`, unmeasured.
+  *Files on macOS* above, built in 0.21.0-dev+152. `Agents.GrantFileSystem` has three candidate files: Windows',
+  macOS's (`.Apple`) and one that refuses every call (`.Null`), compiled elsewhere. Each gives the path's form
+  (`GrantPathForm`) and where a full path starts (`rootPath`: `\\?\D:\` on Windows, `/` on macOS), so `ToolGrant` is
+  the same code on both. *Decided 2026-11-17 (Todd):* Linux too, at parity with the other two (`CLAUDE.md`); until
+  its candidate is built a Linux grant holds no folder, which is a defect, not Linux's design (`BACKLOG.md`, *On
+  Linux a tool cannot read or write a file in the folder a person names*). The likely route is `openat2` with
+  `RESOLVE_BENEATH` (Linux 5.6) beside the final path, unmeasured; it is tested in WSL, where Mila Assistant's window
+  cannot run.
 - **What it holds.** A tool that works through its grant is held to it. One that opens files directly is not; an
   in-process tool is the application's own code, and that is the application's choice.
 - **Programs.** *Decided 2026-10-27 (Todd):* the grant also runs a program for a tool that declares it runs

@@ -486,6 +486,7 @@ export import Agents.ToolNeeds;
 export import Agents.FolderAccess;
 export import Agents.GrantFolder;
 export import Agents.FolderEntry;
+export import Agents.GrantPathForm;
 export import Agents.GrantPath;
 export import Agents.GrantFile;
 export import Agents.ProgramRequest;

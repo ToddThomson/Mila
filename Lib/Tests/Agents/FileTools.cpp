@@ -1,7 +1,7 @@
 /**
  * @file FileTools.cpp
  * @brief The six file tools, run as an agent runs them, through a grant: what each returns, what each refuses, and
- *        that none reaches past its grant (ToolCalling.md section 5). Windows only, where a folder can be granted.
+ *        that none reaches past its grant (ToolCalling.md section 5). Windows and macOS, where a folder can be granted.
  */
 
 #include <gtest/gtest.h>

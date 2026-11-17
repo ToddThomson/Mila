@@ -71,12 +71,49 @@ add_custom_command( TARGET mila-session POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MILA_SESSION_LICENSE}" "$<TARGET_FILE_DIR:mila-session>/License.md"
 )
 
+# The licence text of something the session carries, compiled in or beside it, installed in Licences/ as
+# <name>-<file name>, "/" in the name read as "-". The name is NOTICE.md's for it -- a fetched dependency's GitHub
+# owner/repo, or the name in its table of what Mila Assistant carries -- and check_pins.py --verify-notice holds the
+# two to each other. A text that is not there fails the install, so no package is made without it.
+function( mila_session_licence name file )
+    string( REPLACE "/" "-" prefix "${name}" )
+    get_filename_component( file_name "${file}" NAME )
+    install( FILES "${file}" DESTINATION Licences RENAME "${prefix}-${file_name}" COMPONENT mila-session EXCLUDE_FROM_ALL )
+endfunction()
+
+mila_session_licence( nlohmann/json "${nlohmann_json_SOURCE_DIR}/LICENSE.MIT" )
+mila_session_licence( richgel999/miniz "${miniz_SOURCE_DIR}/LICENSE" )
+
+# As the top level fetches curl: a Mac's transports are its own.
+if( MILA_ENABLE_NETWORKING AND NOT APPLE )
+    mila_session_licence( curl/curl "${curl_SOURCE_DIR}/COPYING" )
+endif()
+
+if( MILA_HAS_METAL )
+    mila_session_licence( apple/metal-cpp "${metal_cpp_SOURCE_DIR}/LICENSE.txt" )
+endif()
+
+# NVIDIA's terms ask no notice, but that the terms the application is given under be consistent with them (EULA
+# 1.1.2, item 5), so the libraries carry the EULA itself.
+if( MILA_HAS_CUDA )
+    cmake_path( SET mila_cuda_eula NORMALIZE "${CUDAToolkit_BIN_DIR}/../EULA.txt" )
+    mila_session_licence( CUDA "${mila_cuda_eula}" )
+endif()
+
+# libc++, libc++abi and libunwind are linked in on a Mac (cmake/CxxRuntime.cmake). LLVM's exception may waive the
+# notice for them; its text is carried whatever that reading.
+if( APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang" )
+    cmake_path( GET CMAKE_CXX_COMPILER PARENT_PATH mila_llvm_bin )
+    cmake_path( SET mila_llvm_license NORMALIZE "${mila_llvm_bin}/../LICENSE.TXT" )
+    mila_session_licence( LLVM "${mila_llvm_license}" )
+endif()
+
 # MXC's library beside the session, which loads it from there when commands are on (ContainedPrograms.md 4.10).
 if( MILA_ENABLE_MXC AND MILA_MXC_LIBRARY )
     get_filename_component( MILA_MXC_FOLDER "${MILA_MXC_LIBRARY}" DIRECTORY )
 
     if( NOT EXISTS "${MILA_MXC_FOLDER}/LICENSE.md" )
-        message( WARNING "No LICENSE.md beside ${MILA_MXC_LIBRARY}: the installer would carry MXC without its licence." )
+        message( WARNING "No LICENSE.md beside ${MILA_MXC_LIBRARY}: the session's install, and so the installer, will fail without MXC's licence." )
     endif()
 
     add_custom_command( TARGET mila-session POST_BUILD
@@ -84,15 +121,13 @@ if( MILA_ENABLE_MXC AND MILA_MXC_LIBRARY )
     )
 
     install( FILES "${MILA_MXC_LIBRARY}" DESTINATION . RENAME mxc_ffi.dll COMPONENT mila-session EXCLUDE_FROM_ALL )
-
-    if( EXISTS "${MILA_MXC_FOLDER}/LICENSE.md" )
-        install( FILES "${MILA_MXC_FOLDER}/LICENSE.md" DESTINATION . RENAME MXC-LICENSE.md COMPONENT mila-session EXCLUDE_FROM_ALL )
-    endif()
+    mila_session_licence( MXC "${MILA_MXC_FOLDER}/LICENSE.md" )
 elseif( MILA_ENABLE_MXC )
     message( STATUS "MILA_MXC_LIBRARY names no mxc_ffi.dll: Mila Desktop will say it cannot run commands." )
 endif()
 
-# What the window's package carries (MilaDesktop.md 9.4): the session, its prompts, its licence, and the CUDA libraries it loads,
+# What the window's package carries (MilaDesktop.md 9.4): the session, its prompts, its licence and the third-party
+# texts above, and the CUDA libraries it loads,
 # found by reading the program's imports, so a toolkit that renames them needs no edit here. Installed only on request:
 #   cmake --install <build directory> --component mila-session --prefix Apps/Desktop/Window/session
 # The CUDA 13 toolkit keeps its Windows libraries in bin/x64.

@@ -10,6 +10,29 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## The terms a person accepts in Mila Assistant are Mila's MIT licence alone, while NVIDIA's and Microsoft's ask more
+
+`Apps/Desktop/Session/Src/Settings/Desktop.MilaLicense.ixx` (what is accepted); `NOTICE.md` *What Mila Assistant carries*; `Specifications/AssistantOnboarding.md` 4.1 @ 0.21.0-dev+151
+
+Found 2026-11-17 reading the terms of what the Windows installer carries. NVIDIA's CUDA EULA (v13.5, 1.1.2 item 5):
+"The terms under which you distribute your application must be consistent with the terms of this Agreement",
+NVIDIA's intellectual property included. Visual Studio Community's *Distributable Code* terms in 2013 and 2015 asked
+that distributors and end users "agree to terms that protect the Distributable Code at least as much as this
+agreement"; the 2026 text was not read (its page renders by script) and Microsoft's redistribution list says only
+"subject to the License Terms for the software". The installer now carries NVIDIA's EULA in `Licences/`; the person
+accepts Mila's `License.md`, which grants rights to Mila's own code and says nothing of the libraries beside it.
+Not decided: whether the accepted terms name the third-party terms the app carries.
+
+## With MXC built in, opening the container from no file throws instead of refusing, so its tests error rather than skip
+
+`Lib/Src/Agents/Programs/MxcProgramContainer.Windows.ixx:221` (`std::filesystem::absolute( library )`); `Lib/Tests/Agents/ToolGrant.Programs.cpp:281` @ 0.21.0-dev+151
+
+Found 2026-11-17 running the grant's tests in `x64-claude-verify` (`MILA_ENABLE_MXC` on) with `MILA_MXC_LIBRARY`
+unset: `MxcProgramContainer::open( {} )` throws `absolute: The filename, directory name, or volume label syntax is
+incorrect` rather than returning its error, so all 14 `ContainedRunTest` tests fail in `SetUp` instead of skipping as
+the test file says they do. With the variable naming the 1.1.0 library they pass. A build with MXC off compiles the
+absent container, which refuses, so Todd's directories do not see it unless MXC is on there.
+
 ## Nothing at the operating system's level confines `mila-session`, so a defect in the grant reaches whatever the person can
 
 `Apps/Desktop/Session/Src/main.cpp`; `Apps/Desktop/Window/src/main.js` (starts the session); `Specifications/MilaDesktop.md` section 9 item 4 (*Decided 2026-11-14*, App Sandbox) @ 0.21.0-dev+151
@@ -408,16 +431,6 @@ edit ran correctly every time. The same model chose both ways on one build, so t
 not the session. On `+105`'s session (Mila Desktop on `Mila::Agents` alone, same prompt and tool schemas byte for byte):
 `list_folder` first in 4 of 6 runs, then a plan carried out correctly; `propose_plan` first in 1; and once no plan
 at all -- three edits, then an answer claiming a README change it never made. Whether the prompt should allow a look first, or the check should, is not decided.
-
-## On Linux a tool's grant holds no folder, so no file tool can run there
-
-`Lib/Src/Agents/Grants/GrantFileSystem.Posix.ixx`; an absence -- no Linux file checks behind the grant @ f42c0d95
-
-Todd, 2026-10-27: the grant is Windows-only for now (`ToolCalling.md` 3.4 *Where*). Every POSIX call refuses, so a
-grant of folders throws and a tool reaches none. The likely route is Linux's `openat2` with `RESOLVE_BENEATH` from
-a held folder descriptor (Linux 5.6, man7.org openat2(2)), which decides in the kernel rather than by a final path,
-plus a link-count check for hard links, which the man page does not mention. Unmeasured. macOS's half is v0.21.0's
-(`BACKLOG.md`, *Mila on Apple Silicon*, Todd, 2026-11-15).
 
 ## Nobody has read whether Tavily's terms let Mila Desktop keep search results in a saved conversation
 

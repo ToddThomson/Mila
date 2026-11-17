@@ -1,12 +1,14 @@
 /**
  * @file ToolGrant.Files.cpp
  * @brief What a grant's files reach: each access the grant refuses beside the same kind of access inside it,
- *        allowed (ToolCalling.md 3.4). Windows only, where a folder can be granted.
+ *        allowed (ToolCalling.md 3.4). Windows and macOS, each by its own ways to the same access.
  *
  * Each test builds its folders under the system's temporary folder: a granted project, a sibling whose name begins
- * with the project's, and a folder outside holding a secret. Junctions need no privilege; a symbolic link needs
- * Developer Mode or an administrator, so those tests skip where one cannot be made. A mount point needs an
- * administrator and is not tested: it leads to a final path as a junction does.
+ * with the project's, and a folder outside holding a secret. A link to a folder is a junction on Windows, which needs
+ * no privilege, and a symbolic link on macOS. A symbolic link on Windows needs Developer Mode or an administrator,
+ * so those tests skip there where one cannot be made. A mount point needs an administrator and is not tested: it
+ * leads to a final path as a junction does. macOS's temporary folder is under /var, a link to /private/var, so every
+ * full path a test gives on a Mac goes through a link.
  */
 
 #include <gtest/gtest.h>
@@ -22,6 +24,10 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
+#ifdef __APPLE__
+#  include <sys/stat.h>
+#endif
 
 import Mila;
 
@@ -69,12 +75,26 @@ namespace Mila::Tests::AI
 
         constexpr std::string_view kOutside = "lies outside";
 
-        /// A junction, which any account can make; true when it was made.
-        bool makeJunction( const std::filesystem::path& link, const std::filesystem::path& target )
+        /// A link to a folder any account can make: a junction on Windows, a symbolic link elsewhere. True when made.
+        bool makeFolderLink( const std::filesystem::path& link, const std::filesystem::path& target )
         {
+#ifdef _WIN32
             const std::string command = std::format( "mklink /J \"{}\" \"{}\" >nul 2>&1", link.string(), target.string() );
 
             return std::system( command.c_str() ) == 0 && std::filesystem::exists( std::filesystem::symlink_status( link ) );
+#else
+            std::error_code error;
+            std::filesystem::create_directory_symlink( target, link, error );
+
+            return !error;
+#endif
+        }
+
+        std::filesystem::path uniqueName( std::string_view prefix )
+        {
+            std::random_device seed;
+
+            return std::format( "{}-{:08x}", prefix, seed() );
         }
 
         class ToolGrantFilesTest : public ::testing::Test
@@ -83,8 +103,7 @@ namespace Mila::Tests::AI
 
             void SetUp() override
             {
-                std::random_device seed;
-                root_ = std::filesystem::temp_directory_path() / std::format( "MilaToolGrant-{:08x}", seed() );
+                root_ = std::filesystem::temp_directory_path() / uniqueName( "MilaToolGrant" );
 
                 project_ = root_ / "project";
                 sibling_ = root_ / "project2";
@@ -100,7 +119,7 @@ namespace Mila::Tests::AI
             {
                 std::error_code error;
 
-                // A junction is removed as a link, never by entering it.
+                // A link is removed as a link, never by entering it.
                 std::filesystem::remove_all( root_, error );
             }
 
@@ -138,6 +157,11 @@ namespace Mila::Tests::AI
 
     TEST_F( ToolGrantFilesTest, ADifferenceOfCaseInsideIsAllowed )
     {
+        if ( !std::filesystem::exists( root_ / "PROJECT" ) )
+        {
+            GTEST_SKIP() << "the temporary folder is on a volume whose names differ by case";
+        }
+
         EXPECT_EQ( grant().openFile( text( root_ / "PROJECT" / "INSIDE.TXT" ) ).read(), "inside" );
         EXPECT_EQ( grant().openFile( "SUB/A.TXT" ).read(), "a" );
     }
@@ -161,20 +185,45 @@ namespace Mila::Tests::AI
     // Links
     // ================================================================
 
-    TEST_F( ToolGrantFilesTest, AJunctionLeadingOutsideIsRefused )
+    TEST_F( ToolGrantFilesTest, AFolderLinkLeadingOutsideIsRefused )
     {
-        ASSERT_TRUE( makeJunction( project_ / "out", outside_ ) );
+        ASSERT_TRUE( makeFolderLink( project_ / "out", outside_ ) );
 
         expectRefused( [&] { (void)grant().openFile( "out/secret.txt" ); }, kOutside );
         expectRefused( [&] { (void)grant().list( "out" ); }, kOutside );
     }
 
-    TEST_F( ToolGrantFilesTest, AJunctionInsideIsAllowed )
+    TEST_F( ToolGrantFilesTest, AFolderLinkInsideIsAllowed )
     {
-        ASSERT_TRUE( makeJunction( project_ / "in", project_ / "sub" ) );
+        ASSERT_TRUE( makeFolderLink( project_ / "in", project_ / "sub" ) );
 
         EXPECT_EQ( grant().openFile( "in/a.txt" ).read(), "a" );
         EXPECT_EQ( grant().list( "in" ).size(), 1u );
+    }
+
+    TEST_F( ToolGrantFilesTest, AFolderReplacedByALinkOutsideOnceGrantedIsRefused )
+    {
+        const ToolGrant granted = grant();
+        ASSERT_EQ( granted.openFile( "sub/a.txt" ).read(), "a" );
+
+        std::filesystem::remove_all( project_ / "sub" );
+        ASSERT_TRUE( makeFolderLink( project_ / "sub", outside_ ) );
+
+        expectRefused( [&] { (void)granted.openFile( "sub/secret.txt" ); }, kOutside );
+        expectRefused( [&] { (void)granted.openFileToWrite( "sub/new.txt", true ); }, kOutside );
+        expectRefused( [&] { (void)granted.list( "sub" ); }, kOutside );
+        EXPECT_FALSE( std::filesystem::exists( outside_ / "new.txt" ) );
+    }
+
+    TEST_F( ToolGrantFilesTest, AFolderReplacedByAFolderInsideOnceGrantedIsAllowed )
+    {
+        const ToolGrant granted = grant();
+        ASSERT_EQ( granted.openFile( "sub/a.txt" ).read(), "a" );
+
+        std::filesystem::remove_all( project_ / "sub" );
+        write( project_ / "sub" / "b.txt", "b" );
+
+        EXPECT_EQ( granted.openFile( "sub/b.txt" ).read(), "b" );
     }
 
     TEST_F( ToolGrantFilesTest, ASymbolicLinkLeadingOutsideIsRefused )
@@ -188,6 +237,8 @@ namespace Mila::Tests::AI
         }
 
         expectRefused( [&] { (void)grant().openFile( "link.txt" ); }, kOutside );
+        expectRefused( [&] { (void)grant().openFileToWrite( "link.txt", false ); }, kOutside );
+        EXPECT_EQ( contentOf( outside_ / "secret.txt" ), "secret" );
     }
 
     TEST_F( ToolGrantFilesTest, ASymbolicLinkInsideIsAllowed )
@@ -236,9 +287,9 @@ namespace Mila::Tests::AI
         EXPECT_EQ( contentOf( project_ / "inside.txt" ), "changed" );
     }
 
-    TEST_F( ToolGrantFilesTest, AReplaceThroughAJunctionLeadingOutsideLeavesTheFileWhole )
+    TEST_F( ToolGrantFilesTest, AReplaceThroughAFolderLinkLeadingOutsideLeavesTheFileWhole )
     {
-        ASSERT_TRUE( makeJunction( project_ / "out", outside_ ) );
+        ASSERT_TRUE( makeFolderLink( project_ / "out", outside_ ) );
 
         expectRefused( [&] { (void)grant().openFileToWrite( "out/secret.txt", false ); }, kOutside );
         expectRefused( [&] { (void)grant().openFileToWrite( "out/secret.txt", true ); }, kOutside );
@@ -252,15 +303,15 @@ namespace Mila::Tests::AI
         EXPECT_EQ( contentOf( project_ / "sub" / "a.txt" ), "replaced" );
     }
 
-    TEST_F( ToolGrantFilesTest, ACreateUnderAJunctionLeadingOutsideIsRefused )
+    TEST_F( ToolGrantFilesTest, ACreateUnderAFolderLinkLeadingOutsideIsRefused )
     {
-        ASSERT_TRUE( makeJunction( project_ / "out", outside_ ) );
-        ASSERT_TRUE( makeJunction( project_ / "dangling", outside_ / "not-there" ) );
+        ASSERT_TRUE( makeFolderLink( project_ / "out", outside_ ) );
+        ASSERT_TRUE( makeFolderLink( project_ / "dangling", outside_ / "not-there" ) );
 
         expectRefused( [&] { (void)grant().openFileToWrite( "out/new.txt", true ); }, kOutside );
         expectRefused( [&] { (void)grant().openFileToWrite( "dangling/new.txt", true ); }, "already exists" );
         EXPECT_FALSE( std::filesystem::exists( outside_ / "new.txt" ) );
-        EXPECT_FALSE( std::filesystem::exists( outside_ / "not-there" ) ) << "a junction to nothing is never created through";
+        EXPECT_FALSE( std::filesystem::exists( outside_ / "not-there" ) ) << "a link to nothing is never created through";
     }
 
     TEST_F( ToolGrantFilesTest, ACreateInANewFolderInsideIsAllowed )
@@ -288,9 +339,9 @@ namespace Mila::Tests::AI
     // Walking
     // ================================================================
 
-    TEST_F( ToolGrantFilesTest, AWalkDoesNotEnterAJunctionLeadingOutside )
+    TEST_F( ToolGrantFilesTest, AWalkDoesNotEnterAFolderLinkLeadingOutside )
     {
-        ASSERT_TRUE( makeJunction( project_ / "out", outside_ ) );
+        ASSERT_TRUE( makeFolderLink( project_ / "out", outside_ ) );
 
         std::set<std::string> files;
         const std::size_t not_entered = grant().walk( ".", [&files]( std::string_view relative, const FolderEntry& entry )
@@ -309,7 +360,7 @@ namespace Mila::Tests::AI
 
     TEST_F( ToolGrantFilesTest, AWalkEntersAFolderInside )
     {
-        ASSERT_TRUE( makeJunction( project_ / "in", project_ / "sub" ) );
+        ASSERT_TRUE( makeFolderLink( project_ / "in", project_ / "sub" ) );
 
         std::set<std::string> files;
         const std::size_t not_entered = grant().walk( ".", [&files]( std::string_view relative, const FolderEntry& entry )
@@ -373,4 +424,104 @@ namespace Mila::Tests::AI
         EXPECT_TRUE( outcome.ran );
         EXPECT_EQ( seen, FolderAccess::Read ) << "a read-write folder is given read-only to a tool that only reads";
     }
+
+#ifdef __APPLE__
+    // ================================================================
+    // macOS's own ways in
+    // ================================================================
+
+    TEST_F( ToolGrantFilesTest, AResourceForkIsRefused )
+    {
+        EXPECT_THROW( (void)grant().openFile( "inside.txt/..namedfork/rsrc" ), std::invalid_argument );
+        EXPECT_THROW( (void)grant().openFileToWrite( text( project_ / "inside.txt" / "..namedfork" / "rsrc" ), true ),
+            std::invalid_argument );
+    }
+
+    TEST_F( ToolGrantFilesTest, TheFilesOwnContentIsAllowed )
+    {
+        EXPECT_EQ( grant().openFile( text( project_ / "inside.txt" ) ).read(), "inside" );
+    }
+
+    TEST_F( ToolGrantFilesTest, ANamedPipeIsRefusedWithoutWaiting )
+    {
+        ASSERT_EQ( ::mkfifo( ( project_ / "pipe" ).c_str(), 0644 ), 0 );
+
+        // With no writer, an open that waited would never return.
+        expectRefused( [&] { (void)grant().openFile( "pipe" ); }, "not a file or folder" );
+        expectRefused( [&] { (void)grant().openFileToWrite( "pipe", false ); }, "not a file or folder" );
+    }
+
+    TEST_F( ToolGrantFilesTest, ARegularFileBesideAPipeIsAllowed )
+    {
+        ASSERT_EQ( ::mkfifo( ( project_ / "pipe" ).c_str(), 0644 ), 0 );
+
+        EXPECT_EQ( grant().openFile( "inside.txt" ).read(), "inside" );
+        EXPECT_EQ( grant().list( "." ).size(), 3u ) << "inside.txt, sub and the pipe are all listed";
+    }
+
+    TEST_F( ToolGrantFilesTest, APathPastWhatMacOsCanReportIsRefused )
+    {
+        const std::string level( 200, 'd' );
+        std::string path;
+
+        for ( int depth = 0; depth < 6; ++depth )
+        {
+            path += level + "/";
+        }
+
+        expectRefused( [&] { (void)grant().openFileToWrite( path + "deep.txt", true ); }, "longer than" );
+    }
+
+    TEST_F( ToolGrantFilesTest, ALongPathWithinWhatMacOsCanReportIsAllowed )
+    {
+        const std::string level( 200, 'd' );
+        std::string path;
+
+        for ( int depth = 0; depth < 4; ++depth )
+        {
+            path += level + "/";
+        }
+
+        grant().openFileToWrite( path + "deep.txt", true ).replace( "deep" );
+
+        EXPECT_EQ( grant().openFile( path + "deep.txt" ).read(), "deep" );
+    }
+
+    /// /tmp is a link to /private/tmp, as /var is to /private/var: a folder granted by one name is reached by both.
+    class ToolGrantFilesTmpTest : public ::testing::Test
+    {
+    protected:
+
+        void SetUp() override
+        {
+            name_ = uniqueName( "MilaToolGrant" );
+            write( std::filesystem::path( "/tmp" ) / name_ / "project" / "inside.txt", "inside" );
+            write( std::filesystem::path( "/tmp" ) / name_ / "outside" / "secret.txt", "secret" );
+        }
+
+        void TearDown() override
+        {
+            std::error_code error;
+            std::filesystem::remove_all( std::filesystem::path( "/private/tmp" ) / name_, error );
+        }
+
+        std::filesystem::path name_;
+    };
+
+    TEST_F( ToolGrantFilesTmpTest, AFileOutsideReachedThroughTmpIsRefused )
+    {
+        const ToolGrant granted( { GrantFolder{ std::filesystem::path( "/tmp" ) / name_ / "project", FolderAccess::Read } }, false );
+
+        expectRefused( [&] { (void)granted.openFile( text( std::filesystem::path( "/tmp" ) / name_ / "outside" / "secret.txt" ) ); }, kOutside );
+        expectRefused( [&] { (void)granted.openFile( text( std::filesystem::path( "/private/tmp" ) / name_ / "outside" / "secret.txt" ) ); }, kOutside );
+    }
+
+    TEST_F( ToolGrantFilesTmpTest, AFileInsideReachedByEitherNameIsAllowed )
+    {
+        const ToolGrant granted( { GrantFolder{ std::filesystem::path( "/tmp" ) / name_ / "project", FolderAccess::Read } }, false );
+
+        EXPECT_EQ( granted.openFile( text( std::filesystem::path( "/tmp" ) / name_ / "project" / "inside.txt" ) ).read(), "inside" );
+        EXPECT_EQ( granted.openFile( text( std::filesystem::path( "/private/tmp" ) / name_ / "project" / "inside.txt" ) ).read(), "inside" );
+    }
+#endif
 }

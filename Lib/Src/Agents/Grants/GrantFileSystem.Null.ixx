@@ -1,15 +1,17 @@
 /**
- * @file GrantFileSystem.Posix.ixx
- * @brief The grant's file calls where they are not written yet: every one refuses, so no folder can be granted.
+ * @file GrantFileSystem.Null.ixx
+ * @brief The grant's file calls where they are not written: every one refuses, so no folder can be granted.
  *
- * One of two candidate files for Agents.GrantFileSystem; CMake compiles this one off Windows. Mila never claims
- * containment it does not enforce (ToolCalling.md 3.4), so a grant here holds no folder and a tool reaches none.
+ * One of three candidate files for Agents.GrantFileSystem; CMake compiles this one off Windows and Apple platforms.
+ * Mila never claims containment it does not enforce (ToolCalling.md 3.4), so a grant here holds no folder and a tool
+ * reaches none.
  */
 
 export module Agents.GrantFileSystem;
 
 import std;
 import Agents.FolderEntry;
+import Agents.GrantPathForm;
 
 namespace Mila::Agents::GrantFileSystem
 {
@@ -20,12 +22,20 @@ namespace Mila::Agents::GrantFileSystem
     /// Whether this build can hold a tool to a folder.
     export inline constexpr bool kEnforcesFolders = false;
 
+    /// The form of path a grant accepts here.
+    export inline constexpr GrantPathForm kPathForm = GrantPathForm::Posix;
+
     namespace
     {
         [[noreturn]] void refuse()
         {
-            throw std::runtime_error( "a grant of folders is enforced only on Windows so far, so none is granted here" );
+            throw std::runtime_error( "a grant of folders is not enforced on this platform, so none is granted here" );
         }
+    }
+
+    export std::filesystem::path rootPath( std::string_view )
+    {
+        refuse();
     }
 
     export std::optional<NativeHandle> openExisting( const std::filesystem::path&, bool )

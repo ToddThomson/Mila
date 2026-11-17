@@ -14,6 +14,7 @@ import Agents.FolderEntry;
 import Agents.GrantFile;
 import Agents.GrantFileSystem;
 import Agents.GrantPath;
+import Agents.GrantPathForm;
 import Agents.ProgramContainer;
 import Agents.ProgramFolders;
 import Agents.ProgramRequest;
@@ -81,9 +82,16 @@ namespace Mila::Agents
             return std::filesystem::path( std::u8string( reinterpret_cast<const char8_t*>( text.data() ), text.size() ) );
         }
 
-        inline bool isDrive( std::string_view name ) noexcept
+        /// Whether a path's first name is where a full path starts: a drive ("D:") on Windows, "/" elsewhere. Neither
+        /// form gives the other's as a name of a relative path ("D:" is an ordinary name on a Mac).
+        inline bool isRoot( std::string_view name ) noexcept
         {
-            return name.size() == 2 && name[ 1 ] == ':';
+            return GrantFileSystem::kPathForm == GrantPathForm::Windows ? name.size() == 2 && name[ 1 ] == ':' : name == "/";
+        }
+
+        inline std::vector<std::string> pathNames( std::string_view path )
+        {
+            return grantPathNames( path, GrantFileSystem::kPathForm );
         }
     }
 
@@ -91,11 +99,11 @@ namespace Mila::Agents
      * @brief The grant a tool acts through (ToolCalling.md 3.4): it opens files and makes connections, and checks
      *        each at that moment.
      *
-     * A path is accepted in one form only (grantPathNames): a drive-letter path, or a path relative to the first
-     * folder granted. A file or folder is opened, the final path the operating system reports for the open handle
-     * is taken, and it is kept only when that path lies within a granted folder's own final path, taken when the
-     * grant was made. Short names, differences of case, symbolic links, junctions and mount points all lead to that
-     * final path. A file with more than one name on disk -- a hard link -- is refused, since the name reported may
+     * A path is accepted in one form only, the platform's (grantPathNames): a full path -- from a drive letter on
+     * Windows, from the root on macOS -- or a path relative to the first folder granted. A file or folder is opened,
+     * the final path the operating system reports for the open handle is taken, and it is kept only when that path
+     * lies within a granted folder's own final path, taken when the grant was made. Short names, differences of
+     * case, symbolic links, junctions, firmlinks and mount points all lead to that final path. A file with more than one name on disk -- a hard link -- is refused, since the name reported may
      * be one inside while another is outside. A file or folder is created only in a folder already opened and
      * checked, and never through a name that already exists, a link included.
      *
@@ -325,8 +333,8 @@ namespace Mila::Agents
                 throw std::runtime_error( std::format( "this tool was granted its folders only to read, so it cannot write '{}'", path ) );
             }
 
-            const std::vector<std::string> names = grantPathNames( path );
-            const std::size_t base = !names.empty() && ToolGrantDetail::isDrive( names.front() ) ? 1 : 0;
+            const std::vector<std::string> names = ToolGrantDetail::pathNames( path );
+            const std::size_t base = !names.empty() && ToolGrantDetail::isRoot( names.front() ) ? 1 : 0;
 
             if ( names.size() <= base )
             {
@@ -410,7 +418,7 @@ namespace Mila::Agents
         {
             requireFolders( path );
 
-            const std::vector<std::string> names = grantPathNames( path );
+            const std::vector<std::string> names = ToolGrantDetail::pathNames( path );
             const auto opened = GrantFileSystem::openExisting( fullPath( names ), false );
 
             if ( !opened )
@@ -490,7 +498,7 @@ namespace Mila::Agents
         {
             if ( !GrantFileSystem::kEnforcesFolders )
             {
-                throw std::invalid_argument( "a grant of folders is enforced only on Windows so far" );
+                throw std::invalid_argument( "a grant of folders is not enforced on this platform" );
             }
 
             folder = std::filesystem::absolute( folder ).lexically_normal();
@@ -520,16 +528,15 @@ namespace Mila::Agents
             }
         }
 
-        /// A drive-letter path as named, or a relative one read against the first folder's final path.
+        /// A full path as named, or a relative one read against the first folder's final path.
         std::filesystem::path fullPath( const std::vector<std::string>& names ) const
         {
             std::filesystem::path full;
             std::size_t first = 0;
 
-            if ( !names.empty() && ToolGrantDetail::isDrive( names.front() ) )
+            if ( !names.empty() && ToolGrantDetail::isRoot( names.front() ) )
             {
-                // \\?\ sends the path to the file system as written, so nothing checked here is read again.
-                full = ToolGrantDetail::pathFromUtf8( "\\\\?\\" + names.front() + "\\" );
+                full = GrantFileSystem::rootPath( names.front() );
                 first = 1;
             }
             else
@@ -615,7 +622,7 @@ namespace Mila::Agents
         {
             requireFolders( path );
 
-            const std::vector<std::string> names = grantPathNames( path );
+            const std::vector<std::string> names = ToolGrantDetail::pathNames( path );
             const auto opened = GrantFileSystem::openExisting( fullPath( names ), false );
 
             if ( !opened )

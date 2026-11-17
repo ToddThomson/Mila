@@ -335,26 +335,20 @@ Gate: the clean-room install passes from TestPyPI on the release-step-1 snapshot
 
 `Apps/Server/pyproject.toml` · `RELEASING.md` *Publishing the wheels*
 
-#### Mila Assistant's installer ships third-party code without its licence texts
+#### Mila Assistant shows no one the licences of the third-party code it carries
 
-`open` · `apps` · `distribution`
+`in progress` · `apps` · `distribution`
 
-The wheels and the container images carry each fetched dependency's licence text, and their builds refuse to run
-without them (`NOTICE.md`); Mila Assistant's installer does not, on Windows or on the Mac. Checked 2026-11-17 in
-`Apps/Desktop/Window/dist/win-unpacked`: electron-builder adds Electron's and Chromium's licences itself, and the
-session component adds MXC's as `MXC-LICENSE.md`, but nothing carries the texts of what is compiled into
-`mila-session` -- nlohmann/json and miniz on both platforms, curl on Windows, metal-cpp on the Mac. `NOTICE.md` has
-no column for the app, and no row for what it carries beside the session: the CUDA libraries and the Visual C++
-runtime on Windows, LLVM's C++ runtime linked in on the Mac, whose LLVM exception may waive the notice and is to be
-read, not assumed. Work, the same on both platforms: the session's install component copies each licence text from the fetched
-sources into the app's resources, and packaging refuses to run without them; `NOTICE.md` gains the app's column,
-which `check_pins.py --verify-notice` then holds; and the window shows the same files under *Licences* in its About.
-Not known: which crates `mxc_ffi.dll` compiles in, since MXC's release carries no notice for them -- answered by
-reading its dependency list, or by the build of Mila's own that `ContainedPrograms.md` 4.10 ships. Before any build
-reaches a tester, since handing one out is distributing it. No success criterion names it; admitted by Todd,
-2026-11-17.
+The installer carries each third-party licence text in the session's `Licences/` on Windows and on the Mac, its
+install fails without one, and `NOTICE.md` *What Mila Assistant carries* names each, held by `check_pins.py
+--verify-notice`. Nothing shows them: the window has no *Licences* in its About, so a person finds them only by
+opening the app's folder. Work: the window lists `Licences/` under *Licences* in its About, beside Electron's and
+Chromium's at the app's root, the same on both platforms. Not known: which crates `mxc_ffi.dll` compiles in, since
+MXC's release carries no notice for them -- answered by reading its dependency list, or by the build of Mila's own that
+`ContainedPrograms.md` 4.10 ships. Before any build reaches a tester, since handing one out is distributing it. No
+success criterion names it; admitted by Todd, 2026-11-17.
 
-`NOTICE.md` · `Apps/Desktop/Session/CMakeLists.txt` · `Lib/Bindings/Python/Package/setup.py` (the wheel's way)
+`NOTICE.md` · `Apps/Desktop/Session/CMakeLists.txt` (`mila_session_licence`) · `Apps/Desktop/Window`
 
 #### What a model can do is inferred from its family name, not read from its manifest
 
@@ -478,6 +472,23 @@ Gemma 4 is validated through both applications across plain-chat, single-tool an
 3.1 8B has never been driven through a single tool call, from Chat or over the wire; the framework is family-neutral,
 and what is missing is the evidence that Llama's grammar reaches it. Moved from `Vnext.md`, where moving it out had
 narrowed the Models criterion and `README.md`'s Llama section; the theme's criterion now restates it.
+
+#### On Linux a tool cannot read or write a file in the folder a person names
+
+`open` · `agents` · `apps` · `mila-src`
+
+The grant holds a tool to its folders on Windows and macOS; Linux compiles the refusing candidate
+(`Agents/Grants/GrantFileSystem.Null.ixx`), so a grant of folders throws there and Mila Assistant offers no file tool.
+Work: a Linux candidate for `Agents.GrantFileSystem` making the checks the other two make -- the final path of each
+open descriptor kept only inside a granted folder's own, a file with more than one name refused, creation only through
+a folder already opened and checked and never through a name that exists -- then `ToolGrant.Files.cpp` and
+`FileTools.cpp` run on Linux as on the other two. Absent: how Linux gives those answers has not been looked at from
+its man pages; the likely calls are `openat2` with `RESOLVE_BENEATH` from a held folder descriptor (Linux 5.6, as a
+check beside the final path, since alone it would refuse a link between two granted folders, which the other two
+accept), the final path from `/proc/self/fd`, and `st_nlink`. Tested in WSL (Ubuntu-Dev); the window on Linux cannot be
+run here. Admitted by Todd, 2026-11-17, Linux joining the platforms at parity (`CLAUDE.md`).
+
+`Specifications/ToolCalling.md` 3.4 *Where*
 
 ### A Developer Can Start
 
@@ -751,24 +762,9 @@ signed and notarized under Todd's Apple developer account, as a Developer ID dis
 `Specifications/MilaDesktop.md` section 9, item 4); the build is written and has not yet run with the certificate. The staged session stands alone:
 it carries LLVM's C++ runtime inside itself and reaches the network through macOS's own transports, with no libcurl
 (`Specifications/HttpClient.md` section 9; `otool -L`, 2026-11-14). It reads web pages through the grant's network,
-tested on the Mac; its file tools wait on the grant's file checks there (below). Labelled experimental where
+and the files of a folder the person gives it through the grant's file checks, both tested on the Mac. Labelled experimental where
 it is offered. Not looked at: whether GitHub's macOS
 runners reach Metal for CI.
-
-#### On a Mac a tool cannot read or write a file in the folder a person names
-
-`open` · `agents` · `apps` · `mila-src`
-
-The grant holds a tool to its folders on Windows only (`ToolCalling.md` 3.4 *Where*). Every POSIX call refuses
-(`Agents/Grants/GrantFileSystem.Posix.ixx`), so on a Mac a grant of folders throws and no file tool runs. Work: on
-macOS, the checks the grant makes on Windows: the path's one accepted form; a file opened, its final path taken from
-the open file and kept only inside a granted folder's own final path; a file with more than one name refused; a file
-or folder created only in a folder already opened and checked, through that folder's handle, and never through a name
-that already exists. Each is tested by a refused access beside the same access allowed, and the grant's file tests run
-on the Mac as on Windows. Absent: how macOS gives those answers has not been looked at. Admitted by Todd, 2026-11-15,
-macOS being a platform at parity with Windows. Linux stays in `Issues/Untriaged.md`.
-
-`Specifications/ToolCalling.md` 3.4
 
 #### On a Mac Mila Assistant cannot run a command in a chat's folder
 

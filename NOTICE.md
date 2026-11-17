@@ -28,14 +28,14 @@ Not present in this repository — CPM and FetchContent clone them at configure 
 with its own license attached. Listed here so this file answers "what does Mila depend on, and under
 what terms?" in one place.
 
-| Dependency | Version | License | When |
-|---|---|---|---|
-| [nlohmann/json](https://github.com/nlohmann/json) | 3.12.0 | MIT | Always |
-| [miniz](https://github.com/richgel999/miniz) | 3.1.2 | MIT | Always |
-| [curl](https://github.com/curl/curl) | curl-8_22_0 | [curl](https://curl.se/docs/copyright.html) (SPDX `curl`) | `MILA_ENABLE_NETWORKING`, not on macOS |
-| [pybind11](https://github.com/pybind/pybind11) | v3.1.0 | BSD-3-Clause | `MILA_ENABLE_PYTHON_BINDINGS` |
-| [metal-cpp](https://github.com/apple/metal-cpp) | release/metal-cpp_macOS27.0.1_iOS27.0.1 | Apache-2.0 | `MILA_ENABLE_METAL` |
-| [googletest](https://github.com/google/googletest) | v1.17.0 | BSD-3-Clause | Tests |
+| Dependency | Version | License | When | In Mila Assistant |
+|---|---|---|---|---|
+| [nlohmann/json](https://github.com/nlohmann/json) | 3.12.0 | MIT | Always | Windows and macOS |
+| [miniz](https://github.com/richgel999/miniz) | 3.1.2 | MIT | Always | Windows and macOS |
+| [curl](https://github.com/curl/curl) | curl-8_22_0 | [curl](https://curl.se/docs/copyright.html) (SPDX `curl`) | `MILA_ENABLE_NETWORKING`, not on macOS | Windows |
+| [pybind11](https://github.com/pybind/pybind11) | v3.1.0 | BSD-3-Clause | `MILA_ENABLE_PYTHON_BINDINGS` | No |
+| [metal-cpp](https://github.com/apple/metal-cpp) | release/metal-cpp_macOS27.0.1_iOS27.0.1 | Apache-2.0 | `MILA_ENABLE_METAL` | macOS |
+| [googletest](https://github.com/google/googletest) | v1.17.0 | BSD-3-Clause | Tests | No |
 
 This table is checked mechanically against the build — `Publishing/dependencies/check_pins.py
 --verify-notice` fails if a pin and its row disagree, or if a fetched dependency has no row.
@@ -52,3 +52,21 @@ licence texts itself, copied from the fetched sources at their pinned versions: 
 (`Lib/Bindings/Python/Package/setup.py`), and `Publishing/dockerhub/verify-image.sh` checks the image. The
 `0.20.0b3` wheels and the images published alongside them predate this and carry only Mila's own
 licence.
+
+## What Mila Assistant carries
+
+Mila Assistant's installer is a binary distribution too. Its session carries Mila's own licence beside the
+program, and in `Licences/` the text of each dependency marked in the table above and of what it carries beside
+them:
+
+| Name | What | Platform | Terms | Text in `Licences/` |
+|---|---|---|---|---|
+| `CUDA` | NVIDIA's cuBLASLt and cuRAND libraries | Windows | NVIDIA CUDA Toolkit EULA; both are distributable under its Attachment A | `CUDA-EULA.txt` |
+| `LLVM` | LLVM's libc++, libc++abi and libunwind, linked into the session | macOS | Apache-2.0 with LLVM Exceptions | `LLVM-LICENSE.TXT` |
+| `MXC` | Microsoft's MXC library, which runs commands in a container | Windows | MIT | `MXC-LICENSE.md` |
+| Visual C++ runtime | Microsoft's runtime libraries, beside the session from Visual Studio's redistributable folder | Windows | Visual Studio's licence terms, *Distributable Code* | None; Visual Studio gives no text with the files |
+| Electron and Chromium | The window | Windows and macOS | MIT; Chromium's are many | Added at the app's root by electron-builder |
+
+The session's install refuses to run without each of those texts, and the window's packaging refuses a session staged
+without them. `check_pins.py --verify-notice` holds both tables to the texts the session's install names
+(`Apps/Desktop/Session/CMakeLists.txt`, `mila_session_licence`).

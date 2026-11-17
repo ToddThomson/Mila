@@ -203,11 +203,16 @@ if(MILA_ENABLE_CUDA)
 endif()
 
 # What a tool's grant reaches (ToolCalling.md 3.4). Files only where a folder can be granted,
-# Windows; the network below.
-if(WIN32)
+# Windows and macOS; the network below.
+if(WIN32 OR APPLE)
     target_sources( MilaTests PRIVATE
         "Agents/ToolGrant.Files.cpp"
         "Agents/FileTools.cpp"
+    )
+endif()
+
+if(WIN32)
+    target_sources( MilaTests PRIVATE
         # What a program run through a grant reaches (ContainedPrograms.md); MXC's part skips unless
         # MILA_MXC_LIBRARY names its library and the build has MILA_ENABLE_MXC on.
         "Agents/ToolGrant.Programs.cpp"

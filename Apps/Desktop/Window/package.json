@@ -12,13 +12,13 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test",
-    "prebuild:windows": "node -e \"['session/mila-session.exe', 'session/vcruntime140.dll'].every(require('node:fs').existsSync) || (console.error('No session to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1))\"",
+    "prebuild:windows": "node -e \"['session/mila-session.exe', 'session/vcruntime140.dll', 'session/Licences'].every(require('node:fs').existsSync) || (console.error('No session, or one staged without its licence texts, to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1))\"",
     "build:windows": "electron-builder --win --x64 --publish never",
-    "prebuild:linux": "node -e \"require('node:fs').existsSync('session/mila-session') || (console.error('No session to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1))\"",
+    "prebuild:linux": "node -e \"['session/mila-session', 'session/Licences'].every(require('node:fs').existsSync) || (console.error('No session, or one staged without its licence texts, to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1))\"",
     "build:linux": "electron-builder --linux dir --publish never",
-    "prebuild:mac": "node -e \"require('node:fs').existsSync('session/mila-session') || (console.error('No session to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1))\"",
+    "prebuild:mac": "node -e \"['session/mila-session', 'session/Licences'].every(require('node:fs').existsSync) || (console.error('No session, or one staged without its licence texts, to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1))\"",
     "build:mac": "electron-builder --mac dir --arm64 --publish never",
-    "prebuild:mac:signed": "node -e \"const env = process.env; require('node:fs').existsSync('session/mila-session') || (console.error('No session to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1)); env.APPLE_KEYCHAIN_PROFILE || (env.APPLE_API_KEY && env.APPLE_API_KEY_ID && env.APPLE_API_ISSUER) || (env.APPLE_ID && env.APPLE_APP_SPECIFIC_PASSWORD && env.APPLE_TEAM_ID) || (console.error('No notarization credentials: set APPLE_KEYCHAIN_PROFILE to a profile stored with xcrun notarytool store-credentials.'), process.exit(1))\"",
+    "prebuild:mac:signed": "node -e \"const env = process.env; ['session/mila-session', 'session/Licences'].every(require('node:fs').existsSync) || (console.error('No session, or one staged without its licence texts, to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1)); env.APPLE_KEYCHAIN_PROFILE || (env.APPLE_API_KEY && env.APPLE_API_KEY_ID && env.APPLE_API_ISSUER) || (env.APPLE_ID && env.APPLE_APP_SPECIFIC_PASSWORD && env.APPLE_TEAM_ID) || (console.error('No notarization credentials: set APPLE_KEYCHAIN_PROFILE to a profile stored with xcrun notarytool store-credentials.'), process.exit(1))\"",
     "build:mac:signed": "electron-builder --mac --arm64 --publish never --config mac-signed.config.mjs",
     "postbuild:mac:signed": "spctl --assess --type execute -vv \"dist/mac-arm64/Mila Desktop.app\" && xcrun stapler validate \"dist/mac-arm64/Mila Desktop.app\""
   },

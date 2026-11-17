@@ -22,6 +22,7 @@ export module Agents.GrantFileSystem;
 
 import std;
 import Agents.FolderEntry;
+import Agents.GrantPathForm;
 
 namespace Mila::Agents::GrantFileSystem
 {
@@ -32,6 +33,9 @@ namespace Mila::Agents::GrantFileSystem
 
     /// Whether this build can hold a tool to a folder.
     export inline constexpr bool kEnforcesFolders = true;
+
+    /// The form of path a grant accepts here.
+    export inline constexpr GrantPathForm kPathForm = GrantPathForm::Windows;
 
     namespace
     {
@@ -155,6 +159,18 @@ namespace Mila::Agents::GrantFileSystem
 
             fail( std::format( "'{}' could not be opened", utf8( text ) ), RtlNtStatusToDosError( status ) );
         }
+    }
+
+    /**
+     * @brief The path a drive-letter path starts at, for its first name as grantPathNames gives it ("D:").
+     *
+     * \\?\ sends the path to the file system as written, so nothing the grant checked is read again.
+     */
+    export std::filesystem::path rootPath( std::string_view drive )
+    {
+        const std::string root = "\\\\?\\" + std::string( drive ) + "\\";
+
+        return std::filesystem::path( std::u8string( root.begin(), root.end() ) );
     }
 
     /**

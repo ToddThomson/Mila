@@ -200,14 +200,19 @@ predates the current direction:
 The usual triggers: our own server refusing something the library supports; a constant nobody can explain; a test
 bound a new input fails; a default written for an older model; a harness setting that changes what is measured.
 
-### Windows and macOS have the same features, by design
+### Windows, macOS and Linux have the same features, by design
 
-For the 0.21.0 release work, every feature of the library and the apps exists on Windows and on macOS (Todd,
-2026-11-15, restated 2026-11-17). A design names each platform's mechanism in the same section; where one platform
-lacks a primitive, the shared design changes and neither side is left short. A feature is not done while either half
-is missing -- say so in the recap, the spec's phase entry and the commit -- and is never described as one platform's
-normal state. The tells, worth a grep of any draft: *Windows only*, *Mac first*, *for now*, *left out on the Mac*.
-Linux is not covered.
+For the 0.21.0 release work, every feature of the library and the apps exists on Windows, on macOS and on Linux
+(Todd, 2026-11-15 for macOS, restated 2026-11-17; Linux added 2026-11-17). A design names each platform's mechanism
+in the same section; where one platform lacks a primitive, the shared design changes and no platform is left short.
+A feature is not done while any platform's part is missing -- say so in the recap, the spec's phase entry and the
+commit -- and is never described as one platform's normal state. The tells, worth a grep of any draft: *Windows only*,
+*Mac first*, *for now*, *left out on the Mac*, *not on Linux*.
+
+Linux is reached here only through WSL (Ubuntu-Dev on the PC): the library, its tests and the command-line apps are
+built and tested there, and Mila Assistant's window is not, since WSL gives no Linux desktop to run it on. So a Linux
+part of the window is built and its own tests run, and the window itself on Linux is said to be unverified wherever
+it applies, never assumed to work.
 
 ### Proposals
 

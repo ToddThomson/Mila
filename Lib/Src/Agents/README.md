@@ -18,7 +18,7 @@ and it runs under a grant that holds it to the folders and network it was given.
 
 It provides tools for files (`FileTools::tools()`) and web pages (`WebPageReader::tool()`), each with what the model
 is told and what the person is shown; you choose which to offer, and any other tool is yours.
-The grant's checks are Windows first: on any other platform a grant holds no folder.
+The grant holds a tool to its folders on Windows and macOS; on any other platform a grant holds no folder.
 
 ## Using it
 
