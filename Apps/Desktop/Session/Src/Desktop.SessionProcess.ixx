@@ -97,7 +97,7 @@ namespace Mila::Desktop
     /**
      * @brief Mila Desktop's session: section 4.2's requests in, section 4.1's events out.
      *
-     * One agent at a time over one session, which holds the activity's prompt, tools, rules, grant and limits and
+     * One agent at a time over one session, which holds the chat's prompt, tools, rules, grant and limits and
      * the conversation, and keeps them when the model changes. Two threads: the one that called run() does every
      * piece of session work, model loads included, and a second reads requests, so a stop or a tool decision is
      * heard while a reply is being written. Every event is one line on the protocol stream, written under a lock
@@ -113,8 +113,7 @@ namespace Mila::Desktop
          * @param problems What could not be read from the settings file, said once the session starts.
          * @param license The licence the package carries, or why it could not be read. Until the person accepts this
          *                text the session installs, loads and answers nothing (AssistantOnboarding.md 4.1).
-         * @param prompt_directory The activities' prompts: `ask.json`, `files.json`, `research.json` and `tasks.json`,
-         *                         the last two each with a `-search` version for when a search key is set.
+         * @param prompt_directory Holds `general.json`, every chat's prompt and tools (AssistantInterface.md 5.5).
          */
         SessionProcess( Settings settings, SettingsFile settings_file, std::vector<std::string> problems,
             std::expected<MilaLicense, std::string> license, Mila::Deployment::AllowedDevices devices,
@@ -153,6 +152,12 @@ namespace Mila::Desktop
                 useMiloTool( std::move( tool ) );
             }
 
+            // Runs only once the person has chosen the folder, which their answer to the call carries.
+            registerTool( std::string( kRequestFolderName ), {}, [this]( const std::string&, const Mila::Agents::ToolGrant&, std::stop_token )
+                {
+                    return grantChosenFolder();
+                } );
+
             if ( const std::optional<std::string> key = search_key_file_.read() )
             {
                 useSearchKey( *key );
@@ -178,7 +183,7 @@ namespace Mila::Desktop
                 sendError( problem, nullptr );
             }
 
-            useActivity( "ask", {} );
+            useChat( {} );
 
             if ( !settings_.model.empty() && licenseAccepted() )
             {
@@ -208,9 +213,8 @@ namespace Mila::Desktop
 
         static constexpr std::string_view kStreamId = "stream-1";
 
-        /// Ask & Explore's rounds, a number no measurement has set. Its reply has no limit of the app's: no publisher's
-        /// card sets one, and Qwen 3.8's names its whole context (Todd, 2026-11-13).
-        static constexpr int kAskRounds = 4;
+        /// The app's own tool that asks the person for a folder and widens the chat's grant by it (AssistantInterface.md 5.5).
+        static constexpr std::string_view kRequestFolderName = "request_folder";
 
         /// What a request the licence holds back is told; the page asks for the licence before it sends one.
         static constexpr std::string_view kLicenseFirst = "Accept Mila's licence first. It is shown when Mila starts.";
@@ -234,6 +238,9 @@ namespace Mila::Desktop
 
             /// False for a call asked every time, which an answer for the conversation does not settle.
             bool conversation_offered{ true };
+
+            /// True for request_folder, whose allowing answer must carry the folder the person chose.
+            bool folder_asked{ false };
         };
 
         using Handler = std::function<std::string( const std::string& arguments, const Mila::Agents::ToolGrant& grant, std::stop_token stop )>;
@@ -381,6 +388,21 @@ namespace Mila::Desktop
                 return;
             }
 
+            if ( approval_->folder_asked && *parsed != ToolAnswer::Deny )
+            {
+                const std::string folder = request.contains( "folder" ) && request[ "folder" ].is_string()
+                    ? request[ "folder" ].get<std::string>() : std::string{};
+
+                if ( folder.empty() )
+                {
+                    std::cerr << "Ignored a folder request's answer that names no folder.\n";
+
+                    return;
+                }
+
+                chosen_folder_ = folder;
+            }
+
             approval_->answer.set_value( *parsed );
             approval_.reset();
         }
@@ -408,14 +430,10 @@ namespace Mila::Desktop
             }
             else if ( type == "conversation.new" )
             {
-                const std::string folder = request.contains( "folder" ) && request[ "folder" ].is_string()
-                    ? request[ "folder" ].get<std::string>() : std::string{};
-
-                if ( useActivity( request.value( "activity", std::string( "ask" ) ), folder ) )
-                {
-                    startNewConversation();
-                    sendState();
-                }
+                // A chat begins with no folder, whatever an older page asks for (AssistantInterface.md 5.5).
+                useChat( {} );
+                startNewConversation();
+                sendState();
             }
             else if ( type == "conversation.open" )
             {
@@ -742,8 +760,26 @@ namespace Mila::Desktop
             std::promise<ToolAnswer> answer;
             std::future<ToolAnswer> decision = answer.get_future();
 
-            // A command is asked every time (ContainedPrograms.md 5): no answer covers the conversation.
-            const bool every_time = question.name == CommandTool::kName;
+            // A chat that has a folder is not asked for another: the call says which it has.
+            const bool folder_asked = question.name == kRequestFolderName;
+
+            if ( folder_asked && conversation_folder_ )
+            {
+                return ToolAnswer::Once;
+            }
+
+            // A file call in a chat with no folder can reach nothing, since the grant holds none, so the person is not
+            // asked about it: the grant refuses it, and the prompt has the model ask for a folder.
+            const bool needs_folder = question.needs.reads_files || question.needs.writes_files || question.needs.runs_programs;
+
+            if ( needs_folder && !conversation_folder_ )
+            {
+                return ToolAnswer::Once;
+            }
+
+            // A command is asked every time (ContainedPrograms.md 5), and a folder is chosen each time it is asked
+            // for: no answer covers the conversation.
+            const bool every_time = question.name == CommandTool::kName || folder_asked;
             const std::vector<std::string> choices = every_time
                 ? std::vector<std::string>{ "allow_once", "deny" }
                 : std::vector<std::string>{ "allow_once", "allow_conversation", "deny" };
@@ -756,7 +792,8 @@ namespace Mila::Desktop
                     return ToolAnswer::Deny;
                 }
 
-                approval_.emplace( Approval{ turn_id_, call_id, std::move( answer ), !every_time } );
+                chosen_folder_.reset();
+                approval_.emplace( Approval{ turn_id_, call_id, std::move( answer ), !every_time, folder_asked } );
             }
 
             send( "turn.tool_approval", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "call_id", call_id },
@@ -929,7 +966,6 @@ namespace Mila::Desktop
                 { "id", conversation_id_ },
                 { "title", conversation_title_ },
                 { "model", model_.name() },
-                { "activity", conversation_activity_ },
                 { "folder", conversationFolder() },
                 { "plan", plan_.toJson() },
                 { "created", conversation_created_ },
@@ -974,14 +1010,12 @@ namespace Mila::Desktop
                 return;
             }
 
-            const std::string activity = conversation->value( "activity", std::string( "ask" ) );
+            // A conversation stored with an activity opens as a chat like any other, its folder in its grant
+            // (AssistantInterface.md 5.5); the activity is not read.
             const nlohmann::json stored_folder = conversation->value( "folder", nlohmann::json( nullptr ) );
             const std::string folder = stored_folder.is_string() ? stored_folder.get<std::string>() : std::string{};
 
-            if ( !useActivity( activity, folder ) )
-            {
-                return;
-            }
+            useChat( folder );
 
             plan_.restore( conversation->value( "plan", nlohmann::json( nullptr ) ) );
 
@@ -1001,7 +1035,7 @@ namespace Mila::Desktop
             conversation_messages_ = conversation->value( "messages", nlohmann::json::array() );
 
             send( "conversation.loaded", { { "id", id }, { "title", conversation_title_ },
-                { "model", conversation->value( "model", std::string{} ) }, { "activity", conversation_activity_ },
+                { "model", conversation->value( "model", std::string{} ) },
                 { "folder", conversationFolder() }, { "messages", conversation_messages_ } } );
 
             sendState();
@@ -1045,131 +1079,135 @@ namespace Mila::Desktop
             return std::ranges::any_of( session().conversation(), []( const Turn& turn ) { return turn.role == Role::User; } );
         }
 
-        // ---- Activities and their tools ---------------------------------------------------
+        // ---- The chat and its tools --------------------------------------------------------
 
         /**
-         * @brief Give the session an activity's system prompt, tools, limits, rules and grant (MilaDesktop.md 3.1).
+         * @brief Give the session a chat's system prompt, tools, limits, rules and grant (AssistantInterface.md 5.5).
          *
-         * Ask & Explore has no tools, no grant, and a limit of rounds. Every activity's reply is bounded by the context
-         * and the person's Stop, and the others have no round limit either: Build & Code with the file tools, granted its folder
-         * to read and write, Research & Analyze reading web pages, granted the network, Get Things Done with both and
-         * its plan, whose updates run without asking.
+         * Every chat is offered every tool whose work can be done here, under one prompt. Its grant holds the network,
+         * for reading pages and searching, and the folder given, if any, to read and write; the person can give it one
+         * later through request_folder. Its reply is bounded by the context and the person's Stop. Plan updates run
+         * without asking, as Get Things Done's did; every other call is asked about, a command every time.
          *
-         * @return False, having said why, for an activity this session does not offer or a folder that does not
-         *         exist; nothing has changed then.
+         * @param folder The folder the chat was stored with, in UTF-8, or empty. One that cannot be granted -- gone, or
+         *               on a computer whose grant holds no folder yet -- is said, and the chat opens without it.
          */
-        bool useActivity( const std::string& activity, const std::string& folder )
+        void useChat( const std::string& folder )
         {
-            const bool known = activity == "ask" || activity == "build" || activity == "research" || activity == "tasks";
+            conversation_folder_.reset();
 
-            if ( !known )
+            if ( !folder.empty() && !folders_enforced_ )
             {
-                sendError( std::format( "There is no activity called {}.", activity ), "conversation" );
-
-                return false;
+                send( "info", { { "text", std::format(
+                    "This chat was started in the folder {}, and Mila cannot work in folders on this computer yet.", folder ) } } );
             }
-
-            std::vector<Mila::Agents::GrantFolder> folders;
-
-            if ( activity == "build" || activity == "tasks" )
+            else if ( !folder.empty() )
             {
-                if ( folder.empty() )
-                {
-                    sendError( "This works in a folder; choose one to start.", "conversation" );
-
-                    return false;
-                }
-
-                folders.push_back( { std::filesystem::path( std::u8string( folder.begin(), folder.end() ) ),
-                    Mila::Agents::FolderAccess::ReadWrite } );
+                conversation_folder_ = folder;
             }
-
-            std::optional<Mila::Agents::ToolGrant> grant;
 
             try
             {
-                // Build & Code's commands get the network only by asking, call by call (ContainedPrograms.md
-                // decision 11): the grant holds it and run_command narrows it away from every other call.
-                if ( activity == "build" && container_ )
-                {
-                    const std::filesystem::path project = folders.front().folder;
-                    grant.emplace( std::move( folders ), true, ProgramSetup::forProject( programs_, project ), container_ );
-                    ProgramSetup::writeGitIdentity( grant->folders().front().folder );
-                }
-                else
-                {
-                    grant.emplace( std::move( folders ), activity == "research" || activity == "tasks" );
-                }
+                grantChat();
             }
             catch ( const std::invalid_argument& )
             {
-                sendError( std::format( "The folder {} is not there any more.", folder ), "conversation" );
-
-                return false;
+                send( "info", { { "text", std::format( "The folder {} is not there any more, so this chat has none.", folder ) } } );
+                conversation_folder_.reset();
+                grantChat();
             }
 
-            usePrompt( promptFor( activity ) );
-
-            session().withLimits( activity == "ask"
-                ? Mila::Agents::AgentLimits{ .rounds = kAskRounds }
-                : Mila::Agents::AgentLimits{} );
+            usePrompt( prompts_ / "general.json" );
+            session().withLimits( Mila::Agents::AgentLimits{} );
 
             Mila::Agents::ToolRules rules;
-
-            if ( activity == "tasks" )
-            {
-                rules.add( { std::string( TaskPlan::kUpdateName ), Mila::Agents::ToolPermission::Allow, {} } );
-            }
-
+            rules.add( { std::string( TaskPlan::kUpdateName ), Mila::Agents::ToolPermission::Allow, {} } );
             session().withRules( std::move( rules ) );
 
-            conversation_folder_.reset();
-
-            if ( !grant->folders().empty() )
-            {
-                const std::u8string text = grant->folders().front().folder.u8string();
-                conversation_folder_.emplace( text.begin(), text.end() );
-            }
-
-            session().withGrant( std::move( *grant ) );
             plan_.clear();
-            conversation_activity_ = activity;
-
-            return true;
         }
 
         /**
-         * @brief An activity's own prompt. Research & Analyze and Get Things Done have one that names web search and
-         *        one that does not, and Build & Code one that names run_command, since a prompt naming a tool not
-         *        offered draws calls of it.
+         * @brief The chat's grant, from its folder and whether commands are on: the network, the folder to read and
+         *        write, and, with both a folder and the container, what commands run with.
+         *
+         * Commands get the network only by asking, call by call (ContainedPrograms.md decision 11): the grant holds it and
+         * run_command narrows it away from every other call.
+         *
+         * @throws std::invalid_argument for a folder the grant refuses; the grant is unchanged then.
          */
-        std::filesystem::path promptFor( const std::string& activity ) const
+        void grantChat()
         {
-            if ( activity == "ask" )
+            std::vector<Mila::Agents::GrantFolder> folders;
+
+            if ( conversation_folder_ )
             {
-                return prompts_ / "ask.json";
+                folders.push_back( { std::filesystem::path( std::u8string( conversation_folder_->begin(), conversation_folder_->end() ) ),
+                    Mila::Agents::FolderAccess::ReadWrite } );
             }
 
-            if ( activity == "research" )
+            if ( container_ && !folders.empty() )
             {
-                return prompts_ / ( web_search_ ? "research-search.json" : "research.json" );
+                const std::filesystem::path project = folders.front().folder;
+                Mila::Agents::ToolGrant grant( std::move( folders ), true, ProgramSetup::forProject( programs_, project ), container_ );
+                ProgramSetup::writeGitIdentity( grant.folders().front().folder );
+                session().withGrant( std::move( grant ) );
+
+                return;
             }
 
-            if ( activity == "tasks" )
-            {
-                return prompts_ / ( web_search_ ? "tasks-search.json" : "tasks.json" );
-            }
-
-            return prompts_ / ( handlers_.contains( std::string( CommandTool::kName ) ) ? "files-commands.json" : "files.json" );
+            session().withGrant( Mila::Agents::ToolGrant( std::move( folders ), true ) );
         }
 
-        /// The prompt's system prompt and its tools, from the next response on; the model and conversation stay.
+        /**
+         * @brief request_folder's work, once the person has allowed it: the folder they chose joins the chat's grant for
+         *        the rest of the chat (AssistantInterface.md 5.5).
+         *
+         * The grant is the app's to widen and is never widened by a call (ToolCalling.md 3.3): the call only asks, and the
+         * person's choice in the picker is what widens it.
+         */
+        std::string grantChosenFolder()
+        {
+            if ( conversation_folder_ )
+            {
+                return std::format( "This chat already works in the folder {}; paths are relative to it.", *conversation_folder_ );
+            }
+
+            std::optional<std::string> chosen;
+
+            {
+                std::lock_guard<std::mutex> lock( approval_mutex_ );
+                chosen = std::exchange( chosen_folder_, std::nullopt );
+            }
+
+            if ( !chosen )
+            {
+                throw std::runtime_error( "no folder was chosen" );
+            }
+
+            conversation_folder_ = *chosen;
+
+            try
+            {
+                grantChat();
+            }
+            catch ( const std::invalid_argument& refused )
+            {
+                conversation_folder_.reset();
+
+                throw std::runtime_error( std::format( "the folder {} cannot be used: {}", *chosen, refused.what() ) );
+            }
+
+            sendState();
+
+            return std::format( "The user gave you the folder {}. Paths are relative to it, as list_folder shows them.", *chosen );
+        }
+
+        /// The prompt's passages and its tools, from the next response on; the model and conversation stay.
         void usePrompt( const std::filesystem::path& path )
         {
-            PromptFile prompt = PromptFile::load( path );
-
-            session().withSystemPrompt( std::move( prompt.system_prompt ) );
-            prompt_tools_ = std::move( prompt.tools );
+            prompt_ = PromptFile::load( path );
+            prompt_tools_ = prompt_.tools;
 
             for ( PromptTool& named : prompt_tools_ )
             {
@@ -1196,16 +1234,15 @@ namespace Mila::Desktop
             offerTools();
         }
 
-        /// A key given or removed changes the open conversation's prompt and tools from its next response.
-        void refreshSearchPrompt()
+        /// A key given or removed, or commands turned on or off, changes the open chat's prompt and tools from its next
+        /// response.
+        void refreshTools()
         {
-            if ( conversation_activity_ == "research" || conversation_activity_ == "tasks" )
-            {
-                usePrompt( promptFor( conversation_activity_ ) );
-            }
+            grantChat();
+            offerTools();
         }
 
-        /// The code that runs a tool, offered whenever the activity's prompt describes it.
+        /// The code that runs a tool, offered whenever the chat's prompt describes it.
         void registerTool( std::string name, Mila::Agents::ToolNeeds needs, Handler handler )
         {
             handlers_.insert_or_assign( std::move( name ), std::pair{ needs, std::move( handler ) } );
@@ -1224,14 +1261,18 @@ namespace Mila::Desktop
         }
 
         /**
-         * @brief Offer exactly the tools the prompt describes and the session runs.
+         * @brief Offer exactly the tools the prompt describes and the session can run here, and the system prompt's
+         *        passages about them.
          *
-         * Describing a tool nothing runs primes the model to call it, so one with no handler is left out.
+         * Describing a tool nothing runs primes the model to call it, so one with no handler is left out, and so is
+         * every tool that needs a folder where the grant holds none (AssistantInterface.md 5.5, *On a Mac*).
          */
         void offerTools()
         {
             Mila::Agents::Session& offering = session();
             offering.withoutTools();
+
+            std::set<std::string, std::less<>> offered;
 
             for ( const PromptTool& described : prompt_tools_ )
             {
@@ -1241,6 +1282,17 @@ namespace Mila::Desktop
                 {
                     continue;
                 }
+
+                const Mila::Agents::ToolNeeds& needs = handler->second.first;
+                const bool needs_folder = needs.reads_files || needs.writes_files || needs.runs_programs
+                    || described.name == kRequestFolderName;
+
+                if ( needs_folder && !folders_enforced_ )
+                {
+                    continue;
+                }
+
+                offered.insert( described.name );
 
                 Mila::Agents::Tool tool{
                     described.name,
@@ -1255,6 +1307,7 @@ namespace Mila::Desktop
                 offering.withTool( std::move( tool ) );
             }
 
+            offering.withSystemPrompt( prompt_.systemPromptFor( offered ) );
             applyTemplateVariables();
         }
 
@@ -1839,14 +1892,14 @@ namespace Mila::Desktop
                 search_key_file_.remove();
                 web_search_.reset();
                 handlers_.erase( std::string( WebSearch::kName ) );
-                refreshSearchPrompt();
+                refreshTools();
 
                 return;
             }
 
             search_key_file_.write( trimmed );
             useSearchKey( trimmed );
-            refreshSearchPrompt();
+            refreshTools();
         }
 
         void useSearchKey( const std::string& key )
@@ -1888,10 +1941,7 @@ namespace Mila::Desktop
                 container_problem_.clear();
                 handlers_.erase( std::string( CommandTool::kName ) );
 
-                if ( conversation_activity_ == "build" )
-                {
-                    usePrompt( promptFor( conversation_activity_ ) );
-                }
+                refreshTools();
 
                 return;
             }
@@ -1900,14 +1950,15 @@ namespace Mila::Desktop
 
             if ( container_ )
             {
-                send( "info", { { "text", "Commands can be run from the next Build & Code conversation." } } );
+                refreshTools();
+                send( "info", { { "text", "Mila can run commands in a chat's folder now." } } );
             } else {
                 sendError( std::format( "Commands cannot be run here: {}", container_problem_ ), "settings" );
             }
         }
 
         /**
-         * @brief Opens MXC from the session's own folder and finds the build tools, so Build & Code can offer
+         * @brief Opens MXC from the session's own folder and finds the build tools, so a chat with a folder can offer
          *        run_command; what failed is kept for Settings to show.
          */
         void useCommands()
@@ -2198,8 +2249,6 @@ namespace Mila::Desktop
                 { "detail", settings_.detail },
                 { "sampling", std::move( sampling ) },
                 { "modalities", std::move( modalities ) },
-                { "activities", nlohmann::ordered_json::array( { "ask", "build", "research", "tasks" } ) },
-                { "activity", conversation_activity_ },
                 { "folder", conversationFolder() },
                 { "plan", plan_.toJson() },
                 { "web_search", web_search_.has_value() },
@@ -2491,11 +2540,12 @@ namespace Mila::Desktop
         std::ostream& out_;
         SearchKeyFile search_key_file_;
 
-        // Every tool the session can run, by name, with what it declares it needs; offered when the activity's
-        // prompt describes it.
+        // Every tool the session can run, by name, with what it declares it needs; offered when the prompt describes it.
         std::map<std::string, std::pair<Mila::Agents::ToolNeeds, Handler>> handlers_;
 
-        // The tools the activity's prompt describes, for the line each call is shown with.
+        // The chat's prompt as read, its passages kept by the tools offered; and its tools as described, for the line
+        // each call is shown with.
+        PromptFile prompt_;
         std::vector<PromptTool> prompt_tools_;
         std::vector<Mila::Agents::Tool> milo_tools_;
 
@@ -2547,10 +2597,27 @@ namespace Mila::Desktop
         std::uint64_t install_total_{ 0 };
         int install_percent_{ -1 };
 
-        // The conversation's activity, and the folder its grant holds, in UTF-8, for those that have one
-        // (MilaDesktop.md 3.1).
-        std::string conversation_activity_ = "ask";
+        // The folder the chat's grant holds, in UTF-8, once it has one (AssistantInterface.md 5.5).
         std::optional<std::string> conversation_folder_;
+
+        // The folder the person chose in answer to request_folder, until its call takes it. Under approval_mutex_.
+        std::optional<std::string> chosen_folder_;
+
+        // Whether a grant can hold a folder on this computer: false off Windows until the grant's file checks exist
+        // there (ToolCalling.md 3.4), when no tool that needs one is offered. Found by asking for one.
+        bool folders_enforced_ = []
+            {
+                try
+                {
+                    Mila::Agents::ToolGrant probe( { { std::filesystem::temp_directory_path(), Mila::Agents::FolderAccess::Read } }, false );
+
+                    return true;
+                }
+                catch ( const std::invalid_argument& )
+                {
+                    return false;
+                }
+            }();
         TaskPlan plan_;
 
         // The conversation the session's history belongs to; empty until its first turn.

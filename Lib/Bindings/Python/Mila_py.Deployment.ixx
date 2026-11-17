@@ -32,5 +32,5 @@ namespace Mila::Bindings
      * @throws std::runtime_error when no model of that name is installed.
      */
     export std::optional<std::vector<std::string>> fittingWeightQuantizations(
-        const std::string& name, int device_index );
+        const std::string& name, std::optional<int> device_index );
 }

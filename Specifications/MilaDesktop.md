@@ -99,36 +99,19 @@ agent behaviour the library and the app do not yet have: a card is shown when it
 
 ## 3. Layout
 
-A sidebar on the left; on the right, the start of new work, or the work under way. Organised around activities,
+A sidebar on the left; on the right, the start of new work, or the work under way. Organised around the work,
 not models (section 1; decided 2026-10-26, section 9.7).
 
 ### 3.1 Activities
 
-Replaced by general-purpose chats, with no activity cards (Todd, 2026-11-16): `Apps/AssistantInterface.md` 5.5, at its
-phase 3. The cards went at its phase 2 (`0.21.0-dev+149`): the Mila bar starts *Ask & Explore*, a conversation stored in
-another activity opens in it with its tools and folder, and a new one in the others waits for phase 3. Until then, as
-built:
-
-An activity is what a person came to do. It is the app's vocabulary, and it decides what the app gives the agent
-for that work: which of the app's tools, the default rules for them (`ToolCalling.md` 3.3), the guidance in the
-system prompt, and the agent's limits. It does not name a model. A conversation keeps the activity it started in.
-
-| Card | What it is for | Shown when |
-|---|---|---|
-| **Ask & Explore** | Questions, explanations, ideas, working a problem through | Now: it needs no tools |
-| **Build & Code** | Writing, debugging and improving software in a folder the person chooses | The app's file tools exist (BACKLOG, "A model has no tools to read or edit files") and run through their grants ("Nothing keeps a tool inside the folder it was given"). With the experimental *Run commands* setting on and MXC available (3.7), `run_command` too: a Windows PowerShell command held to the folder and the build tools' folders, asked every time, with no internet unless the call asks for it (`ContainedPrograms.md` 5) |
-| **Research & Analyze** | Investigating a question across sources, comparing evidence | The app's web-reading tool exists: shown since 2026-10-26, reading the pages the person names or the model knows, through its grant: public addresses only (6.1). Web search with Tavily (Todd, 2026-10-26) once the person has given their own key in Settings (3.7). Analysing data by running code waits for a sandbox (`Vnext.md`) |
-| **Get Things Done** | An outcome to reach in steps: a plan the person approves before it runs, progress, a deliverable | Shown since 2026-10-26 (Todd), in the app's form: in a folder, with the file tools and web reading, and a plan the model proposes (`propose_plan`, always asked about) and marks step by step (`update_step`, allowed by rule), shown as a checklist above the box and kept with the conversation. A plan the person edits in place, and the task itself run and checked by `Mila::Agents` rather than by the model's own discipline, remain the goal (9.7) |
-
-A card whose work cannot yet be done is not shown, rather than shown disabled. Nothing guesses the activity from
-what a person types: guessing is a model call before the first token, or a guess. The box on the home screen
-starts *Ask & Explore*; a card is the way into the others. Changing an activity inside a conversation changes the
-agent's tools and so its system prompt, which costs a prefill of the whole conversation; whether to offer it is
-open (section 9.7).
+Replaced by general-purpose chats at `Apps/AssistantInterface.md` phase 3 (`0.21.0-dev+150`; Todd, 2026-11-16, no
+activity cards): every chat has one prompt and every tool its work can be done with here, and asks for a folder when
+its work first needs one (that document's 5.5). A conversation stored with an activity opens as a chat, its folder in
+its grant. The four activities, their cards and what each offered are in the history of this file before that change.
 
 ### 3.2 The model is Mila's choice
 
-What an activity needs -- a model whose manifest carries `agentic` (`ModelDistribution.md`), the context it works in, a modality -- is the
+What a chat needs -- a model whose manifest carries `agentic` (`ModelDistribution.md`), the context it works in, a modality -- is the
 library's vocabulary; which installed model meets it on this card, deployed how, is a question the library answers,
 not the app (the no-new-capability rule). That query does not exist yet: it would rank the installed models on
 what Mila has measured, never on a family name (BACKLOG, "What a model can do is inferred from its family name"),
@@ -138,7 +121,7 @@ a use case; choosing which installed model serves it goes one step past that nar
 `Mila::Agents`, not agreed. Until it exists, the app uses the model the session loads, as today.
 
 What has been measured today is one judgement, agentic or not, plus whether a model fits the card; on a 16 GB card
-every activity would choose the same model. That is expected: what differs between activities is what the agent
+every chat would choose the same model. That is expected: what differs between pieces of work is what the agent
 is given, not who runs it.
 
 **First run.** A fresh store has no model (CLAUDE.md), so the home screen with nothing installed recommends one
@@ -202,8 +185,8 @@ the overview's place while none is loaded:
 The person's caps on what Mila chose, in a small panel from the header. Every one defaults to Mila's choice, and a
 cap is a hard bound, not a preference: a reply that meets one stops and says so, with what it had done.
 
-- *Ask before* -- which of the activity's tools run without asking: the rules of `ToolCalling.md` 3.3, the
-  activity's defaults shown. Being allowed to proceed never widens what a tool may reach; that is its grant.
+- *Ask before* -- which of the chat's tools run without asking: the rules of `ToolCalling.md` 3.3, the
+  defaults shown. Being allowed to proceed never widens what a tool may reach; that is its grant.
 - *Time* and *length* of a reply -- `AgentLimits` (`+98`).
 - *Effort* -- only where the model's template has levels, from its default; a model without them shows none,
   since no layer invents a reasoning mode a model's template does not have.
@@ -249,9 +232,9 @@ quantization, *Load* (with the quantization choice for unquantized weights: none
 first); *Available to install* from the published list, *Install* with progress. A load or install that is refused
 shows the refusal's own text at the top of the area until the next load, install or remove. Once the selection of 3.2 exists, *Load* here is an override of Mila's choice, and says so.
 
-**The schema** (section 4) carries the activity and its folder: `session.state` lists the activities the session
-can start, `conversation.new` names one, and `conversations.list`, `conversation.loaded` and the stored conversation
-keep it. The folder is chosen in the window's own picker (`folder.choose`), never typed.
+**The schema** (section 4) carries the chat's folder: `session.state`, `conversations.list`, `conversation.loaded`
+and the stored conversation keep it. The folder is chosen in the window's own picker (`folder.choose`), never typed,
+when Mila asks for one (`Apps/AssistantInterface.md` 5.5).
 
 **Look:** light and dark follow the system. The palette and type follow the website
 (`Web/layouts/_default/baseof.html`), quieter. No animation beyond one turning ring wherever Mila is at work,
@@ -288,7 +271,7 @@ sends the page one of its own, `about`, when the page says `ready`.
 
 | type | fields | meaning |
 |---|---|---|
-| `session.state` | `model` (name or null), `loading` (the model a load is opening, while it does, or null: the header names it at once), `no_model_reason` (string or null), `context_length`, `context_automatic`, `context_used` (the tokens the conversation takes, system prompt and tools included: counted by the agent between turns, said by each round's start within one; null with no model resident), `compacts_at` (the prompt length at which the session's compaction policy compacts, or null), `thinking_capable`, `thinking` (`"off"`, `"on"` or the effort in effect), `effort` (the effort in effect, one of `effort_levels`, or null), `effort_levels` (the model's template's own effort values, in its order, or null where it has none), `detail` (`"off"`, `"thoughts"`, `"all"`), `sampling` ({`temperature`, `top_k`, `top_p`, `presence_penalty`}, each `{value, is_model_default}`), `modalities` (subset of `["image","audio"]`), `activities` (the activities this session can start, in card order, a subset of `["ask","build","research","tasks"]`), `activity` (the conversation's), `folder` (the conversation's project folder, or null), `plan` (Get Things Done's approved plan, [{`text`, `status`: `"pending"`, `"in_progress"`, `"done"` or `"skipped"`}], or null), `web_search` (bool: a search key is set; the key itself is never sent), `run_commands` (bool: the setting), `run_commands_problem` (why commands cannot run here, or null), `program_folders` (the folders commands may read, empty while they are off), `busy` (bool), `license_accepted` (bool: the person accepted the licence the package carries), `streams` ([{`stream_id`, `parent_stream_id` (or null), `conversation_id`, `busy`}]) | The whole session state. Sent after every change, never as a delta. |
+| `session.state` | `model` (name or null), `loading` (the model a load is opening, while it does, or null: the header names it at once), `no_model_reason` (string or null), `context_length`, `context_automatic`, `context_used` (the tokens the conversation takes, system prompt and tools included: counted by the agent between turns, said by each round's start within one; null with no model resident), `compacts_at` (the prompt length at which the session's compaction policy compacts, or null), `thinking_capable`, `thinking` (`"off"`, `"on"` or the effort in effect), `effort` (the effort in effect, one of `effort_levels`, or null), `effort_levels` (the model's template's own effort values, in its order, or null where it has none), `detail` (`"off"`, `"thoughts"`, `"all"`), `sampling` ({`temperature`, `top_k`, `top_p`, `presence_penalty`}, each `{value, is_model_default}`), `modalities` (subset of `["image","audio"]`), `folder` (the folder the chat's grant holds, or null), `plan` (the chat's approved plan, [{`text`, `status`: `"pending"`, `"in_progress"`, `"done"` or `"skipped"`}], or null), `web_search` (bool: a search key is set; the key itself is never sent), `run_commands` (bool: the setting), `run_commands_problem` (why commands cannot run here, or null), `program_folders` (the folders commands may read, empty while they are off), `busy` (bool), `license_accepted` (bool: the person accepted the licence the package carries), `streams` ([{`stream_id`, `parent_stream_id` (or null), `conversation_id`, `busy`}]) | The whole session state. Sent after every change, never as a delta. |
 | `license` | `text` (the licence the package carries beside the session, `License.md`, or null when it cannot be read), `sha256` (its digest, or null), `accepted` (bool), `problem` (why it cannot be read, or null) | Reply to `ready`, before `session.state`, and to `license.accept`. Until `accepted` the session refuses `model.install`, `model.load` and `turn.send` with `error`, and does not open the remembered model; an acceptance is kept in the settings by the text's digest, so a package carrying another text asks again (`Apps/AssistantOnboarding.md` 4.1). |
 | `models.list` | `installed` ([{`name`, `display_name`, `size_bytes`, `quantization`, `family`}]), `published` ([{`name`, `display_name`, `size_bytes`, `quantization`, `installed`, `license`, `agentic`, `thinking`, `tools`, `modalities`, `fits`, `agentic_here`, `context_length`, `why_not`}] or null when not fetched), `suggested` (a published `name`, or null) | Reply to `models.refresh`, and after install or remove. Each published model is planned on this computer for the request a load sends -- against the whole card when a model is resident, as a listing is (`Deployment.md` 12.5) -- and the list is the library's ranking, `suggested` its first that fits and takes turns (`Apps/AssistantOnboarding.md` 5). `display_name` is the manifest's name for a person to read ("Gemma 4 12B"), empty when it declares none; the page shows `name` then. |
 | `progress` | `task` (`"load"`, `"install"`, `"rebuild"`, `"restore"`), `label`, `done`, `total` (both null when unknown) | A long task's progress; a final one has `done == total`. `"restore"` is the model's memory coming back from the compressor or swap as Mila is used again, in bytes; a waiting turn's `turn.begin` follows it. The header shows the task in progress beside the model, a ring and its `label`, with no bar: a restore lasts seconds and its total is an estimate (Todd, 2026-11-13). |
@@ -300,8 +283,8 @@ sends the page one of its own, `about`, when the page says `ready`.
 | `turn.tool_result` | `turn_id`, `call_id`, `result`, `is_error` | The tool's result, fed back to the model. |
 | `turn.round_end` | `turn_id`, `round`, `prefill_ms`, `tokens_per_second`, `tokens`, `thought_tokens` (those of `tokens` the reasoning channel took; 0 when it did not open), `finish` (`turn.end`'s values, or `"tool_call"` for a round that ended in one) | One generate call ended. `thought_tokens` labels the round's thought block ("Thought for 412 tokens"), which the page cannot count from text. |
 | `turn.end` | `turn_id`, `finish` (`"stop"`, `"length"`, `"context"`, `"cancelled"`, `"error"`), `answer` (the parsed final answer) | The reply ended. `answer` is what the conversation keeps. |
-| `conversations.list` | `items` ([{`id`, `title`, `created` (ISO 8601), `updated` (ISO 8601), `model`, `activity`, `folder`, `progress`, `finish`, `wrote`, `reply_start`}]) | After any change to the store. A conversation stored before activities is `"ask"` with no folder. `progress`, `finish`, `wrote` and `reply_start` are what the workspace's places read (`Apps/AssistantInterface.md` 10). |
-| `conversation.loaded` | `id`, `title`, `model`, `activity`, `folder`, `messages` (section 4.3) | The conversation now in the main pane. |
+| `conversations.list` | `items` ([{`id`, `title`, `created` (ISO 8601), `updated` (ISO 8601), `model`, `folder`, `progress`, `finish`, `wrote`, `reply_start`}]) | After any change to the store. A conversation's stored activity is not read. `progress`, `finish`, `wrote` and `reply_start` are what the workspace's places read (`Apps/AssistantInterface.md` 10). |
+| `conversation.loaded` | `id`, `title`, `model`, `folder`, `messages` (section 4.3) | The conversation now in the main pane. |
 | `attachment.accepted` | `attachment_id`, `kind`, `name`, `size_bytes` | The session has read and decoded the file. |
 | `attachment.refused` | `attachment_id`, `reason` | Not found, not decodable, too large, or no such modality on this model. |
 | `info` | `text`, `during` (`"load"`, `"install"`, or absent) | A sentence the console would print with `printInfo`. Shown as a quiet line in the transcript; one said during a load or install is not shown in a conversation that has not begun, which keeps its screen. |
@@ -318,8 +301,8 @@ sends the page one of its own, `about`, when the page says `ready`.
 | `license.accept` | `sha256` (the digest of the text the person read, from `license`) | The person accepted the licence. One naming another text is refused with `error` (`during: "license"`). The reply is `license` and `session.state`, and the remembered model then opens. |
 | `turn.send` | `text`, `attachment_ids` | A user turn. Refused with `error` while `busy`. |
 | `turn.stop` | -- | Stop the reply in flight; it ends with `finish: "cancelled"`. A call waiting for approval is not run. |
-| `turn.tool_decision` | `turn_id`, `call_id`, `decision` (one of the approval's `choices`) | The person's answer to a `turn.tool_approval`. One for a call not waiting is ignored. |
-| `conversation.new` | `activity` (`"ask"` when absent), `folder` (for `"build"` and `"tasks"`) | Clear the session's history and start a new conversation in that activity: its system prompt and its tools (section 3.1). A `"build"` or `"tasks"` without a folder that exists, or an activity not in `session.state`'s `activities`, is refused with `error` (`during: "conversation"`) and the conversation is unchanged. |
+| `turn.tool_decision` | `turn_id`, `call_id`, `decision` (one of the approval's `choices`), `folder` (for `request_folder` allowed: the path the window's picker gave) | The person's answer to a `turn.tool_approval`. One for a call not waiting is ignored, and so is one allowing `request_folder` that names no folder. |
+| `conversation.new` | -- | Clear the session's history and start a new chat, with no folder (`Apps/AssistantInterface.md` 5.5). An `activity` or `folder` an older page sends is not read. |
 | `folder.choose` | -- | Handled by the window, which shows the system's folder picker and answers `folder.chosen`. |
 | `conversation.open` | `id` | Replace the session's history with that conversation's. |
 | `conversation.rename` | `id`, `title` | |
@@ -447,7 +430,7 @@ writing request lines and reading event lines is a complete client.
 
 It stays thin: a layer over `Mila::Agents` -- one agent at a time over one `Mila::Agents::Session` (`Direction.md` 4.3) --
 that translates between the schema and the agent (Todd, 2026-10-20; built `+105`). What it keeps of its own is the
-app's: its settings, its activities' prompts and tools, the words it says, and the round measurements, which are
+app's: its settings, its prompt and tools, the words it says, and the round measurements, which are
 diagnostics and so the consumer's. Anything the session process would have to grow to serve a client belongs in
 `Mila::Agents` instead.
 
@@ -467,7 +450,7 @@ section 9.1) (`Desktop.SessionProcess.ixx`, `Desktop.ConversationStore.ixx`):
   replaced is then loaded again (`Desktop.ResidentAgent.ixx`). A change of model clears the conversation; a change of
   context keeps it, refused below what the conversation already takes. The automatic context has no ceiling of the
   app's: the planner caps it at the model's trained maximum (`Notebooks/SessionInventory.md` decision 1).
-- **Activities** (3.1, 2026-10-26). A conversation is Ask & Explore, with the `ask` prompt and no tools, at the
+- **Activities** (3.1, 2026-10-26; replaced by one chat at `Apps/AssistantInterface.md` phase 3). A conversation was Ask & Explore, with the `ask` prompt and no tools, at the
   limits of a chat (four rounds; a reply runs to the context, as no publisher's card sets a length -- Todd,
   2026-11-13), or Build & Code, with the `files` prompt beside the
   program -- the activities' prompts are in `Apps/Desktop/Prompts`, read by `Desktop.PromptFile.ixx`, naming each tool Mila::Agents provides and describing each of the app's own -- and the file tools over the conversation's
@@ -552,12 +535,13 @@ context isolation on and Node integration off in the page. One engine (Chromium)
 ### 6.3 Conversation store
 
 The session process owns it, so every window gets it equally: one JSON file per conversation (section
-4.3 plus `id`, `title`, `model`, `activity`, `folder`, `plan`, `created`, `updated`, and `turns`, the history as the
+4.3 plus `id`, `title`, `model`, `folder`, `plan`, `created`, `updated`, and `turns`, the history as the
 model read it) in the app's folder, Mila, under the
 user's local application data, never in the model store's folders (6.1). An id is used as a file name only when it is made of
 the characters the store gives ids, so an id from the page cannot reach outside the folder. The title is the first user message, cut at a word under 60 characters. Opening a
-conversation replaces the session's history and takes its activity and folder; its next turn prefills it whole. A
-conversation whose folder no longer exists is not opened, and says so (`error`, `during: "conversation"`).
+conversation replaces the session's history and takes its folder; its next turn prefills it whole. A conversation
+whose folder no longer exists, or that cannot be granted on this computer, opens without it and says so (`info`). One
+stored before `0.21.0-dev+150` may carry an `activity`, which is not read.
 
 ### 6.4 Attachments
 

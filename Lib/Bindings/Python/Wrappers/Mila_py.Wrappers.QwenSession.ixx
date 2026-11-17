@@ -27,12 +27,12 @@ namespace Mila::Bindings
          *        weights' format rather than applying anything on the way in.
          */
         static std::unique_ptr<QwenSession> load(
-            const std::string& path, std::optional<std::int64_t> context_length, int device_index,
+            const std::string& path, std::optional<std::int64_t> context_length, std::optional<int> device_index,
             const std::string& quantization, const std::string& kv_cache );
 
         /// As GemmaSession::fromStore -- the record decides the quantization.
         static std::unique_ptr<QwenSession> fromStore(
-            const std::string& name, std::optional<std::int64_t> context_length, int device_index,
+            const std::string& name, std::optional<std::int64_t> context_length, std::optional<int> device_index,
             const std::string& kv_cache );
 
         /// As LlamaSession::generate -- tokens through the callback, why it stopped returned.

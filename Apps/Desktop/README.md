@@ -1,7 +1,7 @@
 # Mila Desktop
 
 Mila Desktop: a page (`Ui/`) over a `Mila::Agents` agent, hosted by an Electron window (`Window/`),
-which starts the session process (`Session/`). The activities' prompts are in `Prompts/`. The design of record is `Specifications/MilaDesktop.md`.
+which starts the session process (`Session/`). The chat's prompt and tools are in `Prompts/general.json`. The design of record is `Specifications/MilaDesktop.md`.
 For development the window can run the mock session (`Ui/mock/`) instead, which plays scripted scenarios.
 
 ## Building the app

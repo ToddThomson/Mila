@@ -5,6 +5,7 @@ import { imageAttachment } from './scenario-image-attachment.js';
 import { toolApproval } from './scenario-tool-approval.js';
 import { noModelLoaded } from './scenario-no-model.js';
 import { firstRun, firstRunOffline, licenseNotAccepted } from './scenario-first-run.js';
+import { folderRequest } from './scenario-folder-request.js';
 
 export const scenarios = [
     streamedReply,
@@ -13,7 +14,8 @@ export const scenarios = [
     firstRun,
     firstRunOffline,
     toolApproval,
-    licenseNotAccepted
+    licenseNotAccepted,
+    folderRequest
 ];
 
 export function findScenario( number )

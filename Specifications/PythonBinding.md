@@ -29,11 +29,11 @@ Complete as of `0.20.0-beta.2+45`. Source: `Lib/Bindings/Python/Mila_py.cpp`.
 |---|---|
 | `mila.initialize` | `log_level` = `trace \| info \| warning \| error` |
 | `mila.BpeTokenizer` | `from_store(name)`, `load_llama32`, `load_gemma`, `encode`, `decode`, `token_to_string`, `is_valid_token`, `vocab_size`, `bos_token_id`, `eos_token_id`, `pad_token_id` |
-| `mila.LlamaModel` | `from_store(name, context_length="auto", device_index=0)`, `load(path, context_length="auto", device_index=0, quantization="bf16")`, `generate(prompt_tokens, on_token, ...)`, `context_length`, `get_config`, `__repr__` |
-| `mila.GemmaModel` | `from_store(name, context_length="auto", device_index=0)`, `load(path, context_length="auto", device_index=0, quantization="fp4")`, `generate(prompt_tokens, on_token, ...)`, `context_length`, `get_config`, `__repr__` |
+| `mila.LlamaModel` | `from_store(name, context_length="auto", device_index=None)`, `load(path, context_length="auto", device_index=None, quantization="bf16")`, `generate(prompt_tokens, on_token, ...)`, `context_length`, `get_config`, `__repr__` |
+| `mila.GemmaModel` | `from_store(name, context_length="auto", device_index=None)`, `load(path, context_length="auto", device_index=None, quantization="fp4")`, `generate(prompt_tokens, on_token, ...)`, `context_length`, `get_config`, `__repr__` |
 | `mila.QwenModel` | as `GemmaModel`; `load` also takes `quantization="cb2-3"` |
 | `mila.ModelStore` | `root`, `list`, `locate`, `remove`, `usage`, `install`, `pull`, `list_hub_models` |
-| `mila.fitting_weight_quantizations` | `(name, device_index=0)` → the weight formats an installed model runs at on the card, stored format first; `[]` when none fits. `mila.stored_weight_quantization(name)` names the stored one |
+| `mila.fitting_weight_quantizations` | `(name, device_index=None)` → the weight formats an installed model runs at on the card, stored format first; `[]` when none fits. `mila.stored_weight_quantization(name)` names the stored one |
 | `mila.StopController` | `request_stop`, `stop_requested` |
 
 **`generate` is the shape `LanguageModel::generate` already has** — prompt and callback in, a

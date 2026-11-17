@@ -1,7 +1,8 @@
 /**
  * @file PromptFile.cpp
- * @brief Mila Desktop's activity prompts load as shipped, each tool's schema reaches the model as its file writes it,
- *        a prompt that is wrong is refused by name, and a call is shown by its tool's summary (MilaDesktop.md 3.1).
+ * @brief Mila Assistant's prompt loads as shipped, its passages follow the tools offered, each tool's schema reaches
+ *        the model as its file writes it, a prompt that is wrong is refused by name, and a call is shown by its tool's
+ *        summary (AssistantInterface.md 5.5).
  */
 
 #include <gtest/gtest.h>
@@ -10,6 +11,8 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <functional>
+#include <set>
 #include <source_location>
 #include <stdexcept>
 #include <string>
@@ -81,36 +84,76 @@ namespace Mila::Tests::Apps::Desktop
         };
     }
 
-    TEST( PromptFileShipped, EveryActivitysPromptLoadsWithItsTools )
+    TEST( PromptFileShipped, TheChatsPromptLoadsWithEveryTool )
     {
-        const std::vector<std::pair<std::string_view, std::size_t>> expected{
-            { "ask.json", 0 }, { "files.json", 6 }, { "files-commands.json", 7 }, { "research.json", 1 },
-            { "research-search.json", 2 }, { "tasks.json", 9 }, { "tasks-search.json", 10 } };
-
         std::vector<Mila::Agents::Tool> provided = Mila::Agents::FileTools::tools();
         provided.push_back( Mila::Agents::WebPageReader::tool() );
 
-        for ( const auto& [name, tools] : expected )
+        const PromptFile prompt = PromptFile::load( shippedPrompts() / "general.json" );
+
+        EXPECT_EQ( prompt.tools.size(), 12u );
+
+        for ( const PromptTool& tool : prompt.tools )
         {
-            const PromptFile prompt = PromptFile::load( shippedPrompts() / name );
-
-            EXPECT_FALSE( prompt.system_prompt.empty() ) << name;
-            EXPECT_EQ( prompt.tools.size(), tools ) << name;
-
-            for ( const PromptTool& tool : prompt.tools )
+            // A tool the file only names is one Mila::Agents provides; the session takes the rest from it.
+            if ( tool.description.empty() )
             {
-                // A tool the file only names is one Mila::Agents provides; the session takes the rest from it.
-                if ( tool.description.empty() )
-                {
-                    EXPECT_NE( std::ranges::find( provided, tool.name, &Mila::Agents::Tool::name ), provided.end() ) << name << " " << tool.name;
+                EXPECT_NE( std::ranges::find( provided, tool.name, &Mila::Agents::Tool::name ), provided.end() ) << tool.name;
 
-                    continue;
-                }
-
-                EXPECT_TRUE( tool.parameters.starts_with( R"({"type":"object")" ) ) << name << " " << tool.name;
-                EXPECT_FALSE( tool.summary.empty() ) << name << " " << tool.name;
+                continue;
             }
+
+            EXPECT_TRUE( tool.parameters.starts_with( R"({"type":"object")" ) ) << tool.name;
+            EXPECT_FALSE( tool.summary.empty() ) << tool.name;
         }
+    }
+
+    // A prompt naming a tool not offered draws calls of it, so no passage names a tool the chat was not given.
+    TEST( PromptFileShipped, ThePromptNamesOnlyTheToolsOffered )
+    {
+        const PromptFile prompt = PromptFile::load( shippedPrompts() / "general.json" );
+        const std::set<std::string, std::less<>> mac{ "propose_plan", "update_step", "read_web_page" };
+        const std::set<std::string, std::less<>> windows{ "propose_plan", "update_step", "read_web_page", "web_search",
+            "request_folder", "list_folder", "read_file", "find_files", "search_text", "write_file", "edit_file" };
+
+        const std::string on_mac = prompt.systemPromptFor( mac );
+        const std::string on_windows = prompt.systemPromptFor( windows );
+
+        for ( const std::string_view absent : { "web_search", "request_folder", "list_folder", "edit_file", "run_command" } )
+        {
+            EXPECT_EQ( on_mac.find( absent ), std::string::npos ) << absent;
+        }
+
+        EXPECT_NE( on_mac.find( "read_web_page" ), std::string::npos );
+        EXPECT_NE( on_mac.find( "You cannot search the web" ), std::string::npos );
+        EXPECT_NE( on_windows.find( "request_folder" ), std::string::npos );
+        EXPECT_NE( on_windows.find( "web_search" ), std::string::npos );
+        EXPECT_EQ( on_windows.find( "You cannot search the web" ), std::string::npos );
+        EXPECT_EQ( on_windows.find( "run_command" ), std::string::npos );
+    }
+
+    TEST_F( PromptFileTest, APassageIsKeptByTheToolItNamesAndLeftOutByTheOneItStandsInFor )
+    {
+        const PromptFile prompt = PromptFile::load( store( R"({ "system_prompt": [ "Always.",
+            { "when": "read", "text": "Read." }, { "when": "read", "unless": "search", "text": "No search." } ] })" ) );
+
+        EXPECT_EQ( prompt.systemPromptFor( {} ), "Always." );
+        EXPECT_EQ( prompt.systemPromptFor( { "read" } ), "Always. Read. No search." );
+        EXPECT_EQ( prompt.systemPromptFor( { "read", "search" } ), "Always. Read." );
+    }
+
+    TEST_F( PromptFileTest, ASystemPromptWrittenAsOneTextIsOnePassage )
+    {
+        const PromptFile prompt = PromptFile::load( store( R"({ "system_prompt": "Help." })" ) );
+
+        EXPECT_EQ( prompt.systemPromptFor( { "read" } ), "Help." );
+    }
+
+    TEST_F( PromptFileTest, APassageWithNoTextIsRefused )
+    {
+        EXPECT_NE( refusal( R"({ "system_prompt": [ { "when": "read" } ] })" ).find( "passage" ), std::string::npos );
+        EXPECT_NE( refusal( R"({ "system_prompt": [ { "when": 3, "text": "Read." } ] })" ).find( "when" ), std::string::npos );
+        EXPECT_NE( refusal( R"({ "system_prompt": [] })" ).find( "system_prompt" ), std::string::npos );
     }
 
     TEST_F( PromptFileTest, AToolsSchemaKeepsTheKeysInTheOrderTheFileWritesThem )

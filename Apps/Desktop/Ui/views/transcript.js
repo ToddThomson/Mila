@@ -54,6 +54,9 @@ export function createTranscriptView( scroller, container, actions )
         if ( action === 'tool-decision' )
             actions.decideTool( target.dataset.turn, target.dataset.call, target.dataset.decision );
 
+        if ( action === 'choose-folder' )
+            actions.chooseFolder( target.dataset.turn, target.dataset.call );
+
         if ( action === 'load-model' )
         {
             const message = { type: 'model.load', name: target.dataset.name, quantization: null };
@@ -900,6 +903,13 @@ function updateApproval( built, block )
     if ( block.choices === null )
         return;
 
+    if ( block.name === 'request_folder' )
+    {
+        folderQuestion( built, block );
+
+        return;
+    }
+
     const reaches = reachesList( block.reaches );
 
     if ( reaches !== null )
@@ -917,6 +927,25 @@ function updateApproval( built, block )
         choiceButton.dataset.decision = choice;
         built.approval.append( choiceButton );
     }
+}
+
+/**
+ * Mila asking for a folder (AssistantInterface.md 5.5): the call's line already says why, and the answer is the
+ * picker, since the folder chosen is what the answer gives.
+ */
+function folderQuestion( built, block )
+{
+    const question = element( 'span', 'tool-question', 'Give this chat a folder?' );
+    const choose = button( 'chip-button', 'Choose a folder', 'choose-folder' );
+    choose.dataset.turn = block.turnId;
+    choose.dataset.call = block.callId;
+
+    const decline = button( 'chip-button quiet', 'Not now', 'tool-decision' );
+    decline.dataset.turn = block.turnId;
+    decline.dataset.call = block.callId;
+    decline.dataset.decision = 'deny';
+
+    built.approval.append( question, choose, decline );
 }
 
 /**

@@ -637,7 +637,8 @@ new dimension of the planner, not beside it. *The allowed devices are built (12.
    is planned alone; plans rank by section 5's rules 3 and 4 across devices, and plans equal on both keep device
    order, the order a request with no device chose before, since nothing ranks by speed yet (12.9). A request that
    names a device of another type than the model's is malformed until the handle chooses the type (`ModelHandle.md`
-   10.7). The apps still pass the one device they passed before; their settings forms (`LayerSplit.md` 8) follow the
+   10.7). With no device set, Chat, Mila Assistant's session and the Python binding allow every GPU of the build's type
+   (`LayerSplit.md` 12.3, since `0.21.0-dev+150`); their settings forms (`LayerSplit.md` 8) follow the
    handle.
 
    **A device is named two ways, and a stored setting by the one that does not move. *Decided 2026-11-07

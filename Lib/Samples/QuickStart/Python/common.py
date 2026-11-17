@@ -233,7 +233,7 @@ def resolve_paths(family, weights=None, tokenizer=None):
 # Loading
 # ---------------------------------------------------------------------------
 
-def load(mila, family, weights, tokenizer, context_length="auto", device_index=0, quantization=None):
+def load(mila, family, weights, tokenizer, context_length="auto", device_index=None, quantization=None):
     """
     Load a tokenizer and model pair for the given family, from loose weights and
     tokenizer files.
@@ -262,7 +262,7 @@ def load(mila, family, weights, tokenizer, context_length="auto", device_index=0
     )
 
 
-def load_from_store(mila, name, context_length="auto", device_index=0):
+def load_from_store(mila, name, context_length="auto", device_index=None):
     """
     Load an installed model by the name the store lists it under.
 

@@ -1,4 +1,4 @@
-# Mila Desktop's tests: its settings file, licence and activity prompts (MilaDesktop.md 3.1, 3.7), which need no model.
+# Mila Desktop's tests: its settings file, licence and prompt (AssistantInterface.md 5.5, MilaDesktop.md 3.7), which need no model.
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
 include( GoogleTest )
@@ -24,6 +24,7 @@ PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Settings/Desktop.SettingsFile.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Settings/Desktop.MilaLicense.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Tools/Desktop.PromptTool.ixx"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Tools/Desktop.PromptPart.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Tools/Desktop.PromptFile.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Desktop.ConversationSummary.ixx"
 )

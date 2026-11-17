@@ -113,7 +113,8 @@ def parse_args():
     parser.add_argument("--tokenizer", help="Path to the tokenizer .bin, with --weights.")
     parser.add_argument("--context-length", type=common.context_length_argument, default="auto",
                         help="Tokens the model holds, or 'auto' for the longest the GPU can hold (default).")
-    parser.add_argument("--device-index", type=int, default=0)
+    parser.add_argument("--device-index", type=int, default=None,
+                        help="CUDA device ordinal. Unset, Mila chooses the card.")
     parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument("--temperature", type=float, default=0.6)
     parser.add_argument("--top-k", type=int, default=40)

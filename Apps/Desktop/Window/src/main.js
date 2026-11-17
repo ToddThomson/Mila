@@ -118,12 +118,12 @@ function openLink( url )
 }
 
 /**
- * The project folder comes from the system's own picker, so the page never names a path the
- * person did not choose.
+ * The folder Mila asked for (AssistantInterface.md 5.5) comes from the system's own picker, so the page never names
+ * a path the person did not choose.
  */
 async function chooseFolder()
 {
-    const options = { title: 'Choose a project folder', properties: [ 'openDirectory', 'createDirectory' ] };
+    const options = { title: 'Choose a folder for Mila', properties: [ 'openDirectory', 'createDirectory' ] };
     const choice = await dialog.showOpenDialog( mainWindow, options );
     const chosen = choice.canceled || choice.filePaths.length === 0 ? null : choice.filePaths[ 0 ];
     const message = { v: 1, type: 'folder.chosen', path: chosen };

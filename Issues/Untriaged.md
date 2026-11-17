@@ -10,6 +10,24 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## A reply that falls into repeating itself runs for hours in Mila Assistant, with nothing but the person to stop it
+
+`Apps/Desktop/Session/Src/Desktop.SessionProcess.ixx` (`useActivity`, `AgentLimits{}`); `Specifications/MilaDesktop.md` 3.6 and the *Activities* decision ("a reply runs to the context", Todd, 2026-11-13) @ 0.21.0-dev+149
+
+Found 2026-11-17 measuring AssistantInterface.md 5.5 on the Mac (Gemma 4 12B Q4_0, thinking on, the publisher's
+sampling, context 262,144 automatic): with Get Things Done's prompt and tools, "Make me a packing list for a weekend
+hiking trip, then turn it into a checklist grouped by category", two `propose_plan` calls declined, then one round of
+132,843 tokens (602,765 characters) of gear names repeated, 2 h 52 min, cut off by the measuring script's three-hour
+limit with the context at 134,707. At that rate it would have run to the context in about five and a half hours
+(*arithmetic*). The other 125 turns of the run ended on their own. Not known: how often, on which models, whether the
+two declines lead to it, and whether llama.cpp's sampling of the same model loops on the same prompt. Data
+`~/mila-work/phase3/full/tasks.jsonl` and `store-tasks` on the Mac.
+
+Again the same day on the PC's RTX 4070 (the session's default card, unpinned), Gemma 4 12B **FP4** (not the format it
+was trained in) at automatic context with the one general prompt of AssistantInterface.md 5.5: after `request_folder` was answered, the reply was "IsNullOrThought", one a line, until the
+driving script's ten-minute limit; the conversation stored only the question. The same question on Q4_0, twice, was
+answered correctly. Not known whether FP4 loops more often. Script `D:\Claude\phase3\realfolder\drive.mjs`.
+
 ## A model's licence on Mila Assistant's first-run card is a name, with no way to read its text
 
 `Apps/Desktop/Ui/views/transcript.js` (`renderSuggestion`, *Licence:*), `Apps/Desktop/Session/Src/Desktop.Models.ixx` (`publishedModels`, `license`) @ 0.21.0-dev+146

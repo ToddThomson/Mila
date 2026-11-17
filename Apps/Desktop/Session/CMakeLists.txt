@@ -18,6 +18,7 @@ PUBLIC
         "Src/Settings/Desktop.SettingsFile.ixx"
         "Src/Settings/Desktop.MilaLicense.ixx"
         "Src/Tools/Desktop.PromptTool.ixx"
+        "Src/Tools/Desktop.PromptPart.ixx"
         "Src/Tools/Desktop.PromptFile.ixx"
         "Src/Desktop.Models.ixx"
         "Src/Desktop.RoundTimer.ixx"

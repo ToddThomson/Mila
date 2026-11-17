@@ -589,55 +589,89 @@ function loadingAModelReportsProgressThenTheNewState()
 
 test( 'loading a model reports progress, then the new state', loadingAModelReportsProgressThenTheNewState );
 
-function aBuildConversationStartsOnlyInAFolder()
+function aChatBeginsWithNoFolderWhateverItAsksFor()
 {
     const { events, session } = startSession( 1 );
-    const withoutFolder = { v: 1, type: 'conversation.new', activity: 'build' };
-    const withFolder = { v: 1, type: 'conversation.new', activity: 'build', folder: 'C:\\Projects\\calc' };
+    const older = { v: 1, type: 'conversation.new', activity: 'build', folder: 'C:\Projects\calc' };
 
-    session.handle( withoutFolder );
+    session.handle( older );
 
-    const refused = ofType( events, 'error' );
-    assert.equal( refused.length, 1 );
-    assert.equal( refused[ 0 ].during, 'conversation' );
-    assert.equal( ofType( events, 'session.state' ).length, 0 );
+    assert.equal( ofType( events, 'error' ).length, 0 );
 
-    session.handle( withFolder );
-
-    const states = ofType( events, 'session.state' );
-    const state = states[ states.length - 1 ];
-    assert.deepEqual( state.activities, [ 'ask', 'build', 'research', 'tasks' ] );
-    assert.equal( state.activity, 'build' );
-    assert.equal( state.folder, 'C:\\Projects\\calc' );
+    const state = ofType( events, 'session.state' ).pop();
+    assert.equal( state.folder, null );
+    assert.equal( state.activity, undefined );
+    assert.equal( state.activities, undefined );
 }
 
-test( 'a build conversation starts only in a folder', aBuildConversationStartsOnlyInAFolder );
+test( 'a chat begins with no folder, whatever an older page asks for', aChatBeginsWithNoFolderWhateverItAsksFor );
 
-function aConversationKeepsItsActivityAndFolder()
+function decideFolder( session, events, decision, folder )
 {
-    const { clock, events, session } = startSession( 1 );
-    const start = { v: 1, type: 'conversation.new', activity: 'build', folder: 'C:\\Projects\\calc' };
+    const approval = ofType( events, 'turn.tool_approval' ).pop();
+    const request = { v: 1, type: 'turn.tool_decision', stream_id: 'stream-1', turn_id: approval.turn_id,
+        call_id: approval.call_id, decision };
 
-    session.handle( start );
-    sendTurn( session, 'Hello' );
-    clock.run();
+    if ( folder !== undefined )
+        request.folder = folder;
 
-    const lists = ofType( events, 'conversations.list' );
-    const items = lists[ lists.length - 1 ].items;
-    const stored = items.find( ( item ) => item.title === 'Hello' );
-    assert.equal( stored.activity, 'build' );
-    assert.equal( stored.folder, 'C:\\Projects\\calc' );
+    session.handle( request );
+
+    return approval;
+}
+
+function aFolderMilaAsksForIsChosenAndKeptWithTheChat()
+{
+    const { clock, events, session } = startSession( 14 );
 
     session.handle( { v: 1, type: 'conversation.new' } );
-    session.handle( { v: 1, type: 'conversation.open', id: stored.id } );
+    sendTurn( session, 'Can you tidy up the README in my calculator project?' );
+    clock.run();
 
-    const loaded = ofType( events, 'conversation.loaded' ).pop();
-    assert.equal( loaded.activity, 'build' );
-    assert.equal( loaded.folder, 'C:\\Projects\\calc' );
-    assert.equal( ofType( events, 'session.state' ).pop().activity, 'build' );
+    const approval = ofType( events, 'turn.tool_approval' ).pop();
+    assert.deepEqual( approval.choices, [ 'allow_once', 'deny' ], 'a folder is chosen each time it is asked for' );
+
+    // An answer that allows it must name the folder; one that does not is not taken.
+    decideFolder( session, events, 'allow_once' );
+    clock.run();
+    assert.equal( ofType( events, 'turn.end' ).length, 0 );
+
+    decideFolder( session, events, 'allow_once', 'C:\Projects\calc' );
+    clock.run();
+
+    assert.equal( ofType( events, 'turn.end' ).pop().finish, 'stop' );
+    assert.equal( ofType( events, 'session.state' ).pop().folder, 'C:\Projects\calc' );
+
+    const items = ofType( events, 'conversations.list' ).pop().items;
+    const stored = items.find( ( item ) => item.folder === 'C:\Projects\calc' );
+    assert.notEqual( stored, undefined );
+
+    session.handle( { v: 1, type: 'conversation.new' } );
+    assert.equal( ofType( events, 'session.state' ).pop().folder, null );
+
+    session.handle( { v: 1, type: 'conversation.open', id: stored.id } );
+    assert.equal( ofType( events, 'conversation.loaded' ).pop().folder, 'C:\Projects\calc' );
+    assert.equal( ofType( events, 'session.state' ).pop().folder, 'C:\Projects\calc' );
 }
 
-test( 'a conversation keeps its activity and folder', aConversationKeepsItsActivityAndFolder );
+test( 'a folder Mila asks for is chosen, and kept with the chat', aFolderMilaAsksForIsChosenAndKeptWithTheChat );
+
+function aFolderDeclinedLeavesTheChatWithout()
+{
+    const { clock, events, session } = startSession( 14 );
+
+    session.handle( { v: 1, type: 'conversation.new' } );
+    sendTurn( session, 'Can you tidy up the README in my calculator project?' );
+    clock.run();
+
+    decideFolder( session, events, 'deny' );
+    clock.run();
+
+    assert.equal( ofType( events, 'turn.end' ).pop().finish, 'stop' );
+    assert.equal( ofType( events, 'session.state' ).pop().folder, null );
+}
+
+test( 'a folder declined leaves the chat without one', aFolderDeclinedLeavesTheChatWithout );
 
 function aSearchKeyIsSaidToBeSetButNeverSentBack()
 {

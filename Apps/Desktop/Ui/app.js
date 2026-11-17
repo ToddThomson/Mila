@@ -34,6 +34,9 @@ let shownPlace = null;
 // A turn to send once a chat opened from a button has loaded: "Ask Mila to finish".
 let afterOpen = null;
 
+// The request_folder call waiting on the window's picker, until it answers.
+let folderFor = null;
+
 const surface = {
     narrow: narrowQuery.matches,
     sidebarOverlay: false,
@@ -114,7 +117,7 @@ function openConversation( identifier, then )
 /** A new conversation is the bar's; from a chat the person goes back to the workspace to begin it. */
 function newConversation()
 {
-    send( { type: 'conversation.new', activity: 'ask' } );
+    send( { type: 'conversation.new' } );
 
     if ( state.place === 'chat' )
         dispatch( { type: 'place.open', place: 'workspace' } );
@@ -134,7 +137,7 @@ function sendTurn( text, attachmentIds )
     {
         const waiting = state.attachments;
 
-        send( { type: 'conversation.new', activity: 'ask' } );
+        send( { type: 'conversation.new' } );
         dispatch( { type: 'attachments.keep', attachments: waiting } );
     }
 
@@ -166,7 +169,11 @@ function closeSettings()
 function onTransportMessage( message )
 {
     if ( message.type === 'folder.chosen' )
+    {
+        folderChosen( message.path );
+
         return;
+    }
 
     dispatch( message );
 
@@ -179,11 +186,37 @@ function onTransportMessage( message )
     }
 }
 
-function decideTool( turnId, callId, decision )
+function decideTool( turnId, callId, decision, folder )
 {
     const stream = streamIdentifier( state );
+    const message = { type: 'turn.tool_decision', stream_id: stream, turn_id: turnId, call_id: callId, decision };
 
-    send( { type: 'turn.tool_decision', stream_id: stream, turn_id: turnId, call_id: callId, decision } );
+    if ( folder !== undefined )
+        message.folder = folder;
+
+    send( message );
+}
+
+/**
+ * Mila asked for a folder (AssistantInterface.md 5.5): the window's picker chooses it, so the page never names a path
+ * the person did not pick, and the choice is the call's answer.
+ */
+function chooseFolder( turnId, callId )
+{
+    folderFor = { turnId, callId };
+    transport.send( { type: 'folder.choose' } );
+}
+
+/** A picker closed without a choice leaves the question waiting. */
+function folderChosen( path )
+{
+    const asking = folderFor;
+    folderFor = null;
+
+    if ( asking === null || typeof path !== 'string' || path.length === 0 )
+        return;
+
+    decideTool( asking.turnId, asking.callId, 'allow_once', path );
 }
 
 function openLink( url )
@@ -214,6 +247,7 @@ const actions = {
     openSearch: () => search.open(),
     openLicense: () => license.open(),
     decideTool,
+    chooseFolder,
     openLink,
     shortcutLabel,
     transmit: ( message ) => transport.send( message ),

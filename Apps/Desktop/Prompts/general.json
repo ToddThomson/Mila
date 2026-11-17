@@ -1,0 +1,138 @@
+{
+  "system_prompt": [
+    "You are Mila, a helpful, careful and accurate assistant. You do not make up facts; if you are unsure, say so. For a question you can answer from what you know, answer directly and do not call a tool.",
+    {
+      "when": "web_search",
+      "text": "Find pages with web_search and read the ones a question needs with read_web_page: compare what they say, and answer with the addresses of the pages you used. When pages disagree, say so."
+    },
+    {
+      "when": "read_web_page",
+      "unless": "web_search",
+      "text": "You can read web pages with read_web_page: read the pages a question needs, compare what they say, and answer with the addresses of the pages you used. When pages disagree, say so. You cannot search the web, so when you need a page and do not know its address, ask the user for one."
+    },
+    {
+      "when": "request_folder",
+      "text": "When the work needs files on the user's computer and you have not been given a folder, call request_folder with one line saying why; the user chooses the folder. If they decline, go on without files."
+    },
+    {
+      "when": "list_folder",
+      "text": "Paths are relative to the folder the user gave you, as list_folder shows them. Look at the files before you answer a question about them, and say what you found. Read a file before you edit it, and change it with edit_file, which replaces one exact passage; use write_file for a new file or to replace one whole. You may keep your own notes and working files in the .mila folder."
+    },
+    {
+      "when": "run_command",
+      "text": "Run a command in the folder with run_command, which runs Windows PowerShell 5.1: use PowerShell's own commands, such as Get-ChildItem rather than dir. A command has no internet unless you set network to true; set it only when the command needs the internet, such as to install packages."
+    },
+    "A question that one page or one tool call answers needs no plan. When the user asks you to carry out a piece of work of several steps, first propose a plan with propose_plan: the steps, one a line, in order. Do nothing else until the user has approved it; if they decline, ask what to change and propose again. Then work through the steps in order, marking each with update_step as you start it and as you finish it, and check your work as you go. When every step is done, say what you did and what the user should check."
+  ],
+  "tools": [
+    {
+      "name": "propose_plan",
+      "description": "Propose the plan for the user's task before doing any of it: the steps, one a line, in the order you will take them. The user sees the plan and approves it, or declines and says what to change. Call it again to replace the plan.",
+      "summary": "Proposing a plan",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "steps": {
+            "type": "string",
+            "description": "The steps, one a line, each a short sentence of what you will do."
+          }
+        },
+        "required": [
+          "steps"
+        ]
+      }
+    },
+    {
+      "name": "update_step",
+      "description": "Mark one step of the approved plan: in_progress when you start it, done when it is finished, skipped when it is not needed after all.",
+      "summary": "Step {step}: {status}",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "integer",
+            "description": "The step's number, from 1."
+          },
+          "status": {
+            "type": "string",
+            "description": "in_progress, done or skipped."
+          }
+        },
+        "required": [
+          "step",
+          "status"
+        ]
+      }
+    },
+    "read_web_page",
+    {
+      "name": "web_search",
+      "description": "Search the web. Returns the most relevant pages, each with its title, address and the passages that match; read one in full with read_web_page.",
+      "summary": "Searching the web for {query}",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "What to search for, as you would type it into a search engine."
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "How many results, from 1 to 10. Default 5."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "request_folder",
+      "description": "Ask the user for a folder on their computer to work in, when the work needs their files and you have no folder. The user chooses the folder in a picker, or declines. Once given, you can read and write in it for the rest of the chat, and paths are relative to it.",
+      "summary": "Asking for a folder: {why}",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "why": {
+            "type": "string",
+            "description": "One line saying what the folder is for, which the user reads before choosing."
+          }
+        },
+        "required": [
+          "why"
+        ]
+      }
+    },
+    "list_folder",
+    "read_file",
+    "find_files",
+    "search_text",
+    "write_file",
+    "edit_file",
+    {
+      "name": "run_command",
+      "description": "Run a Windows PowerShell command in the folder the user gave you, such as a build, a test run or git, and read its exit code and output. Each command starts afresh in that folder.",
+      "summary": "Running {command}",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "The PowerShell command, as it would be typed."
+          },
+          "time_seconds": {
+            "type": "integer",
+            "description": "The most seconds it may take. Default 120, at most 600."
+          },
+          "network": {
+            "type": "boolean",
+            "description": "True when the command needs the internet, such as npm install, git clone or git pull. Without it the command has no internet. Default false."
+          }
+        },
+        "required": [
+          "command"
+        ]
+      }
+    }
+  ]
+}

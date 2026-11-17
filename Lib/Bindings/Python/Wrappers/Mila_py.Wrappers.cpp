@@ -347,11 +347,15 @@ namespace Mila::Bindings
          * serve it is refused by the library when the load plans.
          */
         DeploymentRequest sessionRequest(
-            std::optional<std::int64_t> context_length, int device_index, const std::string& kv_cache,
+            std::optional<std::int64_t> context_length, std::optional<int> device_index, const std::string& kv_cache,
             const std::string& subject )
         {
+            // No device named allows every CUDA device, and the planner gives the model the card where it gets the
+            // longest context (LayerSplit.md 12.3, Todd, 2026-11-17).
             DeploymentRequest request;
-            request.withAllowedDevices( DeviceId{ DeviceType::Cuda, device_index } );
+            request.withAllowedDevices( device_index
+                ? AllowedDevices( DeviceId{ DeviceType::Cuda, *device_index } )
+                : AllowedDevices::parse( deviceTypeToString( DeviceType::Cuda ) ) );
 
             if ( kv_cache == "fp8" )
             {
@@ -380,23 +384,10 @@ namespace Mila::Bindings
             return std::format( "{:.2f} GB", static_cast<double>( bytes ) / ( 1024.0 * 1024.0 * 1024.0 ) );
         }
 
-        /**
-         * @brief A refused deployment in this binding's words: what does not fit, against what, and what
-         *        to try.
-         *
-         * The library names the reason and the numbers; the sentence belongs to whoever presents it
-         * (Deployment.md section 6).
-         */
-        std::string describeRefusal(
-            const std::string& subject, int device_index, const DeploymentRefusal& refusal )
+        /// Why one device could not hold the model, named by its CUDA index.
+        std::string describeShortfall( const std::string& subject, const DeviceShortfall& shortfall )
         {
-            // A session allows one device, so a refusal that planned anything planned exactly that one.
-            if ( refusal.shortfalls().empty() )
-            {
-                return std::format( "'{}' cannot load: this computer has no CUDA device {}.", subject, device_index );
-            }
-
-            const DeviceShortfall& shortfall = refusal.shortfalls().front();
+            const int device_index = shortfall.reading().device.index;
             const std::string free = formatGigabytes( shortfall.reading().free_bytes );
 
             switch ( shortfall.reason() )
@@ -428,7 +419,36 @@ namespace Mila::Bindings
                         device_index, subject );
             }
 
-            return refusal.toString();
+            return std::format( "'{}' does not fit on CUDA device {}.", subject, device_index );
+        }
+
+        /**
+         * @brief A refused deployment in this binding's words: what does not fit, against what, and what
+         *        to try.
+         *
+         * The library names the reason and the numbers; the sentence belongs to whoever presents it
+         * (Deployment.md section 6).
+         */
+        std::string describeRefusal(
+            const std::string& subject, std::optional<int> device_index, const DeploymentRefusal& refusal )
+        {
+            if ( refusal.shortfalls().empty() )
+            {
+                return device_index
+                    ? std::format( "'{}' cannot load: this computer has no CUDA device {}.", subject, *device_index )
+                    : std::format( "'{}' cannot load: this computer has no CUDA device.", subject );
+            }
+
+            // With every device allowed, each was planned and none fitted: one sentence for each.
+            std::string described;
+
+            for ( const DeviceShortfall& shortfall : refusal.shortfalls() )
+            {
+                described += described.empty() ? "" : " ";
+                described += describeShortfall( subject, shortfall );
+            }
+
+            return described;
         }
 
         /// What a session samples with when a knob is not given: the model's settings and its template's thinking.
@@ -515,7 +535,7 @@ namespace Mila::Bindings
         template<typename TModel>
         std::unique_ptr<TModel> loadDeployment(
             const std::filesystem::path& weights, const DeploymentRequest& request,
-            const std::string& subject, int device_index )
+            const std::string& subject, std::optional<int> device_index )
         {
             try
             {
@@ -868,7 +888,7 @@ namespace Mila::Bindings
     LlamaSession::~LlamaSession() = default;
 
     std::unique_ptr<LlamaSession> LlamaSession::load(
-        const std::string& path, std::optional<std::int64_t> context_length, int device_index,
+        const std::string& path, std::optional<std::int64_t> context_length, std::optional<int> device_index,
         const std::string& quantization, const std::string& kv_cache )
     {
         const std::filesystem::path weights( path );
@@ -885,7 +905,7 @@ namespace Mila::Bindings
     }
 
     std::unique_ptr<LlamaSession> LlamaSession::fromStore(
-        const std::string& name, std::optional<std::int64_t> context_length, int device_index,
+        const std::string& name, std::optional<std::int64_t> context_length, std::optional<int> device_index,
         const std::string& kv_cache )
     {
         const auto model = requireInstalledModel( name, ModelType::Llama );
@@ -965,7 +985,7 @@ namespace Mila::Bindings
     GemmaSession::~GemmaSession() = default;
 
     std::unique_ptr<GemmaSession> GemmaSession::load(
-        const std::string& path, std::optional<std::int64_t> context_length, int device_index,
+        const std::string& path, std::optional<std::int64_t> context_length, std::optional<int> device_index,
         const std::string& quantization, const std::string& kv_cache )
     {
         const std::filesystem::path weights( path );
@@ -982,7 +1002,7 @@ namespace Mila::Bindings
     }
 
     std::unique_ptr<GemmaSession> GemmaSession::fromStore(
-        const std::string& name, std::optional<std::int64_t> context_length, int device_index,
+        const std::string& name, std::optional<std::int64_t> context_length, std::optional<int> device_index,
         const std::string& kv_cache )
     {
         const auto model = requireInstalledModel( name, ModelType::Gemma );
@@ -1067,7 +1087,7 @@ namespace Mila::Bindings
     QwenSession::~QwenSession() = default;
 
     std::unique_ptr<QwenSession> QwenSession::load(
-        const std::string& path, std::optional<std::int64_t> context_length, int device_index,
+        const std::string& path, std::optional<std::int64_t> context_length, std::optional<int> device_index,
         const std::string& quantization, const std::string& kv_cache )
     {
         const std::filesystem::path weights( path );
@@ -1084,7 +1104,7 @@ namespace Mila::Bindings
     }
 
     std::unique_ptr<QwenSession> QwenSession::fromStore(
-        const std::string& name, std::optional<std::int64_t> context_length, int device_index,
+        const std::string& name, std::optional<std::int64_t> context_length, std::optional<int> device_index,
         const std::string& kv_cache )
     {
         const auto model = requireInstalledModel( name, ModelType::Qwen );

@@ -668,9 +668,13 @@ through a `Stage` composite (section 4).
    order fixes the placement (6.1). A list that meant both would decide a layer order for a user who only
    meant to allow two cards. Still open: the planner's rule, by free memory, by index, or by which order
    leaves the largest minimum headroom.
-3. **Chat's default devices. DECIDED 2026-11-07 (Todd): the first GPU only, for now.** The first device of the
-   one GPU type the build sees, in Chat and in Mila Desktop's session alike; every device the build sees is
-   decided again once a split has run through Phase 5's exit.
+3. **Chat's default devices. DECIDED 2026-11-17 (Todd): every GPU of the type the build sees.** In Chat, Mila
+   Assistant's session and the Python binding alike, a load that names no device allows every GPU of the one type
+   the build sees, and the planner gives the model the card where it gets the longest context (`Deployment.md`
+   section 5 and decision 8), each card planned alone. It was the first GPU from 2026-11-07, which is CUDA's own
+   first and on the PC the 12 GB RTX 4070 rather than the 16 GB reference card; changed at `0.21.0-dev+150`. Cards
+   equal on that rule keep CUDA's order, since nothing ranks by speed (`Deployment.md` 12.9). Decided again once a
+   split has run through Phase 5's exit, when every device may mean more than one at once.
 4. **Concurrent prefill** (3.6): whether stages overlap during chunked prefill. Decided by
    measurement after Phase 3, against the sequential split on the same model. It must be
    bit-identical to the sequential split, since each card runs the same kernels in the same order.

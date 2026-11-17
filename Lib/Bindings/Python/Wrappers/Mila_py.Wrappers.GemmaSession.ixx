@@ -27,12 +27,12 @@ namespace Mila::Bindings
          *        12B needs ~24 GB and would OOM at load on the cards this targets.
          */
         static std::unique_ptr<GemmaSession> load(
-            const std::string& path, std::optional<std::int64_t> context_length, int device_index,
+            const std::string& path, std::optional<std::int64_t> context_length, std::optional<int> device_index,
             const std::string& quantization, const std::string& kv_cache );
 
         /// As LlamaSession::fromStore -- the record decides the quantization.
         static std::unique_ptr<GemmaSession> fromStore(
-            const std::string& name, std::optional<std::int64_t> context_length, int device_index,
+            const std::string& name, std::optional<std::int64_t> context_length, std::optional<int> device_index,
             const std::string& kv_cache );
 
         /// As LlamaSession::generate -- tokens through the callback, why it stopped returned.

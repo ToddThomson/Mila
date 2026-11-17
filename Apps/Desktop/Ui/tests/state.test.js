@@ -517,7 +517,6 @@ function anEmptyConversationShowsTheWayToAModel()
 {
     const missing = { model: null, loading: null };
     const loading = { model: null, loading: 'gemma-4-12b-it-q4_0' };
-    const building = { model: 'gemma-4-12b-it-q4_0', loading: null, activity: 'build' };
     const one = [ { name: 'gemma-4-12b-it-q4_0', size_bytes: 7e9, quantization: 'q4_0' } ];
 
     assert.equal( screenFor( null, null ), null );
@@ -525,7 +524,6 @@ function anEmptyConversationShowsTheWayToAModel()
     assert.equal( screenFor( missing, [] ), 'first-run' );
     assert.equal( screenFor( missing, one ), 'choose-model' );
     assert.equal( screenFor( loading, [] ), 'home', 'a model being loaded is not said to be missing' );
-    assert.equal( screenFor( building, one ), 'activity' );
 }
 
 test( 'an empty conversation shows the way to a model', anEmptyConversationShowsTheWayToAModel );

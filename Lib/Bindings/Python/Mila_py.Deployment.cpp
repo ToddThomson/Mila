@@ -60,12 +60,15 @@ namespace Mila::Bindings
         return formatName( *stored );
     }
 
-    std::optional<std::vector<std::string>> fittingWeightQuantizations( const std::string& name, int device_index )
+    std::optional<std::vector<std::string>> fittingWeightQuantizations( const std::string& name, std::optional<int> device_index )
     {
         const InstalledModel model = requireInstalled( name );
 
+        // No device named allows every CUDA device, as a session's load does.
         DeploymentRequest request;
-        request.withAllowedDevices( DeviceId{ DeviceType::Cuda, device_index } );
+        request.withAllowedDevices( device_index
+            ? AllowedDevices( DeviceId{ DeviceType::Cuda, *device_index } )
+            : AllowedDevices::parse( deviceTypeToString( DeviceType::Cuda ) ) );
         request.withWholeDeviceMemory();
 
         const auto fitting = Mila::Deployment::fittingWeightQuantizations<DeviceType::Cuda>( model, request );

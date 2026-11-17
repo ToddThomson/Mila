@@ -19,7 +19,7 @@ namespace Mila::Bindings
          *        their bytes already are.
          */
         static std::unique_ptr<LlamaSession> load(
-            const std::string& path, std::optional<std::int64_t> context_length, int device_index,
+            const std::string& path, std::optional<std::int64_t> context_length, std::optional<int> device_index,
             const std::string& quantization, const std::string& kv_cache );
 
         /**
@@ -35,7 +35,7 @@ namespace Mila::Bindings
          *         not fit the device at the context length asked for.
          */
         static std::unique_ptr<LlamaSession> fromStore(
-            const std::string& name, std::optional<std::int64_t> context_length, int device_index,
+            const std::string& name, std::optional<std::int64_t> context_length, std::optional<int> device_index,
             const std::string& kv_cache );
 
         /**

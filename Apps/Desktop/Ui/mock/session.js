@@ -7,8 +7,6 @@ import { findModel, mockLicense, models, seedConversations, summarizeConversatio
 import { findScenario } from './scenarios.js';
 
 const streamId = 'stream-1';
-const offeredActivities = [ 'ask', 'build', 'research', 'tasks' ];
-const folderActivities = [ 'build', 'tasks' ];
 const mockFolder = 'C:\\Users\\you\\Projects\\calc';
 
 /**
@@ -50,7 +48,6 @@ export function createMockSession( options )
         sampling: {},
         busy: false,
         conversationId: null,
-        activity: 'ask',
         folder: null,
         webSearch: false,
         history: [],
@@ -128,8 +125,6 @@ export function createMockSession( options )
             detail: session.detail,
             sampling: samplingState(),
             modalities: model === null ? [] : model.modalities,
-            activities: offeredActivities,
-            activity: session.activity,
             folder: session.folder,
             plan: null,
             web_search: session.webSearch,
@@ -185,7 +180,6 @@ export function createMockSession( options )
             created: conversation.created,
             updated: conversation.updated,
             model: conversation.model,
-            activity: conversation.activity,
             folder: conversation.folder,
             ...summarizeConversation( conversation )
         };
@@ -386,7 +380,24 @@ export function createMockSession( options )
             return;
         }
 
+        // request_folder's allowing answer names the folder chosen, as the session's must (AssistantInterface.md 5.5).
+        const folderAsked = waiting.tool === 'request_folder';
+        const chosen = typeof request.folder === 'string' && request.folder.length > 0 ? request.folder : null;
+
+        if ( folderAsked && request.decision !== 'deny' && chosen === null )
+        {
+            ignore( request );
+
+            return;
+        }
+
         reply.waiting = null;
+
+        if ( folderAsked && chosen !== null )
+        {
+            session.folder = chosen;
+            emitState();
+        }
 
         const call = reply.toolCalls.find( ( candidate ) => candidate.call_id === request.call_id );
 
@@ -489,7 +500,6 @@ export function createMockSession( options )
                 id: session.conversationId,
                 title,
                 model: session.model.name,
-                activity: session.activity,
                 folder: session.folder,
                 created: updated,
                 updated,
@@ -602,32 +612,11 @@ export function createMockSession( options )
 
     // ---- Conversations -----------------------------------------------------------------------
 
-    /**
-     * A folder is any path the mock is given, since the mock reads no files; the real session refuses one
-     * that does not exist.
-     */
-    function newConversation( request )
+    /** A chat begins with no folder; it gains one when the person answers request_folder (AssistantInterface.md 5.5). */
+    function newConversation()
     {
-        const activity = request.activity === undefined ? 'ask' : request.activity;
-        const folder = typeof request.folder === 'string' && request.folder.length > 0 ? request.folder : null;
-
-        if ( !offeredActivities.includes( activity ) )
-        {
-            emitError( 'There is no activity called ' + activity + '.', 'conversation' );
-
-            return;
-        }
-
-        if ( folderActivities.includes( activity ) && folder === null )
-        {
-            emitError( 'This works in a folder; choose one to start.', 'conversation' );
-
-            return;
-        }
-
         session.conversationId = null;
-        session.activity = activity;
-        session.folder = folderActivities.includes( activity ) ? folder : null;
+        session.folder = null;
         session.history = [];
         allowedTools.clear();
 
@@ -645,8 +634,8 @@ export function createMockSession( options )
             return;
         }
 
+        // A chat stored with an activity opens like any other, its folder kept; the activity is not read.
         session.conversationId = conversation.id;
-        session.activity = conversation.activity;
         session.folder = conversation.folder;
         session.history = conversation.messages.slice();
         allowedTools.clear();
@@ -656,7 +645,6 @@ export function createMockSession( options )
             id: conversation.id,
             title: conversation.title,
             model: conversation.model,
-            activity: conversation.activity,
             folder: conversation.folder,
             messages: conversation.messages
         };
@@ -1054,7 +1042,7 @@ export function createMockSession( options )
                 return decideTool( request );
 
             case 'conversation.new':
-                return newConversation( request );
+                return newConversation();
 
             // The window answers this; with no window, as in a browser, the mock does.
             case 'folder.choose':

@@ -171,7 +171,8 @@ static void printUsage( const char* program )
         << "  --model <name>          Load this model, as 'mila-store models' lists it.\n"
         << "  --context-length <n>    Maximum sequence length, or auto.\n"
         << "  --device <devices>      The devices the model may run on: cuda, cuda:1, metal or a card's\n"
-        << "                          identity, several separated by commas. Default: the first GPU.\n"
+        << "                          identity, several separated by commas. Default: every GPU, and\n"
+        << "                          Mila chooses the card.\n"
         << "  --conversations <dir>   Where conversations are stored. Default: "
         << ConversationStore::defaultDirectory().string() << "\n"
         << "  --help, -h              Show this message.\n";
@@ -242,8 +243,8 @@ int main( int argc, char* argv[] )
             settings.model = *line.model;
         }
 
-        // Unset, the first GPU this build sees (LayerSplit.md 12.3), or every device when there is none, so the load's
-        // refusal says what is missing.
+        // Unset, every GPU of the type this build sees, among which the planner chooses the card (LayerSplit.md 12.3,
+        // Todd, 2026-11-17), or every device when there is none, so the load's refusal says what is missing.
         Mila::Deployment::AllowedDevices devices;
 
         if ( line.devices )
@@ -260,7 +261,7 @@ int main( int argc, char* argv[] )
             }
         } else if ( const auto type = Mila::Deployment::ModelHandle::deviceTypeFor( {} ) )
         {
-            devices = Mila::Deployment::AllowedDevices( Mila::Dnn::Compute::DeviceId{ *type, 0 } );
+            devices = Mila::Deployment::AllowedDevices::parse( Mila::Dnn::Compute::deviceTypeToString( *type ) );
         }
 
         // Beside the session, as its prompts are; the window's page shows it before anything else (AssistantOnboarding.md 4.1).

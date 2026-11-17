@@ -55,29 +55,37 @@ namespace Mila::ChatApp
     }
 
     /**
-     * @brief The device the session's figures describe before a model is loaded: the first present GPU the allowed
-     *        devices name, in device order. Nothing when none is present.
+     * @brief The device the session's figures describe before a model is loaded: of the present GPUs the allowed
+     *        devices name, the one with the most memory, the first in device order among equals. The planner gives a
+     *        model the card where it gets the longest context (Deployment.md section 5), so a listing of what fits
+     *        describes that card. Nothing when none is present.
      */
     export inline std::optional<DeviceId> describedDevice( const AllowedDevices& devices )
     {
+        std::optional<DeviceReading> largest;
+
         for ( const DeviceReading& present : DeviceReading::describePresent() )
         {
-            if ( present.device.type != DeviceType::Cpu && devices.allows( present ) )
-                return present.device;
+            if ( present.device.type == DeviceType::Cpu || !devices.allows( present ) )
+                continue;
+
+            if ( !largest || present.total_bytes > largest->total_bytes )
+                largest = present;
         }
 
-        return std::nullopt;
+        return largest ? std::optional<DeviceId>( largest->device ) : std::nullopt;
     }
 
     /**
-     * @brief Chat's devices when the settings name none: the first GPU this build sees (LayerSplit.md 12.3, Todd,
-     *        2026-11-07), or every device when there is none, so the load's refusal says what is missing.
+     * @brief Chat's devices when the settings name none: every GPU of the type this build sees, among which the planner
+     *        chooses the card (LayerSplit.md 12.3, Todd, 2026-11-17), or every device when there is none, so the load's
+     *        refusal says what is missing.
      */
     export inline AllowedDevices defaultDevices()
     {
         const std::expected<DeviceType, DeploymentRefusal> type = ModelHandle::deviceTypeFor( DeploymentRequest{} );
 
-        return type ? AllowedDevices( DeviceId{ *type, 0 } ) : AllowedDevices{};
+        return type ? AllowedDevices::parse( deviceTypeToString( *type ) ) : AllowedDevices{};
     }
 
     /**

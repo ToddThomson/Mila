@@ -737,9 +737,6 @@ export function emptyScreen( state )
         return state.installedModels.length > 0 ? 'choose-model' : 'first-run';
     }
 
-    if ( session.activity !== undefined && session.activity !== 'ask' )
-        return 'activity';
-
     return 'home';
 }
 

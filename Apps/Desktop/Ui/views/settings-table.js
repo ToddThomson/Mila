@@ -9,7 +9,7 @@ export const areas = [
     { id: 'responses', label: 'Responses', note: null },
     { id: 'sampling', label: 'Sampling', note: 'Each model opens at its publisher\'s recommended values.' },
     { id: 'search', label: 'Web search', note: null },
-    { id: 'build', label: 'Build & Code', note: null },
+    { id: 'build', label: 'Commands', note: null },
     { id: 'display', label: 'Display', note: null }
 ];
 
@@ -436,8 +436,8 @@ const searchKey = {
     needs: 'session',
     reads: [ 'session' ],
     note: ( state ) => state.session !== null && state.session.web_search === true
-        ? 'Research & Analyze and Get Things Done can search the web with your Tavily key. Each search asks first, and its words go to Tavily.'
-        : 'Add a Tavily key to let Research & Analyze and Get Things Done search the web. tavily.com gives 1,000 searches a month free.',
+        ? 'Mila can search the web with your Tavily key. Each search asks first, and its words go to Tavily.'
+        : 'Add a Tavily key to let Mila search the web. tavily.com gives 1,000 searches a month free.',
     offered: () => true,
     build( state )
     {
@@ -495,8 +495,8 @@ const runCommands = {
     terms: [ 'commands', 'container', 'terminal', 'shell', 'git', 'build', 'test' ],
     needs: 'session',
     reads: [ 'session' ],
-    note: () => 'Build & Code can run commands such as builds, tests and git in a Windows container limited to the ' +
-        'project folder and the program folders below, on a desktop of their own. Each command asks first. A ' +
+    note: () => 'Mila can run commands such as builds, tests and git in a Windows container limited to the ' +
+        'chat\'s folder and the program folders below, on a desktop of their own. Each command asks first. A ' +
         'command has no internet unless it asks and you allow it; one that has it can send what it reads. ' +
         'Needs Windows 11 26H2 or later.',
     offered: () => true,

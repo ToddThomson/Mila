@@ -1,4 +1,4 @@
-// Get Things Done's plan, above the message box while the conversation has one: each step and where
+// The chat's plan, above the message box while the conversation has one: each step and where
 // it stands, as the model marks it (MilaDesktop.md 3.1).
 
 import { element, clear } from '../dom.js';

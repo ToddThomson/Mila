@@ -85,7 +85,8 @@ namespace Mila::ChatApp
          * other card is the same model. It reaches every place that asks the hardware a
          * question -- the load, the footprint pre-flight, and the fit column -- because a
          * verdict measured against one card and a load onto another would silently disagree.
-         * Unset in the settings, the first GPU the build sees (LayerSplit.md 12.3).
+         * Unset in the settings, every GPU of the type the build sees, the planner choosing the card (LayerSplit.md
+         * 12.3).
          */
         Deployment::AllowedDevices devices;
 

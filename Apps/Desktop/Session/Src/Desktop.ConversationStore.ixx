@@ -97,14 +97,13 @@ namespace Mila::Desktop
                     continue;
                 }
 
-                // A conversation stored before activities was asked and explored, with no folder (MilaDesktop.md 4.1).
+                // A chat's activity, which conversations stored before AssistantInterface.md phase 3 carry, is not read.
                 nlohmann::json item = {
                     { "id", conversation->value( "id", std::string{} ) },
                     { "title", conversation->value( "title", std::string{} ) },
                     { "created", conversation->value( "created", std::string{} ) },
                     { "updated", conversation->value( "updated", std::string{} ) },
                     { "model", conversation->value( "model", std::string{} ) },
-                    { "activity", conversation->value( "activity", std::string( "ask" ) ) },
                     { "folder", conversation->value( "folder", nlohmann::json( nullptr ) ) } };
 
                 item.update( summarizeConversation( *conversation ) );

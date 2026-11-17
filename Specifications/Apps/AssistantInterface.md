@@ -1,6 +1,6 @@
 # Mila Assistant Interface
 
-**Status:** design, round 2 (2026-11-16), phases 1 and 2 built (`0.21.0-dev+147`, `+149`). Round 1, the same morning,
+**Status:** design, round 2 (2026-11-16), phases 1 to 3 built (`0.21.0-dev+147`, `+149`, `+150`). Round 1, the same morning,
 set out projects, processes and creations around a home screen and a sidebar of conversations. Round 2
 is the layout Todd reached through a working prototype the same afternoon, iterated with him on the Mac: a sidebar,
 a workspace overview, projects that open on their summary, chats that need no project, and Mila as a bar at the foot
@@ -70,14 +70,15 @@ Five rules follow, and every section below is held to them:
   conversation's summary in `conversations.list` (`Desktop.ConversationSummary`; `workspaceOverview`,
   `matchingChats`, `searchResults` and `activityDays` in `state.js`). Clicking takes the person everywhere; asking
   does not yet.
-- **The activity cards are gone** (Todd, 2026-11-16, at phase 2). The Mila bar starts *Ask & Explore*; a conversation
-  stored in another activity still opens with its tools and folder, and a new one in the others waits for phase 3.
-- **A conversation carries its activity and, for Build & Code and Get Things Done, a folder** chosen when it started,
-  in the window's picker (`folder.choose`). The activity decides its tools and their grant (`../ToolCalling.md` 3.4).
+- **Every chat is general purpose** (phase 3, `0.21.0-dev+150`; section 5.5): one prompt, every tool whose work can
+  be done on this computer, the network for reading and searching, and no folder until Mila asks for one with
+  `request_folder` and the person chooses it in the window's picker. A conversation stored with an activity opens as
+  a chat, its folder in its grant.
 - **The store** is one JSON file per conversation in `%LOCALAPPDATA%\Mila\Conversations` on Windows
   (`Desktop.ConversationStore.ixx`): its messages, each tool call with its arguments, decision and result, the history
-  the model read, and its activity, folder and plan.
-- **Get Things Done has a plan** (`Desktop.TaskPlan.ixx`): `propose_plan`, approved by the person, and `update_step`.
+  the model read, and its folder and plan; one stored before phase 3 also carries an activity, which is not read.
+- **A chat has a plan when Mila proposes one** (`Desktop.TaskPlan.ixx`): `propose_plan`, approved by the person, and
+  `update_step`, allowed by rule.
 - **Nothing outlives a conversation** but the conversation: no instructions, files or findings shared between them.
 - **The library's task** (`../Agents/AgentTasks.md`, agreed 2026-11-03, not built) gives an agent a task carried
   across responses, a plan, a versioned trace of every step, and a task folder holding them.
@@ -318,10 +319,10 @@ with:
   always asked: the person picks a folder in the window's picker, or one of the project's, and the chat's grant gains
   it, read-write, for the rest of the chat. Declined, Mila goes on without files. In a project whose chats share a
   folder, the grant holds it from the start (section 10, *standing grant*).
-- **The network, for reading public pages and searching,** as Research & Analyze and Get Things Done have it today.
-  Reading a page runs by the rules those activities have; a search is asked every time, since its words leave the
+- **The network, for reading public pages and searching,** as Research & Analyze and Get Things Done had it.
+  Reading a page runs by the rules those activities had; a search is asked every time, since its words leave the
   machine (`../MilaDesktop.md` 3.7).
-- **The rules of today's activities, merged**: what any activity allowed without asking is allowed; what any asked
+- **The rules of the activities, merged**: what any activity allowed without asking is allowed; what any asked
   about is asked; a command is asked every time, and no rule allows it (`../ContainedPrograms.md` 5).
 
 A grant widened in a chat is that chat's: the next chat begins without it unless both are in a project that holds it.
@@ -338,11 +339,37 @@ the prompt's length in tokens, the time to the first token of a new chat, and ho
 request did not need, on questions that need none. Llama's over-calling is already known (2026-10-25), and its default
 may differ.
 
-**On a Mac** a grant holds no folder until the Mac's file checks are built (`../ToolCalling.md` 3.4, v0.21.0 work),
-so `request_folder` is not offered there until then.
+**Measured** (2026-11-17, Gemma 4 12B Q4_0 on the M1 Pro, its defaults, thinking on; 18 questions asked twice in new
+chats, every call declined so none ran; scripts and data `D:\Claude\phase3`). On the 13 questions needing no tool,
+three of them near the tools' subjects: Ask & Explore's prompt with no tools, 0 calls in 26; the draft prompt offered
+every tool but search and commands, 0 in 26; with the Mac's tools alone (plan and page reading), 0 in 26; Get Things
+Done's prompt, 2 in 13 (`list_folder` for *Who wrote Pride and Prejudice?*, and a malformed plan). The prompt and a
+short question came to about 73 tokens with no tools, 600 with the Mac's, 1,340 with every tool (*arithmetic*, the
+context after a one-round reply less its tokens); the first chat after a load took 1.1 s to its first token with no
+tools and 9.3 s with every tool, and every later chat 0.7 to 0.75 s in all four, as the session keeps the prompt's start
+from chat to chat. Given a page's address, every-tool read it 6 times in 6; the Mac's set proposed a plan first 5 times
+in 6, until the prompt said *a question that one page or one tool call answers needs no plan*, then read it 6 in 6, still
+0 in 26 needing none. Get Things Done's prompt ran one reply into a loop of 132,843 tokens (`Issues/Untriaged.md`).
+Not yet measured: `request_folder`'s own pull on questions needing no files, and every model's final run; until then
+every model is offered the same.
+
+**As built at phase 3** (`0.21.0-dev+150`): `Apps/Desktop/Prompts/general.json` is the one prompt, its system prompt
+written as passages, each kept only while the tool it names is offered and one only while web search is not
+(`Desktop.PromptFile`, `Desktop.PromptPart`), since a prompt naming a tool not offered draws calls of it. A chat holds
+one folder: `request_folder` asked again in a chat that has one is answered with it, unasked. A file tool called in a
+chat with no folder is not asked about, since its grant reaches nothing: it fails, and Mila asks for a folder, as it did
+on the PC with Q4_0 (it listed the folder, read the README and answered). The plan's `update_step` runs by rule; every
+other call is asked.
+
+**On a Mac this is a defect, not the Mac's design:** Mila Assistant has parity on macOS and Windows (Todd, 2026-11-15,
+restated 2026-11-17), and today a Mac chat can work with no file, because the grant's file checks exist on Windows only
+(`../ToolCalling.md` 3.4; BACKLOG *On a Mac a tool cannot read or write a file in the folder a person names*). Until they
+are built the session offers neither `request_folder` nor a tool that needs a folder there, rather than tools that can
+only fail; it finds this by asking the library for a grant of one, so the tools appear with no change of the app's once
+the checks exist. Phase 3 is not done while this stands.
 
 **Conversations stored with an activity** open as general-purpose chats; a folder they were started in is in their
-grant, as it was.
+grant, as it was. One that cannot be granted -- gone, or on a Mac -- opens without it and says so.
 
 ## 6. Mila proposes structure
 
@@ -461,10 +488,14 @@ start of the last reply, on one line, never cut inside a character, or null). Th
 | `process.run` | `process_id` | *Run again* |
 | `creation.keep` | `turn_id` | Keep a reply as made |
 
-`conversation.new` gains `project` and loses `activity` at phase 3; a stored conversation's `activity` is read and
-ignored. `turn.tool_decision` gains `arguments` (section 6) and, for `request_folder`, `folder`: the path the person
-picked in the window's picker (`folder.choose`) or one of the project's; its `turn.tool_approval` carries the
-project's folders as `folders` to choose among. Where the page shows a view
+**Built at phase 3:** `conversation.new` carries nothing, and an `activity` or `folder` sent is not read; a stored
+conversation's `activity` is not read. `session.state` loses `activities` and `activity`, and `conversations.list` and
+`conversation.loaded` lose `activity`. `turn.tool_decision` gains `folder` for `request_folder` allowed: the path the
+person picked in the window's picker (`folder.choose`); one allowing it with no folder is ignored. Its
+`turn.tool_approval` offers `allow_once` and `deny`, since a folder is chosen each time it is asked for.
+
+`conversation.new` gains `project` at phase 4. `turn.tool_decision` gains `arguments` (section 6), and its `folder` may
+be one of the project's, which `request_folder`'s `turn.tool_approval` carries as `folders` to choose among. Where the page shows a view
 the person reached by asking, it follows `turn.went`; where they clicked, it sends the matching `*.open` itself.
 
 **A project's folder is a standing grant,** wider than one chosen per chat: offered to every chat in the project. What a
@@ -533,7 +564,14 @@ updated when a phase changes what it shows. This document is amended in the chan
    over the overview, lowered, Activity, and the chat opened whole. Not yet: Todd's look on the Mac.
 3. **General-purpose chats.** Section 5.5: every tool in every chat, `request_folder`, the merged rules, one system
    prompt, stored conversations opened as general chats. The measurement of 5.5 comes first, and decides each model's
-   default. Replaces `../MilaDesktop.md` 3.1.
+   default. Replaces `../MilaDesktop.md` 3.1. Built (`0.21.0-dev+150`) after 5.5's measurement on Gemma 4 12B Q4_0.
+   Checked: session tests 35/35, page tests 92/92 (mock scenario 14, Mila asks for a folder), window tests 5/5, every
+   target built in `x64-claude-verify`; scenario 14 over the mock at 1280 and 900 px in light and dark; the real session
+   over stdio on Q4_0 in a scratch store: a chat asked about a project, Mila asked for a folder, was given one, listed
+   and read it, and answered. On the Mac (packaged, Q4_0) the same question was answered without files, since no folder
+   can be granted there yet. **Not done:** the file tools and `request_folder` on the Mac, which wait on the grant's
+   macOS file checks (5.5, *On a Mac*); `request_folder` measured on questions needing no files; every model's final
+   run; the window on the real session.
 4. **Projects.** The store's `Projects/`; the sidebar's projects; *All projects* (4.4); a project's head, glance and
    chats (4.5); *New project*; moving a chat by its menu; the overview's projects; a project's folders in its chats'
    grant.
