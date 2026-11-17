@@ -1,8 +1,10 @@
 // Mila's window: starts the session, hosts the page, and relays messages between them
-// unchanged, except link.open, folder.choose, app.quit and setup.showing, which it handles itself (MilaDesktop.md 6.2). The
+// unchanged, except link.open, folder.choose, app.quit and setup.showing, which it handles itself, and about, which it
+// sends the page when the page is ready (MilaDesktop.md 6.2). The
 // page reaches nothing else: no Node, no navigation, no new windows, no permissions but the clipboard.
 
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, powerMonitor, session, shell } from 'electron';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { registerPageScheme, servePage, isPageUrl, pageUrl } from './page-protocol.js';
@@ -129,6 +131,26 @@ async function chooseFolder()
     deliver( message );
 }
 
+/**
+ * What the window knows and the session does not: who is signed in to this computer, by their login name, and the
+ * app's version, for the person at the sidebar's foot (AssistantInterface.md 4.1).
+ */
+function aboutMessage()
+{
+    let userName = '';
+
+    try
+    {
+        userName = os.userInfo().username;
+    }
+    catch
+    {
+        userName = '';
+    }
+
+    return { v: 1, type: 'about', user_name: userName, version: app.getVersion() };
+}
+
 function isFromPage( event )
 {
     const frame = event.senderFrame;
@@ -180,6 +202,8 @@ function onPageMessage( event, message )
 
         const waiting = held;
         held = [];
+
+        deliver( aboutMessage() );
 
         for ( const waitingMessage of waiting )
             deliver( waitingMessage );

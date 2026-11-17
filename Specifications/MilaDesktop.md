@@ -105,7 +105,9 @@ not models (section 1; decided 2026-10-26, section 9.7).
 ### 3.1 Activities
 
 Replaced by general-purpose chats, with no activity cards (Todd, 2026-11-16): `Apps/AssistantInterface.md` 5.5, at its
-phase 3. Until then, as built:
+phase 3. The cards went at its phase 2 (`0.21.0-dev+149`): the Mila bar starts *Ask & Explore*, a conversation stored in
+another activity opens in it with its tools and folder, and a new one in the others waits for phase 3. Until then, as
+built:
 
 An activity is what a person came to do. It is the app's vocabulary, and it decides what the app gives the agent
 for that work: which of the app's tools, the default rules for them (`ToolCalling.md` 3.3), the guidance in the
@@ -145,49 +147,37 @@ model for this card -- the planner's suggestion from the published list, a measu
 
 ### 3.3 Sidebar
 
-Replaced by the sidebar of `Apps/AssistantInterface.md` 4.1 at its phase 2; until then, as built:
-
-- *New* at the top (Ctrl+N, Command+N on a Mac): the home screen.
-- Conversations, newest first, grouped *Today*, *Yesterday*, *Previous 7 days*, *Older*. Each row shows
-  its title and its activity; hover shows the model it was held with. Rename and delete from a row's menu;
-  delete asks first.
-- At the foot: *Settings* (Ctrl+, or Command+,), the window of 3.7, where models are managed too, off the main
-  path (Todd, 2026-11-13).
-- Collapsible; collapsed below 900 px of window width. Collapsed in a wide window it is a rail of three: show the
-  sidebar, *New*, and *Settings* at the foot; a narrow window's opens over the conversation from the header instead
-  (Todd, 2026-11-13).
+Replaced by the sidebar of `Apps/AssistantInterface.md` 4.1 at its phase 2 (`0.21.0-dev+149`). What the old one did is
+there: a chat is renamed or deleted from its menu in *All chats* (4.6), delete asks first; Ctrl+N (Command+N on a Mac)
+begins a new conversation in the Mila bar; *Settings* is at the sidebar's foot. A wide window's sidebar no longer
+collapses to a rail; below 900 px it slides over the pane from the path bar's menu button (4.10).
 
 ### 3.4 Home screen
 
-With conversations stored, the work so far follows the cards, read as `Apps/AssistantInterface.md` 10 says (its phase
-1). The whole screen is replaced by that design's workspace overview (4.3) at its phase 2. With none, the home screen is
-what follows.
+Replaced at `Apps/AssistantInterface.md`'s phase 2 (`0.21.0-dev+149`) by its workspace overview (4.3) and the Mila
+bar (5.1), which starts *Ask & Explore*. What stays from the home screen is the screen asking for a model, which takes
+the overview's place while none is loaded:
 
-- One line asking what the person wants to do, and one box under it; sending from it starts *Ask & Explore*.
-- The cards of 3.1 that can be shown, each its name and one line of what it is for.
-- Nothing else: no model, no settings. With no model installed, the first-run recommendation of 3.2 takes the
-  cards' place until a model is installed.
-- While a model loads, the start's included, the home screen is already shown and the header says it is loading.
+- While a model loads, the start's included, the overview is already shown and the sidebar's model row says it is
+  loading.
 - With models installed and none loaded or loading: *Choose a model to start*, each installed model with *Load*, the
   refusal's text above them when a load was refused, and *Install another model*, which opens Settings at *Models*
-  and fetches the published list. With none installed, until the recommendation of 3.2 exists: *Install a model to
-  start*, the reason it asks, and *Choose a model to install*, the same way (`+141`). Each screen asks one thing:
-  under its heading is why it asks, and while it shows, the header's model menu and the message box are hidden
-  (Todd, 2026-11-13). Before a conversation has begun, a load or install refused is said there and in Settings, not
-  as the conversation's first entry.
+  and fetches the published list. With none installed, the first-run setup (`Apps/AssistantOnboarding.md` 4.1), or
+  after it *Install a model to start*, the reason it asks, and *Choose a model to install*, the same way (`+141`).
+  Each screen asks one thing: under its heading is why it asks, and while it shows the Mila bar is hidden (Todd,
+  2026-11-13). Before a conversation has begun, a load or install refused is said there and in Settings, not as the
+  conversation's first entry.
 
 ### 3.5 Main pane
 
-- *Header:* the conversation's activity, and as quiet text what Mila chose for it -- the model, the context window
-  -- which opens on request to the detail: the model and its package, context (with "auto" when it was
-  measured, not chosen), thinking, the tools the activity gives the agent and their rules. Read-only there; a
-  change is made under the limits (below) or, for the model, in Settings' *Models*. With no model loaded, the
-  header says so and the way out. Between the model and those facts: the app's status while it has one (4.1
-  `progress`), and the conversation's title, shown whether or not the sidebar is (Todd, 2026-11-13). At the far right,
-  with a model resident, a ring that fills with the share of the context the conversation takes; a click opens its
-  details -- what is used, the context window and whether Mila chose it, where compaction starts, what is left -- in
-  place of the context window among the facts (Todd, 2026-11-14). It turns the error colour past nine tenths. The
-  model is named by its display name, here and in its menu.
+- *Header:* since `Apps/AssistantInterface.md`'s phase 2 (`0.21.0-dev+149`), the path bar of its 4.2, and above the
+  transcript the chat's head (4.7). What the header said of the model is the sidebar's model row (its 4.1): the
+  model by its display name, with no model loaded *No model loaded*, and while the app has a status (4.1 `progress`)
+  a ring and the status in its place. With a model resident the row ends in a ring that fills with the share of the
+  context the open chat takes, turning the error colour past nine tenths (Todd, 2026-11-14); a click opens what Mila
+  chose -- what is used, the context window and whether Mila chose it, where compaction starts, what is left,
+  thinking -- and *Manage models…*, which opens Settings at *Models*. Read-only there; a change is made under the
+  limits (below) or in Settings.
 - *Transcript:*
   - User turns, right-aligned, with their attachments as thumbnails (image) or a small player (audio).
   - Assistant turns, full width. The reasoning channel is a collapsed block above the answer ("Thought
@@ -199,11 +189,13 @@ what follows.
     language label and a copy button. Math is shown as its source in phase 1 (section 9).
   - Below each finished reply: copy, and a quiet stats line on hover (prefill ms, tok/s, tokens, rounds).
     A reply that ended on the token cap or the context bound says so in the reply, not only in stats.
-- *Log drawer:* at detail `all` only, a collapsed "Log" bar between the transcript and the composer, with the
-  count of lines; opened, the session's `log` lines in monospace, newest at the bottom.
-- *Composer:* a multi-line box (Enter sends, Shift+Enter is a newline), an attach button, drop anywhere on
-  the pane to attach, attachments as removable chips above the box. While a reply is generating, *Send*
-  becomes *Stop* (Esc). Attach is disabled with a tooltip naming why for a model without that modality.
+- *Log drawer:* at detail `all` only, a collapsed "Log" bar above the composer, with the count of lines; opened,
+  the session's `log` lines in monospace, newest at the bottom. A Get Things Done plan's checklist sits there too.
+- *Composer:* the Mila bar (`Apps/AssistantInterface.md` 5.1) at the foot of every screen, Mila's mark beside a
+  multi-line box (Enter sends, Shift+Enter is a newline), an attach button, drop anywhere on the pane to attach,
+  attachments as removable chips above the box. In a chat it says *Reply to Mila*. While a reply is generating,
+  *Send* becomes *Stop* and the bar says *Esc stops the reply*. Attach is disabled with a tooltip naming why for a
+  model without that modality.
 
 ### 3.6 Limits
 
@@ -223,8 +215,8 @@ There is no cap on agents in parallel: `Mila::Agents` runs one.
 Off the main path, for the person who wants them: one window over the whole of Mila's, models included (Todd,
 2026-11-13, `+140`).
 
-**The window:** opened from the sidebar's foot or the rail, by Ctrl+, (Command+, on a Mac) at the area last shown,
-and by the header's *Manage models…* at *Models*; Esc or its close button closes it, and Esc in a search with words
+**The window:** opened from the sidebar's foot or the person's menu, by Ctrl+, (Command+, on a Mac) at the area last
+shown, and by the model's *Manage models…* at *Models*; Esc or its close button closes it, and Esc in a search with words
 in it clears them first. On the left a search and the areas -- *Models*, *Responses* (thinking, effort, context),
 *Sampling* (temperature, top_k, top_p, presence_penalty, seed), *Web search*, *Build & Code* (run commands),
 *Display* (detail) -- and on the right one area's settings, or every setting the search names, grouped by area. A
@@ -264,7 +256,7 @@ keep it. The folder is chosen in the window's own picker (`folder.choose`), neve
 **Look:** light and dark follow the system. The palette and type follow the website
 (`Web/layouts/_default/baseof.html`), quieter. No animation beyond one turning ring wherever Mila is at work,
 always leading its words -- "Reading" before a reply's first token and after a call's result, "Thinking" and its
-count, the header's status -- and an install's progress bar in Settings. Streaming text carries no ring (Todd, 2026-11-13).
+count, the model row's status -- and an install's progress bar in Settings; the narrow window's sidebar slides in. Streaming text carries no ring (Todd, 2026-11-13).
 
 ## 4. Message schema
 
@@ -289,7 +281,8 @@ for its answer (`Chat::runOnce`). End of input ends the session process. Between
 window process, the window's own bridge (section 6.2).
 
 The window relays every message unchanged in both directions, except those it handles itself:
-`link.open`, `folder.choose`, `app.quit`, `setup.showing`, and resolving a dropped file to a path (section 6.4).
+`link.open`, `folder.choose`, `app.quit`, `setup.showing`, and resolving a dropped file to a path (section 6.4); and it
+sends the page one of its own, `about`, when the page says `ready`.
 
 ### 4.1 Session to page
 
@@ -307,13 +300,14 @@ The window relays every message unchanged in both directions, except those it ha
 | `turn.tool_result` | `turn_id`, `call_id`, `result`, `is_error` | The tool's result, fed back to the model. |
 | `turn.round_end` | `turn_id`, `round`, `prefill_ms`, `tokens_per_second`, `tokens`, `thought_tokens` (those of `tokens` the reasoning channel took; 0 when it did not open), `finish` (`turn.end`'s values, or `"tool_call"` for a round that ended in one) | One generate call ended. `thought_tokens` labels the round's thought block ("Thought for 412 tokens"), which the page cannot count from text. |
 | `turn.end` | `turn_id`, `finish` (`"stop"`, `"length"`, `"context"`, `"cancelled"`, `"error"`), `answer` (the parsed final answer) | The reply ended. `answer` is what the conversation keeps. |
-| `conversations.list` | `items` ([{`id`, `title`, `updated` (ISO 8601), `model`, `activity`, `folder`, `progress`, `finish`, `wrote`}]) | After any change to the store. A conversation stored before activities is `"ask"` with no folder. `progress`, `finish` and `wrote` are what the home screen reads (`Apps/AssistantInterface.md` 10). |
+| `conversations.list` | `items` ([{`id`, `title`, `created` (ISO 8601), `updated` (ISO 8601), `model`, `activity`, `folder`, `progress`, `finish`, `wrote`, `reply_start`}]) | After any change to the store. A conversation stored before activities is `"ask"` with no folder. `progress`, `finish`, `wrote` and `reply_start` are what the workspace's places read (`Apps/AssistantInterface.md` 10). |
 | `conversation.loaded` | `id`, `title`, `model`, `activity`, `folder`, `messages` (section 4.3) | The conversation now in the main pane. |
 | `attachment.accepted` | `attachment_id`, `kind`, `name`, `size_bytes` | The session has read and decoded the file. |
 | `attachment.refused` | `attachment_id`, `reason` | Not found, not decodable, too large, or no such modality on this model. |
 | `info` | `text`, `during` (`"load"`, `"install"`, or absent) | A sentence the console would print with `printInfo`. Shown as a quiet line in the transcript; one said during a load or install is not shown in a conversation that has not begun, which keeps its screen. |
 | `error` | `text`, `during` (`"load"`, `"turn"`, `"install"`, `"models"`, `"settings"`, `"conversation"`, `"license"`, or null) | Shown where it happened, never as a modal. `"models"` is the publisher's list not read, said on the screens that asked for it; `"license"` an acceptance refused, said on the licence's pane. |
 | `folder.chosen` | `path` (or null when the person cancelled) | From the window, not the session: the answer to `folder.choose`. |
+| `about` | `user_name` (the login name of the person signed in to this computer, or empty), `version` (the app's) | From the window, not the session, on `ready`: the person and the version at the sidebar's foot (`Apps/AssistantInterface.md` 4.1). With no window, as in a browser, the mock's transport sends it. |
 | `log` | `level`, `text` | Only at detail `all`; shown in a collapsible log drawer. |
 
 ### 4.2 Page to session
@@ -422,8 +416,8 @@ tool the person has not allowed is asked about.
   4. A reply ending on `length`, and one on `context`.
   5. No model loaded, then a load with progress, then a load refused with the refusal's text.
   6. An image attached to a model with the modality, and refused on one without.
-  7. Seven conversations across the date groups, among them a plan stopped partway, files written and a reply cut
-     short, which the home screen shows; open, rename, delete.
+  7. Seven conversations over two weeks, among them a plan stopped partway, files written and a reply cut short,
+     which the workspace's overview, *All chats* and Activity show; open, rename, delete.
   8. A first run, nothing installed: the welcome, the licence accepted, the published list planned for this
      computer, the suggestion installed with its progress and loaded, the conclusion, a remove.
   9. Detail `all`: log lines in the drawer.
@@ -545,7 +539,8 @@ context isolation on and Node integration off in the page. One engine (Chromium)
   a path (`webUtils.getPathForFile`).
 - **Which session it starts:** the session the package carries (`resources/Session/`), or in development the
   copy staged for packaging (`Window/session/`); `MILA_SESSION` names another program, and `--scenario <n>`
-  runs the mock session (section 5) instead. It answers `folder.choose` with the system's folder picker. The mock stays for development and is not packaged, so a packaged
+  runs the mock session (section 5) instead. It answers `folder.choose` with the system's folder picker, and the
+  page's `ready` with `about`: the login name from Node's `os.userInfo()` and the app's version. The mock stays for development and is not packaged, so a packaged
   build has no `--scenario` (2026-10-26).
 - **The package:** Electron and the packager pinned to exact versions in `package.json`, with the lock
   file committed; `node_modules/` and build output ignored by a `.gitignore` inside the folder. The

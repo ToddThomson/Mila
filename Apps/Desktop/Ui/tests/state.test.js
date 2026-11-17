@@ -1,10 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createInitialState, reduce, summarizeTurn, groupConversations, appStatus, emptyScreen, isAskingForModel,
-    isWelcoming, firstRunStep, suggestedModel, setupPane, homeSections } from '../state.js';
-import { statsLine, thoughtLabel, contextShare, contextDetails, thinkingFact, finishNotice, activityCard, folderName, planProgress, composerPrompt,
-    modelAbilities, fitLine, modelTitle, namedTitle, whenLabel, attentionLine, progressLine } from '../format.js';
+import { createInitialState, reduce, summarizeTurn, appStatus, emptyScreen, isAskingForModel, isWelcoming, firstRunStep,
+    suggestedModel, setupPane, workspaceOverview, recentChats, matchingChats, searchResults, activityDays, barMode,
+    isRisen } from '../state.js';
+import { statsLine, thoughtLabel, contextShare, contextDetails, thinkingFact, finishNotice, folderName, planProgress, barPrompt,
+    modelAbilities, fitLine, modelTitle, namedTitle, whenLabel, attentionLine, progressLine, plainLine, activityText, dayLabel,
+    initials } from '../format.js';
 
 function apply( messages )
 {
@@ -235,66 +237,159 @@ function aReplysFiguresSumItsRoundsAndWeighTheRateByTokens()
 
 test( 'a reply\'s figures sum its rounds and weigh the rate by tokens', aReplysFiguresSumItsRoundsAndWeighTheRateByTokens );
 
-function conversationsGroupByTheViewersDaysNewestFirstEmptyGroupsLeft()
-{
-    const now = new Date( 2026, 9, 21, 15, 0, 0 );
-    const at = ( days, hours ) => new Date( 2026, 9, 21 - days, hours, 0, 0 ).toISOString();
-    const items = [
-        { id: 'old', title: 'o', updated: at( 30, 9 ), model: 'm' },
-        { id: 'today-early', title: 'a', updated: at( 0, 1 ), model: 'm' },
-        { id: 'today-late', title: 'b', updated: at( 0, 14 ), model: 'm' },
-        { id: 'week', title: 'w', updated: at( 6, 12 ), model: 'm' }
-    ];
-    const groups = groupConversations( items, now );
+// Local hours, so every one falls on the viewer's same day wherever the tests run.
+const at = ( hours ) => new Date( 2026, 10, 16, hours, 0, 0 ).toISOString();
 
-    assert.deepEqual( groups.map( ( group ) => group.label ), [ 'Today', 'Previous 7 days', 'Older' ] );
-    assert.deepEqual( groups[ 0 ].items.map( ( item ) => item.id ), [ 'today-late', 'today-early' ] );
+const workspaceItems = [
+    { id: 'question', title: 'Why does a KV cache grow?', created: at( 9 ), updated: at( 9 ), folder: null, progress: null, finish: 'stop',
+        wrote: [], reply_start: 'Because **every** token adds a key and a value.' },
+    { id: 'cut', title: 'Long answer', created: at( 10 ), updated: at( 10 ), folder: null, progress: null, finish: 'length', wrote: [],
+        reply_start: 'The short version' },
+    { id: 'plan', title: 'Tidy tests', created: at( 6 ), updated: at( 11 ), folder: 'C:\\calc',
+        progress: { steps: 4, finished: 1, current: 'Fix the parser' }, finish: 'stop',
+        wrote: [ { path: 'tests/a.py', tool: 'write_file' }, { path: 'notes.md', tool: 'write_file' } ], reply_start: null },
+    { id: 'build', title: 'Fix the calculator', created: at( 8 ), updated: at( 8 ), folder: 'C:\\calc', progress: null, finish: 'stop',
+        wrote: [ { path: 'tests/a.py', tool: 'edit_file' } ], reply_start: 'Fixed.' },
+    { id: 'finished', title: 'Done plan', created: at( 7 ), updated: at( 7 ), folder: 'C:\\calc',
+        progress: { steps: 2, finished: 2, current: null }, finish: 'stop', wrote: [], reply_start: 'All done.' }
+];
+
+function workspace( messages )
+{
+    return apply( [ { v: 1, type: 'conversations.list', items: workspaceItems }, ...messages ] );
 }
 
-test( 'conversations group by the viewer\'s days, newest first, empty groups left out', conversationsGroupByTheViewersDaysNewestFirstEmptyGroupsLeft );
-
-function theHomeScreenSortsTheWorkIntoItsSections()
+function theOverviewCountsTheChatsAndSaysWhatIsWaiting()
 {
-    const at = ( hours ) => new Date( Date.UTC( 2026, 10, 16, hours, 0, 0 ) ).toISOString();
-    const stopped = { steps: 4, finished: 1, current: 'Fix the parser' };
-    const items = [
-        { id: 'question', title: 'Why?', updated: at( 9 ), activity: 'ask', folder: null, progress: null, finish: 'stop', wrote: [] },
-        { id: 'cut', title: 'Long answer', updated: at( 10 ), activity: 'research', folder: null, progress: null, finish: 'length', wrote: [] },
-        { id: 'plan', title: 'Tidy tests', updated: at( 11 ), activity: 'tasks', folder: 'C:\\calc', progress: stopped, finish: 'stop',
-            wrote: [ { path: 'a.py', tool: 'write_file' }, { path: 'b.md', tool: 'write_file' } ] },
-        { id: 'build', title: 'Fix a.py', updated: at( 8 ), activity: 'build', folder: 'C:\\calc', progress: null, finish: 'stop',
-            wrote: [ { path: 'a.py', tool: 'edit_file' } ] },
-        { id: 'finished', title: 'Done plan', updated: at( 7 ), activity: 'tasks', folder: 'C:\\calc',
-            progress: { steps: 2, finished: 2, current: null }, finish: 'stop', wrote: [] }
-    ];
-    const state = apply( [ { v: 1, type: 'conversations.list', items } ] );
-    const sections = homeSections( state );
+    const overview = workspaceOverview( workspace( [] ) );
 
-    assert.deepEqual( sections.needsYou.map( ( row ) => row.item.id ), [ 'plan', 'cut' ] );
-    assert.equal( attentionLine( sections.needsYou[ 0 ] ), 'Stopped at step 2 of 4: Fix the parser' );
-    assert.equal( attentionLine( sections.needsYou[ 1 ] ), 'The last reply was cut short' );
-    assert.deepEqual( sections.plans.map( ( item ) => item.id ), [ 'plan', 'finished' ] );
-    assert.equal( progressLine( sections.plans[ 1 ].progress ), 'Finished, 2 steps' );
-    // The same file in the same folder is listed once, at its latest write.
-    assert.deepEqual( sections.made.map( ( file ) => file.path + '@' + file.item.id ), [ 'b.md@plan', 'a.py@plan' ] );
-    assert.deepEqual( sections.recent.map( ( item ) => item.id ), [ 'plan', 'cut', 'build', 'finished' ] );
-    assert.deepEqual( sections.ideas.map( ( item ) => item.id ), [ 'question' ] );
+    assert.equal( overview.chatCount, 5 );
+    assert.equal( overview.newest.id, 'plan' );
+    assert.deepEqual( overview.waiting.map( ( row ) => row.item.id ), [ 'plan', 'cut' ] );
+    assert.equal( attentionLine( overview.waiting[ 0 ] ), 'Stopped at step 2 of 4: Fix the parser' );
+    assert.equal( attentionLine( overview.waiting[ 1 ] ), 'The last reply was cut short' );
+    assert.equal( progressLine( workspaceItems[ 4 ].progress ), 'Finished, 2 steps' );
+    assert.deepEqual( overview.chats.map( ( item ) => item.id ), [ 'plan', 'cut', 'question', 'build', 'finished' ] );
+    assert.deepEqual( recentChats( workspace( [] ) ).map( ( item ) => item.id ), [ 'plan', 'cut', 'question', 'build' ] );
 }
 
-test( 'the home screen sorts the work into its sections', theHomeScreenSortsTheWorkIntoItsSections );
+test( 'the overview counts the chats and says what is waiting', theOverviewCountsTheChatsAndSaysWhatIsWaiting );
 
 function aConversationWithAReplyUnderWayNeedsNothingYet()
 {
-    const items = [ { id: 'c', title: 't', updated: new Date().toISOString(), activity: 'research', folder: null, progress: null,
-        finish: 'length', wrote: [] } ];
+    const items = [ { id: 'c', title: 't', updated: new Date().toISOString(), folder: null, progress: null, finish: 'length', wrote: [] } ];
     const busy = { ...sessionState( 'gemma-4-12b-it-fp4', 'c' ), busy: true };
     const state = apply( [ busy, { v: 1, type: 'conversations.list', items }, { v: 1, type: 'conversation.loaded', id: 'c', title: 't',
         model: 'gemma-4-12b-it-fp4', activity: 'research', folder: null, messages: [] } ] );
 
-    assert.equal( homeSections( state ).needsYou.length, 0 );
+    assert.equal( workspaceOverview( state ).waiting.length, 0 );
 }
 
 test( 'a conversation with a reply under way needs nothing yet', aConversationWithAReplyUnderWayNeedsNothingYet );
+
+function allChatsAndSearchFindEveryWordTyped()
+{
+    const state = workspace( [] );
+
+    assert.equal( matchingChats( state, '' ).length, 5 );
+    assert.deepEqual( matchingChats( state, 'kv GROW' ).map( ( item ) => item.id ), [ 'question' ] );
+    assert.deepEqual( matchingChats( state, 'every token' ).map( ( item ) => item.id ), [ 'question' ], 'the start of the reply counts' );
+
+    // Search lists chats by title, then each file once, at the latest chat that wrote it.
+    const found = searchResults( state, 'a.py' );
+    assert.deepEqual( found.map( ( result ) => result.kind + ':' + ( result.path ?? result.item.id ) ), [ 'file:tests/a.py' ] );
+    assert.equal( found[ 0 ].item.id, 'plan' );
+    assert.deepEqual( searchResults( state, 'calculator' ).map( ( result ) => result.item.id ), [ 'build' ] );
+    assert.equal( searchResults( state, '' ).length, 5, 'nothing typed lists the recent chats' );
+}
+
+test( 'all chats and search find every word typed', allChatsAndSearchFindEveryWordTyped );
+
+function activityIsByDayNewestFirstFromWhatTheStoreSays()
+{
+    const state = workspace( [] );
+    const days = activityDays( state, 'all' );
+    const events = days.flatMap( ( day ) => day.events );
+
+    assert.equal( days.length, 1 );
+    assert.equal( events.length, 5 + 2 + 2, 'every chat started, two that wrote files, two with a plan' );
+    assert.deepEqual( events.slice( 0, 3 ).map( ( event ) => event.kind + ':' + event.item.id ), [ 'plan:plan', 'file:plan', 'chat:cut' ] );
+    assert.equal( activityText( events[ 0 ] ), 'Stopped at step 2 of 4: Fix the parser' );
+    assert.equal( activityText( events[ 1 ] ), 'Wrote notes.md and a.py' );
+    assert.equal( activityText( events[ 2 ] ), 'Started a chat: Long answer' );
+    assert.deepEqual( activityDays( state, 'plan' ).flatMap( ( day ) => day.events ).map( ( event ) => event.item.id ), [ 'plan', 'finished' ] );
+
+    const now = new Date( 2026, 10, 16, 15, 0, 0 );
+    assert.equal( dayLabel( new Date( 2026, 10, 16 ).getTime(), now ), 'Today' );
+    assert.equal( dayLabel( new Date( 2026, 10, 15 ).getTime(), now ), 'Yesterday' );
+    assert.equal( dayLabel( new Date( 2026, 10, 12 ).getTime(), now ), 'Thursday, November 12' );
+}
+
+test( 'activity is by day, newest first, from what the store says', activityIsByDayNewestFirstFromWhatTheStoreSays );
+
+function theBarStartsAChatGoesOnWithItAndRepliesInAnOpenOne()
+{
+    const sent = { type: 'turn.send', text: 'Hello', attachment_ids: [] };
+    const fresh = workspace( [ sessionState( 'gemma-4-12b-it-fp4', null ) ] );
+
+    assert.equal( barMode( fresh ), 'continue', 'the session begins with a conversation of the bar' );
+    assert.equal( isRisen( fresh ), false, 'an empty conversation does not rise' );
+
+    const talking = reduce( fresh, sent );
+    assert.equal( isRisen( talking ), true, 'sending from a place raises the conversation over it' );
+    assert.equal( isRisen( reduce( talking, { type: 'conversation.raise', risen: false } ) ), false );
+
+    const elsewhere = reduce( talking, { type: 'place.open', place: 'activity' } );
+    assert.equal( elsewhere.place, 'activity' );
+    assert.equal( isRisen( elsewhere ), true, 'the conversation stays risen over the next place' );
+
+    const opened = reduce( talking, { type: 'conversation.open', id: 'question' } );
+    assert.equal( opened.place, 'chat' );
+    assert.equal( barMode( opened ), 'reply' );
+    assert.equal( isRisen( reduce( opened, sent ) ), false, 'in a chat the reply is the pane’s' );
+
+    const back = reduce( opened, { type: 'place.open', place: 'workspace' } );
+    assert.equal( barMode( back ), 'start', 'from a chat opened from a list, the bar begins a new one' );
+    assert.equal( reduce( back, { type: 'place.open', place: 'nowhere' } ), back );
+
+    assert.equal( barPrompt( 'chat' ), 'Reply to Mila' );
+    assert.equal( barPrompt( 'workspace' ), 'Ask Mila anything, or open one of your chats' );
+}
+
+test( 'the bar starts a chat, goes on with it, and replies in an open one', theBarStartsAChatGoesOnWithItAndRepliesInAnOpenOne );
+
+function aChatLeftWhileItsReplyRunsRisesOverTheNextPlace()
+{
+    const busy = { ...sessionState( 'gemma-4-12b-it-fp4', 'question' ), busy: true };
+    const opened = workspace( [ { type: 'conversation.open', id: 'question' }, busy, begin ] );
+    const left = reduce( opened, { type: 'place.open', place: 'chats' } );
+
+    assert.equal( isRisen( left ), true );
+}
+
+test( 'a chat left while its reply runs rises over the next place', aChatLeftWhileItsReplyRunsRisesOverTheNextPlace );
+
+function aRowSaysAReplyInOneLineAndAPersonByTheirInitials()
+{
+    assert.equal( plainLine( '## Plan\n\n**Day 1:** see [Gion](https://example.com) and `run`' ), 'Plan Day 1: see Gion and run' );
+    assert.equal( plainLine( 'Cloudy.\n\n| | Now |\n|---|:---:|\n| Sky | Grey |' ), 'Cloudy. Now Sky Grey', 'a table keeps its words' );
+    assert.equal( plainLine( null ), '' );
+    assert.equal( initials( 'Todd Thomson' ), 'TT' );
+    assert.equal( initials( 'ToddT' ), 'TT' );
+    assert.equal( initials( 'todd' ), 'T' );
+    assert.equal( initials( '' ), '' );
+}
+
+test( 'a row says a reply in one line, and a person by their initials', aRowSaysAReplyInOneLineAndAPersonByTheirInitials );
+
+function theWindowSaysWhoIsSignedInAndTheVersion()
+{
+    const state = apply( [ { type: 'about', user_name: 'ToddT', version: '0.21.0' } ] );
+
+    assert.deepEqual( state.about, { userName: 'ToddT', version: '0.21.0' } );
+}
+
+test( 'the window says who is signed in, and the version', theWindowSaysWhoIsSignedInAndTheVersion );
 
 function whenSaysTheTimeAsAPersonWould()
 {
@@ -356,18 +451,14 @@ function aReplyThatDidNotFinishOnItsOwnSaysWhy()
 
 test( 'a reply that did not finish on its own says why', aReplyThatDidNotFinishOnItsOwnSaysWhy );
 
-function anActivityIsNamedForItsCardAndAFolderByItsLastPart()
+function aPlanCountsItsStepsAndAFolderIsNamedByItsLastPart()
 {
-    assert.equal( activityCard( 'build' ).name, 'Build & Code' );
-    assert.equal( activityCard( 'research' ).name, 'Research & Analyze' );
-    assert.equal( activityCard( 'tasks' ).name, 'Get Things Done' );
-    assert.equal( activityCard( 'plan' ).name, 'plan' );
     assert.equal( planProgress( [ { text: 'a', status: 'done' }, { text: 'b', status: 'skipped' }, { text: 'c', status: 'in_progress' } ] ), '2 of 3 done' );
     assert.equal( folderName( 'C:\\Users\\you\\Projects\\calc\\' ), 'calc' );
     assert.equal( folderName( '/home/you/calc' ), 'calc' );
 }
 
-test( 'an activity is named for its card, and a folder by its last part', anActivityIsNamedForItsCardAndAFolderByItsLastPart );
+test( 'a plan counts its steps, and a folder is named by its last part', aPlanCountsItsStepsAndAFolderIsNamedByItsLastPart );
 
 function memoryComingBackIsTheTranscriptsUntilItIsDone()
 {
@@ -397,17 +488,6 @@ function aThoughtBeingWrittenCountsItsTokens()
 }
 
 test( 'a thought being written counts its tokens', aThoughtBeingWrittenCountsItsTokens );
-
-function theEmptyMessageBoxSpeaksForMilaInTheConversationsActivity()
-{
-    assert.equal( composerPrompt( 'ask' ), 'Ask Mila anything' );
-    assert.equal( composerPrompt( 'build' ), 'What should Mila build or change?' );
-    assert.equal( composerPrompt( 'research' ), 'What should Mila look into?' );
-    assert.equal( composerPrompt( 'tasks' ), 'What should Mila get done?' );
-    assert.equal( composerPrompt( null ), 'Ask Mila anything' );
-}
-
-test( 'the empty message box speaks for Mila, in the activity of the conversation',theEmptyMessageBoxSpeaksForMilaInTheConversationsActivity );
 
 function theHeaderSaysWhatTheAppIsDoingAndNothingWhenItIsDone()
 {

@@ -57,10 +57,17 @@ async function mockTransport( location )
     const options = { scenario: requested === null ? 1 : requested, emit: deliver, schedule, cancel, now };
     const session = module.createMockSession( options );
 
+    // With no window, as in a browser, the transport says what the window would on ready: who is signed in and the
+    // app's version.
+    const about = { v: 1, type: 'about', user_name: 'Alex Morgan', version: '0.21.0' };
+
     function send( message )
     {
         const copy = roundTrip( message );
         const handleLater = () => session.handle( copy );
+
+        if ( copy.type === 'ready' )
+            setTimeout( () => deliver( about ), 0 );
 
         setTimeout( handleLater, 0 );
     }

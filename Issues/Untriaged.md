@@ -564,3 +564,12 @@ with a Release build directory (`Apps/Desktop/README.md`, *Staging it for the wi
 With `MILA_ENABLE_MXC=ON` and the variable unset, every `ContainedRunTest` throws in `SetUp()`: "absolute: The filename,
 directory name, or volume label syntax is incorrect". The comment there expects the absent container, and the `GTEST_SKIP`
 below it never runs. 14 tests in `x64-claude-verify`, the same before and after the 0.21.0-dev+114 file moves.
+
+## A chat's preview of Mila's last reply can stop mid-word, with nothing to say it was cut
+
+`Apps/Desktop/Session/Src/Implementation/ConversationSummary.cpp` (`flattened`, `kReplyStartBytes`) @ 0.21.0-dev+149
+
+Found 2026-11-16 checking AssistantInterface.md phase 2 on the real session with Gemma 4 12B: `reply_start` is cut at
+160 bytes, which kept a character whole but ended "... at every step. This a". A wide window shows the whole 160
+bytes in *All chats*, the overview and the risen conversation's lists, so the cut reads as the reply's own words. The
+page cannot tell a cut from a reply that short; the summary could end a cut one at a word, or mark it.

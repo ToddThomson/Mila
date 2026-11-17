@@ -1,7 +1,7 @@
 # Mila Assistant Interface
 
-**Status:** design, round 2 (2026-11-16). Round 1, the same morning, set out projects, processes and creations around
-a home screen and a sidebar of conversations; its phase 1, the home screen read from today's records, is built. Round 2
+**Status:** design, round 2 (2026-11-16), phases 1 and 2 built (`0.21.0-dev+147`, `+149`). Round 1, the same morning,
+set out projects, processes and creations around a home screen and a sidebar of conversations. Round 2
 is the layout Todd reached through a working prototype the same afternoon, iterated with him on the Mac: a sidebar,
 a workspace overview, projects that open on their summary, chats that need no project, and Mila as a bar at the foot
 of one pane. Todd called it "a good first approximation". Every answer here is Claude's, provisional until Todd settles
@@ -64,12 +64,15 @@ Five rules follow, and every section below is held to them:
 
 ## 2. Where it stands today
 
-- **The sidebar is one list** (`../MilaDesktop.md` 3.3): every conversation, newest first, grouped by date, each row
-  its title and its activity.
-- **The home screen** (3.4) is one line, the activity cards, and since phase 1 (`0.21.0-dev+147`, uncommitted when
-  written) the work so far beneath them: *Needs you*, *Plans*, *Recently made*, *Recent work*, *Ideas*, read from each
-  conversation's summary in `conversations.list` (`Desktop.ConversationSummary`; `homeSections` in `state.js`).
-- **A conversation carries its activity and, for Build & Code and Get Things Done, a folder** chosen when it starts,
+- **The shell of section 4 is built on today's conversations** (phase 2, `0.21.0-dev+149`): the sidebar without
+  projects, the path bar, the workspace overview as a workspace of chats, *All chats*, a chat with the pane to itself,
+  Activity, Search, narrow windows, and the Mila bar with its rising conversation. Every view is drawn from each
+  conversation's summary in `conversations.list` (`Desktop.ConversationSummary`; `workspaceOverview`,
+  `matchingChats`, `searchResults` and `activityDays` in `state.js`). Clicking takes the person everywhere; asking
+  does not yet.
+- **The activity cards are gone** (Todd, 2026-11-16, at phase 2). The Mila bar starts *Ask & Explore*; a conversation
+  stored in another activity still opens with its tools and folder, and a new one in the others waits for phase 3.
+- **A conversation carries its activity and, for Build & Code and Get Things Done, a folder** chosen when it started,
   in the window's picker (`folder.choose`). The activity decides its tools and their grant (`../ToolCalling.md` 3.4).
 - **The store** is one JSON file per conversation in `%LOCALAPPDATA%\Mila\Conversations` on Windows
   (`Desktop.ConversationStore.ixx`): its messages, each tool call with its arguments, decision and result, the history
@@ -152,6 +155,11 @@ Always the same places, with where the person is marked among them.
   open chat's context); and the person: initials, name, *Workspace owner*, and a menu of Settings, Mila's licence,
   About Mila Assistant and Quit.
 
+As built at phase 2: the model's row ends in the ring of the open chat's share of the context, and while the app
+loads, installs or restores, a turning ring and what it is doing take its place. The person is named by the login
+name of whoever is signed in to the computer, which the window sends (`about`, section 10), and *About Mila
+Assistant* is the version, shown in the menu above *Quit Mila*.
+
 ### 4.2 The bar
 
 Where the person is, as a path they can step back along: *Your Workspace / Projects / Calculator app*, or *Your
@@ -211,6 +219,11 @@ Everything that happened across the workspace, by day, newest first: the person'
 approved and stopped, findings, chats started. A filter by kind. Each entry says who (Mila or *You*) and where, and
 opens what it names.
 
+As built at phase 2, from what the store says today: each chat started, at its `created`; and in a chat the files Mila
+wrote and how far its plan came, each at the chat's last change, since the store keeps no time for either. The
+filters are *Everything*, *Chats*, *Files* and *Plans*. Its own events, with their times, come with the store's
+`activity.jsonl` and `history.jsonl` at phase 4.
+
 ### 4.9 Drawers
 
 Over the pane, from the right, closed by Esc or outside it:
@@ -225,7 +238,7 @@ Over the pane, from the right, closed by Esc or outside it:
 
 Below 900 px the sidebar leaves the window and slides over it from a menu button in the bar, closing once the person
 has gone somewhere from it. The overview's figures go two to a row, a project's column of contents goes, and the
-conversation may rise higher. Nothing scrolls sideways.
+conversation may rise higher. Nothing scrolls sideways. A wide window's sidebar does not collapse.
 
 ### 4.11 Search
 
@@ -243,7 +256,10 @@ pane fades out beneath it, so it never sits over a card.
 
 **The conversation rises** above the bar when the person sends something, no higher than about half the window, so the
 place Mila takes them stays in view. Its head says what it is about (*Talking about your workspace*, *In Calculator
-app*, *Not in a project*), with *Open as a whole chat*, *New conversation*, and lower. Esc lowers it.
+app*, *Not in a project*), with *Open as a whole chat*, *New conversation*, and lower. Esc lowers it; while a reply is
+being written, Esc stops the reply first. A chat left while its reply is being written rises over the next place, so
+the reply is never out of sight. As built at phase 2 its head names the chat, *New chat* until it is stored, above *Not
+in a project*.
 
 **No buttons of suggestions.** Nothing is offered beside the bar or under Mila's replies; the person types (Todd's
 trim, 2026-11-16).
@@ -410,6 +426,10 @@ Additions to `../MilaDesktop.md` 4, all new types or new fields, so `"v"` stays 
 last reply's end, or null) and `wrote` (`[{path, tool}]`, the files written, once each, most recent last, at most 20),
 read from the stored conversation by `Desktop.ConversationSummary`.
 
+**Built at phase 2:** `conversations.list` items carry `created` (when the conversation was made) and `reply_start` (the
+start of the last reply, on one line, never cut inside a character, or null). The window sends the page `about`
+(`user_name`, `version`) when the page is ready (`../MilaDesktop.md` 4.1).
+
 **Session to page:**
 
 | type | fields | meaning |
@@ -503,9 +523,14 @@ updated when a phase changes what it shows. This document is amended in the chan
 2. **The shell, on today's conversations.** The sidebar (4.1) without projects, the bar (4.2), the overview (4.3) as a
    workspace of chats, *All chats* (4.6), a chat with the pane to itself (4.7), *Activity* (4.8) from what the store can
    say today (chats started, files written, plans approved and stopped), Search (4.11), narrow windows (4.10), and the
-   Mila bar with its rising conversation (5.1). Clicking takes the person everywhere; asking does not yet. Until phase 3
-   the bar starts what the home screen's box starts today, and the overview keeps the activity cards above *Chats*.
-   Replaces `../MilaDesktop.md` 3.3 and 3.4.
+   Mila bar with its rising conversation (5.1). Clicking takes the person everywhere; asking does not yet. Replaces
+   `../MilaDesktop.md` 3.3 and 3.4. Built (`0.21.0-dev+148`, `+149`). The activity cards went here rather than at phase
+   3 (Todd, 2026-11-16: "The cards are gone"): until phase 3 the bar starts *Ask & Explore*, and a conversation stored
+   in another activity opens with its tools and folder. Checked: page tests 91/91, window tests 5/5, session tests
+   31/31 (`x64-claude-verify`, every target built); the mock at 1280x800, 900 and 860 px in light and dark, with no
+   console error and nothing scrolling sideways; the real session's `conversations.list` over stdio after a turn on
+   Gemma 4 12B FP4, and the window on the real session with the same model, in a scratch store: setup, a turn risen
+   over the overview, lowered, Activity, and the chat opened whole. Not yet: Todd's look on the Mac.
 3. **General-purpose chats.** Section 5.5: every tool in every chat, `request_folder`, the merged rules, one system
    prompt, stored conversations opened as general chats. The measurement of 5.5 comes first, and decides each model's
    default. Replaces `../MilaDesktop.md` 3.1.

@@ -332,6 +332,8 @@ export function plainLine( text )
         .replace( /(^|\s)#{1,6}\s+/g, '$1' )
         .replace( /(^|\s)>\s+/g, '$1' )
         .replace( /\*\*|__|[*`~]/g, '' )
+        .replace( /\|?(\s*:?-{3,}:?\s*\|)+\s*(:?-{3,}:?)?/g, ' ' )
+        .replace( /\|/g, ' ' )
         .replace( /\s+/g, ' ' )
         .trim();
 }
