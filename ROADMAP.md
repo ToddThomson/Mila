@@ -268,10 +268,11 @@ Chat each build on `Mila::Agents` alone, neither linking the other's code, and n
 a model belongs to; no dispatch site in `Mila::Agents` carries a
 per-family branch; and across a multi-turn tool session, prefill tokens per turn equal the tokens the turn added,
 measured, for every family that permits prefix reuse, Qwen from the position it saved at the end of the previous
-turn; and with the experimental setting on, on Windows 11 26H2, Mila Desktop runs a command in the chosen folder,
-asked first, and a test per kind of access the container refuses -- a file outside, a name inside for a file
-outside, a file also in a denied folder, a write to a read-only folder, the network with none granted, a private
-address with it granted, the person's screen -- shows it refused beside the same access inside allowed.
+turn; and with the experimental setting on, on Windows 11 26H2 and on macOS 15 or later, Mila Assistant runs a
+command in the chosen folder, asked first, and a test per kind of access the container refuses -- a file outside, a
+name inside for a file outside, a file also in a denied folder, a write to a read-only folder, the network with none
+granted, a private address with it granted, the person's screen -- shows it refused beside the same access inside
+allowed, on both (`ContainedPrograms.md` decision 12, Todd, 2026-11-17).
 
 ### A Developer Can Start
 

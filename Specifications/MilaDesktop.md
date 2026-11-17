@@ -693,7 +693,8 @@ interrupted the reply printed after the trace line; the renderer now writes it f
    and `Mila.exe` come from one target in Visual Studio. It is outside ALL, and needs `npm` found at configure.
    *Built 2026-10-31 (`ContainedPrograms.md` phase 3):* with `MILA_ENABLE_MXC` on and `MILA_MXC_LIBRARY` naming
    MXC v1.0.1's `mxc_ffi.dll` (about 6 MB, MIT), the component carries it beside the session with MXC's licence as
-   `MXC-LICENSE.md`; the session loads it from there only when *Run commands* is on.
+   `MXC-LICENSE.md`; the session loads it from there only when *Run commands* is on. Moved to MXC v1.1.0's
+   (about 8 MB) on 2026-11-17; what ships is an unrouted build of Mila's own (`ContainedPrograms.md` 4.10).
    *Decided 2026-11-14 (Todd):* the Mac's first testers get a Developer ID build, signed, notarized and handed out as
    a disk image, not TestFlight. TestFlight takes only a Mac App Store build, and the store's App Sandbox would move
    the model store into the app's container, need the inherit entitlement on `mila-session` and a security-scoped

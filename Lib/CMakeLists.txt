@@ -1342,15 +1342,17 @@ endif()
 # Mila::Agents -- the container a grant runs programs through (ContainedPrograms.md 4.11)
 #
 # A tool's programs run in Microsoft's MXC container, loaded at run time from a file the application
-# names, never linked; experimental in v0.21.0 and Windows only. Off, a grant runs no programs:
+# names, never linked; experimental in v0.21.0, and built on Windows only so far -- macOS's half is
+# ContainedPrograms.md section 11, not yet built. Off, a grant runs no programs:
 # Agents.MxcProgramContainer has two candidate source files and exactly one is compiled.
 # Agents.SecondNameWatch and Agents.ToolDesktop are plain Windows and build on Windows regardless.
 # ----------------------------------------------------------------------------
 option( MILA_ENABLE_MXC "Run a tool's programs in Microsoft's MXC container (Windows, experimental)." OFF )
 
-# MXC's library, v1.0.1, as Microsoft's release ships it: copied beside mila-session and carried by its
-# installer, with the LICENSE.md beside it when that is there. Empty, Mila Desktop runs no commands.
-set( MILA_MXC_LIBRARY "" CACHE FILEPATH "mxc_ffi.dll from MXC v1.0.1, carried beside mila-session (MILA_ENABLE_MXC)." )
+# MXC's library, v1.1.0: copied beside mila-session and carried by its installer, with the LICENSE.md
+# beside it when that is there. Empty, Mila Assistant runs no commands. Development may use the file
+# Microsoft's release ships; what Mila ships is an unrouted build of its own (ContainedPrograms.md 4.10).
+set( MILA_MXC_LIBRARY "" CACHE FILEPATH "mxc_ffi.dll from MXC v1.1.0, carried beside mila-session (MILA_ENABLE_MXC)." )
 
 if(WIN32)
     target_sources(Mila

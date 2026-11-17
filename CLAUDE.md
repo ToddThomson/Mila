@@ -200,6 +200,15 @@ predates the current direction:
 The usual triggers: our own server refusing something the library supports; a constant nobody can explain; a test
 bound a new input fails; a default written for an older model; a harness setting that changes what is measured.
 
+### Windows and macOS have the same features, by design
+
+For the 0.21.0 release work, every feature of the library and the apps exists on Windows and on macOS (Todd,
+2026-11-15, restated 2026-11-17). A design names each platform's mechanism in the same section; where one platform
+lacks a primitive, the shared design changes and neither side is left short. A feature is not done while either half
+is missing -- say so in the recap, the spec's phase entry and the commit -- and is never described as one platform's
+normal state. The tells, worth a grep of any draft: *Windows only*, *Mac first*, *for now*, *left out on the Mac*.
+Linux is not covered.
+
 ### Proposals
 
 - **Critical before advocacy:** premises, costs and scope before the case for anything. A proposed shortcut names

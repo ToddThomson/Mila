@@ -140,6 +140,77 @@ opened.
   is refused. A new file or folder is created only in a folder already opened and checked, through the handle
   that folder was opened by, and never through a name that already exists, a link included; nothing is truncated
   before the file is checked.
+- **Files on macOS** (proposed 2026-11-17, from Apple's man pages on macOS 27.2.1 -- `open(2)`, `fcntl(2)`,
+  `stat(2)`, `mkdir(2)` -- and the xnu source; unmeasured). The same rule by the platform's own calls, each on a file
+  descriptor as Windows' are on a handle; every macOS Mila runs on is 27 or later (`CMakePresets.json`), so each call
+  below exists on all of them.
+  - *The path.* A path from the root (`/Users/...`) or relative to the granted folder, each part an ordinary name: no
+    `..`, no control character, and not `..namedfork` (which opens a file's resource fork, as `:` opens a stream on
+    Windows). The names Windows reserves -- devices, a trailing space or period -- are ordinary names on macOS and
+    are not refused there.
+  - *Opening.* `open` and `openat` with `O_CLOEXEC`, so no program a tool later starts inherits the descriptor, and
+    `O_NONBLOCK`, so a named pipe in the folder cannot hold the call; then `fstat`, and anything that is neither a
+    regular file nor a folder -- a pipe, a socket, a device -- is refused.
+  - *The final path.* `fcntl( F_GETPATH )` on the open descriptor, for the granted folder when the grant is made and
+    for each file as it is opened; symbolic links, `/tmp` and `/var` (links into `/private`) and the firmlinks between
+    the system and data volumes all lead to it. Kept only when it lies within a granted folder's own final path, as on
+    Windows. A path longer than `MAXPATHLEN` cannot be reported, so it is refused, saying why.
+  - *More than one name.* A file is opened with `O_UNIQUE`, which fails with `ENOTCAPABLE` when it has more than one
+    hard link (xnu's own test, `tests/vfs/unique.c`), so the refusal is made in the same call as the open; `st_nlink`
+    from `fstat` is checked as well, as Windows checks its link count.
+  - *Creating.* A file by `openat( folder, name, O_CREAT | O_EXCL | O_NOFOLLOW )`, which fails when anything has the
+    name, a symbolic link included (`open(2)`); a folder by `mkdirat( folder, name )`, then opened through the same
+    folder with `O_DIRECTORY | O_NOFOLLOW` and checked by its final path before anything is made in it.
+  - *Listing.* The open folder's own entries (`fdopendir` on a duplicate of its descriptor), each described by
+    `fstatat` on that folder, so a link is listed as one and its target's kind is the target's.
+  - *Not chosen:* `O_RESOLVE_BENEATH` as the rule. It refuses a link from one granted folder into another, which
+    Windows accepts, so the two platforms would differ; the final path decides on both. `O_NOFOLLOW_ANY`, for the
+    same reason.
+  - *Measured 2026-11-17* on the development Mac, macOS 27.2.1, on its APFS volume and on case-sensitive APFS, HFS+
+    and exFAT disk images (a probe outside the repository, `~/mila-work/grant-probe`):
+    - `F_GETPATH` reports one path for a folder or file whichever way it was reached -- by `/Users` or by
+      `/System/Volumes/Data/Users`, through a symbolic link, through `/tmp` (reported as `/private/tmp`) -- and in the
+      case and Unicode form stored on disk, not the ones it was opened by, on every volume tried; so the comparison
+      needs no normalising, and `F_GETPATH` is the call (`F_GETPATH_NOFIRMLINK` reports the data volume's form,
+      equally single). A held file reports where it is now after its folder is renamed or it is moved out, and its
+      last path after it is deleted, so the check is made as the file is opened, as on Windows.
+    - Past `MAXPATHLEN` (1,024 bytes) `F_GETPATH` fails with `ENOSPC` and an open by the whole path with
+      `ENAMETOOLONG`, so such a file is refused, saying its path is longer than macOS can report. This is the
+      platform's own limit; Windows has none so low.
+    - `O_UNIQUE` refuses a file with two names with `ENOTCAPABLE` on APFS, case-sensitive APFS and HFS+, and opens a
+      folder however many subfolders it has; exFAT makes no second name (`link` fails with `ENOTSUP`). `link` on a
+      folder is refused (`EPERM`) on every volume, HFS+ included, so a person cannot make a folder with two names, and
+      HFS+ needs no refusal. Only the system makes such folders, in Time Machine backups written to HFS+, which
+      `O_UNIQUE` does not see; a grant of a folder inside one is a known gap, stated here.
+    - A named pipe opened with `O_NONBLOCK` returns at once and `fstat` reports it a pipe, so it is refused without
+      waiting; a socket file fails to open (`EOPNOTSUPP`).
+    - Writing `file/..namedfork/rsrc` makes a resource fork, reported as `.../file/..namedfork/rsrc`; on exFAT it
+      makes a hidden `.vfs_rsrc_stream_...` file in the folder. So the path form refuses `..namedfork`.
+    - `O_CREAT | O_EXCL` refuses a name that is a dangling symbolic link with `EEXIST`, with `O_NOFOLLOW` or without,
+      and makes nothing where the link points; a folder swapped for a link before it is opened with
+      `O_DIRECTORY | O_NOFOLLOW` is refused with `ENOTDIR` (not `ELOOP`), so both errors read "is not a folder".
+    - A listing gives a link `DT_LNK`; `fstatat` on the folder reports the link itself, and, followed, its target's
+      kind, or `ENOENT` for a link to nothing, which is listed as a link and as no folder.
+    - `O_RESOLVE_BENEATH` refuses a link out of the folder (`ENOTCAPABLE`), as *Not chosen* expected.
+  - *Privacy consent, measured 2026-11-17* with Todd at the Mac answering macOS's questions: a child process of an
+    Electron app, as `mila-session` is of Mila Assistant's window, opening a folder macOS protects
+    (`~/mila-work/grant-probe/consent.sh`).
+    - Opened with no open panel, Downloads and Desktop each brought macOS's question, the open waiting on the answer
+      (3.6 s and 2.8 s). Refused, the open fails with `EPERM` -- not `ENOENT` -- and fails at once from then on; allowed,
+      it opens at once from then on. So a grant reports `EPERM` from macOS as its own refusal, naming System Settings'
+      *Privacy & Security* as where it is changed, and never as a missing file.
+    - A folder the person chose in the app's own open panel, inside Documents, was opened by the child at once with no
+      question; Documents itself, opened by the child next, waited 7.0 s, macOS's question shown and answered. So the
+      open panel gives the app that folder and nothing around it, which is what a grant gives.
+    - A mounted disk image was opened at once with no question, so it stands for no removable drive in macOS's
+      consent; a real external drive is not measured.
+    - **Not measured:** whether a folder chosen in the open panel stays open to the app's child after the app is
+      quit and started again, which a chat reopened with its folder needs (`Apps/AssistantInterface.md` 5.5); a real
+      external drive; iCloud Drive and network volumes, which the development Mac does not have.
+  - *Tests:* the Windows suite's refused-beside-allowed pairs on the Mac, each with macOS's own way to the same
+    access -- a symbolic link to a file outside and to a folder outside, a hard link (`link`) to a file outside, a
+    path through `/tmp`, a case other than the one on disk, a named pipe, `..namedfork`, a file created through a
+    name that is a link, a folder replaced by a link between its check and its use -- run on the Mac as on Windows.
 - **Network.** The grant connects only to public addresses. *Decided 2026-10-27 (Todd):* public is globally
   reachable as IANA's IPv4 and IPv6 special-purpose registries record it, multicast refused too, and an IPv6
   address that carries an IPv4 one -- IPv4-mapped, NAT64, 6to4 -- is public only when that IPv4 address is
@@ -148,8 +219,10 @@ opened.
   name. A redirect is a new connection and is checked the same way. No proxy is used, one named in the
   environment included, since the connection checked would be the proxy's.
 - **Where.** *Decided 2026-10-27 (Todd):* Windows only for now. *Decided 2026-11-15 (Todd):* macOS too, in
-  v0.21.0, macOS being a platform at parity with Windows (`BACKLOG.md`, *Mila on Apple Silicon*); until it is built a
-  Mac grant holds no folder. Elsewhere a grant holds no folder, so no tool reaches one; Linux's `openat2` with `RESOLVE_BENEATH` (Linux 5.6) is the likely route there and is filed in
+  v0.21.0, macOS being a platform at parity with Windows (`BACKLOG.md`, *Mila on Apple Silicon*), by the design under
+  *Files on macOS* above; until it is built a Mac grant holds no folder, which is a defect, not the Mac's design.
+  `Agents.GrantFileSystem` gains a macOS candidate file beside Windows' and the refusing one, which stays for Linux;
+  the path's form (`GrantPath`) and where a path starts (`ToolGrant`'s drive-letter root) become the platform's. Elsewhere a grant holds no folder, so no tool reaches one; Linux's `openat2` with `RESOLVE_BENEATH` (Linux 5.6) is the likely route there and is filed in
   `Untriaged.md`, unmeasured.
 - **What it holds.** A tool that works through its grant is held to it. One that opens files directly is not; an
   in-process tool is the application's own code, and that is the application's choice.

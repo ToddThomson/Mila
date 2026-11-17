@@ -1,10 +1,12 @@
 # Contained Programs
 
-How a tool runs a program held to its grant, through Microsoft eXecution Container (MXC), and the first tool that
-does: Mila Desktop's shell in Build & Code.
+How a tool runs a program held to its grant, through Microsoft eXecution Container (MXC), on Windows and on macOS,
+and the first tool that does: Mila Assistant's `run_command`.
 
 **Status:** agreed 2026-10-27 (Todd, decisions 1 to 6 of section 9); phase 1 measured the same day; decisions 7
-to 11 agreed 2026-10-31, and phases 2 and 3, the library and the tool, built that day; phase 4 not begun. Decided before it (Todd, 2026-10-27): MXC goes into
+to 11 agreed 2026-10-31, and phases 2 and 3, the library and the tool, built that day on Windows; phase 4 not begun.
+**The macOS half is missing, so phases 2 and 3 are not done** (decision 12, Todd, 2026-11-17): section 11 proposes it,
+not yet measured. Decided before it (Todd, 2026-10-27): MXC goes into
 tool calling for v0.21.0 as an experiment, behind a switch that is off by default, as long as the grant
 (`ToolCalling.md` 3.4) remains v0.21.0's safe tool calling; the design works around the two accesses MXC's policy
 accepts that no grant gives; a file that gains a second name from outside while a run is going is accepted as a
@@ -51,6 +53,7 @@ Tool.run( arguments, grant, stop )
         ProgramContainer                       the interface; the grant holds one or none
             MxcProgramContainer                Windows: mxc_ffi.dll, loaded at run time
                 one desktop of Mila's own      section 4.4
+            MxcProgramContainer                macOS: libmxc_ffi.dylib, MXC's Seatbelt backend (section 11, proposed)
 ```
 
 The container is the grant's, as its transport is (`ToolCalling.md` 9.3): a tool reaches a program only through
@@ -96,7 +99,8 @@ whole tree, one watcher per folder); before each later run only the files the wa
 again. That holds on ReFS; on NTFS, and any other file system, the folders are walked whole before every run,
 since the watcher there misses a name made outside (below). Each file whose link count is more than one has its names listed (`FindFirstFileNameW` /
 `FindNextFileNameW`). A file whose every name lies within a granted folder that gives at least the same access is
-left alone; any other is put in `deniedPaths` for that run, by its name inside, and the result names it so the model
+left alone -- as built; decision 15 replaces this with denying every such file, on both platforms -- and any other is
+put in `deniedPaths` for that run, by its name inside, and the result names it so the model
 knows why it is unreadable. When a watcher overflows and so names nothing, its folder is walked again, and a run
 whose walk passes a bound is refused, saying why (decision 7).
 
@@ -120,8 +124,8 @@ whose walk passes a bound is refused, saying why (decision 7).
 - **The bound** (Todd, 2026-10-31): no count of files. A walk, the first or one after an overflow,
   is part of the run and counts against the call's own time; a walk that does not finish within it refuses the run,
   saying the folder is too large to check in the time given.
-- **Linux** has no call that lists a file's names, so a file with more than one name is denied there whatever its
-  other names. The grant is Windows only (3.4), so this is for later.
+- **macOS and Linux** have no call that lists a file's names, so a file with more than one name is denied there
+  whatever its other names; for macOS, and whether Windows keeps the rule above, see section 11.3. Linux is for later.
 
 ### 4.4 A desktop of Mila's own
 
@@ -137,7 +141,9 @@ desktop (`SetThreadDesktop`) before `mxc_spawn_json`, and MXC's process lands on
 
 ### 4.5 The network
 
-The grant's network is public addresses only (3.4). MXC filters by address, so the grant's rule becomes a deny list:
+As built; decision 14 puts a proxy of Mila's own in front of this on both platforms, and the list stays beneath it
+on Windows (11.4). The grant's network is public addresses only (3.4). MXC filters by address, so the grant's rule
+becomes a deny list:
 every IANA special-purpose range, IPv4 and IPv6, and multicast, generated from `PublicAddress`'s own table so the
 two cannot drift. The IPv6 forms that carry an IPv4 address -- IPv4-mapped, NAT64, 6to4 -- are denied whole, which
 is stricter than the grant, which decides by the IPv4 address inside. Measured on Windows: public HTTPS accepted; the
@@ -196,8 +202,10 @@ grant reads what the person keeps under `HKCU`, which no grant gives. It is a kn
 ### 4.10 The library behind it
 
 - **`mxc_ffi.dll` is loaded at run time** from the application's folder, never linked, so a build without it still
-  runs and a machine without it offers no program-running tool. Mila Desktop's installer carries the v1.0.1 file
-  (MIT, about 6 MB) beside `mila-session`.
+  runs and a machine without it offers no program-running tool. Mila Desktop's installer carries the file
+  (MIT, about 8 MB at v1.1.0) beside `mila-session`. **Moved to v1.1.0 on 2026-11-17:** the eleven functions Mila
+  calls and the error detail it mirrors are unchanged from v1.0.1 (the FFI crate's source at both tags compared);
+  v1.1.0 adds `mxc_spawn_extended_json`, `mxc_register_runtime_directory` and two state-aware calls, none used.
 - **The version is pinned.** MXC publishes no C header (microsoft/mxc#1449), so Mila mirrors the `repr(C)` layouts of
   one version, checks `mxc_version()` on load, and refuses any other.
 - **Availability is asked, not assumed:** `mxc_platform_support_json` at load; on a Windows build older than
@@ -207,6 +215,21 @@ grant reads what the person keeps under `HKCU`, which no grant gives. It is a kn
   (MXC's `docs/telemetry.md`). Mila writes `telemetry.enabled: false` in every request and never shows MXC's prompt,
   so another application's consent changes nothing for Mila's runs. Phase 1: consent `undetermined`, and no
   connection owned by the host during a run.
+- **From v1.1.0 that switch no longer holds** (MXC's `docs/telemetry.md` and `docs/development/architecture/telemetry.md`
+  at v1.1.0, read 2026-11-17). Microsoft's builds send four Required events for every request contract, `1.0.0`
+  included: `MXC.ExecutionStart`, `MXC.ExecutionEnd`, `MXC.Error` and `MXC.ProcessExited`, carrying the backend, the
+  outcome, the exit code, the duration, a failure category, a random per-run session id and MXC's version, and by
+  MXC's account no command line, path, environment value or output. `telemetry.enabled: false`, consent and
+  administrative policy do not stop them, and Windows' own diagnostic-data setting does not govern them. They are
+  routed only by a build that carries the signed metadata of `mxc_telemetry.dll`; a release built from source with
+  `MXC_TELEMETRY_COMPONENT_PATH` empty is unrouted, its events local ETW that nothing sends (unmeasured). macOS has no
+  MXC telemetry. **Decided (Todd, 2026-11-17, decision 13):** development may run Microsoft's v1.1.0 binary; what
+  Mila ships is an unrouted build of its own, confirmed unrouted by a local trace before it ships.
+- **Windows versions.** MXC's own table (`docs/backends/process-container/os-version-support.md`, v1.1.0) lists
+  process isolation from 26100.9278 on 24H2 and 26200.9278 on 25H2, so "26H2 or later" in section 6 may be narrower
+  than MXC; Mila asks MXC at load either way. Unmeasured: no 24H2 or 25H2 machine has been tried. From v1.1.0
+  ProcessContainer runs only on Windows' native PSEC and refuses a request PSEC cannot enforce before launch; the
+  AppContainer tier and the host-ACL fallback are gone.
 
 ### 4.11 The switch
 
@@ -291,6 +314,10 @@ One type each, under `Lib/Src/Agents/` unless named:
    and the internet, offering Allow once and Deny alone.
 4. **Later, through the same call:** MCP servers started as processes (`ToolCalling.md` 6), code an agent writes,
    and Linux through bubblewrap once the grant runs there.
+5. **macOS** (section 11), v0.21.0 work with phases 2 and 3, which are not done without it. First the conformance
+   checks of `Notebooks/MxcConformance.md` section 7 run on the Mac against MXC's Seatbelt backend at v1.1.0; then
+   the Mac candidate file, phase 2's tests passing on both machines, and phase 3's gate on both. It stands on the
+   grant's macOS file checks (`ToolCalling.md` 3.4, BACKLOG *Mila on Apple Silicon*), which come first.
 
 ## 9. Decisions
 
@@ -299,7 +326,8 @@ All six decided 2026-10-27 (Todd, "Agreed to 1..6"), each as recommended:
 1. **v0.21.0's scope.** `ROADMAP.md` *The Desktop Agent* carries the criterion: *with the experimental setting on,
    on Windows 11 26H2, Mila Desktop runs a command in the chosen folder, asked first, and every phase 2 check
    refuses its access beside the same access inside allowed*; `BACKLOG.md` carries the item. The item's date is the
-   release's, so it drains to `Vnext.md` if it does not land, and the criterion with it.
+   release's, so it drains to `Vnext.md` if it does not land, and the criterion with it. Widened to macOS 15 or
+   later by decision 12.
 2. **A withheld file is denied for the run, not the run refused** (4.3), and the result names it.
 3. **The desktop: the session's thread if phase 1 shows it holds, else a host process per run** (4.4). Phase 1
    showed it holds: the thread.
@@ -339,6 +367,24 @@ Decided 2026-10-31 (Todd, "off by default", then "Yes to your 2 step plan"):
     first (`Untriaged.md`). Not chosen: the network on for every command, which lets any allowed command send what
     it reads.
 
+Decided 2026-11-17 (Todd):
+
+12. **Running a program is a feature of Windows and macOS alike** ("win and Mac have the same features. It should be
+    that way by design"). The design names each platform's mechanism, and where one lacks a primitive the shared
+    design changes rather than one side going without (section 11). Phases 2 and 3 are done only when both halves
+    are.
+13. **Telemetry: development may use Microsoft's v1.1.0 binary; Mila ships an unrouted build of its own** (4.10).
+
+Decided 2026-11-17 by Claude, Todd having left them to its call and to review later ("7,8,9 your call - I'll review
+later"):
+
+14. **A command's network goes through a proxy of Mila's own on both platforms** (11.4), deciding by `PublicAddress`;
+    Windows keeps the deny list of 4.5 beneath it. Not chosen: no network for commands on the Mac, which leaves the
+    Mac short; the deny list alone on Windows and the proxy on the Mac, two rules for one feature.
+15. **A file with more than one name is denied for the run on both platforms, whatever its other names** (11.3), as
+    the grant's file checks refuse one. Not chosen: Windows' rule of 4.3 beside a stricter Mac rule, two behaviours
+    for one feature, and one that no grant gives in the first place.
+
 ## 10. Relationship to other specs
 
 - **`ToolCalling.md`** owns the grant: 3.1 names the fourth need, 3.4 the container as the grant's, and 6 points
@@ -347,3 +393,76 @@ Decided 2026-10-31 (Todd, "off by default", then "Yes to your 2 step plan"):
   holds what phase 4 leaves.
 - **`MilaDesktop.md`** 3.1 (Build & Code's tools) and 9.4 (what the installer carries) changed in phase 3.
 - **`Notebooks/MxcConformance.md`** holds the measurements this design rests on.
+
+## 11. macOS (proposed 2026-11-17, unmeasured)
+
+The same interface, the same grant and the same switch, through MXC's Seatbelt backend: MXC turns the request into
+a profile for Apple's kernel sandbox and applies it between `fork()` and `exec()`, the sandbox lasting exactly as long
+as the process tree (MXC's `docs/backends/seatbelt/seatbelt-backend.md` at v1.1.0, read 2026-11-17; every statement
+about Seatbelt below is from it and waits on phase 5's checks). It needs macOS 15 or later. Seatbelt is not new in
+v1.1.0, but v1.1.0 fixes its symlink and parent-traversal enforcement (microsoft/mxc#1531), so the Mac starts there.
+
+### 11.1 The library and the switch
+
+- `Agents.MxcProgramContainer` gains a third candidate file, macOS's, beside Windows' and the always-absent one;
+  `MILA_ENABLE_MXC` selects it on Apple as on Windows. `libmxc_ffi.dylib` is loaded at run time from the
+  application's bundle, the same `repr(C)` functions as Windows' (they are one Rust crate), the version pinned the same
+  way. MXC's v1.1.0 release carries `arm64/libmxc_ffi.dylib` (about 5.6 MB) beside the Windows DLL; MXC sends no
+  telemetry on macOS, so the decision of 4.10 does not reach it.
+- The app's setting is the same setting, off by default, labelled experimental, with the same wording but the
+  platform's.
+
+### 11.2 From the grant to Seatbelt
+
+| Grant | MXC request on macOS |
+|---|---|
+| Folders granted read-write, read-only; program folders | `readwritePaths`, `readonlyPaths`, as on Windows; MXC resolves symlinks before the profile is made and refuses a dangling one |
+| Files with more than one name | `deniedPaths` (11.3) |
+| No network | `egress.default: deny`; `ingress.default: deny`, `hostLoopback: deny` |
+| The network | not by address: Seatbelt has no address or range rule and refuses one (11.4) |
+| -- | `containment: seatbelt`; no `guiAccess`, so the UI, the clipboard and injected input are refused by the kernel, which takes the place of 4.4's desktop |
+| -- | `process.env`: Mila's, as 4.7 (11.5); Seatbelt never inherits the host's |
+
+Every sandbox also reads a baseline MXC grants itself: `/bin`, `/sbin`, `/usr/bin`, `/usr/sbin`, `/usr/lib`,
+`/usr/libexec`, `/usr/share`, `/System`, `/Library`, parts of `/private/etc` and `/private/var/db`, and the active
+developer directory; never the person's own `~/Library`. A read-write folder also lets a program connect to a socket
+already listening inside it, which is a reason the project stays the only folder granted to write.
+
+### 11.3 Files with more than one name
+
+macOS gives a file's link count and no call listing its other names, so a file in a granted folder with more than one
+name is denied for the run by its name inside, as Linux would be (4.3); a watcher keeps the walk current as 4.3's does,
+by the platform's own mechanism, measured first. **Both platforms take that rule** (decision 15): on Windows too, a
+file with more than one name is denied for the run whatever its other names, which is the rule the grant's own file
+checks already keep (`ToolCalling.md` 3.4). What it costs Windows is only a file whose every name lies inside the
+granted folders; pnpm's store and a `git clone` from elsewhere on the drive put a name outside, and so were denied
+already. Accepting a file whose names all lie inside stays filed for both platforms (decision 5, `Untriaged.md`).
+
+### 11.4 The network
+
+Seatbelt's outbound network is on or off, with a loopback proxy as the one exception it enforces: with
+`egress.default: deny` and `runtimeConfig.networkProxy` naming a loopback port, the kernel lets the sandbox reach that
+port and nothing else; whether a program uses the proxy is its own affair, and one that does not has no network. So
+"public addresses only" (4.5) cannot come from Seatbelt. **On both platforms a command's network goes through a
+proxy of Mila's own** (decision 14), which opens each connection through the grant and so decides by `PublicAddress`
+as the grant's own transport does. The container lets the command reach the proxy's loopback port and nothing else:
+on macOS by `egress.default: deny` with `runtimeConfig.networkProxy`, on Windows by MXC's proxy mode, whose
+enforcement is measured first. Windows keeps 4.5's deny list beneath it as a second layer, which Seatbelt has no
+counterpart for; the rule a command meets is the proxy's on both. It is also the base the per-project host list of
+decision 11 needs. A program that ignores the proxy has no network, on either platform. Until the proxy exists, a Mac
+command has no network, which is a gap against Windows to close in v0.21.0, not the Mac's design.
+
+### 11.5 The environment, the shell and the program folders
+
+- Seatbelt starts from an empty environment. Mila writes it as 4.7 does: `PATH` of `/usr/bin:/bin:/usr/sbin:/sbin`
+  and the program folders; `HOME` as `.mila/Home` in the project; a temporary folder in the project or MXC's own, to be
+  measured as `TEMP` was on Windows (`MxcConformance.md` 7.1).
+- The shell is `/bin/zsh`, present on every supported macOS, given the command as a script the tool writes through
+  its grant to `.mila/command.sh`, as PowerShell is given `.mila\command.ps1`.
+- `Desktop.ProgramSetup` gains macOS's candidate: Git, CMake, Ninja, Node and .NET where the person's `PATH` finds
+  them (Homebrew's prefix included), and Xcode's tools through MXC's developer-directory grant.
+
+### 11.6 What has no counterpart
+
+The registry gap (4.9) has none on macOS; whether the person's defaults under `~/Library/Preferences` are refused is
+one of phase 5's checks. MXC sends no telemetry on macOS (4.10).

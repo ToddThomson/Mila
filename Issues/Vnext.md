@@ -1400,6 +1400,11 @@ Qwen 3.8's operations are on Metal and its four-layer packed build passes its Hu
 context and has not been run whole, and Qwen has no Mac rates. The 26B-A4B does not fit at all. Qwen 3.8 on a Mac is
 v0.22.0's (Todd, 2026-11-09). `Specifications/Metal/MetalBackend.md` section 9, Phase 6.
 
+**A hardware restriction, not a gap in parity (Todd, 2026-11-17):** "These models should work but we have no way to
+test." Windows and macOS have the same features by design (`CLAUDE.md`), and a model a Mac's memory cannot hold is
+the Mac's limit, not Mila's; the planner refuses it there for memory, as on a card too small. What stays here is the
+testing, which needs a Mac with more memory than the development M1 Pro's 16 GB.
+
 **The 26B-A4B needs a 24 to 32 GB Mac (Todd, 2026-11-10).** Arithmetic, not measured: Q4_0 weights are 13.5 GiB
 against the 16 GB M1 Pro's 11.84 GiB working set, and with the FP8 global cache at 65536 about 14.7 GiB in all (CUDA's
 measured fit, `MemoryFootprint.md` 8). The expert bank is 90% of the weights (22.84B of 25.23B parameters); only experts

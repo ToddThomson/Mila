@@ -335,6 +335,27 @@ Gate: the clean-room install passes from TestPyPI on the release-step-1 snapshot
 
 `Apps/Server/pyproject.toml` · `RELEASING.md` *Publishing the wheels*
 
+#### Mila Assistant's installer ships third-party code without its licence texts
+
+`open` · `apps` · `distribution`
+
+The wheels and the container images carry each fetched dependency's licence text, and their builds refuse to run
+without them (`NOTICE.md`); Mila Assistant's installer does not, on Windows or on the Mac. Checked 2026-11-17 in
+`Apps/Desktop/Window/dist/win-unpacked`: electron-builder adds Electron's and Chromium's licences itself, and the
+session component adds MXC's as `MXC-LICENSE.md`, but nothing carries the texts of what is compiled into
+`mila-session` -- nlohmann/json and miniz on both platforms, curl on Windows, metal-cpp on the Mac. `NOTICE.md` has
+no column for the app, and no row for what it carries beside the session: the CUDA libraries and the Visual C++
+runtime on Windows, LLVM's C++ runtime linked in on the Mac, whose LLVM exception may waive the notice and is to be
+read, not assumed. Work, the same on both platforms: the session's install component copies each licence text from the fetched
+sources into the app's resources, and packaging refuses to run without them; `NOTICE.md` gains the app's column,
+which `check_pins.py --verify-notice` then holds; and the window shows the same files under *Licences* in its About.
+Not known: which crates `mxc_ffi.dll` compiles in, since MXC's release carries no notice for them -- answered by
+reading its dependency list, or by the build of Mila's own that `ContainedPrograms.md` 4.10 ships. Before any build
+reaches a tester, since handing one out is distributing it. No success criterion names it; admitted by Todd,
+2026-11-17.
+
+`NOTICE.md` · `Apps/Desktop/Session/CMakeLists.txt` · `Lib/Bindings/Python/Package/setup.py` (the wheel's way)
+
 #### What a model can do is inferred from its family name, not read from its manifest
 
 `in progress` · `distribution` · `apps` · `mila-src`
@@ -748,6 +769,21 @@ on the Mac as on Windows. Absent: how macOS gives those answers has not been loo
 macOS being a platform at parity with Windows. Linux stays in `Issues/Untriaged.md`.
 
 `Specifications/ToolCalling.md` 3.4
+
+#### On a Mac Mila Assistant cannot run a command in a chat's folder
+
+`open` · `agents` · `apps` · `mila-src`
+
+`run_command` runs on Windows only: `Agents.MxcProgramContainer` has a Windows file and an always-absent one, and
+the Mac build compiles the second. Work: the macOS candidate file over MXC's Seatbelt backend at v1.1.0, the
+environment, shell (`/bin/zsh`) and program folders for macOS, and phase 2's refused-beside-allowed tests passing on
+the Mac as on Windows. MXC's conformance checks run on the Mac first. Two parts change the shared design, on Windows
+too: a command's network goes through a proxy of Mila's own on both platforms, since Seatbelt cannot hold it to public
+addresses (decision 14); and a file with more than one name is denied for the run on both, whatever its other names,
+since macOS cannot list them (decision 15). Stands on the grant's file checks above. Admitted by Todd, 2026-11-17
+(`ContainedPrograms.md` decision 12).
+
+`Specifications/ContainedPrograms.md` section 11
 
 #### Mila for Python does not build on a Mac
 

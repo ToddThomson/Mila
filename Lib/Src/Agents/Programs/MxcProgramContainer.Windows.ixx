@@ -37,9 +37,9 @@ namespace Mila::Agents
     namespace MxcDetail
     {
         // The only version whose layouts are mirrored here: MXC publishes no C header (microsoft/mxc#1449).
-        inline constexpr std::string_view kVersion = "1.0.1";
+        inline constexpr std::string_view kVersion = "1.1.0";
 
-        // Layouts mirror src/ffi/mxc_ffi/src/error_detail.rs and streaming.rs at microsoft/mxc v1.0.1 (#[repr(C)]).
+        // Layouts mirror src/ffi/mxc_ffi/src/error_detail.rs and streaming.rs at microsoft/mxc v1.1.0 (#[repr(C)]).
         struct ErrorDetail
         {
             char* message_utf8;

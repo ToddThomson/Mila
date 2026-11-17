@@ -10,6 +10,20 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Nothing at the operating system's level confines `mila-session`, so a defect in the grant reaches whatever the person can
+
+`Apps/Desktop/Session/Src/main.cpp`; `Apps/Desktop/Window/src/main.js` (starts the session); `Specifications/MilaDesktop.md` section 9 item 4 (*Decided 2026-11-14*, App Sandbox) @ 0.21.0-dev+151
+
+Found 2026-11-17 reviewing MXC v1.1.0 with Todd ("Mila has no other way to sandbox tool calls"). Every tool runs in
+`mila-session` as the person, held only by the grant and the question before each call; MXC holds only the programs
+`run_command` starts. A second layer would confine the session itself, on both platforms by one design (Todd's parity
+rule, `CLAUDE.md`): an AppContainer on Windows; on macOS the App Sandbox, or a Seatbelt profile the window applies when it
+starts the session. Todd decided 2026-11-14 that the App Sandbox belongs with a decision to sell through the Mac App
+Store, since it moves the model store into the app's container and needs a security-scoped grant per folder, so that
+road needs his word again. Not known: whether Metal and CUDA work inside either confinement, where the model store
+and conversations would live, and how a folder the person chooses reaches a confined session on each platform.
+Claude's call (Todd, 2026-11-17, to review later): captured here, not v0.21.0 work.
+
 ## A reply that falls into repeating itself runs for hours in Mila Assistant, with nothing but the person to stop it
 
 `Apps/Desktop/Session/Src/Desktop.SessionProcess.ixx` (`useActivity`, `AgentLimits{}`); `Specifications/MilaDesktop.md` 3.6 and the *Activities* decision ("a reply runs to the context", Todd, 2026-11-13) @ 0.21.0-dev+149
