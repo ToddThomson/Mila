@@ -6,6 +6,10 @@
 
 Mila is a C++23 module-based library for open LLMs on CUDA — inference and training, built from explicit neural-network components. Its first production release was `0.20.0`; `0.21.0` is the cycle in flight (see `Version.txt`). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes to the API are acceptable — backward compatibility is not a goal there. **Weights on a user's disk are the exception:** a format a published minor wrote is read by the next minor, and an older Mila can still install a model it can run (`ModelDistribution.md` *Compatibility*, decided 2026-10-03).
 
+### Where Mila is going
+
+**Everything we do builds towards [`Specifications/Direction/MilaVision.md`](Specifications/Direction/MilaVision.md)** (Todd, 2026-11-18). Mila Assistant, a safe, secure, private and local personal assistant for navigating a person's digital life, is the top-level product. The Mila library beneath it is equally important: the technology is built and understood from bottom to top, then put to use through a general purpose meta app. We get there by small engineering steps, each discussed and specified. The vision marks each of its statements decided, current thinking, proposed or open, so a proposal in it is not a decision.
+
 ### There is no feature freeze right now
 
 v0.20 ran under one, scoped to `Lib/Src` and lifted when that release shipped. **`Lib/Src` is open for the 0.21.0 cycle** — the release's goal is Src work. Do not cite a freeze; if a change is refused it is for a reason that has to be named, and "the library is frozen" is no longer one of them.

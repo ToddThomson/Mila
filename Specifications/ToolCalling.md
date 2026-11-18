@@ -408,7 +408,8 @@ system's file and socket calls for the grant; HTTP, TLS and process launching co
 
 1. **Several calls in one turn:** run together or in order. Reads and writes may need different answers.
 2. **Rules after untrusted content.** Once a fetched page or a file the person did not write enters the
-   conversation, whether rules tighten -- for example, ask before any write that follows.
+   conversation, whether rules tighten -- for example, ask before any write that follows. This is now the centre of
+   `Direction/MilaVision.md` section 8, whose proposals are not yet decided.
 3. **Connections through the grant.** *Decided 2026-10-27 (Todd):* a tool fetches through the grant's own
    transport (`ToolGrant::transport`), libcurl with each connection's address checked before it is made, so every
    connection, a redirect's included, is checked. A transport the application supplies, such as the Python
@@ -424,6 +425,7 @@ system's file and socket calls for the grant; HTTP, TLS and process launching co
 ## 10. Relationship to other specs
 
 - `Direction.md` 3 and 8 -- the layering and decision 6, which point here.
+- `Direction/MilaVision.md` -- the local promise and what content may cause, both of which this gate and grant must hold.
 - `ModelHandle.md` -- the handle the grammar of section 2 lives on, and its declared capabilities.
 - `MilaDesktop.md` 4.5 -- Mila Desktop's question and answers, which this design's hook presents.
 - `ToolBroker.md` -- the earlier design; its approval round trip informs section 6, its checks are section 3.4's.

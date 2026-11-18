@@ -50,7 +50,9 @@ means a status line or target is out of date and the rest has not been re-read.
 
 | Document | Role | Decides or records | Notes |
 |---|---|---|---|
-| [Direction.md](Direction.md) | Direction | Mila's trait, layering and release plan from v0.21.0 | Supersedes `MilaProductFamily.md` after the v0.20 tag |
+| [Direction/MilaVision.md](Direction/MilaVision.md) | Direction | Where Mila is going, and what all work builds towards: Mila Assistant as the top-level product, a safe, secure, private and local personal assistant for a person's digital life, on an equally important library; its promises, Personal Context, what content may cause, and the small steps towards it | Written 2026-11-18; each statement marked decided, current thinking, proposed or open |
+| [Notebooks/MilaVisionDiscussion.md](Notebooks/MilaVisionDiscussion.md) | Notebook | The discussion behind the vision, word for word, including the ChatGPT chat it began from, each of that chat's claims sorted, and what was read in the tree, 2026-11-18 | Evidence for `Direction/MilaVision.md` |
+| [Direction.md](Direction.md) | Direction | Mila's trait, layering and release plan from v0.21.0 | Supersedes `MilaProductFamily.md` after the v0.20 tag. Its 1.3 points to `Direction/MilaVision.md` for the product |
 | [MilaProductFamily.md](MilaProductFamily.md) | Direction | The product definition v0.20 shipped under | Superseded from v0.21.0; `Direction.md` carries its Agentic design by reference, so it is archived only once nothing cites it as live |
 
 ### Library architecture

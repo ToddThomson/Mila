@@ -65,6 +65,12 @@ is judged as an end-user product -- installed without a toolkit, written in end-
 other desktop apps for local models its case is the quality of the models it runs and the agent, not
 breadth. It adds no capability of its own (3.3): what it shows, a developer can build.
 
+**Decided 2026-11-18 (Todd): Mila Assistant, as Mila Desktop is now named, is the top-level product, and the library is
+equally important.** "Showcase" above is superseded: it is a safe, secure, private and local personal assistant for
+navigating a person's digital life, the general purpose meta app the stack was built bottom to top to serve. The trait
+and the question in section 1 remain the library's test. `Direction/MilaVision.md` is the vision all work now builds
+towards.
+
 ---
 
 ## 2. What Changes From v0.20
@@ -567,6 +573,8 @@ Settled 2026-09-23, each on the leaning this section recorded, when section 5 be
 
 ## 11. Relationship To Other Specs
 
+- `Direction/MilaVision.md` — where Mila is going, the product and the library together (1.3). It proposes amending
+  6.4's line on retrieval stores; until Todd decides, 6.4 stands.
 - `MilaProductFamily.md` — v0.20's definition. Its Agentic design, measurement and open decisions carry
   into section 6.1 by reference; its adaptor layering is replaced by section 3.
 - `Deployment.md` — Phases 1 to 4 are v0.21.0 (5.2), Phase 5 comes after it (6.3); its non-goal on

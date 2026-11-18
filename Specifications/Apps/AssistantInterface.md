@@ -603,3 +603,5 @@ updated when a phase changes what it shows. This document is amended in the chan
 - **`../ToolCalling.md`** owns the gate every offer and placement passes through, and the grant a project's folder is
   offered under.
 - **`../Direction.md`** 6.4 is why projects, creations and findings are the app's.
+- **`../Direction/MilaVision.md`** is where this design is going: a personal assistant for a person's digital life, of
+  which projects are one part. Nothing here is withdrawn by it.
