@@ -445,6 +445,8 @@ function reduceToolCall( turn, message )
         choices: null,
         reaches: null,
         changesFolder: null,
+        hasRead: null,
+        notInYourWords: null,
         decision: null,
         notRun: false
     };
@@ -467,7 +469,8 @@ function updateToolBlock( turn, callId, change )
 
 function reduceToolApproval( turn, message )
 {
-    const change = { choices: message.choices, reaches: message.reaches ?? null, changesFolder: message.changes_folder ?? null };
+    const change = { choices: message.choices, reaches: message.reaches ?? null, changesFolder: message.changes_folder ?? null,
+        hasRead: message.has_read ?? null, notInYourWords: message.not_in_your_words ?? null };
 
     return updateToolBlock( turn, message.call_id, change );
 }

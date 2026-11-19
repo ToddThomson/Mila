@@ -45,15 +45,14 @@ agreement"; the 2026 text was not read (its page renders by script) and Microsof
 accepts Mila's `License.md`, which grants rights to Mila's own code and says nothing of the libraries beside it.
 Not decided: whether the accepted terms name the third-party terms the app carries.
 
-## With MXC built in, opening the container from no file throws instead of refusing, so its tests error rather than skip
+## With MXC built in, opening the container from an empty path throws instead of returning why there is none
 
-`Lib/Src/Agents/Programs/MxcProgramContainer.Windows.ixx:221` (`std::filesystem::absolute( library )`); `Lib/Tests/Agents/ToolGrant.Programs.cpp:281` @ 0.21.0-dev+151
+`Lib/Src/Agents/Programs/MxcProgramContainer.Windows.ixx:221` (`std::filesystem::absolute( library )`) @ 0.21.0-dev+155
 
-Found 2026-11-17 running the grant's tests in `x64-claude-verify` (`MILA_ENABLE_MXC` on) with `MILA_MXC_LIBRARY`
-unset: `MxcProgramContainer::open( {} )` throws `absolute: The filename, directory name, or volume label syntax is
-incorrect` rather than returning its error, so all 14 `ContainedRunTest` tests fail in `SetUp` instead of skipping as
-the test file says they do. With the variable naming the 1.1.0 library they pass. A build with MXC off compiles the
-absent container, which refuses, so Todd's directories do not see it unless MXC is on there.
+Found 2026-11-17: `MxcProgramContainer::open( {} )` throws `absolute: The filename, directory name, or volume label
+syntax is incorrect`, where its contract and the absent twin's return the reason. It made the 14 `ContainedRunTest`
+tests fail instead of skip until 0.21.0-dev+156, whose tests no longer open an empty path. No caller passes one today
+(the session opens the file beside itself), so it is only the contract.
 
 ## Nothing at the operating system's level confines `mila-session`, so a defect in the grant reaches whatever the person can
 
@@ -626,14 +625,6 @@ Removed 2026-10-26 when the installer began carrying the session (`MilaDesktop.m
 refuses to run without `Window/session/` staged from a C++ build, and the app's workflow (`desktop.yml`) has no C++ build. Before
 that the job's upload was an installer that ran only the mock. Nothing builds the installer now but a person
 with a Release build directory (`Apps/Desktop/README.md`, *Staging it for the window*).
-
-## The contained-run tests fail, not skip, in an MXC build with no `MILA_MXC_LIBRARY`
-
-`Lib/Tests/Agents/ToolGrant.Programs.cpp:282` (`openMxc`, `MxcProgramContainer::open( {} )`) @ 0.21.0-dev+114
-
-With `MILA_ENABLE_MXC=ON` and the variable unset, every `ContainedRunTest` throws in `SetUp()`: "absolute: The filename,
-directory name, or volume label syntax is incorrect". The comment there expects the absent container, and the `GTEST_SKIP`
-below it never runs. 14 tests in `x64-claude-verify`, the same before and after the 0.21.0-dev+114 file moves.
 
 ## A chat's preview of Mila's last reply can stop mid-word, with nothing to say it was cut
 

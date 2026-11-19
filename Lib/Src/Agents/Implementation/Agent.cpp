@@ -1373,6 +1373,7 @@ namespace Mila::Agents
         called.decision = outcome.decision;
         called.duration = outcome.duration;
         called.returned_bytes = outcome.returned_bytes;
+        called.exposes = outcome.exposes;
         emit( called );
     }
 

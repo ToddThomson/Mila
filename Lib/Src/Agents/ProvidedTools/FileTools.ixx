@@ -13,6 +13,7 @@ import Agents.GrantFile;
 import Agents.Tool;
 import Agents.ToolGrant;
 import Agents.ToolNeeds;
+import Agents.ResultOrigin;
 
 namespace Mila::Agents
 {
@@ -402,6 +403,9 @@ namespace Mila::Agents
             tool.summary = std::move( summary );
             tool.needs.reads_files = true;
             tool.needs.writes_files = writes;
+
+            // A write answers in the tool's own words; a read returns what the folder holds.
+            tool.result_origin = writes ? ResultOrigin::Application : ResultOrigin::Outside;
 
             return tool;
         }

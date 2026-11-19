@@ -9,6 +9,7 @@ export module Agents.Tool;
 import std;
 import Dnn.TensorTypes;
 import Agents.ToolNeeds;
+import Agents.ResultOrigin;
 import Agents.ToolGrant;
 
 namespace Mila::Agents
@@ -49,6 +50,10 @@ namespace Mila::Agents
 
         /// What the tool reads, writes and connects to; its grant is narrowed to these.
         ToolNeeds needs;
+
+        /// Where its result comes from. Outside unless the tool answers only in the program's own words, since a
+        /// conversation that reads content from outside is held to asking (ToolCalling.md 3.3).
+        ResultOrigin result_origin{ ResultOrigin::Outside };
 
         /// The longest one call may run; the response's tool_time when not set.
         std::optional<std::chrono::milliseconds> time;

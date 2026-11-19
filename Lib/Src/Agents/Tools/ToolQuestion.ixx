@@ -8,6 +8,7 @@ export module Agents.ToolQuestion;
 import std;
 import Agents.ToolNeeds;
 import Agents.ToolGrant;
+import Agents.ExposureSource;
 
 namespace Mila::Agents
 {
@@ -31,5 +32,8 @@ namespace Mila::Agents
 
         /// What the call would reach if allowed: the folders, each read-only or read-write, and whether the network.
         const ToolGrant& grant;
+
+        /// What the conversation has read from outside, oldest first; empty when it is not exposed.
+        std::span<const ExposureSource> exposure;
     };
 }

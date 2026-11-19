@@ -482,6 +482,20 @@ export function approvalWords( block )
         notes.push( 'This also lets Mila change files in ' + block.changesFolder + ' for the rest of this chat.' );
     }
 
+    // A chat that has read a page, a file or a command's output may be asking for this because of it (5.6).
+    if ( block.hasRead && Array.isArray( block.hasRead.latest ) && block.hasRead.latest.length > 0 )
+    {
+        const latest = block.hasRead.latest.map( source => source.summary );
+        const more = block.hasRead.count - latest.length;
+
+        facts.push( [ 'This chat has read', latest.join( '; ' ) + ( more > 0 ? ' and ' + more + ' more' : '' ) ] );
+    }
+
+    if ( typeof block.notInYourWords === 'string' )
+        notes.push( block.name === 'web_search'
+            ? 'You did not write these search words in this chat.'
+            : 'You did not write this address in this chat.' );
+
     return { question, facts, notes };
 }
 

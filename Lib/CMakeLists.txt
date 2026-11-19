@@ -1257,6 +1257,8 @@ target_sources(Mila
         FILE_SET module_files
         TYPE CXX_MODULES FILES
             "Src/Agents/Tools/ToolNeeds.ixx"
+            "Src/Agents/Tools/ResultOrigin.ixx"
+            "Src/Agents/Tools/ExposureSource.ixx"
             "Src/Agents/Grants/FolderAccess.ixx"
             "Src/Agents/Grants/GrantFolder.ixx"
             "Src/Agents/Grants/FolderEntry.ixx"

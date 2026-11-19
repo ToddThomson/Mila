@@ -10,6 +10,7 @@ import std;
 import nlohmann.json;
 import Desktop.CommandTool;
 import Desktop.ConversationStore;
+import Desktop.ExposureRecord;
 import Desktop.MemoryHolder;
 import Desktop.MilaLicense;
 import Desktop.Models;
@@ -19,6 +20,7 @@ import Desktop.PromptTool;
 import Desktop.ResidentAgent;
 import Desktop.RoundTimer;
 import Desktop.SearchKeyFile;
+import Desktop.SearchKeyStore;
 import Desktop.Settings;
 import Desktop.SettingsFile;
 import Desktop.TaskPlan;
@@ -128,13 +130,14 @@ namespace Mila::Desktop
             useDetail( settings_.detail );
 
             // A plan's change is shown at once, while the reply that made it is still running.
+            // The plan's tools and request_folder answer in Mila's own words, so they expose nothing (ToolCalling.md 3.3).
             registerTool( std::string( TaskPlan::kProposeName ), {}, [this]( const std::string& arguments, const Mila::Agents::ToolGrant&, std::stop_token )
                 {
                     std::string result = plan_.propose( arguments );
                     sendState();
 
                     return result;
-                } );
+                }, Mila::Agents::ResultOrigin::Application );
 
             registerTool( std::string( TaskPlan::kUpdateName ), {}, [this]( const std::string& arguments, const Mila::Agents::ToolGrant&, std::stop_token )
                 {
@@ -142,7 +145,7 @@ namespace Mila::Desktop
                     sendState();
 
                     return result;
-                } );
+                }, Mila::Agents::ResultOrigin::Application );
 
             useMiloTool( Mila::Agents::WebPageReader::tool() );
 
@@ -156,9 +159,31 @@ namespace Mila::Desktop
             registerTool( std::string( kRequestFolderName ), {}, [this]( const std::string&, const Mila::Agents::ToolGrant&, std::stop_token )
                 {
                     return grantChosenFolder();
-                } );
+                }, Mila::Agents::ResultOrigin::Application );
 
-            if ( const std::optional<std::string> key = search_key_file_.read() )
+            // A key kept in search.json before the credential store held it moves there once, and the file goes. Refused,
+            // the file stays and its key is still used, so the person's key is never lost.
+            if ( const std::optional<std::string> kept_in_file = search_key_file_.read() )
+            {
+                try
+                {
+                    search_key_store_.write( *kept_in_file );
+                    search_key_file_.remove();
+                }
+                catch ( const std::runtime_error& refused )
+                {
+                    Mila::Logging::Logger::info( std::format( "The search key stays in search.json: {}", refused.what() ) );
+                }
+            }
+
+            std::optional<std::string> key = search_key_store_.read();
+
+            if ( !key )
+            {
+                key = search_key_file_.read();
+            }
+
+            if ( key )
             {
                 useSearchKey( *key );
             }
@@ -244,6 +269,14 @@ namespace Mila::Desktop
         };
 
         using Handler = std::function<std::string( const std::string& arguments, const Mila::Agents::ToolGrant& grant, std::stop_token stop )>;
+
+        /// The code that runs a tool, what it touches and where its result comes from.
+        struct RegisteredTool
+        {
+            Mila::Agents::ToolNeeds needs;
+            Handler run;
+            Mila::Agents::ResultOrigin origin{ Mila::Agents::ResultOrigin::Outside };
+        };
 
         Mila::Agents::Session& session() noexcept
         {
@@ -667,7 +700,7 @@ namespace Mila::Desktop
                     break;
 
                 case Kind::ToolCalled:
-                    callAnswered( *event.call, event.text, event.is_error );
+                    callAnswered( *event.call, event.text, event.is_error, event.exposes );
                     break;
 
                 case Kind::MalformedToolCall:
@@ -786,8 +819,10 @@ namespace Mila::Desktop
             }
 
             // What goes out is approved call by call (AssistantInterface.md 5.7), and a folder is chosen each time it is
-            // asked for: no answer covers the conversation.
-            const bool every_time = question.needs.uses_network || folder_asked;
+            // asked for: no answer covers the conversation. Nor does one in a chat that has read from outside, for a
+            // call that writes or runs (5.6), as the gate decides.
+            const bool exposed_and_acting = !question.exposure.empty() && ( question.needs.writes_files || question.needs.runs_programs );
+            const bool every_time = question.needs.uses_network || folder_asked || exposed_and_acting;
 
             // A folder starts read-only, so the first call that changes a file also asks to change files there.
             const bool changes_folder = question.needs.writes_files && conversation_folder_
@@ -811,7 +846,9 @@ namespace Mila::Desktop
 
             send( "turn.tool_approval", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "call_id", call_id },
                 { "choices", choices }, { "reaches", reaches( question ) },
-                { "changes_folder", changes_folder ? conversationFolder() : nlohmann::json( nullptr ) } } );
+                { "changes_folder", changes_folder ? conversationFolder() : nlohmann::json( nullptr ) },
+                { "has_read", hasRead( question ) },
+                { "not_in_your_words", notInPersonsWords( question ) } } );
 
             const ToolAnswer decided = decision.get();
 
@@ -893,7 +930,71 @@ namespace Mila::Desktop
                 { "network", network }, { "runs_programs", question.grant.runsPrograms() } };
         }
 
-        void callAnswered( const ToolCall& call, std::string_view result, bool is_error )
+        /// In a chat that has read from outside, what it read, the newest first and at most three, for the question's
+        /// *This chat has read* (AssistantInterface.md 5.6); null in a chat that has not.
+        nlohmann::json hasRead( const Mila::Agents::ToolQuestion& question ) const
+        {
+            if ( question.exposure.empty() )
+            {
+                return nullptr;
+            }
+
+            nlohmann::json sources = nlohmann::json::array();
+
+            for ( auto source = question.exposure.rbegin(); source != question.exposure.rend() && sources.size() < 3; ++source )
+            {
+                // A conversation reopened from before the mark was stored knows only the tool.
+                sources.push_back( {
+                    { "name", source->tool },
+                    { "summary", source->arguments.empty() ? source->tool : callSummary( prompt_tools_, source->tool, source->arguments ) },
+                    { "time", source->when ? nlohmann::json( std::format( "{:%FT%TZ}",
+                        std::chrono::floor<std::chrono::milliseconds>( *source->when ) ) ) : nlohmann::json( nullptr ) } } );
+            }
+
+            return { { "count", question.exposure.size() }, { "latest", std::move( sources ) } };
+        }
+
+        /**
+         * @brief In a chat that has read from outside, the address or search words a call sends when the person's own
+         *        messages never wrote them, compared literally; null otherwise (AssistantInterface.md 5.6).
+         */
+        nlohmann::json notInPersonsWords( const Mila::Agents::ToolQuestion& question ) const
+        {
+            if ( question.exposure.empty() )
+            {
+                return nullptr;
+            }
+
+            const std::string_view argument = question.name == WebSearch::kName ? "query"
+                : question.name == "read_web_page" ? "url" : std::string_view{};
+
+            if ( argument.empty() )
+            {
+                return nullptr;
+            }
+
+            const nlohmann::json arguments = nlohmann::json::parse( question.arguments, nullptr, false );
+
+            if ( !arguments.is_object() || !arguments.contains( argument ) || !arguments[ argument ].is_string() )
+            {
+                return nullptr;
+            }
+
+            const std::string sent = arguments[ argument ].get<std::string>();
+
+            for ( const nlohmann::json& message : conversation_messages_ )
+            {
+                if ( message.value( "role", std::string{} ) == "user"
+                    && message.value( "content", std::string{} ).find( sent ) != std::string::npos )
+                {
+                    return nullptr;
+                }
+            }
+
+            return sent;
+        }
+
+        void callAnswered( const ToolCall& call, std::string_view result, bool is_error, bool exposes )
         {
             // A call the rules decided was not asked about, so it has not been announced yet.
             const std::string call_id = announced_call_id_.empty() ? announceCall( call.name, call.arguments ) : announced_call_id_;
@@ -905,6 +1006,9 @@ namespace Mila::Desktop
             nlohmann::json& stored = storedCall( call_id );
             stored[ "result" ] = result;
             stored[ "is_error" ] = is_error;
+
+            // Where the result came from, so the stored call says what exposed the chat (AssistantInterface.md 5.6).
+            stored[ "exposes" ] = exposes;
         }
 
         std::string announceCall( std::string_view name, std::string_view arguments )
@@ -1011,6 +1115,7 @@ namespace Mila::Desktop
                 { "updated", timestamp() },
                 { "messages", conversation_messages_ },
                 { "links_opened", conversation_links_ },
+                { "exposure", exposureToJson( session().exposure() ) },
                 { "turns", std::move( turns ) } };
 
             try
@@ -1122,8 +1227,16 @@ namespace Mila::Desktop
                 turns.push_back( turnFromJson( turn ) );
             }
 
-            // No tool is allowed for it yet: what the person allowed when it was written is asked about again.
-            session().openConversation( std::move( turns ) );
+            // No tool is allowed for it yet: what the person allowed when it was written is asked about again. A
+            // conversation stored before its exposure was counts every tool result in it as read from outside.
+            if ( conversation->contains( "exposure" ) )
+            {
+                session().openConversation( std::move( turns ), exposureFromJson( ( *conversation )[ "exposure" ] ) );
+            }
+            else
+            {
+                session().openConversation( std::move( turns ) );
+            }
 
             conversation_id_ = id;
             conversation_title_ = conversation->value( "title", std::string{} );
@@ -1344,9 +1457,10 @@ namespace Mila::Desktop
         }
 
         /// The code that runs a tool, offered whenever the chat's prompt describes it.
-        void registerTool( std::string name, Mila::Agents::ToolNeeds needs, Handler handler )
+        void registerTool( std::string name, Mila::Agents::ToolNeeds needs, Handler handler,
+            Mila::Agents::ResultOrigin origin = Mila::Agents::ResultOrigin::Outside )
         {
-            handlers_.insert_or_assign( std::move( name ), std::pair{ needs, std::move( handler ) } );
+            handlers_.insert_or_assign( std::move( name ), RegisteredTool{ needs, std::move( handler ), origin } );
         }
 
         /// A tool Mila::Agents provides, which a prompt names rather than describes.
@@ -1356,7 +1470,7 @@ namespace Mila::Desktop
                 [run = tool.run]( const std::string& arguments, const Mila::Agents::ToolGrant& grant, std::stop_token stop )
                 {
                     return run( arguments, grant, stop );
-                } );
+                }, tool.result_origin );
 
             milo_tools_.push_back( std::move( tool ) );
         }
@@ -1384,7 +1498,7 @@ namespace Mila::Desktop
                     continue;
                 }
 
-                const Mila::Agents::ToolNeeds& needs = handler->second.first;
+                const Mila::Agents::ToolNeeds& needs = handler->second.needs;
                 const bool needs_folder = needs.reads_files || needs.writes_files || needs.runs_programs
                     || described.name == kRequestFolderName;
 
@@ -1399,12 +1513,13 @@ namespace Mila::Desktop
                     described.name,
                     described.description,
                     described.parameters,
-                    [run = handler->second.second]( std::string_view arguments, const Mila::Agents::ToolGrant& grant, std::stop_token stop )
+                    [run = handler->second.run]( std::string_view arguments, const Mila::Agents::ToolGrant& grant, std::stop_token stop )
                     {
                         return run( std::string( arguments ), grant, stop );
                     } };
 
-                tool.needs = handler->second.first;
+                tool.needs = handler->second.needs;
+                tool.result_origin = handler->second.origin;
                 offering.withTool( std::move( tool ) );
             }
 
@@ -1990,6 +2105,7 @@ namespace Mila::Desktop
 
             if ( trimmed.empty() )
             {
+                search_key_store_.remove();
                 search_key_file_.remove();
                 web_search_.reset();
                 handlers_.erase( std::string( WebSearch::kName ) );
@@ -1998,7 +2114,8 @@ namespace Mila::Desktop
                 return;
             }
 
-            search_key_file_.write( trimmed );
+            search_key_store_.write( trimmed );
+            search_key_file_.remove();
             useSearchKey( trimmed );
             refreshTools();
         }
@@ -2655,10 +2772,13 @@ namespace Mila::Desktop
         ConversationStore store_;
         std::filesystem::path prompts_;
         std::ostream& out_;
+        SearchKeyStore search_key_store_;
+
+        /// Where the key was kept before the credential store held it; read only to move it.
         SearchKeyFile search_key_file_;
 
         // Every tool the session can run, by name, with what it declares it needs; offered when the prompt describes it.
-        std::map<std::string, std::pair<Mila::Agents::ToolNeeds, Handler>> handlers_;
+        std::map<std::string, RegisteredTool> handlers_;
 
         // The chat's prompt as read, its passages kept by the tools offered; and its tools as described, for the line
         // each call is shown with.

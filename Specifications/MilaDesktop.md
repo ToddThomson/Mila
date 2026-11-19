@@ -209,8 +209,12 @@ a loaded model) and its control. A setting the loaded model does not have (think
 model, the model's settings are listed without controls, with the way to *Models*.
 
 **Web search** (in Settings, 2026-10-26): the person's own Tavily key, pasted once and shown only as set, with
-*Remove key*. The session keeps it in `search.json` beside the conversations folder (`%LOCALAPPDATA%\Mila` on Windows), in plain text until the
-operating system's credential store holds it, and sends it only to Tavily, in a basic search (one credit) of at most
+*Remove key*. The session keeps it in the operating system's credential store for the person's account
+(`Desktop.SearchKeyStore`, `0.21.0-dev+156`): Windows Credential Manager, the macOS login keychain, and on Linux the
+desktop's Secret Service keyring through libsecret. With no keyring running on Linux a key cannot be kept, and saving one
+says so. A key a session before then kept in `search.json` beside the conversations folder moves there at the next
+start and the file is deleted; if the store refuses it, the file stays and its key is still used. The key is sent only
+to Tavily, in a basic search (one credit) of at most
 ten results (`Desktop.WebSearch.ixx`). With a key, Research & Analyze and Get Things Done are offered `web_search`,
 and every search is asked about with its words shown, since they leave the machine; without one, the tool is not
 offered. Tavily's search is a POST, which Mila's HTTP transport sends since that day (`HttpClient.md` 4.1). Not yet
@@ -443,7 +447,8 @@ section 9.1) (`Desktop.SessionProcess.ixx`, `Desktop.ConversationStore.ixx`):
   through `settings.set`. Its flags are `--model`, `--context-length` and `--device`, each standing over the kept
   settings for the run, plus `--conversations <dir>` for the store of 6.3, which defaults to
   `Mila\Conversations` under `%LOCALAPPDATA%` (`$XDG_DATA_HOME/mila/conversations` elsewhere; `Mila Desktop` until
-  `+105`, Todd: the app is Mila, and so is its folder), with `settings.json` and `search.json` beside it. On Windows
+  `+105`, Todd: the app is Mila, and so is its folder), with `settings.json` beside it (`search.json` until `+156`,
+  3.7). On Windows
   the model store's own folders share `%LOCALAPPDATA%\Mila`; it walks only those, so a conversation is never in it. A
   model named by `--model` that will not open ends the run (exit 4); the one the settings remember is said in the
   page's no-model state instead.

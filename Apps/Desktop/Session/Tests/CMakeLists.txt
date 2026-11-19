@@ -2,14 +2,18 @@
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
 include( GoogleTest )
+include( "${CMAKE_CURRENT_SOURCE_DIR}/../KeyStore.cmake" )
 
 add_executable( DesktopSessionTests
     "SettingsFile.cpp"
     "PromptFile.cpp"
     "MilaLicense.cpp"
     "ConversationSummary.cpp"
+    "ExposureRecord.cpp"
+    "SearchKeyStore.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Settings/Implementation/MilaLicense.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Implementation/ConversationSummary.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Implementation/ExposureRecord.cpp"
 )
 
 # BASE_DIRS is explicit because a module file set otherwise roots itself at this directory, and the modules being tested
@@ -27,6 +31,8 @@ PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Tools/Desktop.PromptPart.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Tools/Desktop.PromptFile.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Desktop.ConversationSummary.ixx"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Desktop.ExposureRecord.ixx"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../${MILA_SESSION_KEY_STORE}"
 )
 
 set_target_properties( DesktopSessionTests PROPERTIES
@@ -39,7 +45,7 @@ if( MSVC )
     target_compile_options( DesktopSessionTests PRIVATE /bigobj )
 endif()
 
-target_link_libraries( DesktopSessionTests PRIVATE Mila gtest gtest_main )
+target_link_libraries( DesktopSessionTests PRIVATE Mila gtest gtest_main ${MILA_SESSION_KEY_STORE_LIBRARIES} )
 
 gtest_discover_tests( DesktopSessionTests
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"

@@ -17,6 +17,9 @@ import Agents.ToolOutcome;
 import Agents.ArgumentSchema;
 import Agents.AgentLimits;
 import Agents.ToolGrant;
+import Agents.ToolNeeds;
+import Agents.ResultOrigin;
+import Agents.ExposureSource;
 
 namespace Mila::Agents
 {
@@ -28,6 +31,10 @@ namespace Mila::Agents
      * again, and a deny rule is never overridden by one. A tool that uses the network is never allowed for the
      * conversation: what it sends is approved call by call, so that answer counts as once. A call allowed runs with
      * the gate's grant narrowed to the tool's needs (ToolCalling.md 3.4). Needs nothing of a model.
+     *
+     * Once a call of a tool whose result comes from outside has run, the conversation is exposed, and from then on a
+     * call that writes files, uses the network or runs programs is asked every time: no allow rule or answer for the
+     * conversation covers it (ToolCalling.md 3.3, *What a result may cause*).
      */
     export class ToolGate
     {
@@ -129,10 +136,28 @@ namespace Mila::Agents
             return grant_;
         }
 
-        /// Forget every tool the person allowed for the conversation.
+        /// Forget every tool the person allowed for the conversation, and what it read from outside.
         void newConversation() noexcept
         {
             allowed_for_conversation_.clear();
+            exposure_.clear();
+        }
+
+        /// What the conversation has read from outside, oldest first; empty while it is not exposed.
+        [[nodiscard]] std::span<const ExposureSource> exposure() const noexcept
+        {
+            return exposure_;
+        }
+
+        [[nodiscard]] bool isExposed() const noexcept
+        {
+            return !exposure_.empty();
+        }
+
+        /// Continue with what a stored conversation had read from outside, as `exposure()` gave it.
+        void restoreExposure( std::vector<ExposureSource> exposure )
+        {
+            exposure_ = std::move( exposure );
         }
 
         /// The tools the person allowed for the conversation, by name.
@@ -204,6 +229,13 @@ namespace Mila::Agents
             outcome.result_tokens = tool->result_tokens ? tool->result_tokens : limits.result_tokens;
             run( *tool, arguments, grant_.narrowedTo( tool->needs ), halted, tool->time ? tool->time : limits.tool_time, outcome );
 
+            // A stopped or timed-out call's result is the gate's own words, so only a call that returned exposes.
+            if ( outcome.ran && !outcome.stopped && !outcome.timed_out && tool->result_origin == ResultOrigin::Outside )
+            {
+                outcome.exposes = true;
+                exposure_.push_back( ExposureSource{ tool->name, std::string( arguments ), std::chrono::system_clock::now() } );
+            }
+
             return outcome;
         }
 
@@ -223,19 +255,32 @@ namespace Mila::Agents
                 return ToolDecision::InvalidArguments;
             }
 
+            // What an exposed conversation asks for may come from what it read, so nothing earlier covers a call that
+            // acts outward or changes anything.
+            const bool asked_every_time = isExposed() && actsOutward( tool->needs );
+
             switch ( rules_.decide( name, arguments ) )
             {
                 case ToolPermission::Deny:
                     return ToolDecision::DeniedByRule;
 
                 case ToolPermission::Allow:
-                    return ToolDecision::AllowedByRule;
+                    if ( !asked_every_time )
+                    {
+                        return ToolDecision::AllowedByRule;
+                    }
+
+                    break;
 
                 case ToolPermission::Ask:
                     break;
             }
 
-            if ( allowed_for_conversation_.contains( name ) )
+            if ( asked_every_time )
+            {
+                withdrawAllowance( name );
+            }
+            else if ( allowed_for_conversation_.contains( name ) )
             {
                 return ToolDecision::AllowedForConversation;
             }
@@ -247,13 +292,13 @@ namespace Mila::Agents
 
             const ToolGrant grant = grant_.narrowedTo( tool->needs );
 
-            switch ( ask( ToolQuestion{ tool->name, tool->source, tool->summary, arguments, tool->needs, grant } ) )
+            switch ( ask( ToolQuestion{ tool->name, tool->source, tool->summary, arguments, tool->needs, grant, exposure_ } ) )
             {
                 case ToolAnswer::Once:
                     return ToolDecision::AllowedByPerson;
 
                 case ToolAnswer::ForConversation:
-                    if ( tool->needs.uses_network )
+                    if ( tool->needs.uses_network || asked_every_time )
                     {
                         return ToolDecision::AllowedByPerson;
                     }
@@ -267,6 +312,11 @@ namespace Mila::Agents
             }
 
             return ToolDecision::DeclinedByPerson;
+        }
+
+        static bool actsOutward( const ToolNeeds& needs ) noexcept
+        {
+            return needs.writes_files || needs.uses_network || needs.runs_programs;
         }
 
         /// What the model reads of a call that did not run, so it can recover.
@@ -377,5 +427,6 @@ namespace Mila::Agents
         ToolRules rules_;
         ToolGrant grant_;
         std::set<std::string, std::less<>> allowed_for_conversation_;
+        std::vector<ExposureSource> exposure_;
     };
 }

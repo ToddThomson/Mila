@@ -25,6 +25,7 @@ PUBLIC
         "Src/Desktop.MemoryHolder.ixx"
         "Src/Desktop.ConversationStore.ixx"
         "Src/Desktop.ConversationSummary.ixx"
+        "Src/Desktop.ExposureRecord.ixx"
         "Src/Tools/Desktop.CommandTool.ixx"
         "Src/Tools/Desktop.TaskPlan.ixx"
         "Src/Settings/Desktop.SearchKeyFile.ixx"
@@ -34,6 +35,7 @@ PUBLIC
 target_sources( mila-session PRIVATE
     "Src/Settings/Implementation/MilaLicense.cpp"
     "Src/Implementation/ConversationSummary.cpp"
+    "Src/Implementation/ExposureRecord.cpp"
 )
 
 # Desktop.ProgramSetup has two candidate files and exactly one is compiled, as Agents.MxcProgramContainer does:
@@ -47,6 +49,11 @@ else()
         "Src/Tools/Desktop.ProgramSetup.Posix.ixx"
     )
 endif()
+
+include( "${CMAKE_CURRENT_SOURCE_DIR}/KeyStore.cmake" )
+
+target_sources( mila-session PUBLIC FILE_SET module_files TYPE CXX_MODULES FILES "${MILA_SESSION_KEY_STORE}" )
+target_link_libraries( mila-session PRIVATE ${MILA_SESSION_KEY_STORE_LIBRARIES} )
 
 # The session builds the model templates of every family it can open, past MSVC's section limit (C1128) without it.
 if( MSVC )

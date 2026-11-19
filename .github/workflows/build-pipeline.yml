@@ -92,7 +92,7 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             build-essential git wget ca-certificates ninja-build ccache \
-            gcc-15 g++-15 clang-22 python3 python3-dev libssl-dev
+            gcc-15 g++-15 clang-22 python3 python3-dev libssl-dev pkg-config libsecret-1-dev
 
       - name: Install CMake 4.2.3
         run: |
@@ -177,7 +177,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            build-essential git wget ca-certificates ninja-build clang-22
+            build-essential git wget ca-certificates ninja-build clang-22 pkg-config libsecret-1-dev
 
       - name: Install CMake 4.2.3
         run: |

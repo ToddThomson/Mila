@@ -59,6 +59,42 @@ test( 'the first change in a folder says it also allows changes there', () =>
     assert.match( words.notes[ 0 ], /change files in D:\\Notes for the rest of this chat/ );
 } );
 
+test( 'in a chat that has read from outside, the question says what it read', () =>
+{
+    const hasRead = { count: 5, latest: [ { name: 'read_web_page', summary: 'Reading example.test', time: null },
+        { name: 'read_file', summary: 'Reading notes.md', time: null } ] };
+    const words = approvalWords( { name: 'write_file', arguments: '{"path":"a.txt"}', changesFolder: null, hasRead } );
+
+    assert.equal( factsOf( words )[ 'This chat has read' ], 'Reading example.test; Reading notes.md and 3 more' );
+    assert.equal( factsOf( approvalWords( { name: 'write_file', arguments: '{}', changesFolder: null, hasRead: null } ) )[ 'This chat has read' ], undefined );
+} );
+
+test( 'an address or search words the person never wrote are said to be so', () =>
+{
+    const page = approvalWords( { name: 'read_web_page', arguments: '{"url":"https://evil.test/?d=1"}', changesFolder: null, notInYourWords: 'https://evil.test/?d=1' } );
+    const search = approvalWords( { name: 'web_search', arguments: '{"query":"secret"}', changesFolder: null, notInYourWords: 'secret' } );
+    const theirs = approvalWords( { name: 'web_search', arguments: '{"query":"trains"}', changesFolder: null, notInYourWords: null } );
+
+    assert.ok( page.notes.includes( 'You did not write this address in this chat.' ) );
+    assert.ok( search.notes.includes( 'You did not write these search words in this chat.' ) );
+    assert.ok( !theirs.notes.some( ( note ) => note.startsWith( 'You did not write' ) ) );
+} );
+
+test( 'the question keeps what the chat has read and whether the person wrote what goes', () =>
+{
+    let state = reduce( createInitialState(), { type: 'turn.send', stream_id: 'stream-1', text: 'Look it up', attachment_ids: [] } );
+    const hasRead = { count: 1, latest: [ { name: 'read_web_page', summary: 'Reading example.test', time: null } ] };
+
+    state = reduce( state, { type: 'turn.begin', stream_id: 'stream-1', turn_id: 't1', parent_turn_id: null } );
+    state = reduce( state, { type: 'turn.tool_call', turn_id: 't1', round: 1, call_id: 'c', name: 'web_search', summary: '', arguments: '{"query":"x"}' } );
+    state = reduce( state, { type: 'turn.tool_approval', turn_id: 't1', call_id: 'c', choices: [ 'allow_once', 'deny' ], has_read: hasRead, not_in_your_words: 'x' } );
+
+    const block = state.transcript.find( ( entry ) => entry.blocks !== undefined ).blocks.find( ( entry ) => entry.kind === 'tool' );
+
+    assert.deepEqual( block.hasRead, hasRead );
+    assert.equal( block.notInYourWords, 'x' );
+} );
+
 test( 'the question keeps the folder a call would open to changes', () =>
 {
     let state = reduce( createInitialState(), { type: 'turn.send', stream_id: 'stream-1', text: 'Fix it', attachment_ids: [] } );

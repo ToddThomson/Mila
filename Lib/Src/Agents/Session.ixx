@@ -13,6 +13,7 @@ import Agents.Tool;
 import Agents.ToolRules;
 import Agents.ToolGrant;
 import Agents.ToolGate;
+import Agents.ExposureSource;
 import Agents.AgentLimits;
 import Agents.CompactionPolicy;
 import Agents.SamplingOverride;
@@ -239,18 +240,47 @@ namespace Mila::Agents
             return *this;
         }
 
-        /// Forget the conversation, and every tool allowed for it. Tools and settings stay.
+        /// Forget the conversation, every tool allowed for it and what it read from outside. Tools and settings stay.
         void newConversation()
         {
             conversation_.clear();
             gate_.newConversation();
         }
 
-        /// Continue a conversation saved earlier, as `conversation()` gave it; no tool is allowed for it yet.
-        void openConversation( std::vector<Conversation::Turn> turns )
+        /**
+         * @brief Continue a conversation saved earlier, as `conversation()` and `exposure()` gave it; no tool is
+         *        allowed for it yet.
+         */
+        void openConversation( std::vector<Conversation::Turn> turns, std::vector<ExposureSource> exposure )
         {
             conversation_ = std::move( turns );
             gate_.newConversation();
+            gate_.restoreExposure( std::move( exposure ) );
+        }
+
+        /**
+         * @brief Continue a conversation saved earlier without what it read from outside: every tool result in it
+         *        counts as read from outside, since nothing says otherwise.
+         */
+        void openConversation( std::vector<Conversation::Turn> turns )
+        {
+            std::vector<ExposureSource> exposure;
+
+            for ( const auto& turn : turns )
+            {
+                if ( turn.role == Conversation::Role::Tool )
+                {
+                    exposure.push_back( ExposureSource{ turn.tool_name, {}, std::nullopt } );
+                }
+            }
+
+            openConversation( std::move( turns ), std::move( exposure ) );
+        }
+
+        /// What the conversation has read from outside, oldest first, to be stored with it.
+        [[nodiscard]] std::span<const ExposureSource> exposure() const noexcept
+        {
+            return gate_.exposure();
         }
 
         /// Every message, reply and result so far, without the system prompt.

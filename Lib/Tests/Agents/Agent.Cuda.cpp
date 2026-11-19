@@ -1316,6 +1316,9 @@ namespace Mila::Tests::AI
         ASSERT_FALSE( arguments_seen.empty() ) << "Gemma answered without calling the tool: " << first.text;
 
         const std::size_t turns = agent.session().conversation().size();
+        const std::vector<ExposureSource> exposure( agent.session().exposure().begin(), agent.session().exposure().end() );
+
+        ASSERT_FALSE( exposure.empty() ) << "the weather, read from outside, did not expose the conversation";
 
         request.withContextLength( kContextLength / 2 );
 
@@ -1325,6 +1328,8 @@ namespace Mila::Tests::AI
         EXPECT_EQ( agent.plan().contextLength(), kContextLength / 2 );
         ASSERT_EQ( agent.session().conversation().size(), turns );
         EXPECT_EQ( agent.session().tools().size(), 1u );
+        EXPECT_EQ( std::vector<ExposureSource>( agent.session().exposure().begin(), agent.session().exposure().end() ), exposure )
+            << "the mark did not survive the change of model";
 
         const Response next = agent.respond( "And what is the weather in Rome right now?" );
 
@@ -1645,6 +1650,20 @@ namespace Mila::Tests::AI
         int began_ = 0;
         int tokens_seen_ = 0;
     };
+
+    TEST_F( AgentCompactsOnGemmaCuda, WhatTheConversationReadFromOutsideOutlivesItsCompaction )
+    {
+        const std::vector<ExposureSource> exposure{ { "read_web_page", R"({"url":"https://example.com/"})", std::chrono::system_clock::now() } };
+
+        agent_->session().openConversation( earlierTurns( 3 ), exposure );
+        agent_->session().withCompaction( writtenHere( 2000 ) );
+
+        const CompactionOutcome outcome = compactNow();
+
+        ASSERT_EQ( replaced_.size(), 1u ) << "nothing was compacted";
+        EXPECT_EQ( std::vector<ExposureSource>( agent_->session().exposure().begin(), agent_->session().exposure().end() ), exposure );
+        (void)outcome;
+    }
 
     TEST_F( AgentCompactsOnGemmaCuda, ATriggerNotReachedChangesNothing )
     {

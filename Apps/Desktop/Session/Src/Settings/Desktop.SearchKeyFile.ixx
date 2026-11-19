@@ -1,6 +1,7 @@
 /**
  * @file Desktop.SearchKeyFile.ixx
- * @brief Where the person's web search key is kept between launches: one small file in the app's own folder.
+ * @brief Where the person's web search key was kept before the credential store held it: one small file in the app's
+ *        own folder, read once to move the key (Desktop.SearchKeyStore).
  */
 
 export module Desktop.SearchKeyFile;
@@ -11,10 +12,10 @@ import nlohmann.json;
 namespace Mila::Desktop
 {
     /**
-     * @brief The web search key, in plain text in a file of the person's own (MilaDesktop.md 3.7).
+     * @brief The web search key in plain text, in `search.json` beside the conversations, as sessions before
+     *        0.21.0-dev+156 kept it (MilaDesktop.md 3.7).
      *
-     * Plain text, as other local AI apps keep theirs, until the operating system's credential store holds it. The
-     * file is never read into a conversation, a log or the page, which learns only whether a key is set.
+     * The file is never read into a conversation, a log or the page, which learns only whether a key is set.
      */
     export class SearchKeyFile
     {

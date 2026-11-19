@@ -483,6 +483,8 @@ export import Data.TokenSequenceLoader;
 // Agents - a model at work in a program (Direction.md 3.2, ToolCalling.md)
 // ============================================================================
 export import Agents.ToolNeeds;
+export import Agents.ResultOrigin;
+export import Agents.ExposureSource;
 export import Agents.FolderAccess;
 export import Agents.GrantFolder;
 export import Agents.FolderEntry;

@@ -219,6 +219,11 @@ if(WIN32)
         "Agents/SecondNameWatch.cpp"
     )
 
+    # The library the program tests load, from the cache; the environment variable of the same name overrides it.
+    file( TO_CMAKE_PATH "${MILA_MXC_LIBRARY}" MILA_TEST_MXC_LIBRARY )
+    set_source_files_properties( "Agents/ToolGrant.Programs.cpp" PROPERTIES
+        COMPILE_DEFINITIONS "MILA_TEST_MXC_LIBRARY=\"${MILA_TEST_MXC_LIBRARY}\"" )
+
     # The program tests' loopback server, and the route to the local network's gateway.
     target_link_libraries( MilaTests PRIVATE ws2_32 iphlpapi )
 endif()

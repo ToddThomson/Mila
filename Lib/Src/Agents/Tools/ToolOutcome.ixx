@@ -34,6 +34,9 @@ namespace Mila::Agents
         /// The call ran out of its time and was asked to stop; result says so.
         bool timed_out{ false };
 
+        /// The model read this call's result from outside, so the conversation is exposed from it on.
+        bool exposes{ false };
+
         /// How long the function ran; zero when it did not.
         std::chrono::nanoseconds duration{};
 

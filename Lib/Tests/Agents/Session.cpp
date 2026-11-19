@@ -199,4 +199,99 @@ namespace Mila::Tests::AI
         EXPECT_EQ( fork.conversation().size(), 2u );
         EXPECT_TRUE( fork.tools().empty() );
     }
+
+    // ================================================================
+    // The mark: what the conversation read from outside lasts as long as the conversation (ToolCalling.md 3.3)
+    // ================================================================
+
+    namespace
+    {
+        Tool writeTool()
+        {
+            Tool tool{
+                "write_note",
+                "Write a note.",
+                kParameters,
+                []( std::string_view, const ToolGrant&, std::stop_token ) { return std::string( "Written." ); } };
+
+            tool.needs.writes_files = true;
+            tool.result_origin = ResultOrigin::Application;
+
+            return tool;
+        }
+
+        /// A session whose rules allow everything, with the weather, from outside, and a write.
+        Session allowingSession()
+        {
+            Session session;
+            session.withTool( weatherTool() ).withTool( writeTool() ).withRules( ToolRules{}.add( { "*", ToolPermission::Allow } ) );
+
+            return session;
+        }
+
+        ToolDecision write( Session& session )
+        {
+            return session.gate().answer( "write_note", kArguments, session.asker(), {}, session.limits() ).decision;
+        }
+    }
+
+    TEST( SessionExposure, ReopenedWithItsStoredExposureAConversationIsStillHeldToAsking )
+    {
+        Session session = allowingSession();
+        EXPECT_TRUE( call( session ).exposes );
+
+        const std::vector<ExposureSource> stored( session.exposure().begin(), session.exposure().end() );
+
+        session.newConversation();
+        EXPECT_TRUE( session.exposure().empty() );
+        EXPECT_EQ( write( session ), ToolDecision::AllowedByRule );
+
+        session.openConversation( { { Conversation::Role::User, "Hello" } }, stored );
+
+        EXPECT_EQ( std::vector<ExposureSource>( session.exposure().begin(), session.exposure().end() ), stored );
+        EXPECT_EQ( write( session ), ToolDecision::NoOneToAsk );
+    }
+
+    TEST( SessionExposure, ReopenedWithoutItEveryToolResultCountsAsReadFromOutside )
+    {
+        Session session = allowingSession();
+
+        session.openConversation( { { Conversation::Role::User, "Hello" }, { Conversation::Role::Assistant, "Hi." } } );
+        EXPECT_TRUE( session.exposure().empty() );
+
+        Conversation::Turn result{ Conversation::Role::Tool, "Sunny." };
+        result.tool_name = "get_weather";
+        session.openConversation( { { Conversation::Role::User, "Weather?" }, std::move( result ) } );
+
+        ASSERT_EQ( session.exposure().size(), 1u );
+        EXPECT_EQ( session.exposure().front().tool, "get_weather" );
+        EXPECT_FALSE( session.exposure().front().when.has_value() );
+        EXPECT_EQ( write( session ), ToolDecision::NoOneToAsk );
+    }
+
+    TEST( SessionExposure, TheMarkSurvivesTheTurnsBeingRewrittenAsCompactionRewritesThem )
+    {
+        Session session = allowingSession();
+        session.turns().push_back( { Conversation::Role::User, "Weather?" } );
+        EXPECT_TRUE( call( session ).exposes );
+
+        // A compaction replaces the turns with a summary; the page it read is gone from them, not from the mark.
+        session.turns() = { { Conversation::Role::User, "Summary: the weather was read." } };
+
+        EXPECT_EQ( session.exposure().size(), 1u );
+        EXPECT_EQ( write( session ), ToolDecision::NoOneToAsk );
+    }
+
+    TEST( SessionExposure, AForkCarriesTheMarkAndOfferingOtherToolsKeepsIt )
+    {
+        Session session = allowingSession();
+        EXPECT_TRUE( call( session ).exposes );
+
+        Session fork = session;
+        EXPECT_EQ( write( fork ), ToolDecision::NoOneToAsk );
+
+        session.withoutTools().withTool( writeTool() );
+        EXPECT_EQ( session.exposure().size(), 1u );
+        EXPECT_EQ( write( session ), ToolDecision::NoOneToAsk );
+    }
 }

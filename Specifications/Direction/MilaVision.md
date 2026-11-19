@@ -309,6 +309,12 @@ another site or from `https` to `http`; the publisher is contacted only on the p
 window does no proxy discovery (measured on Windows); a chat's folder starts read-only. What was sent is listed in
 Activity. Commands with the network and encryption at rest stand as the table says.
 
+**Changed since, by phase T2 (2026-11-19, `0.21.0-dev+156`):** a chat that has read a page, search results, a file or
+a command's output is marked, in `Mila::Agents`, and from then on every call that writes, sends or runs is asked, with
+what the chat read shown in the question; the mark is stored with the chat. The search key is in the operating system's
+credential store on Windows (macOS and Linux written, not yet built). Encryption at rest is designed, not built
+(`../Apps/AssistantInterface.md` 8).
+
 ## 11. Small engineering steps
 
 **Decided (Todd, 2026-11-18):** "take small engineering steps to get there", with "discussion and specs as we move

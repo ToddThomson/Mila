@@ -442,7 +442,8 @@ grant, as it was. One that cannot be granted opens without it and says so.
 
 ### 5.6 What content may cause
 
-*Proposed (Claude, 2026-11-18). Not built, and Todd's to decide (questions E to H).* This is as much of
+*Decided (Todd, 2026-11-18, questions E to H as section 11 records); the mark and the gate's part built as phase T2
+(`0.21.0-dev+156`), in `Mila::Agents` (`../ToolCalling.md` 3.3, *What a result may cause*).* This is as much of
 `../Direction/MilaVision.md` section 8 as the phases below need. The vision's wider questions stay there.
 
 **A chat is *exposed* once anything enters it that may not direct Mila:** a page, search results, a file or a file's
@@ -590,10 +591,33 @@ drawers and deletion read one form:
   ...its own fields }
 ```
 
-**One layer owns the files** (*proposed*). Conversations and everything above are read and written through one store
-module in the app, and nothing else opens these files. It deals in whole records and never puts content in a file's or
-folder's name, so encrypting them (the vision's step 5, a design of its own) changes one place. The search key moves to
-the operating system's credential store on Windows, macOS and Linux.
+**One layer owns the files.** Conversations and everything above are read and written through one store module in the
+app, and nothing else opens these files. It deals in whole records and never puts content in a file's or folder's name,
+so encrypting them changes one place. *Checked at T2 (`0.21.0-dev+156`):* conversations are `Desktop.ConversationStore`'s
+alone, which loads and saves whole records and names a file by its id only; `Projects/` and `activity.jsonl` join it when
+phase 4 makes them. `settings.json` holds no conversation content and stays the settings file's. Each conversation now
+keeps `exposure`, what it read from outside (5.6), and each stored call `exposes`. The search key is in the operating
+system's credential store on Windows, macOS and Linux (`../MilaDesktop.md` 3.7).
+
+**Encrypting what is at rest** (*proposed*, Claude, 2026-11-19; the vision's step 5; nothing built). What it protects
+against: another account on the computer, a disk or backup read without the person's sign-in, and a sync client or
+cloud backup carrying the folder away. What it does not: anything running as the person while they are signed in,
+which can ask for the key as Mila does.
+
+- **One key per workspace,** 256 random bits, made on first use, kept in the same credential store as the search key
+  (Windows Credential Manager, the macOS login keychain, the Secret Service on Linux), never in the workspace folder.
+- **Each file sealed whole,** with an authenticated cipher (AES-256-GCM or XChaCha20-Poly1305, chosen by what each
+  platform provides without a new dependency: CNG on Windows, CommonCrypto or CryptoKit on macOS, and on Linux the
+  library that also serves curl), a fresh nonce per write, and the file's path in the store as associated data, so a
+  file moved or swapped into another's place fails to open. The store layer above is the only place this happens.
+- **A file that fails to open is kept and named,** never deleted or overwritten, and the window says so.
+- **No key, no store:** a Linux computer with no keyring cannot keep the key, so conversations there are not stored
+  until one exists, and the window says why. This needs Todd's decision, since it changes what Linux without a desktop
+  session can do.
+- **Moving in:** files written before encryption are sealed one by one on the first start after it, each written
+  sealed beside the plain file and renamed over it, as saving already is.
+- **Open for Todd:** the cipher; whether the key may be exported for the person's own backup; what Linux with no
+  keyring does; and whether *Search* (4.11) reads sealed files whole or keeps an index, which would need sealing too.
 
 **Deleting is designed in** (*proposed*; the vision's *see, trace, delete*):
 
@@ -805,7 +829,16 @@ The rest, in the proposed order:
   that says which chat content led to it (T2), and asking before a gated model's download uses the person's account.
 - **T2. The mark and one store** (the vision's steps 5 and 7). The source of each tool result and section 5.6's mark
   through the gate, storage and compaction; the store layer of section 8 with conversations behind it; the search key in
-  the credential store; the encryption design written. Done when section 5.6's tests pass.
+  the credential store; the encryption design written. Done when section 5.6's tests pass. *Built 2026-11-19
+  (`0.21.0-dev+156`):* the mark in `Mila::Agents` (`../ToolCalling.md` 3.3); the session's own tools declared as its own
+  answers; `exposure` and each call's `exposes` stored and read back; the question's *This chat has read* and *You did not
+  write this address* (or search words); the search key in the credential store, with `search.json` moved in once; section
+  8's encryption design, proposed. Checked on Windows: the gate and session tests (138 with the grant's and the file
+  tools'), the mark through a compaction and a change of model on Gemma 4 12B, the session's 40 (the key kept, replaced
+  and removed in Credential Manager), the page's 106, every target built in `x64-claude-verify`. **Not done:** the macOS and Linux key stores are written and not built (Linux
+  needs `libsecret-1-dev` and `pkg-config` in WSL); the tests of the mark with their checks removed one by one; the mock
+  scenario and the window on the real session; a note waiting for the person (5.6) has nothing to wait on until phase 7;
+  Mila Chat's console does not yet say what a conversation has read.
 - **Phase 4. Projects** (the vision's step 8). The store's `Projects/`, its records and its events; the sidebar's
   projects; *All projects* (4.4); a project's head, glance and chats (4.5); *New project*; moving a chat by its menu; the
   overview's projects; a project's folders as sources (section 10); deletion as section 8 says.

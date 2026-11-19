@@ -4,8 +4,8 @@
  *        access inside it, accepted (ContainedPrograms.md 8, phase 2). Windows only, where a folder can be granted.
  *
  * The grant's own part -- what it hands its container, and to which tools -- is tested against a container that
- * records the run. The container's part runs MXC itself, loaded from the file MILA_MXC_LIBRARY names; those tests
- * skip, saying why, when this build has no container or the file is not given or not usable here.
+ * records the run. The container's part runs MXC itself, loaded from the file MILA_MXC_LIBRARY names, in the
+ * environment or else the build; those tests skip, saying why, when no file is named or it is not usable here.
  */
 
 #include <winsock2.h>
@@ -273,22 +273,18 @@ namespace Mila::Tests::AI
         {
             static const auto opened = []() -> std::expected<std::shared_ptr<const MxcProgramContainer>, std::string>
                 {
-                    const char* path = std::getenv( "MILA_MXC_LIBRARY" );
+                    // The environment overrides what the build was configured with.
+                    const char* given = std::getenv( "MILA_MXC_LIBRARY" );
+                    const std::string_view path = given != nullptr && *given != '\0' ? std::string_view( given ) : std::string_view( MILA_TEST_MXC_LIBRARY );
 
-                    if ( path == nullptr || *path == '\0' )
+                    // Never opened empty: the absent build's open says why whatever it is given, but MXC's own
+                    // resolves the path and throws on an empty one.
+                    if ( path.empty() )
                     {
-                        // The absent container says so whatever it is given.
-                        auto absent = MxcProgramContainer::open( {} );
-
-                        if ( !absent )
-                        {
-                            return std::unexpected( absent.error() + "; MILA_MXC_LIBRARY names no file either" );
-                        }
-
-                        return std::unexpected( std::string( "MILA_MXC_LIBRARY names no mxc_ffi.dll" ) );
+                        return std::unexpected( std::string( "MILA_MXC_LIBRARY names no mxc_ffi.dll, in the build or the environment" ) );
                     }
 
-                    return MxcProgramContainer::open( path );
+                    return MxcProgramContainer::open( std::filesystem::path( path ) );
                 }();
 
             if ( !opened )

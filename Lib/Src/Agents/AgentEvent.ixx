@@ -84,6 +84,10 @@ namespace Mila::Agents
         /// ToolCalled: the size of what the tool returned, before anything cut it; empty when it did not return.
         std::optional<std::size_t> returned_bytes;
 
+        /// ToolCalled: the result came from outside, so the conversation is exposed from this call on
+        /// (ToolCalling.md 3.3).
+        bool exposes{ false };
+
         /// RoundBegan: the most tokens the round may generate, the response's reply tokens and the context left
         /// both counted; empty when neither bounds it below the context.
         std::optional<Mila::Dnn::dim_t> budget;

@@ -16,7 +16,8 @@ the person's rules (`ToolRules`), the question built from the tool as registered
 its result, and the record of each call on its event. Since 2026-10-26 an agent's tools can be withdrawn
 (`withoutTools`), so one resident model serves conversations with different tools. Built at `+103`: section 3.4 on
 Windows -- `ToolGrant`, given to every call allowed, narrowed to its tool's needs; off Windows a grant holds no
-folder. An output schema and results other than text are not built. It replaces `ToolBroker.md` as the design of record for where tool calling lives; the code built to that
+folder. Built at `+156`: 3.3's mark, what a result from outside may cause. An output schema and results other than
+text are not built. It replaces `ToolBroker.md` as the design of record for where tool calling lives; the code built to that
 spec -- the broker in `Apps/Tools/Broker`, the client in `Mila/AI/`, the session's own handler map in Chat --
 is refit to this one. Open decisions are in section 9.
 
@@ -120,6 +121,34 @@ A gate that every call passes; inside `Mila::Agents` there is no path to executi
   cancels a pending question.
 - **A record of every call** -- the decision, who decided, duration, sizes -- reaches the application as an event.
   Where it is kept is the application's.
+
+**What a result may cause.** *Decided 2026-11-18 (Todd, `Apps/AssistantInterface.md` 5.6 and its question F): the mark
+and its enforcement are the library's, so the gate reads the mark and a developer gets the same protection. Interface
+built at `+156`.*
+
+- **A tool declares where its result comes from** (`Tool::result_origin`). `ResultOrigin::Outside` is content that may
+  not direct the agent: a page, search results, a file or a file's name, a command's output. `ResultOrigin::Application`
+  is the program's own answer, such as the folder the person chose or a plan step recorded. **Outside is the default,**
+  so a tool that says nothing is the safe case. Of the provided tools, the four that read and the web page reader are
+  Outside; `write_file` and `edit_file` answer in their own words and are Application.
+- **A conversation is exposed from the first Outside call that ran.** The gate keeps what exposed it, in order
+  (`ToolGate::exposure()`, each an `ExposureSource`: the tool, its arguments, when). A call stopped or out of its time
+  exposes nothing, since the model reads only the gate's own words for it. The mark is on the conversation, not on a
+  passage: what the model writes after reading something carries the least trust of what it read.
+- **The mark lives in the session, never in the turns,** so it survives compaction and a change of model by
+  construction, and a fork carries it. A new conversation starts clear. A program reopening a stored conversation
+  gives back the exposure it stored (`Session::openConversation( turns, exposure )`); reopened with none, every tool
+  result in the turns counts as an exposure whose arguments and time are unknown, the least trust.
+- **In an exposed conversation, a call of a tool that writes files, uses the network or runs programs is asked every
+  time.** An allow rule asks instead, an allowance for the conversation is withdrawn, and *for this conversation*
+  counts as once. A deny rule still denies, and a tool that only reads is decided as before, since what it brings in
+  cannot leave without its own approval.
+- **The question carries the exposure** (`ToolQuestion::exposure`), so the application can say what the conversation
+  has read. Comparing an address or search words with the person's own messages is the application's.
+- **The outcome says whether the call exposed the conversation** (`ToolOutcome::exposes`), for the application's record.
+- **Not here:** a mark per passage, and what an application derives into a lasting record, which carries the mark by
+  the application's own store (`Apps/AssistantInterface.md` 8). A label does not stop a model from following what it
+  read; what it can make happen is held by this check, which the model cannot talk its way past.
 
 ### 3.4 Containment
 
