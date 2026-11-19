@@ -1,7 +1,7 @@
 /**
  * @file Desktop.ConversationSummary.ixx
  * @brief What the workspace reads of a stored conversation: how far its plan came, how its last reply began and ended,
- *        and the files its calls wrote (Specifications/Apps/AssistantInterface.md 10).
+ *        the files its calls wrote and what left the computer (Specifications/Apps/AssistantInterface.md 10).
  */
 
 export module Desktop.ConversationSummary;
@@ -14,7 +14,7 @@ namespace Mila::Desktop
     /**
      * @brief A stored conversation's summary, as `conversations.list` carries it beside the conversation's id.
      *
-     * Returns an object of four fields, each read from what the store already holds:
+     * Returns an object of five fields, each read from what the store already holds:
      * - `progress`: `{steps, finished, current}` for a plan, `current` the step it was at (the step in progress, else
      *   the first pending) or null once every step is done or skipped; null with no plan.
      * - `finish`: how the last reply ended (`turn.end`'s values), or null before any reply.
@@ -22,6 +22,9 @@ namespace Mila::Desktop
      *   most 160 bytes and never cut inside a character; null before any reply, or for one with no answer.
      * - `wrote`: `[{path, tool}]`, each file a call wrote or edited and that call did not fail, once each, the most
      *   recently written last. The path is as the call named it, relative to the conversation's folder.
+     * - `sent`: `[{kind, what, where, time}]`, each thing that left the computer from this chat, oldest first, at most
+     *   the latest 50: a page read, a search, a command given the network, or a link the person opened. `time` is null
+     *   for a call stored before calls had one. A call the person declined sent nothing and is left out.
      *
      * Anything the conversation holds in another shape is read as absent, so one malformed call hides nothing else.
      */

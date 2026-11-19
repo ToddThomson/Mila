@@ -131,6 +131,7 @@ namespace Mila::Desktop
      *
      * Each is planned on this computer for the request given (Specifications/Apps/AssistantOnboarding.md), ranked by
      * the library, and the first it can suggest is named; each costs two small reads of its weights the first time.
+     * Asked with no account, so a token found on this computer does not tie the request to the person (4.2).
      *
      * @throws std::exception when the publisher cannot be listed at all.
      */
@@ -144,7 +145,7 @@ namespace Mila::Desktop
         }
 
         const std::string owner( Mila::Distribution::kDefaultHubOwner );
-        const auto hub = Mila::Distribution::makeDefaultModelHub();
+        const auto hub = Mila::Distribution::makeAnonymousModelHub();
         const auto installed = Mila::Distribution::ModelStore{}.list();
 
         for ( const auto& fit : Mila::Deployment::planPublishedModels( *hub, owner, request ) )
@@ -221,7 +222,7 @@ namespace Mila::Desktop
 
         Mila::Distribution::ModelStore store;
 
-        const auto hub = Mila::Distribution::makeDefaultModelHub( [&progress]( std::uint64_t received, std::uint64_t total )
+        const auto hub = Mila::Distribution::makeAnonymousModelHub( [&progress]( std::uint64_t received, std::uint64_t total )
             {
                 if ( total > 0 )
                 {

@@ -268,7 +268,10 @@ export function createSidebarView( root, actions )
         menu.setAttribute( 'role', 'menu' );
         shortcut.textContent = actions.shortcutLabel( ',' );
         settings.append( element( 'span', 'menu-item-name', 'Settings' ), shortcut );
-        menu.append( settings, button( 'menu-item', 'Mila’s licence', 'open-license' ),
+        const reach = button( 'menu-item', 'What Mila can reach', 'open-place' );
+
+        reach.dataset.place = 'reach';
+        menu.append( settings, reach, button( 'menu-item', 'Mila’s licence', 'open-license' ),
             element( 'div', 'menu-separator' ),
             button( 'menu-item', 'About Mila Assistant', 'open-about' ),
             button( 'menu-item', 'Quit Mila', 'quit' ) );

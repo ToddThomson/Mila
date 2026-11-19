@@ -930,6 +930,8 @@ kbd {
 
 .tool-reaches dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); }
 
+.tool-note { width: 100%; margin: 0 0 6px; color: var(--muted); font-size: 12.5px; }
+
 .tool-program-folders summary { cursor: pointer; font-family: var(--sans); color: var(--muted); }
 
 .tool-card.open .tool-toggle .chevron svg { transform: rotate(90deg); }
@@ -1399,6 +1401,26 @@ kbd {
 .about-licence:hover, .about-licence:focus-visible { background: var(--sunk); }
 
 .about-text { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5; }
+
+/* The sheet before a link opens: nothing it carries is shortened. */
+.link-facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; max-height: 44vh; margin: 14px 0 0; overflow-y: auto; font-size: 13px; }
+
+.link-facts dt { color: var(--faint-text); }
+
+.link-facts dd { margin: 0; font-family: var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.link-note { margin: 12px 0 0; color: var(--muted); font-size: 13px; }
+
+/* What Mila can reach (AssistantInterface.md 4.12) */
+.reach-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--rule); }
+
+.reach-row:first-child { border-top: 0; }
+
+.reach-main { flex: 1; min-width: 0; }
+
+.reach-title { overflow-wrap: anywhere; }
+
+.reach-note { white-space: normal; }
 
 /* ---- Panels ------------------------------------------------------------------------------ */
 

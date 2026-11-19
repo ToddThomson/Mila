@@ -49,6 +49,7 @@ export function createMockSession( options )
         busy: false,
         conversationId: null,
         folder: null,
+        folderAccess: 'read',
         webSearch: false,
         history: [],
         nextConversationNumber: seeds.length + 1,
@@ -126,6 +127,8 @@ export function createMockSession( options )
             sampling: samplingState(),
             modalities: model === null ? [] : model.modalities,
             folder: session.folder,
+            folder_access: session.folder === null ? null : session.folderAccess,
+            allowed_for_chat: [ ...allowedTools ],
             plan: null,
             web_search: session.webSearch,
             busy: session.busy,
@@ -1054,6 +1057,12 @@ export function createMockSession( options )
             case 'conversation.rename':
                 return renameConversation( request );
 
+            case 'reach.remove':
+                return removeReach( request );
+
+            case 'conversation.link_opened':
+                return undefined;
+
             case 'conversation.delete':
                 return deleteConversation( request );
 
@@ -1081,6 +1090,18 @@ export function createMockSession( options )
             default:
                 return ignore( request );
         }
+    }
+
+    /** What the person took back of what Mila could reach (AssistantInterface.md 4.12). */
+    function removeReach( request )
+    {
+        if ( request.kind === 'allowed' )
+            allowedTools.delete( request.name );
+
+        if ( request.kind === 'folder' )
+            session.folder = null;
+
+        emitState();
     }
 
     function ignore( request )

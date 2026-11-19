@@ -4,7 +4,7 @@
 import { element, button, iconButton, setIcon, clear } from '../dom.js';
 import { currentChat } from '../state.js';
 
-const placeNames = { chats: 'Chats', activity: 'Activity' };
+const placeNames = { chats: 'Chats', activity: 'Activity', reach: 'What Mila can reach' };
 
 export function createHeaderView( root, actions )
 {

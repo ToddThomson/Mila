@@ -5,7 +5,9 @@ one-shot build at `0.21.0-dev+142`, which Todd asked for to see how Claude would
 you would design and implement this in a one shot attempt", Mac first). Every answer in questions 1 to 12 is
 Claude's provisional one, marked as such, until Todd settles it. Round 3 (section 4.1) makes the first run a setup
 assistant, with a licence accepted before any model: Todd took every proposed answer to questions 13 to 20 "to
-start", to be tried and changed where it needs to be (2026-11-15), and it is built at `0.21.0-dev+146`.
+start", to be tried and changed where it needs to be (2026-11-15), and it is built at `0.21.0-dev+146`. Round 4 (section
+4.2, 2026-11-18, taken by Todd the same day): Mila contacts the publisher only when the person asks, to keep the local
+promise of `../Direction/MilaVision.md` section 3.
 
 What a person meets from Mila Assistant's first launch to its first reply, and how the model Mila suggests for
 their computer is chosen. The suggestion is the planner's answer, never the app's (Todd, 2026-11-13).
@@ -15,7 +17,7 @@ their computer is chosen. The suggestion is the planner's answer, never the app'
 ## 1. What this decides
 
 - The first run: what the window shows when nothing is installed, in what order, and what the person does at
-  each step until the home screen of `MilaDesktop.md` 3.4.
+  each step until the workspace overview of `AssistantInterface.md` 4.3.
 - The suggestion: which published model or models Mila offers for this computer, ranked how, and what in the
   library answers that.
 - What the person can do instead of the suggestion, and what happens when there is no suggestion to make.
@@ -57,6 +59,8 @@ memory other applications hold (`Deployment.md` 12.10).
 - **A model runs in the format it was trained for**, and the weight format is never the planner's choice
   (`Deployment.md` 12.1): the suggestion ranks packages as published.
 - **End-user prose** (CLAUDE.md): every screen of the first run is read by someone who has never heard of Mila.
+- **Nothing is contacted until the person asks** (*proposed*, section 4.2; the vision's step 2). First-run screens claim
+  nothing about privacy that tests do not yet show (the vision's section 13).
 
 ## 4. The first run, as built at +142
 
@@ -81,7 +85,7 @@ to 6, which are its model pane.
    download's size and the conversation length are Settings' to show, not the first run's. *Choose another model*
    sits below the card, on its left edge, and goes once *Install* is pressed.
 4. The install's progress replaces the button. The session loads the model when the install ends; the lines the
-   install and the load say are not added to the empty conversation, so the home screen follows at once.
+   install and the load say are not added to the empty conversation, so the overview follows at once.
 5. *Choose another model* opens Settings at *Models*, where each published model carries what the planner said:
    *Suggested for this computer*, *Runs on this computer*, or why it does not.
 6. When the publisher cannot be reached: the reason, and *Try again*. When it answers and nothing runs here:
@@ -135,14 +139,14 @@ and the new-conversation and Settings shortcuts do nothing.
    (question 13). A refused acceptance is said on this pane. A package whose licence cannot be read says so here, with
    **Go Back** and **Quit** and no way past.
 3. **Model.** Titled *A model for this computer*, then section 4's steps 2 to 6 as built, the publisher asked when
-   this pane first shows. **Install** is the pane's forward button, enabled once a model is suggested; the install's
+   this pane first shows (section 4.2 proposes asking the person first). **Install** is the pane's forward button, enabled once a model is suggested; the install's
    progress, then the load's, sits on the left while they run, and **Go Back** and **Install** are dimmed until they
    end. *Choose another model* stays below the card. **Go Back** returns to the licence when it was read on this run,
    else to the welcome. A model installed and then refused at its load leaves the setup for *Choose a model to start*,
    which says why.
 4. **Conclusion** (question 18, not one of Todd's three). *Mila is ready*, *<the model's display name> is installed
    and loaded*, and *To change the model, open Settings, then Models*. **Done**, default; **Go Back** dimmed.
-   **Done** opens the home screen. It follows an install begun on the model pane, Settings' included.
+   **Done** opens the overview. It follows an install begun on the model pane, Settings' included.
 
 With models installed and the licence not yet accepted, the welcome and the licence show, and once it is accepted the
 session opens the remembered model: the window returns at once.
@@ -178,6 +182,36 @@ The page's pieces: `setupPane` in `state.js` says which pane shows, from the ses
 `setup.continue`, `setup.back` and `setup.done`; `renderSetup` in `views/transcript.js` draws it; `welcome.skip` is
 gone. The mock carries the licence as the session does: scenarios 8 and 12 begin with it not accepted, and 13 has
 models installed and the licence not accepted.
+
+## 4.2 Contacting the publisher only when asked (round 4)
+
+*Until `AssistantInterface.md` phase T1* the model pane asked the publisher as it first showed, and the way to Settings'
+*Models* did with no list. That sent this computer's address to HuggingFace unasked, with a HuggingFace token if one was
+found on the computer, tying the request to the person's account (`../Notebooks/MilaVisionDiscussion.md` 8, G4).
+
+**The model pane opens without contacting anyone.** It says what looking involves, in words for someone new to all of
+this (a draft, Todd's to change):
+
+> To suggest a model, Mila asks Hugging Face, where its models are published, what is available. Hugging Face sees this
+> computer's internet address and which files Mila reads. Nothing you have written is sent, and Mila works out here what
+> fits this computer.
+
+**Look for models** is the pane's forward button. Pressed, section 4's steps 2 to 6 follow, and **Install** takes its
+place once a model is suggested. **Go Back** is as section 4.1 has it.
+
+- **Settings' *Models*** shows what is installed without contacting anyone. *Available to install* holds **Look for
+  models** until it is pressed in this run of the app. The list is fetched again only by pressing.
+- **Pressing *Install*, with the model named,** is the approval for its download.
+- **No token goes with a listing or a download** (`makeAnonymousModelHub`). A token found on the computer is to be used
+  only for a model that needs one, after the person is told so and agrees. **That step is not built:** until it is, a
+  gated model cannot be installed from Mila Assistant.
+- **The planning stays on this computer.** Every published model's header is read, whichever would fit, so the requests do
+  not reveal what this computer has.
+
+*Checked by:* a page test that no `models.refresh` is sent before the press, on both the model pane and Settings; a
+scripted hub showing no `Authorization` header on a listing or a public download; and the window's network log on Windows
+and macOS showing no connection before the press. On Linux the session's tests run in WSL and the window is unverified.
+`mila-store` and Chat are commands a person runs to do this very thing, and are not changed here.
 
 ## 5. The suggestion, as built at +142
 
@@ -230,7 +264,7 @@ Each answer below is Claude's, built at `+142` so it can be looked at; none is s
 7. *Two GPUs.* The planner plans every allowed device and its best plan is the answer; the app chooses nothing.
    Not run on a two-GPU machine.
 8. *The download.* Its size before it starts. Free disk space is not checked first.
-9. *Per activity or overall.* One overall.
+9. *Per activity or overall.* One overall. Activities are gone since `AssistantInterface.md` phase 3.
 10. *Before the suggestion.* *Welcome to Mila* and one line. Round 3 replaces it: a welcome, then the licence
     (section 4.1).
 11. *None fits, or no publisher.* Section 4, step 6.
@@ -250,14 +284,22 @@ to be (2026-11-15):
     carries the licence's name only, not where its text is, so the link needs the published model's licence
     address in the list first.
 17. *Which text.* Mila's MIT licence as it stands, or one written for the app's end users. Counsel's.
-18. *A Conclusion pane.* The guidelines end on one; Todd's three steps do not. Proposed: add it, since today the home
-    screen follows the load with nothing said about where the model is changed.
+18. *A Conclusion pane.* The guidelines end on one; Todd's three steps do not. Proposed: add it, since today the
+    overview follows the load with nothing said about where the model is changed.
 19. *The 2002 window rules.* The reduced menu bar: yes, on a packaged Mac. Windows and Linux packages have no menu
     bar at all (`Window/src/main.js`), so there is nothing to reduce. The dimmed close and zoom buttons: no, since a
     person who closes the window has declined, which quitting already covers, and Windows has no dimmed close.
 20. *The model pane when the publisher cannot be reached, or nothing runs here.* Section 4 step 6's screens, with
     **Go Back** to the licence; nothing past the model pane opens until a model is installed, and the window with
     *Install a model to start* is no longer reached from the first run.
+
+**Round 4's questions** (Todd, 2026-11-18, "Proceed with your recommendations"):
+
+21. *Contacting the publisher.* Section 4.2 is the step, with its one more press on the first run.
+22. *The welcome's byline.* *Local LLMs on hardware you own -- at the metal* speaks to people who already know what an LLM
+    is, and the vision's first-run reader may not. It is to change so that it says what Mila is for that person. **The
+    words are Todd's and not yet chosen,** so the line stands until then. Any line promising privacy waits until the
+    tests of `AssistantInterface.md` 5.7 pass.
 
 **Open, found in the build:**
 
@@ -283,7 +325,7 @@ to be (2026-11-15):
 
 ## 8. Not in this design
 
-- Choosing a model per conversation or per activity after the first run (`MilaDesktop.md` 3.2's library query,
-  a proposal for `Mila::Agents`).
+- Choosing a model per conversation after the first run (`MilaDesktop.md` 3.2's library query, a proposal for
+  `Mila::Agents`).
 - The screens for a store with models and none loaded (`MilaDesktop.md` 3.4).
 - The renaming of the app and its folder to Mila Assistant.

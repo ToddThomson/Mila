@@ -113,6 +113,8 @@ A gate that every call passes; inside `Mila::Agents` there is no path to executi
   from Mila's own data, never from text the model wrote.**
 - **Answers:** once, for this conversation, or deny. Making a rule permanent is a change to the rules, never an
   answer to a question. An answer for the conversation stands in for asking again; it never overrides a deny rule.
+  *Decided 2026-11-18 (Todd):* a tool that declares `uses_network` is never allowed for the conversation, and that answer
+  counts as once, because what it sends is approved call by call (`Apps/AssistantInterface.md` 5.7).
 - **No hook means no one to ask,** so ask is deny.
 - **A denial reaches the model as a result** saying the person declined, so it can continue. A stopped reply
   cancels a pending question.
@@ -409,7 +411,9 @@ system's file and socket calls for the grant; HTTP, TLS and process launching co
 1. **Several calls in one turn:** run together or in order. Reads and writes may need different answers.
 2. **Rules after untrusted content.** Once a fetched page or a file the person did not write enters the
    conversation, whether rules tighten -- for example, ask before any write that follows. This is now the centre of
-   `Direction/MilaVision.md` section 8, whose proposals are not yet decided.
+   `Direction/MilaVision.md` section 8, whose proposals are not yet decided. `Apps/AssistantInterface.md` 5.6 and 5.7 are
+   a first concrete proposal: a mark on the conversation, and no answer *for this conversation* for a tool that uses the
+   network.
 3. **Connections through the grant.** *Decided 2026-10-27 (Todd):* a tool fetches through the grant's own
    transport (`ToolGrant::transport`), libcurl with each connection's address checked before it is made, so every
    connection, a redirect's included, is checked. A transport the application supplies, such as the Python

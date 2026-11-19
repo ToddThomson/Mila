@@ -181,7 +181,8 @@ const available = {
     needs: null,
     layout: 'list',
     reads: [ 'publishedModels', 'suggestedModel' ],
-    note: ( state ) => state.publishedModels === null ? 'This needs an internet connection.' : null,
+    note: ( state ) => state.publishedModels === null
+        ? 'Mila asks Hugging Face what is published, which sees this computer’s internet address.' : null,
     offered: () => true,
     build( state )
     {
@@ -191,7 +192,7 @@ const available = {
         {
             const row = element( 'div', 'model-row' );
             const text = element( 'div', 'model-text', 'The models published for Mila' );
-            const show = button( 'chip-button', 'Show', 'refresh' );
+            const show = button( 'chip-button', 'Look for models', 'refresh' );
             row.append( text, show );
             list.append( row );
 

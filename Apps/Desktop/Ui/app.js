@@ -14,6 +14,7 @@ import { createSettingsView } from './views/settings.js';
 import { createSearchView } from './views/search.js';
 import { createLicenseView } from './views/license.js';
 import { createAboutView } from './views/about.js';
+import { createLinkView } from './views/link.js';
 import { createDevelopmentView } from './views/development.js';
 import { createLogView } from './views/log.js';
 import { createPlanView } from './views/plan.js';
@@ -227,9 +228,11 @@ function folderChosen( path )
     decideTool( asking.turnId, asking.callId, 'allow_once', path );
 }
 
-function openLink( url )
+/** A link opens once the person has seen where it goes; the window opens it and the chat keeps that it did. */
+function linkConfirmed( url )
 {
     transport.send( { type: 'link.open', url } );
+    transport.send( { type: 'conversation.link_opened', url } );
 }
 
 /** A shortcut's name in the keys of the computer the window runs on. */
@@ -257,7 +260,7 @@ const actions = {
     openAbout: () => about.open(),
     decideTool,
     chooseFolder,
-    openLink,
+    linkConfirmed,
     shortcutLabel,
     transmit: ( message ) => transport.send( message ),
     pathForFile: ( file ) => transport.pathForFile( file ),
@@ -277,7 +280,7 @@ const logElement = document.getElementById( 'log-drawer' );
 const sidebar = createSidebarView( document.getElementById( 'sidebar' ), actions );
 const header = createHeaderView( document.getElementById( 'header' ), actions );
 const places = createPlacesView( paneScroller, document.getElementById( 'pane' ), actions );
-const chatHead = createChatHeadView( document.getElementById( 'chat-head' ) );
+const chatHead = createChatHeadView( document.getElementById( 'chat-head' ), actions );
 const transcript = createTranscriptView( transcriptScroller, document.getElementById( 'transcript' ), actions );
 const dock = createDockView( document.getElementById( 'conversation-head' ), actions );
 const composer = createComposerView( document.getElementById( 'composer-area' ), mainElement, actions );
@@ -285,6 +288,7 @@ const settings = createSettingsView( document.getElementById( 'settings' ), acti
 const search = createSearchView( document.getElementById( 'search' ), actions );
 const license = createLicenseView( document.getElementById( 'license-window' ), actions );
 const about = createAboutView( document.getElementById( 'about-window' ), actions );
+const linkSheet = createLinkView( document.getElementById( 'link-window' ), actions );
 const development = createDevelopmentView( sidebar.development, transport.development, composer );
 const log = createLogView( logElement, actions );
 const plan = createPlanView( planElement );
@@ -430,8 +434,8 @@ function onKeyDown( event )
     if ( event.key !== 'Escape' )
         return;
 
-    // Search, the licence and About are dialogs, which Esc closes itself.
-    if ( search.isOpen() || license.isOpen() || about.isOpen() )
+    // Search, the licence, About and a link's sheet are dialogs, which Esc closes itself.
+    if ( search.isOpen() || license.isOpen() || about.isOpen() || linkSheet.isOpen() )
         return;
 
     // Settings is over everything, so Esc closes it before it stops a reply.
@@ -461,7 +465,8 @@ function onKeyDown( event )
 }
 
 /**
- * A link in model text never navigates the page: the window opens it in the system browser.
+ * A link in model text never navigates the page: its sheet shows where it goes, and the window opens it in the system
+ * browser once the person says so.
  */
 function onLinkActivate( event )
 {
@@ -474,7 +479,7 @@ function onLinkActivate( event )
         return;
 
     event.preventDefault();
-    openLink( link.dataset.url );
+    linkSheet.open( link.dataset.url );
 }
 
 /** Focusing the bar with a conversation in it raises the conversation again. */

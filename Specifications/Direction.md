@@ -573,8 +573,9 @@ Settled 2026-09-23, each on the leaning this section recorded, when section 5 be
 
 ## 11. Relationship To Other Specs
 
-- `Direction/MilaVision.md` — where Mila is going, the product and the library together (1.3). It proposes amending
-  6.4's line on retrieval stores; until Todd decides, 6.4 stands.
+- `Direction/MilaVision.md` — where Mila is going, the product and the library together (1.3). Its question 4 is decided
+  (Todd, 2026-11-18): source labels and their enforcement are `Mila::Agents`', and stores and connectors stay an
+  application's, as 6.4 says.
 - `MilaProductFamily.md` — v0.20's definition. Its Agentic design, measurement and open decisions carry
   into section 6.1 by reference; its adaptor layering is replaced by section 3.
 - `Deployment.md` — Phases 1 to 4 are v0.21.0 (5.2), Phase 5 comes after it (6.3); its non-goal on

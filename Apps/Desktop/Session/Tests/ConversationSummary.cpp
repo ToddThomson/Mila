@@ -32,6 +32,38 @@ namespace Mila::Tests::Apps::Desktop
         }
     }
 
+    TEST( ConversationSummaryTest, WhatLeftTheComputerIsListedOldestFirstAndADeclinedCallIsNot )
+    {
+        const auto sending = []( const std::string& name, const nlohmann::json& arguments, const nlohmann::json& decision,
+            const std::string& time, bool failed )
+            {
+                return nlohmann::json{ { "call_id", "c" }, { "name", name }, { "arguments", arguments.dump() },
+                    { "decision", decision }, { "result", "text" }, { "is_error", failed }, { "time", time } };
+            };
+
+        const nlohmann::json calls = nlohmann::json::array( {
+            sending( "read_web_page", { { "url", "https://example.test/a?b=1" } }, "allow_once", "2026-11-18T10:00:00.000Z", true ),
+            sending( "web_search", { { "query", "my words" } }, "deny", "2026-11-18T10:01:00.000Z", false ),
+            sending( "web_search", { { "query", "other words" } }, "allow_once", "2026-11-18T10:02:00.000Z", false ),
+            sending( "run_command", { { "command", "dir" } }, "allow_once", "2026-11-18T10:03:00.000Z", false ),
+            sending( "run_command", { { "command", "npm i" }, { "network", true } }, "allow_once", "2026-11-18T10:04:00.000Z", false ),
+            sending( "read_file", { { "path", "a.txt" } }, "allow_once", "2026-11-18T10:05:00.000Z", false ) } );
+
+        const nlohmann::json conversation = { { "messages", nlohmann::json::array( { reply( calls, "stop" ) } ) },
+            { "links_opened", nlohmann::json::array( { { { "url", "https://me@link.test:8/x" }, { "time", "2026-11-18T10:01:30.000Z" } } } ) } };
+
+        const nlohmann::json sent = summarizeConversation( conversation )[ "sent" ];
+
+        ASSERT_EQ( sent.size(), 4u );
+        EXPECT_EQ( sent[ 0 ][ "kind" ], "page" );
+        EXPECT_EQ( sent[ 0 ][ "what" ], "https://example.test/a?b=1" );
+        EXPECT_EQ( sent[ 0 ][ "where" ], "example.test" );
+        EXPECT_EQ( sent[ 1 ][ "kind" ], "link" );
+        EXPECT_EQ( sent[ 1 ][ "where" ], "link.test:8" );
+        EXPECT_EQ( sent[ 2 ][ "what" ], "other words" );
+        EXPECT_EQ( sent[ 3 ][ "kind" ], "command" );
+    }
+
     TEST( ConversationSummaryTest, APlanSaysHowFarItCameAndWhereItStopped )
     {
         const nlohmann::json conversation = { { "id", "conversation-1" }, { "plan", nlohmann::json::array( {

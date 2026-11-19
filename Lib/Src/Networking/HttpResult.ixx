@@ -28,6 +28,9 @@ namespace Mila::Networking
         /// which hop failed.
         std::string final_url;
 
+        /// Where a redirect not followed led, for RedirectLeftSite; empty otherwise.
+        std::string redirect_target;
+
         /// The body reached the request's `maximum_body_bytes` and the transfer stopped there: what the sink has is
         /// the body's start, not all of it.
         bool cut{ false };

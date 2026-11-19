@@ -15,6 +15,7 @@ namespace Mila::Desktop
     namespace
     {
         constexpr std::size_t kMostFilesWritten = 20;
+        constexpr std::size_t kMostThingsSent = 50;
         constexpr std::size_t kReplyStartBytes = 160;
 
         nlohmann::json planProgress( const nlohmann::json& plan )
@@ -229,6 +230,124 @@ namespace Mila::Desktop
 
             return files;
         }
+
+        /// The host of a web address, for saying where something went; the address itself when it has none.
+        std::string hostIn( const std::string& address )
+        {
+            const std::size_t scheme = address.find( "://" );
+
+            if ( scheme == std::string::npos )
+            {
+                return address;
+            }
+
+            const std::size_t start = scheme + 3;
+            std::string authority = address.substr( start, address.find_first_of( "/?#", start ) - start );
+            const std::size_t user = authority.rfind( '@' );
+
+            return user == std::string::npos ? authority : authority.substr( user + 1 );
+        }
+
+        /// What a call sent and where, or null for a call that sends nothing.
+        nlohmann::json sentByCall( const nlohmann::json& call )
+        {
+            if ( !call.is_object() )
+            {
+                return nullptr;
+            }
+
+            const nlohmann::json decision = call.value( "decision", nlohmann::json( nullptr ) );
+            const bool answered = call.value( "result", nlohmann::json( nullptr ) ).is_string();
+            const nlohmann::json arguments_text = call.value( "arguments", nlohmann::json( nullptr ) );
+
+            // Declined, or stopped before it ran. A failed call still went out.
+            if ( decision == "deny" || !answered || !arguments_text.is_string() )
+            {
+                return nullptr;
+            }
+
+            const nlohmann::json arguments = nlohmann::json::parse( arguments_text.get<std::string>(), nullptr, false );
+
+            if ( !arguments.is_object() )
+            {
+                return nullptr;
+            }
+
+            const std::string name = call.value( "name", std::string{} );
+            const auto text = [ &arguments ]( const char* key ) { return arguments.value( key, std::string{} ); };
+            nlohmann::json time = call.value( "time", nlohmann::json( nullptr ) );
+
+            if ( name == "read_web_page" && arguments.value( "url", nlohmann::json( nullptr ) ).is_string() )
+            {
+                return { { "kind", "page" }, { "what", text( "url" ) }, { "where", hostIn( text( "url" ) ) }, { "time", std::move( time ) } };
+            }
+
+            if ( name == "web_search" && arguments.value( "query", nlohmann::json( nullptr ) ).is_string() )
+            {
+                return { { "kind", "search" }, { "what", text( "query" ) }, { "where", "your search provider" }, { "time", std::move( time ) } };
+            }
+
+            if ( name == "run_command" && arguments.value( "network", nlohmann::json( false ) ) == true
+                && arguments.value( "command", nlohmann::json( nullptr ) ).is_string() )
+            {
+                return { { "kind", "command" }, { "what", text( "command" ) }, { "where", "the internet" }, { "time", std::move( time ) } };
+            }
+
+            return nullptr;
+        }
+
+        nlohmann::json whatWasSent( const nlohmann::json& conversation, const nlohmann::json& messages )
+        {
+            std::vector<nlohmann::json> sent;
+
+            for ( const nlohmann::json& message : messages )
+            {
+                if ( !message.is_object() || !message.value( "tool_calls", nlohmann::json( nullptr ) ).is_array() )
+                {
+                    continue;
+                }
+
+                for ( const nlohmann::json& call : message[ "tool_calls" ] )
+                {
+                    if ( nlohmann::json entry = sentByCall( call ); !entry.is_null() )
+                    {
+                        sent.push_back( std::move( entry ) );
+                    }
+                }
+            }
+
+            const nlohmann::json links = conversation.value( "links_opened", nlohmann::json( nullptr ) );
+
+            if ( links.is_array() )
+            {
+                for ( const nlohmann::json& link : links )
+                {
+                    if ( link.is_object() && link.value( "url", nlohmann::json( nullptr ) ).is_string() )
+                    {
+                        const std::string url = link[ "url" ].get<std::string>();
+
+                        sent.push_back( { { "kind", "link" }, { "what", url }, { "where", hostIn( url ) },
+                            { "time", link.value( "time", nlohmann::json( nullptr ) ) } } );
+                    }
+                }
+            }
+
+            // ISO 8601 in UTC sorts as text; a call stored with no time keeps its place before those that have one.
+            std::ranges::stable_sort( sent, {}, []( const nlohmann::json& entry )
+                {
+                    return entry[ "time" ].is_string() ? entry[ "time" ].get<std::string>() : std::string{};
+                } );
+
+            const std::size_t first = sent.size() > kMostThingsSent ? sent.size() - kMostThingsSent : 0;
+            nlohmann::json kept = nlohmann::json::array();
+
+            for ( std::size_t index = first; index < sent.size(); ++index )
+            {
+                kept.push_back( std::move( sent[ index ] ) );
+            }
+
+            return kept;
+        }
     }
 
     nlohmann::json summarizeConversation( const nlohmann::json& conversation )
@@ -238,6 +357,7 @@ namespace Mila::Desktop
         const nlohmann::json messages = stored.is_array() ? stored : nlohmann::json::array();
 
         return { { "progress", planProgress( plan ) }, { "finish", lastFinish( messages ) },
-            { "reply_start", replyStart( messages ) }, { "wrote", filesWritten( messages ) } };
+            { "reply_start", replyStart( messages ) }, { "wrote", filesWritten( messages ) },
+            { "sent", whatWasSent( conversation, messages ) } };
     }
 }

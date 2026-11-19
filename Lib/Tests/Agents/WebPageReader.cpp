@@ -194,6 +194,24 @@ namespace Mila::Tests::AI
         expectRefused( site, call( "https://example.test/" ), "not a web page" );
     }
 
+    TEST( WebPageReader, ARedirectToAnotherSiteIsNotFollowedAndNamesWhereItLed )
+    {
+        ScriptedSite site;
+        site.pages[ "https://example.test/" ] = { 302, "https://elsewhere.test/page?private=1" };
+        site.pages[ "https://elsewhere.test/page?private=1" ] = { 200, {}, "must not be read" };
+
+        expectRefused( site, call( "https://example.test/" ), "redirects to https://elsewhere.test/page?private=1" );
+    }
+
+    TEST( WebPageReader, ARedirectFromHttpsToHttpOnTheSameSiteIsNotFollowed )
+    {
+        ScriptedSite site;
+        site.pages[ "https://example.test/" ] = { 302, "http://example.test/" };
+        site.pages[ "http://example.test/" ] = { 200, {}, "must not be read" };
+
+        expectRefused( site, call( "https://example.test/" ), "not encrypted" );
+    }
+
     TEST( WebPageReader, AnAddressThatIsNotTheWebIsRefusedBeforeAnythingIsFetched )
     {
         expectRefused( ScriptedSite{}, call( "file:///c:/secret.txt" ), "is not a web address" );

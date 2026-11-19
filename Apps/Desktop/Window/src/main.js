@@ -18,6 +18,10 @@ const iconPath = path.join( here, '..', 'icons', 'icon.png' );
 const allowedPermissions = [ 'clipboard-sanitized-write' ];
 const externalProtocols = [ 'https:', 'http:', 'mailto:' ];
 
+// The page uses no network, so the window has no reason to look for a proxy on the person's network
+// (AssistantInterface.md 5.7).
+app.commandLine.appendSwitch( 'no-proxy-server' );
+
 let mainWindow = null;
 let sessionProcess = null;
 let pageReady = false;

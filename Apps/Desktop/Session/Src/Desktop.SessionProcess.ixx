@@ -474,6 +474,14 @@ namespace Mila::Desktop
             {
                 refuseAttachment( request );
             }
+            else if ( type == "reach.remove" )
+            {
+                removeReach( request );
+            }
+            else if ( type == "conversation.link_opened" )
+            {
+                recordLinkOpened( request.value( "url", std::string{} ) );
+            }
             else if ( type == "attachment.remove" || type == "link.open" )
             {
                 // Nothing is held for an attachment, which is refused when added; a link is the window's.
@@ -777,9 +785,14 @@ namespace Mila::Desktop
                 return ToolAnswer::Once;
             }
 
-            // A command is asked every time (ContainedPrograms.md 5), and a folder is chosen each time it is asked
-            // for: no answer covers the conversation.
-            const bool every_time = question.name == CommandTool::kName || folder_asked;
+            // What goes out is approved call by call (AssistantInterface.md 5.7), and a folder is chosen each time it is
+            // asked for: no answer covers the conversation.
+            const bool every_time = question.needs.uses_network || folder_asked;
+
+            // A folder starts read-only, so the first call that changes a file also asks to change files there.
+            const bool changes_folder = question.needs.writes_files && conversation_folder_
+                && conversation_folder_access_ == Mila::Agents::FolderAccess::Read;
+
             const std::vector<std::string> choices = every_time
                 ? std::vector<std::string>{ "allow_once", "deny" }
                 : std::vector<std::string>{ "allow_once", "allow_conversation", "deny" };
@@ -797,7 +810,8 @@ namespace Mila::Desktop
             }
 
             send( "turn.tool_approval", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "call_id", call_id },
-                { "choices", choices }, { "reaches", reaches( question ) } } );
+                { "choices", choices }, { "reaches", reaches( question ) },
+                { "changes_folder", changes_folder ? conversationFolder() : nlohmann::json( nullptr ) } } );
 
             const ToolAnswer decided = decision.get();
 
@@ -807,7 +821,31 @@ namespace Mila::Desktop
                 storedCall( call_id )[ "decision" ] = answerName( decided );
             }
 
+            if ( changes_folder && decided != ToolAnswer::Deny && !stop_asked_.load() )
+            {
+                allowChangesInFolder();
+            }
+
             return decided;
+        }
+
+        /// The person allowed a change: the chat's grant now holds its folder to read and write. The app widens it, on
+        /// the person's answer; the gate gives the call the grant as it stands once the answer is in.
+        void allowChangesInFolder()
+        {
+            conversation_folder_access_ = Mila::Agents::FolderAccess::ReadWrite;
+
+            try
+            {
+                grantChat();
+            }
+            catch ( const std::invalid_argument& )
+            {
+                // The folder has gone: the grant is unchanged, so the call fails and says why.
+                conversation_folder_access_ = Mila::Agents::FolderAccess::Read;
+            }
+
+            sendState();
         }
 
         /**
@@ -880,7 +918,8 @@ namespace Mila::Desktop
 
             // Stored as announced, so a call the person stopped before it ran is kept with no result (6.3).
             turn_calls_.push_back( { { "call_id", announced_call_id_ }, { "name", name }, { "summary", summary },
-                { "arguments", arguments }, { "decision", nullptr }, { "result", nullptr }, { "is_error", false } } );
+                { "arguments", arguments }, { "time", timestamp() }, { "decision", nullptr }, { "result", nullptr },
+                { "is_error", false } } );
 
             return announced_call_id_;
         }
@@ -971,6 +1010,7 @@ namespace Mila::Desktop
                 { "created", conversation_created_ },
                 { "updated", timestamp() },
                 { "messages", conversation_messages_ },
+                { "links_opened", conversation_links_ },
                 { "turns", std::move( turns ) } };
 
             try
@@ -997,6 +1037,62 @@ namespace Mila::Desktop
             conversation_title_.clear();
             conversation_created_.clear();
             conversation_messages_ = nlohmann::json::array();
+            conversation_links_ = nlohmann::json::array();
+        }
+
+        /// A link the person opened from this chat, kept with it for Activity (AssistantInterface.md 5.7).
+        void recordLinkOpened( const std::string& url )
+        {
+            if ( url.empty() || conversation_id_.empty() )
+            {
+                return;
+            }
+
+            conversation_links_.push_back( { { "url", url }, { "time", timestamp() } } );
+            saveConversation();
+            sendConversations();
+        }
+
+        /// The person took back something Mila could reach (AssistantInterface.md 4.12): a chat's folder, or what they
+        /// allowed for the open chat. A request waits for any reply being written, so it applies from the next.
+        void removeReach( const nlohmann::json& request )
+        {
+            const std::string kind = request.value( "kind", std::string{} );
+
+            if ( kind == "allowed" )
+            {
+                session().gate().withdrawAllowance( request.value( "name", std::string{} ) );
+                sendState();
+
+                return;
+            }
+
+            if ( kind != "folder" )
+            {
+                return;
+            }
+
+            const std::string id = request.value( "id", std::string{} );
+
+            if ( id.empty() || id == conversation_id_ )
+            {
+                conversation_folder_.reset();
+                conversation_folder_access_ = Mila::Agents::FolderAccess::Read;
+                grantChat();
+
+                if ( !conversation_id_.empty() )
+                {
+                    saveConversation();
+                }
+            }
+            else if ( std::optional<nlohmann::json> stored = store_.load( id ) )
+            {
+                ( *stored )[ "folder" ] = nullptr;
+                store_.save( *stored );
+            }
+
+            sendState();
+            sendConversations();
         }
 
         void openConversation( const std::string& id )
@@ -1033,6 +1129,7 @@ namespace Mila::Desktop
             conversation_title_ = conversation->value( "title", std::string{} );
             conversation_created_ = conversation->value( "created", std::string{} );
             conversation_messages_ = conversation->value( "messages", nlohmann::json::array() );
+            conversation_links_ = conversation->value( "links_opened", nlohmann::json::array() );
 
             send( "conversation.loaded", { { "id", id }, { "title", conversation_title_ },
                 { "model", conversation->value( "model", std::string{} ) },
@@ -1085,9 +1182,10 @@ namespace Mila::Desktop
          * @brief Give the session a chat's system prompt, tools, limits, rules and grant (AssistantInterface.md 5.5).
          *
          * Every chat is offered every tool whose work can be done here, under one prompt. Its grant holds the network,
-         * for reading pages and searching, and the folder given, if any, to read and write; the person can give it one
-         * later through request_folder. Its reply is bounded by the context and the person's Stop. Plan updates run
-         * without asking, as Get Things Done's did; every other call is asked about, a command every time.
+         * for reading pages and searching, and the folder given, if any, to read; the person can give it one later
+         * through request_folder, and allows changes there when a call first makes one. Its reply is bounded by the
+         * context and the person's Stop. Plan updates run without asking; every other call is asked about, and one that
+         * uses the network every time.
          *
          * @param folder The folder the chat was stored with, in UTF-8, or empty. One that cannot be granted -- gone, or
          *               on a computer whose grant holds no folder yet -- is said, and the chat opens without it.
@@ -1095,6 +1193,7 @@ namespace Mila::Desktop
         void useChat( const std::string& folder )
         {
             conversation_folder_.reset();
+            conversation_folder_access_ = Mila::Agents::FolderAccess::Read;
 
             if ( !folder.empty() && !folders_enforced_ )
             {
@@ -1128,8 +1227,8 @@ namespace Mila::Desktop
         }
 
         /**
-         * @brief The chat's grant, from its folder and whether commands are on: the network, the folder to read and
-         *        write, and, with both a folder and the container, what commands run with.
+         * @brief The chat's grant, from its folder and whether commands are on: the network, the folder at the access the
+         *        person has given, and, once it may be changed and the container is open, what commands run with.
          *
          * Commands get the network only by asking, call by call (ContainedPrograms.md decision 11): the grant holds it and
          * run_command narrows it away from every other call.
@@ -1143,10 +1242,10 @@ namespace Mila::Desktop
             if ( conversation_folder_ )
             {
                 folders.push_back( { std::filesystem::path( std::u8string( conversation_folder_->begin(), conversation_folder_->end() ) ),
-                    Mila::Agents::FolderAccess::ReadWrite } );
+                    conversation_folder_access_ } );
             }
 
-            if ( container_ && !folders.empty() )
+            if ( container_ && !folders.empty() && conversation_folder_access_ == Mila::Agents::FolderAccess::ReadWrite )
             {
                 const std::filesystem::path project = folders.front().folder;
                 Mila::Agents::ToolGrant grant( std::move( folders ), true, ProgramSetup::forProject( programs_, project ), container_ );
@@ -1186,6 +1285,7 @@ namespace Mila::Desktop
             }
 
             conversation_folder_ = *chosen;
+            conversation_folder_access_ = Mila::Agents::FolderAccess::Read;
 
             try
             {
@@ -1200,7 +1300,8 @@ namespace Mila::Desktop
 
             sendState();
 
-            return std::format( "The user gave you the folder {}. Paths are relative to it, as list_folder shows them.", *chosen );
+            return std::format( "The user gave you the folder {} to read. Paths are relative to it, as list_folder shows "
+                "them. The user is asked the first time you change a file in it.", *chosen );
         }
 
         /// The prompt's passages and its tools, from the next response on; the model and conversation stay.
@@ -2250,6 +2351,9 @@ namespace Mila::Desktop
                 { "sampling", std::move( sampling ) },
                 { "modalities", std::move( modalities ) },
                 { "folder", conversationFolder() },
+                { "folder_access", !conversation_folder_ ? nlohmann::ordered_json( nullptr )
+                    : nlohmann::ordered_json( conversation_folder_access_ == Mila::Agents::FolderAccess::ReadWrite ? "read_write" : "read" ) },
+                { "allowed_for_chat", allowedForChat() },
                 { "plan", plan_.toJson() },
                 { "web_search", web_search_.has_value() },
                 { "run_commands", settings_.run_commands },
@@ -2302,6 +2406,19 @@ namespace Mila::Desktop
         nlohmann::json conversationFolder() const
         {
             return conversation_folder_ ? nlohmann::json( *conversation_folder_ ) : nlohmann::json( nullptr );
+        }
+
+        /// The tools the person allowed for the open chat, by name.
+        nlohmann::ordered_json allowedForChat() const
+        {
+            nlohmann::ordered_json allowed = nlohmann::ordered_json::array();
+
+            for ( const std::string& name : session().gate().allowedForConversation() )
+            {
+                allowed.push_back( name );
+            }
+
+            return allowed;
         }
 
         void sendConversations()
@@ -2600,6 +2717,9 @@ namespace Mila::Desktop
         // The folder the chat's grant holds, in UTF-8, once it has one (AssistantInterface.md 5.5).
         std::optional<std::string> conversation_folder_;
 
+        // How far: read until the person allows a change in it, for this chat only.
+        Mila::Agents::FolderAccess conversation_folder_access_{ Mila::Agents::FolderAccess::Read };
+
         // The folder the person chose in answer to request_folder, until its call takes it. Under approval_mutex_.
         std::optional<std::string> chosen_folder_;
 
@@ -2625,6 +2745,7 @@ namespace Mila::Desktop
         std::string conversation_title_;
         std::string conversation_created_;
         nlohmann::json conversation_messages_ = nlohmann::json::array();
+        nlohmann::json conversation_links_ = nlohmann::json::array();
 
         // The turn in flight.
         int turn_number_{ 0 };

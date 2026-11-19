@@ -88,7 +88,7 @@
     },
     {
       "name": "request_folder",
-      "description": "Ask the user for a folder on their computer to work in, when the work needs their files and you have no folder. The user chooses the folder in a picker, or declines. Once given, you can read and write in it for the rest of the chat, and paths are relative to it.",
+      "description": "Ask the user for a folder on their computer to work in, when the work needs their files and you have no folder. The user chooses the folder in a picker, or declines. Once given, you can read it for the rest of the chat, paths are relative to it, and the user is asked the first time you change a file in it.",
       "summary": "Asking for a folder: {why}",
       "parameters": {
         "type": "object",

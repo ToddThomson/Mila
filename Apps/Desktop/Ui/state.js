@@ -38,7 +38,7 @@ export function createInitialState()
     };
 }
 
-export const places = [ 'workspace', 'chats', 'activity', 'chat' ];
+export const places = [ 'workspace', 'chats', 'activity', 'reach', 'chat' ];
 
 export function reduce( state, message )
 {
@@ -444,6 +444,7 @@ function reduceToolCall( turn, message )
         isError: false,
         choices: null,
         reaches: null,
+        changesFolder: null,
         decision: null,
         notRun: false
     };
@@ -466,7 +467,7 @@ function updateToolBlock( turn, callId, change )
 
 function reduceToolApproval( turn, message )
 {
-    const change = { choices: message.choices, reaches: message.reaches ?? null };
+    const change = { choices: message.choices, reaches: message.reaches ?? null, changesFolder: message.changes_folder ?? null };
 
     return updateToolBlock( turn, message.call_id, change );
 }
@@ -1005,12 +1006,44 @@ export function searchResults( state, query )
     return results.slice( 0, searchLimit );
 }
 
-export const activityKinds = [ 'all', 'chat', 'file', 'plan' ];
+export const activityKinds = [ 'all', 'chat', 'file', 'plan', 'sent' ];
 
 /**
- * Activity (4.8), from what the store says of each chat today: when it was started, and the files Mila wrote in it
- * and how far its plan came, both as of the chat's last change, since the store keeps no time for either. Newest
- * first, by the viewer's local day; `kind` keeps one kind, or `'all'`.
+ * What Mila can reach (4.12): each folder a chat holds, the open chat's first with the access it has now, since a chat
+ * opened again starts read-only; and what the person allowed for the open chat.
+ */
+export function reachOverview( state )
+{
+    const session = state.session;
+    const openFolder = session === null ? null : session.folder ?? null;
+    const folders = [];
+
+    if ( openFolder !== null )
+    {
+        const chat = currentChat( state );
+
+        folders.push( { id: state.conversationId, path: openFolder, title: chat === null ? 'New chat' : chat.title,
+            changes: session.folder_access === 'read_write' } );
+    }
+
+    for ( const item of state.conversations )
+    {
+        if ( item.folder && item.id !== state.conversationId )
+            folders.push( { id: item.id, path: item.folder, title: item.title, changes: false } );
+    }
+
+    return {
+        folders,
+        allowed: session === null ? [] : session.allowed_for_chat ?? [],
+        webSearch: session !== null && session.web_search === true,
+        commands: session !== null && session.run_commands === true
+    };
+}
+
+/**
+ * Activity (4.8), from what the store says of each chat today: when it was started, what left the computer from it,
+ * and the files Mila wrote in it and how far its plan came, both as of the chat's last change, since the store keeps no
+ * time for either. Newest first, by the viewer's local day; `kind` keeps one kind, or `'all'`.
  */
 export function activityDays( state, kind )
 {
@@ -1027,10 +1060,13 @@ export function activityDays( state, kind )
 
         if ( item.progress )
             events.push( { kind: 'plan', who: 'mila', time: item.updated, item } );
+
+        for ( const sent of Array.isArray( item.sent ) ? item.sent : [] )
+            events.push( { kind: 'sent', who: sent.kind === 'link' ? 'you' : 'mila', time: sent.time ?? item.updated, item, sent } );
     }
 
     const kept = kind === 'all' ? events : events.filter( ( event ) => event.kind === kind );
-    const order = { plan: 0, file: 1, chat: 2 };
+    const order = { sent: 0, plan: 1, file: 2, chat: 3 };
 
     kept.sort( ( left, right ) => new Date( right.time ).getTime() - new Date( left.time ).getTime() || order[ left.kind ] - order[ right.kind ] );
 

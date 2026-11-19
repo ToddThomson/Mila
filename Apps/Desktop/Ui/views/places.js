@@ -1,11 +1,11 @@
-// The places of the workspace (AssistantInterface.md 4): the overview the window opens on, all chats, and activity.
-// Each is drawn from the session's records; the open chat is the transcript's.
+// The places of the workspace (AssistantInterface.md 4): the overview the window opens on, all chats, activity, and
+// what Mila can reach. Each is drawn from the session's records; the open chat is the transcript's.
 
 import { element, button, iconButton, clear } from '../dom.js';
-import { workspaceOverview, matchingChats, activityDays, activityKinds } from '../state.js';
-import { whenLabel, attentionLine, plainLine, activityText, longDate, dayLabel, clockLabel } from '../format.js';
+import { workspaceOverview, matchingChats, activityDays, activityKinds, reachOverview } from '../state.js';
+import { whenLabel, attentionLine, plainLine, activityText, longDate, dayLabel, clockLabel, toolWord } from '../format.js';
 
-const activityFilters = { all: 'Everything', chat: 'Chats', file: 'Files', plan: 'Plans' };
+const activityFilters = { all: 'Everything', chat: 'Chats', file: 'Files', plan: 'Plans', sent: 'Sent from this computer' };
 
 // What the person can do about a reply that ended early: one cut short can be finished; one that ran out of room or
 // failed is opened, since asking again there would end the same way.
@@ -68,6 +68,18 @@ export function createPlacesView( scroller, root, actions )
 
         if ( action === 'activity-kind' )
             changeLocal( { kind: target.dataset.kind } );
+
+        if ( action === 'show-sent' )
+        {
+            local.kind = 'sent';
+            actions.openPlace( 'activity' );
+        }
+
+        if ( action === 'remove-folder' )
+            actions.send( { type: 'reach.remove', kind: 'folder', id: identifier ?? '' } );
+
+        if ( action === 'remove-allowed' )
+            actions.send( { type: 'reach.remove', kind: 'allowed', name: target.dataset.name } );
 
         if ( action === 'row-menu' )
             changeLocal( { menuFor: local.menuFor === identifier ? null : identifier, confirming: null } );
@@ -359,7 +371,7 @@ export function createPlacesView( scroller, root, actions )
                 const entry = element( 'div', 'event ' + event.who );
                 const text = element( 'div', 'event-text' );
                 const open = button( 'link', activityText( event ), 'open-conversation' );
-                const where = event.who === 'mila' ? 'Mila · in ' + event.item.title : 'You';
+                const where = eventWhere( event );
 
                 open.dataset.identifier = event.item.id;
                 text.append( open, element( 'div', 'event-where', where ) );
@@ -370,6 +382,80 @@ export function createPlacesView( scroller, root, actions )
             block.append( element( 'h2', 'section-title', dayLabel( day.day, now ) ), timeline );
             root.append( block );
         }
+    }
+
+    function eventWhere( event )
+    {
+        if ( event.kind === 'sent' )
+            return ( event.who === 'mila' ? 'Mila' : 'You' ) + ' · in ' + event.item.title + ' · to ' + event.sent.where;
+
+        return event.who === 'mila' ? 'Mila · in ' + event.item.title : 'You';
+    }
+
+    // ---- What Mila can reach (4.12) ------------------------------------------------------------------
+
+    function reachRow( title, note, remove )
+    {
+        const row = element( 'div', 'reach-row' );
+        const main = element( 'div', 'reach-main' );
+
+        main.append( element( 'div', 'reach-title', title ), element( 'div', 'row-sub reach-note', note ) );
+        row.append( main );
+
+        if ( remove !== null )
+            row.append( remove );
+
+        return row;
+    }
+
+    function renderReach( state )
+    {
+        const reach = reachOverview( state );
+        const folders = section( 'Folders', null, null );
+        const folderRows = element( 'div', 'rows' );
+
+        if ( reach.folders.length === 0 )
+            folderRows.append( element( 'div', 'empty', 'No chat has a folder.' ) );
+
+        for ( const folder of reach.folders )
+        {
+            const remove = button( 'button quiet', 'Remove', 'remove-folder' );
+            const access = folder.changes ? 'Read and change' : 'Read';
+
+            if ( folder.id !== null )
+                remove.dataset.identifier = folder.id;
+
+            remove.setAttribute( 'aria-label', 'Remove ' + folder.path );
+            folderRows.append( reachRow( folder.path, access + ' · ' + folder.title, remove ) );
+        }
+
+        folders.append( folderRows );
+
+        const chat = section( 'Allowed for this chat', null, null );
+        const allowedRows = element( 'div', 'rows' );
+
+        if ( reach.allowed.length === 0 )
+            allowedRows.append( element( 'div', 'empty', 'Nothing. Mila asks each time.' ) );
+
+        for ( const name of reach.allowed )
+        {
+            const remove = button( 'button quiet', 'Remove', 'remove-allowed' );
+
+            remove.dataset.name = name;
+            allowedRows.append( reachRow( toolWord( name ), 'Without asking, until this chat ends', remove ) );
+        }
+
+        chat.append( allowedRows );
+
+        const internet = section( 'The internet', null, button( 'link', 'See what was sent', 'show-sent' ) );
+        const internetRows = element( 'div', 'rows' );
+
+        internetRows.append( reachRow( 'Web pages', 'Mila asks before each page, showing its address', null ),
+            reachRow( 'Web search', reach.webSearch ? 'Mila asks before each search, showing its words' : 'Off: no search key is set', null ),
+            reachRow( 'Commands', reach.commands ? 'Mila asks before each one' : 'Off', null ) );
+        internet.append( internetRows );
+
+        root.append( head( 'Your Workspace', 'What Mila can reach' ), folders, chat, internet );
     }
 
     function render( state )
@@ -384,7 +470,9 @@ export function createPlacesView( scroller, root, actions )
         }
 
         const now = new Date();
-        const key = JSON.stringify( [ place, state.conversations, state.conversationId, state.session === null ? null : state.session.busy,
+        const session = state.session;
+        const reachKey = session === null ? null : [ session.folder, session.folder_access, session.allowed_for_chat, session.web_search, session.run_commands ];
+        const key = JSON.stringify( [ place, state.conversations, state.conversationId, session === null ? null : session.busy, reachKey,
             local, now.getMinutes() ] );
 
         if ( key === lastKey )
@@ -402,6 +490,8 @@ export function createPlacesView( scroller, root, actions )
             renderChats( state, now );
         else if ( place === 'activity' )
             renderActivity( state, now );
+        else if ( place === 'reach' )
+            renderReach( state );
         else
             renderWorkspace( state, now );
 

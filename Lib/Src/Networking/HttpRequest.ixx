@@ -42,6 +42,10 @@ namespace Mila::Networking
         /// Redirect hops permitted before giving up.
         int maximum_redirects{ 5 };
 
+        /// Follow a redirect only on the host the request started on, and never from https to http. Another is
+        /// reported as RedirectLeftSite, with where it led in the result's `redirect_target`.
+        bool redirects_stay_on_site{ false };
+
         /// Seconds with no data before the transfer is abandoned. Zero disables.
         long low_speed_timeout_seconds{ 60 };
     };

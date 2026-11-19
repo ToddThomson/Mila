@@ -6,7 +6,7 @@ import { element, button, iconButton, setIcon, clear, previewOrIcon } from '../d
 import { renderMarkdown } from '../markdown.js';
 import { summarizeTurn, isBusy, emptyScreen, firstRunStep, suggestedModel, setupPane } from '../state.js';
 import { thoughtLabel, statsLine, finishNotice, readableJson, formatBytes, modelAbilities, fitLine, modelTitle, namedTitle,
-    licenseParagraphs } from '../format.js';
+    licenseParagraphs, approvalWords } from '../format.js';
 
 const stickDistance = 80;
 
@@ -63,21 +63,11 @@ export function createTranscriptView( scroller, container, actions )
             actions.send( message );
         }
 
-        // A first model is chosen from the published list, so it is fetched as Settings opens unless it is here.
+        // The publisher is asked only when the person says to, there or here (AssistantOnboarding.md 4.2).
         if ( action === 'open-models' )
-        {
-            const current = actions.getState();
-
-            if ( current.publishedModels === null && !current.publishedRequested )
-            {
-                const refresh = { type: 'models.refresh', online: true };
-                actions.send( refresh );
-            }
-
             actions.openSettings( 'models' );
-        }
 
-        if ( action === 'retry-models' )
+        if ( action === 'look-for-models' || action === 'retry-models' )
         {
             const refresh = { type: 'models.refresh', online: true };
             actions.send( refresh );
@@ -393,19 +383,25 @@ export function createTranscriptView( scroller, container, actions )
 
     /**
      * Nothing is installed: Mila's suggestion for this computer, or the way through when there is none
-     * (AssistantOnboarding.md 4). The publisher is asked as the pane first shows; Install is its way forward.
+     * (AssistantOnboarding.md 4). The publisher is asked only once the person presses Look for models (4.2); Install is
+     * then the way forward.
      */
     function renderModelPane( state, body, footer, progressSlot )
     {
         const step = firstRunStep( state );
 
+        body.append( element( 'h1', 'empty-heading', 'A model for this computer' ) );
+
         if ( step === 'not-asked' )
         {
-            const refresh = { type: 'models.refresh', online: true };
-            queueMicrotask( () => actions.send( refresh ) );
-        }
+            body.append( element( 'p', 'first-run-introduction setup-line', 'To suggest a model, Mila asks Hugging Face, where '
+                + 'its models are published, what is available. Hugging Face sees this computer’s internet address and '
+                + 'which files Mila reads. Nothing you have written is sent, and Mila works out here what fits this computer.' ) );
+            footer.append( setupButton( 'Go Back', 'setup-back', !isBusy( state ), false ),
+                setupButton( 'Look for models', 'look-for-models', !isBusy( state ), true ) );
 
-        body.append( element( 'h1', 'empty-heading', 'A model for this computer' ) );
+            return;
+        }
 
         if ( state.modelsError !== null && state.modelsError.during === 'install' )
         {
@@ -429,7 +425,7 @@ export function createTranscriptView( scroller, container, actions )
 
         footer.append( setupButton( 'Go Back', 'setup-back', working === null && !isBusy( state ), false ), install );
 
-        if ( step === 'not-asked' || step === 'asking' )
+        if ( step === 'asking' )
         {
             const finding = element( 'div', 'reading start-finding' );
             const ring = element( 'span', 'caret' );
@@ -910,12 +906,27 @@ function updateApproval( built, block )
         return;
     }
 
+    const words = approvalWords( block );
+
+    if ( words.facts.length > 0 )
+    {
+        const sends = element( 'dl', 'tool-reaches tool-sends' );
+
+        for ( const [ label, value ] of words.facts )
+            sends.append( element( 'dt', null, label ), element( 'dd', null, value ) );
+
+        built.approval.append( sends );
+    }
+
     const reaches = reachesList( block.reaches );
 
     if ( reaches !== null )
         built.approval.append( reaches );
 
-    const question = element( 'span', 'tool-question', 'Run this tool?' );
+    for ( const note of words.notes )
+        built.approval.append( element( 'p', 'tool-note', note ) );
+
+    const question = element( 'span', 'tool-question', words.question );
     built.approval.append( question );
 
     for ( const choice of block.choices )

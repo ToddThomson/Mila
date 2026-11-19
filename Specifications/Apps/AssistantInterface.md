@@ -1,12 +1,19 @@
 # Mila Assistant Interface
 
-**Status:** design, round 2 (2026-11-16), phases 1 to 3 built (`0.21.0-dev+147`, `+149`, `+150`). Round 1, the same morning,
+**Status:** design, round 3 (2026-11-18), phases 1 to 3 built (`0.21.0-dev+147`, `+149`, `+150`). Round 1, 2026-11-16,
 set out projects, processes and creations around a home screen and a sidebar of conversations. Round 2
 is the layout Todd reached through a working prototype the same afternoon, iterated with him on the Mac: a sidebar,
 a workspace overview, projects that open on their summary, chats that need no project, and Mila as a bar at the foot
 of one pane. Todd called it "a good first approximation". Every answer here is Claude's, provisional until Todd settles
 it; of four that went against earlier decisions, two are settled (one workspace; general purpose, no activity cards)
 and two are open in section 11. Which release each phase lands in is Todd's.
+
+**Round 3** holds everything not yet built to `../Direction/MilaVision.md`, after a review of this design, the code and
+the prototype against it. Phase 4 waits for this amendment (Todd, 2026-11-18: "Yes, start on step 1"). Sections 4.12, 5.6
+and 5.7 are new; sections 5.2, 5.4, 5.5, 6, 8, 9, 10 and 12 change. **Todd took its recommendations the same day ("Proceed
+with your recommendations"; section 11, questions A and D to H), and asked to see the real app in place of a prototype
+round.** So what is marked *proposed* below stands as the design, and phase T1 is being built first. The prototype has
+not caught up with it.
 
 The prototype is beside this document, `AssistantInterface.prototype.html`: one page, example work, and replies
 canned by keyword, since nothing runs a model behind it. It is the reference for how a screen looks and moves; this
@@ -51,7 +58,12 @@ is a quiet fact at the foot of the sidebar.
 unit of work, and a project is what several chats can grow into. A person who only ever chats has a workspace of chats,
 and nothing in the window asks them to make a project.
 
-Five rules follow, and every section below is held to them:
+**Projects are one part of what Mila is for** (`../Direction/MilaVision.md` section 1, decided). Someone may ask Mila to
+find an invoice, explain a document or plan a holiday, and most of that should never become a project. So the phases
+below are ordered by what a person's digital life needs, and a project is one place work can gather. Whether *Your
+Workspace* and *Workspace owner* are the right words is the vision's question 6; nothing here depends on them.
+
+Seven rules follow, and every section below is held to them:
 
 1. **Start anywhere.** The Mila bar at the foot of every screen takes anything, and a chat begins in no project.
 2. **Structure grows out of the work.** A chat joins a project when it has substance, by the person's move or Mila's.
@@ -61,6 +73,10 @@ Five rules follow, and every section below is held to them:
    it, which model, what Mila read first, every write since, and whether it changed on disk after.
 5. **The page shows records; it holds none.** Every view is drawn from what the session stores, so another window, or
    Chat, could show the same work.
+6. **What Mila reads cannot steer what Mila does** (*proposed*, section 5.6). A page, a file or a message informs the
+   work. Only the person's words and the app's prompts set its course, and ordinary code holds that line.
+7. **Nothing leaves this computer unless the person approved that thing** (the vision's local promise, *current
+   thinking*; section 5.7). The person sees what is going and where, and can see afterwards what went.
 
 ## 2. Where it stands today
 
@@ -83,6 +99,10 @@ Five rules follow, and every section below is held to them:
 - **The library's task** (`../Agents/AgentTasks.md`, agreed 2026-11-03, not built) gives an agent a task carried
   across responses, a plan, a versioned trace of every step, and a task folder holding them.
 - **The session holds one conversation's state at a time** (one stream, `../MilaDesktop.md` 4, *Streams*).
+- **Against rules 6 and 7, today:** a person can allow `read_web_page` and `web_search` for a whole chat; a link in a
+  reply opens on one click with its address shown only on hover; a folder given to a chat is read-write at once; nothing
+  records where a chat's content came from; and no view lists what Mila may reach or what left the computer
+  (`../Notebooks/MilaVisionDiscussion.md` 8, filed in `../../Issues/Untriaged.md`).
 
 ## 3. The concepts
 
@@ -94,8 +114,9 @@ Five rules follow, and every section below is held to them:
 | Plan and run | *Plan*, *run* | The steps of a piece of work, and each time they were worked through | The app's store, then the library's task (section 7) |
 | Made | *Made* | A file Mila wrote, or a reply the person kept, with where it came from | The app's store, from the calls' records |
 | Finding | *Finding* | Something learned, with the sources it rests on | The app's store |
-| Event | *Activity* | One thing that happened: never edited | The app's store |
-| Understanding | *What Mila understands* | A project's summary, its open questions and its next step, in Mila's words | The app's store, written by Mila (section 6) |
+| Event | *Activity* | One thing that happened: never edited, and reduced when what it names is deleted (section 8) | The app's store |
+| Understanding | *What Mila understands* | A project's summary, its open questions and its next step, in Mila's words, with what they were drawn from | The app's store, written by Mila (section 6) |
+| Source | *What Mila can reach* (working name, section 4.12) | A folder, and later a calendar or a mailbox, with how far Mila may go in it | The app's store |
 
 Three words, chosen against the repository's vocabulary:
 
@@ -108,9 +129,11 @@ Three words, chosen against the repository's vocabulary:
 
 **What is the library's and what is the app's.** Grouping work, keeping projects, creations and findings, and showing
 them is the app's: retrieval stores are an application's concern (`../Direction.md` 6.4), and an app adds no capability
-to the library (CLAUDE.md). Giving a chat its project's instructions, understanding and findings is the app writing a
-system prompt (`Session::withSystemPrompt`). Kept as the model's own state, memory would be `Direction.md` 6.4's, and the
-library's. A run's record is the library's once a task exists (section 7).
+to the library (CLAUDE.md). Giving a chat its project's instructions, which the person wrote, is the app writing a system
+prompt (`Session::withSystemPrompt`). What Mila wrote or read reaches a chat as data (section 5.6). Kept as the model's
+own state, memory would be `Direction.md` 6.4's, and the library's. A run's record is the library's once a task exists
+(section 7). **Where labels live is proposed:** the mark of section 5.6 and the gate's use of it in `Mila::Agents`, so a
+developer can build the same thing; the store and any connector in the app (question F; the vision's question 4).
 
 ## 4. The window
 
@@ -180,7 +203,8 @@ What the window opens on. Top to bottom, a section left out when it has nothing:
    in a project*). With none: *Chats* (*Newest: ...*) and *Waiting on you*.
 3. **Needs you, and what Mila noticed**: a plan stopped for the person (*Stopped at step 3 of 5: ...*, *Answer and
    continue*), a reply cut short (*Ask Mila to finish*), a file changed on disk after Mila wrote it (*Where it came
-   from*), and Mila's suggestion of a project (section 6). Each names its project.
+   from*), a note waiting to be accepted (section 5.6), and Mila's suggestion of a project (section 6). Each names its
+   project.
 4. **Recent projects**: the three most recent as cards, each its name, purpose, state, a strip of its last fourteen
    days of activity, its latest event and its counts (*2 chats · 3 made*); *All N projects* beside the heading.
 5. **Chats**: the five most recent not in a project, each its title, the start of Mila's last reply, and when; a
@@ -228,6 +252,10 @@ wrote and how far its plan came, each at the chat's last change, since the store
 filters are *Everything*, *Chats*, *Files* and *Plans*. Its own events, with their times, come with the store's
 `activity.jsonl` and `history.jsonl` at phase 4.
 
+**Activity is also the trace of what left the computer** (*proposed*, section 5.7). A filter, *Sent from this computer*,
+lists each page read, search, link opened and network command: exactly what went, where, when, from which chat, and who
+allowed it.
+
 ### 4.9 Drawers
 
 Over the pane, from the right, closed by Esc or outside it:
@@ -248,6 +276,21 @@ conversation may rise higher. Nothing scrolls sideways. A wide window's sidebar 
 
 Command+K or Ctrl+K, or *Search* in the sidebar: one box over the pane, projects first, then chats and files, each with
 where it is; arrow keys and Enter.
+
+### 4.12 What Mila can reach
+
+*Proposed; the name is a working one, and Todd's to choose.* One place for what Mila has been given, opened from the
+person's menu, from Settings and from a chat's head. A new kind of source becomes one more row here, not a screen of its
+own (`../Direction/MilaVision.md` section 2).
+
+- **Folders and other sources:** each with the chats or project that hold it, how far Mila may go (*Read*, *Read and
+  change*), and *Remove*.
+- **This chat:** what the person allowed for it, each with *Remove*, and what it has read from outside (section 5.6).
+- **The internet:** that every page and search is asked about, whether commands are on, and whether a search key is set.
+
+A removal applies once any reply being written has ended, since the session takes requests between replies. The view
+holds nothing of its own (rule 5). *As built at T1:* the view is a place, *reach*, opened from the person's menu and from
+the head of a chat with a folder, and Settings does not yet open it.
 
 ## 5. Mila: the bar, and moving through the workspace by talking
 
@@ -275,15 +318,28 @@ the calculator project*, *what's next here?*, *what did Mila make here?*, *show 
 Mila answers in a sentence or two, takes the pane there, and leaves a line in the conversation saying where it went
 (*Opened Calculator app*).
 
-**In the app this is the model's, through tools of the app's own** that change nothing outside Mila and so run
-without asking: `open_place` (`place`: *workspace*, *projects*, *chats*, *activity*; or a project or chat by name, from
-the names the system prompt lists) and `find` (words; returns the projects, chats and files that match). The
-prototype's keyword routing only stands in for them. Whether models call them well, and do not call them when the
-person is only talking, is measured on Gemma 4 12B Q4_0 before they are on by default, and on every model in a final
-run (`ToolCalling.md`'s working model; Llama's over-calling, 2026-10-25, may make its default differ).
+**In the app this is the model's, through two tools of the app's own.** The prototype's keyword routing only stands in
+for them. They differ in what they can bring into a chat, so they are kept apart (*proposed*):
 
-**A request to go somewhere is not part of a chat.** Asked from inside one, it begins a conversation of its own about
-the workspace, and the chat keeps only its own turns.
+- **`open_place`** (`place`: *workspace*, *projects*, *chats*, *activity*, or words naming a project or chat) moves the
+  pane. The app matches the words against the store and returns the place it opened, or, when several fit, up to five
+  to choose from. **No name is listed in the system prompt:** names are the person's data, and one unchanging prompt
+  keeps the start every chat reuses (section 5.5, *Measured*). It runs without asking. In an exposed chat (section 5.6)
+  a match of several returns no names, and the window asks the person which they meant.
+- **`find_records`** (`words`) is the read-only *find it* of the vision's step 9, over past chats first and then a
+  folder the person has given. It returns each match, where it is, and the passage that matched, so an answer can cite
+  it. It runs without asking in a chat not yet exposed and is asked, with its words shown, in one that is. A match from
+  an exposed chat, or from a file, exposes the chat that reads it. (Not `find`, which sits too close to `find_files`.)
+
+Whether models call them well, and do not call them when the person is only talking, is measured on Gemma 4 12B Q4_0
+before they are on by default, and on every model in a final run (`ToolCalling.md`'s working model; Llama's
+over-calling, 2026-10-25, may make its default differ). `find_records` is also measured on what it is for: found, cited
+correctly, and honest when nothing matches.
+
+**A request to go somewhere made from the bar outside a chat** belongs to the bar's own conversation. **Made inside a
+chat, it stays in that chat** as one call and one line (*proposed*, replacing "it begins a conversation of its own"): the
+session holds one conversation at a time, so a second would evict the chat's state, and returning would prefill the chat
+again at a cost nobody has measured. It can move out when several streams exist (phase 11).
 
 ### 5.3 Starting something new
 
@@ -302,14 +358,24 @@ An offer Mila makes in the conversation is answered by replying: *yes* takes it,
 *keep it separate* undoes a placement. The next thing the person says closes the offer either way. On the overview,
 Mila's suggestion keeps its card with *Make the project* and *Not now* (question D).
 
+**The model never decides that an offer was accepted** (*proposed*):
+
+- **An offer is a record the session holds,** made by a tool call, and the window draws it from that call's arguments.
+  The person is answering what the app showed, never what the model's sentence implied.
+- **App code reads the reply.** A reply that is only an acceptance (*yes*, *ok*, *sure*, *please do*) takes the offer. A
+  refusal declines it. Anything else closes it undecided and goes to Mila as an ordinary message.
+- **Only what one undo reverses** can be taken in words: making a project from a suggestion, moving a chat. Nothing that
+  writes a file, sends anything or widens what Mila can reach.
+- **An offer from an exposed chat** (section 5.6) is answered in the window, with its details in view, never in words.
+
 ### 5.5 A general-purpose chat
 
 Decided by Todd, 2026-11-16 (question B): no activity cards. A chat is not started as a kind of work; it is work, and
 what it needs is asked for when it first needs it. This replaces the activities of `../MilaDesktop.md` 3.1, which
 decided a conversation's tools, their grant, its system prompt and its limits when it began.
 
-**Every chat is offered every tool the app has**: the file tools (`list_folder`, `read_file`, `write_file`,
-`edit_file`), web reading, web search when the person has given a search key, the plan (`propose_plan`, `update_step`),
+**Every chat is offered every tool the app has**: the file tools (`list_folder`, `read_file`, `find_files`,
+`search_text`, `write_file`, `edit_file`), web reading, web search when the person has given a search key, the plan (`propose_plan`, `update_step`),
 running a command when that setting is on, and the app's own tools of sections 5.2 and 6. A tool whose work cannot be
 done here is left out rather than offered and refused: search without a key, commands with the setting off or no
 container (`../ContainedPrograms.md` 5).
@@ -322,11 +388,13 @@ with:
   always asked: the person picks a folder in the window's picker, or one of the project's, and the chat's grant gains
   it, read-write, for the rest of the chat. Declined, Mila goes on without files. In a project whose chats share a
   folder, the grant holds it from the start (section 10, *standing grant*).
-- **The network, for reading public pages and searching,** as Research & Analyze and Get Things Done had it.
-  Reading a page runs by the rules those activities had; a search is asked every time, since its words leave the
-  machine (`../MilaDesktop.md` 3.7).
-- **The rules of the activities, merged**: what any activity allowed without asking is allowed; what any asked
-  about is asked; a command is asked every time, and no rule allows it (`../ContainedPrograms.md` 5).
+  **A folder starts read-only (question G),** as the vision's ladder has a source start. The first call that would change
+  a file says so in its own question: allowing it also lets Mila change files in that folder for the rest of the chat.
+  Declined, the folder stays readable. A chat reopened later holds its folder read-only until the person allows a change
+  again. Commands need that same allowance, since they run with write access to the folder.
+- **The network, for reading public pages and searching.** Every page read and every search is asked (section 5.7).
+- **One rule:** `update_step` runs without asking. Every other call is asked, and a command every time
+  (`../ContainedPrograms.md` 5).
 
 A grant widened in a chat is that chat's: the next chat begins without it unless both are in a project that holds it.
 Being in a project never widens what a tool may reach beyond the project's folders.
@@ -364,15 +432,95 @@ chat with no folder is not asked about, since its grant reaches nothing: it fail
 on the PC with Q4_0 (it listed the folder, read the README and answered). The plan's `update_step` runs by rule; every
 other call is asked.
 
-**On a Mac this is a defect, not the Mac's design:** Mila Assistant has parity on macOS and Windows (Todd, 2026-11-15,
-restated 2026-11-17), and today a Mac chat can work with no file, because the grant's file checks exist on Windows only
-(`../ToolCalling.md` 3.4; BACKLOG *On a Mac a tool cannot read or write a file in the folder a person names*). Until they
-are built the session offers neither `request_folder` nor a tool that needs a folder there, rather than tools that can
-only fail; it finds this by asking the library for a grant of one, so the tools appear with no change of the app's once
-the checks exist. Phase 3 is not done while this stands.
+**On every platform.** The grant's file checks exist on Windows, on macOS (`0.21.0-dev+152`) and on Linux (`+153`, tested
+in WSL, where the window cannot run, so the window on Linux is unverified; `../ToolCalling.md` 3.4). A computer where the
+library cannot grant a folder is offered neither `request_folder` nor a tool that needs one, rather than tools that can
+only fail. The session finds this by asking the library for a grant of one.
 
 **Conversations stored with an activity** open as general-purpose chats; a folder they were started in is in their
-grant, as it was. One that cannot be granted -- gone, or on a Mac -- opens without it and says so.
+grant, as it was. One that cannot be granted opens without it and says so.
+
+### 5.6 What content may cause
+
+*Proposed (Claude, 2026-11-18). Not built, and Todd's to decide (questions E to H).* This is as much of
+`../Direction/MilaVision.md` section 8 as the phases below need. The vision's wider questions stay there.
+
+**A chat is *exposed* once anything enters it that may not direct Mila:** a page, search results, a file or a file's
+name, a command's output, an attachment, a match from another chat, or a marked note. The person's words and the app's
+own prompts and answers (`request_folder`'s, the plan's, a refusal) do not expose it. The person's own files count until
+question E is settled, because the cost of counting them is more questions and the cost of not counting them could be
+harm.
+
+**The mark is on the chat, not on each passage.** What the model writes after reading something takes the least trust
+of what it read, so everything after the first exposure is exposed anyway. A mark on the chat survives storage,
+compaction, a restart and a change of model by construction, which is the vision's invariant 3. The list behind it says
+what was read, from where and when. The price is coarseness: the mark stays until the chat ends, and a new chat starts
+clear. Tracking passages can come later if the questions prove too many.
+
+**What the mark changes,** in ordinary code at the gate (the vision's invariant 4):
+
+1. **A call that writes, sends or runs is asked every time.** No rule and no *for this conversation* covers it, and one
+   given earlier stops applying when the chat becomes exposed. Reads inside a granted folder may stay allowed, since what
+   they bring in cannot leave without its own approval.
+2. **The question says why:** *This chat has read* and its latest sources. For an address or search words it also says
+   when they do not appear in the person's own messages, by literal comparison in the app.
+3. **The app's own tools follow the table below.**
+4. **What the chat writes to a lasting record carries the mark** (section 8).
+
+| Tool | In a chat not exposed | In an exposed chat |
+|---|---|---|
+| `open_place` | Runs | Runs; several matches go to the person, not the model |
+| `find_records` | Runs, read-only | Asked, its words shown |
+| `propose_project` | Offered, answered in words or on the card | Offered, answered in the window only |
+| `move_to_project` | By question A | Asked |
+| `note_understanding` | Runs; the note can reach new chats | Runs; the note waits for the person |
+| `record_finding` | Runs; its sources are checked | Runs, sources checked; the finding waits for the person |
+| `update_step` | Runs | Runs |
+
+**What reaches a new chat.** Only the person's own project instructions go in the system prompt. Understanding and
+findings are placed after the person's first message, as the result of a call the app makes, quoted and named as notes
+with their sources. So they are read as data, and the system prompt stays the same for every chat, which keeps the
+prompt's start reusable. How each family's template takes this is measured first; if the library needs a way to place
+such a result, that is a proposal to Todd. A note from an exposed chat **waits** on the project's page, in full and with
+where it came from, until the person accepts it. Accepting lets it reach new chats and removes no label: a chat given a
+marked note starts exposed.
+
+**What this does not do.** A label does not stop a model from following what it read. The protection is that the
+consequences are held by code: what leaves, what changes and what lasts each pass a check the model cannot talk its way
+past. Text the person pastes counts as their words, because the app cannot tell it apart.
+
+**Checked by** tests with a scripted model that obeys a hostile page, needing no real model: it cannot write, send or
+run without a question; an earlier allowance stops covering it; its note reaches no new chat until accepted; the mark
+survives storage, compaction and a change of model. Each test fails with its check removed. How many extra questions a
+real folder task costs is counted before question E is settled.
+
+### 5.7 What leaves this computer
+
+*From the vision's section 3 and steps 2 to 4; taken by Todd 2026-11-18, and built as phase T1 (`0.21.0-dev+155`).*
+Nothing outward is covered by an earlier answer. *For this conversation* is never offered for a tool that uses the network, which the gate can tell
+from the tool's declared needs, so a developer's program gets the same rule.
+
+| Path | The person sees, before it goes | Rule |
+|---|---|---|
+| `read_web_page` | The whole address | Asked each time. A redirect to another host, or from `https` to `http`, does not follow: it returns to the model, and going there is a new call and a new question. `http` is said to be unencrypted |
+| `web_search` | The exact words, and that they go to the search provider | Asked each time |
+| `run_command` with the network | The command, and that it can send anything from the folder to any address | Asked each time. The question cannot show what will be sent (`../../Issues/Untriaged.md`) |
+| A link in a reply | The whole address, host first, or a `mailto:` address's recipient, subject and body, in full and never shortened | A click opens a sheet in the page with *Open* and *Cancel*, every time |
+| Listing and installing models | `AssistantOnboarding.md` 4.2 | Only on the person's press |
+| The window's proxy discovery | Nothing, because it stops | The window uses no network and looks for no proxy |
+
+**Each thing sent is recorded** with what went, where, when and from which chat, and appears in Activity (section 4.8):
+each call's stored record now has its time, and a link opened is kept with the chat. The record is private data like any
+other, and is deleted with its chat.
+
+**Checked by** tests on the gate, the web reader and the summary of what was sent, each with a scripted transport or
+stored record, and by the page's tests of the sheet's and the question's words. The sheet, the question and the first-run
+press are checked in the window on Windows and macOS; on Linux the code and its tests run in WSL, and the window is
+unverified. **Not built yet:** the conformance test of the vision's step 4, which drives a whole turn with no approval
+through a scripted transport.
+
+**Outside what Mila can see:** a file written into a folder a sync client watches, and text copied to a clipboard the
+system syncs (`../Notebooks/MilaVisionDiscussion.md` 8.4). Public wording of the promise must not claim otherwise.
 
 ## 6. Mila proposes structure
 
@@ -382,8 +530,7 @@ Tools of the app's own, offered in every chat:
 |---|---|---|
 | `propose_project` | `name`, `purpose`, `chats` (the chats it would gather) | Offers a project; a yes makes it and moves those chats in |
 | `move_to_project` | `project` (by name) | Moves this chat into it: offered, or done and said, by question A |
-| `note_understanding` | `summary`, `questions`, `next` | Rewrites the project's *What Mila understands*; runs without asking, since it changes only Mila's own note |
-| `link_projects` | `project`, `relation` (section 9) | Offers a link between this chat's project and another (phase 10) |
+| `note_understanding` | `summary`, `questions`, `next` | Rewrites the project's *What Mila understands*. It runs without asking, and from an exposed chat the new note waits for the person (section 5.6) |
 
 - **The person may edit before accepting** on the overview's card: the name is a field, and *Make the project* sends
   it as edited. `turn.tool_decision` gains `arguments`, accepted for `propose_project` only.
@@ -399,7 +546,7 @@ Tools of the app's own, offered in every chat:
 A plan can be worked through again; a run cannot. Each run is a record, and a model's runs differ, since it samples. So
 the two are kept apart, and *Run again* makes a new run of the same plan beside the old ones, never a replay.
 
-**Today** a plan is Get Things Done's: the goal is the first message, `propose_plan` gives the steps, `update_step` marks
+**Today** a plan belongs to its chat: the goal is the person's request, `propose_plan` gives the steps, `update_step` marks
 them, and the chat is the run. Each `update_step` divides the calls between steps, so a run's record is read from the
 stored chat with nothing new asked of the model. *Run again* starts a new chat in the project with the plan's goal and
 steps already approved: the person's press is the approval `propose_plan` would have asked for.
@@ -415,18 +562,48 @@ The session owns it, as it owns conversations today (`../MilaDesktop.md` 6.3), s
 
 ```
 Mila/
-    Conversations/<conversation id>.json     as today, plus "project" (id or null) and "process" (id or null)
+    Conversations/<conversation id>.json     as today, plus "project" (id or null), "process" (id or null),
+                                             "exposure" (what it read from outside) and each call's time
     Projects/<project id>/
-        project.json       version, id, name, purpose, instructions, folders, relations, understanding, created, updated
-        history.jsonl      one event a line, appended, never rewritten
+        project.json       version, id, name, purpose, instructions, folders (each with its access), created, updated
+        understanding.json the current note and any waiting, each a record
+        history.jsonl      one event a line
         processes.json     each plan: id, goal, steps, version, and its runs (conversation id, started, ended, end)
-        creations.json     each creation: id, kind, path or reply, made by (conversation, call, model, time),
+        creations.json     each creation, a record: kind, path or reply, made by (conversation, call, model, time),
                            each write (call, time, SHA-256 of what was written), what was read before it
-        findings.json      phase 10
+        findings.json      each finding, a record (phase 10)
     activity.jsonl         the workspace's events not in a project: chats started, suggestions declined
 ```
 
 The workspace is this folder: there is one per person (question C).
+
+**Every lasting thing Mila derives is a record of one shape** (*proposed*, the vision's section 6), so `find_records`, the
+drawers and deletion read one form:
+
+```
+{ "id", "kind", "made",
+  "source":       { "kind": "person|app|model|web|search|file|command|chat", "ref", "when", "author" or null },
+  "may_direct":   false,
+  "may_leave":    "ask",
+  "derived_from": [ the records, chats or calls it rests on ],
+  "exposed":      true or false,
+  ...its own fields }
+```
+
+**One layer owns the files** (*proposed*). Conversations and everything above are read and written through one store
+module in the app, and nothing else opens these files. It deals in whole records and never puts content in a file's or
+folder's name, so encrypting them (the vision's step 5, a design of its own) changes one place. The search key moves to
+the operating system's credential store on Windows, macOS and Linux.
+
+**Deleting is designed in** (*proposed*; the vision's *see, trace, delete*):
+
+- **Deleting a chat or source removes what was derived from it.** A finding left with no source goes. A finding with
+  others loses that one.
+- **An understanding is cleared** when something it was drawn from is deleted, because a paragraph cannot be unmixed. Mila
+  writes it again at the next turn that needs it.
+- **Events are appended in ordinary work.** A deletion rewrites the file: an event that names what went keeps its kind and
+  time, and loses the name and text.
+- **A file in the person's folder is never touched.** The question before deleting says so, and the file's record goes.
 
 - **A chat is moved by one field**, never by moving its file.
 - **A creation is indexed when a file tool writes it** (`write_file`, `edit_file`), from the call's arguments and
@@ -438,15 +615,18 @@ The workspace is this folder: there is one per person (question C).
   of those characters.
 - **Conversations stored before projects** are chats in no project: a missing `project` is null. Nothing is dropped.
 
-## 9. Links and findings (phase 10)
+## 9. Findings, and links if they are ever needed (phase 10)
 
-Projects are not a tree. A link joins two projects as *related to*, *depends on*, *derived from*, *part of* or
-*supersedes*; *part of* nests nothing in the sidebar. Links are the person's, or Mila's through `link_projects`, offered.
+**Findings**: `record_finding` (`text`, `sources`: pages or files read in this chat) runs without asking, since it changes
+nothing outside Mila, and the app refuses a source the chat's stored calls do not show it read. From an exposed chat the
+finding waits for the person (section 5.6). The person adds, edits and removes findings in the project. A project's
+understanding and findings reach each new chat as section 5.6 says, the newest first, within a share of the context the
+app sets and the context ring counts.
 
-**Findings**: `record_finding` (`text`, `sources`: pages or files read in this chat), allowed by rule since it changes
-nothing outside Mila; the person adds, edits and removes findings in the project. A project's understanding and
-findings are given to each new chat in it through the system prompt, the newest first, within a share of the context
-the app sets and the context ring counts.
+**Links between projects are held back** (*proposed*). Round 2 had a link join two projects as *related to*, *depends on*,
+*derived from*, *part of* or *supersedes*, through `link_projects`. The vision puts a graph of relationships after
+records that already exist, because a local model's errors would become stored facts. So no link, tool or `relations`
+field is built until real use asks for one, and then it points at its evidence and can be deleted.
 
 ## 10. Schema
 
@@ -466,13 +646,21 @@ start of the last reply, on one line, never cut inside a character, or null). Th
 |---|---|---|
 | `workspace.state` | `name`, `glance` ({`projects`, `active`, `waiting`, `chats`, `chats_loose`}), `needs_you` ([{`kind`, `project`, `conversation_id` or `creation_id`, `text`}]), `suggestions` ([{`id`, `name`, `purpose`, `conversation_ids`}]) | After any change the overview shows; replaces round 1's `home.state` |
 | `projects.list` | `items` ([{`id`, `name`, `purpose`, `state`, `updated`, `latest`, `chats`, `made`, `pulse` (fourteen daily counts)}]) | After any change to a project |
-| `project.loaded` | `project` ({`id`, `name`, `purpose`, `instructions`, `folders`, `relations`, `understanding`}), `conversations`, `processes`, `creations`, `findings`, `history` (the latest 200 events) | The project now in the pane |
-| `activity.list` | `items` ([{`time`, `who`, `kind`, `text`, `project`, `opens`}]), `before` (to page back) | The Activity view |
+| `project.loaded` | `project` ({`id`, `name`, `purpose`, `instructions`, `folders`, `understanding`, `waiting`}), `conversations`, `processes`, `creations`, `findings`, `history` (the latest 200 events) | The project now in the pane |
+| `activity.list` | `items` ([{`time`, `who`, `kind`, `text`, `project`, `opens`}]; `kind` includes `sent`), `before` (to page back) | The Activity view |
 | `creation.loaded` | `creation` (section 8's fields), `content` (text the page can show, or null), `changed_since` (bool) | The *Made* drawer |
 | `run.loaded` | `process_id`, `run` (steps with their calls; the goal, model and end; what it made) | The plan drawer's run |
 | `turn.went` | `turn_id`, `place` ({`view`, `id`}), `text` | Mila took the pane somewhere (section 5.2) |
 
-`conversations.list` items and `conversation.loaded` gain `project`; `session.state` gains `project` (the open chat's).
+`conversations.list` items and `conversation.loaded` gain `project` and `exposed`; `session.state` gains `project` (the
+open chat's). `turn.tool_approval` gains `exposure` (the latest sources, or empty) and `not_from_person` (the arguments
+that do not appear in the person's messages).
+
+**Built at T1:** `session.state` carries `folder_access` (`"read"`, `"read_write"` or null) and `allowed_for_chat` (tool
+names). `conversations.list` items carry `sent` ([{`kind`: `page`, `search`, `command` or `link`, `what`, `where`, `time`}],
+oldest first, the latest 50). `turn.tool_approval` carries `changes_folder` (the folder allowing this call opens to
+changes, or null), and a tool that uses the network never lists `allow_conversation`. A stored call has `time`, and a
+stored conversation `links_opened` ([{`url`, `time`}]).
 
 **Page to session:**
 
@@ -490,6 +678,9 @@ start of the last reply, on one line, never cut inside a character, or null). Th
 | `run.open` | `process_id`, `run` (index) | |
 | `process.run` | `process_id` | *Run again* |
 | `creation.keep` | `turn_id` | Keep a reply as made |
+| `note.decide` | `project`, `id`, `decision` (`"accept"` or `"decline"`) | A note or finding that was waiting |
+| `reach.remove` | `kind` (`"folder"` with the chat's `id`, or `"allowed"` with the tool's `name`) | Built at T1. Applies once any reply being written has ended |
+| `conversation.link_opened` | `url` | Built at T1. The person opened this link from the open chat |
 
 **Built at phase 3:** `conversation.new` carries nothing, and an `activity` or `folder` sent is not read; a stored
 conversation's `activity` is not read. `session.state` loses `activities` and `activity`, and `conversations.list` and
@@ -498,21 +689,25 @@ person picked in the window's picker (`folder.choose`); one allowing it with no 
 `turn.tool_approval` offers `allow_once` and `deny`, since a folder is chosen each time it is asked for.
 
 `conversation.new` gains `project` at phase 4. `turn.tool_decision` gains `arguments` (section 6), and its `folder` may
-be one of the project's, which `request_folder`'s `turn.tool_approval` carries as `folders` to choose among. Where the page shows a view
+be one of the project's, which `request_folder`'s `turn.tool_approval` carries as `folders` to choose among, with the
+access the project's folder is held at. Where the page shows a view
 the person reached by asking, it follows `turn.went`; where they clicked, it sends the matching `*.open` itself.
 
 **A project's folder is a standing grant,** wider than one chosen per chat: offered to every chat in the project. What a
-chat may do in it stays its tools' grant (`../ToolCalling.md` 3.4); being in a project never widens a grant.
+chat may do in it stays its tools' grant (`../ToolCalling.md` 3.4); being in a project never widens a grant. *Proposed:*
+it is the first **source** of section 4.12, listed there, read-only unless the person chose *Read and change*, and
+removable at any time. How far standing access goes beyond a folder the person named is the vision's question 3.
 
 ## 11. Questions
 
-### Where the prototype went against an earlier decision: A and D open for Todd, B and C decided
+### All decided. A and D to H: Todd, 2026-11-18, "Proceed with your recommendations", taking each lean below
 
 A. **May Mila file a chat into a project by itself?** The prototype puts a new chat into an existing project and says
    so, with *keep it separate* to undo it. Section 1's rule 3 as round 1 had it, and `../ToolCalling.md`'s gate, say
    Mila proposes and the person decides. Either `move_to_project` is asked about every time, or it runs and is said, as
    `note_understanding` does. Claude's lean: asked the first time for each project, then said, since a wrong filing is
-   one undo and an asked filing on every chat is the clutter Todd set out to remove.
+   one undo and an asked filing on every chat is the clutter Todd set out to remove. Always asked in an exposed chat
+   (section 5.6).
 
 B. **No activity cards.** *Decided (Todd, 2026-11-16): "the Mila assistant no longer has cards. It is general purpose
    and works with the user to just do work. The idea is that projects take on structure as they evolve. This is option
@@ -526,19 +721,32 @@ C. **More than one workspace.** *Decided (Todd, 2026-11-16): "For now: there is 
 
 D. **Offers answered in words, the overview's card with buttons.** In the conversation an offer is answered by
    replying; on the overview, Mila's suggestion keeps *Make the project* and *Not now*. Is that the split Todd wants, or
-   should the card also be answered by talking?
+   should the card also be answered by talking? Claude's lean: keep both, under section 5.4's rules.
+
+E. **Does reading the person's own files expose a chat?** The vision leaves this open (section 8; its question 2).
+   Claude's lean: yes to begin with, since a file may have come from anywhere. The cost is real: after the first read,
+   each write in that chat is asked. Count the questions in a real folder task before settling it.
+
+F. **Do the mark and its enforcement belong in `Mila::Agents`,** with the store and connectors in the app? Claude's lean:
+   yes, so the gate can read the mark and a developer can build the same thing. This amends `../Direction.md` 6.4 (the
+   vision's question 4).
+
+G. **Does a folder start read-only?** Claude's lean: yes, with changing files as a separate, visible step (section 5.5).
+
+H. **Does a note from an exposed chat wait for the person?** Claude's lean: yes. Otherwise a hostile page could shape
+   every later chat in a project. The cost is one more thing under *Needs you* after research.
 
 ### Carried, with answers
 
 1. *Is everything in a project?* No: a chat needs no project, and a workspace may be chats alone.
 2. *Does a project own one folder?* None or several; a chat that needs one picks among them or adds one.
-3. *What a project holds:* chats, instructions, understanding, made, plans, findings, links.
+3. *What a project holds:* chats, instructions, understanding, made, plans, findings.
 4. *The first run:* makes no project; the setup's *Done* opens the overview, which is then the bar and empty sections.
 5. *Conversations stored before projects:* chats in no project.
 6. *Deleting a project:* asked, *Keep its chats* the default; folders never touched; its history, plans, index and
    findings go.
 7. *Who writes What Mila understands:* Mila, through `note_understanding`, at the end of a turn that changed it; the
-   person can edit it. A chat closed without one leaves the last.
+   person can edit it. A chat closed without one leaves the last. From an exposed chat it waits (question H).
 8. *Work under way while the person is elsewhere:* needs the session to hold more than one stream over its model, which
    the schema allows and nothing runs; a library question first (phase 11).
 9. *Work with the window closed:* out of this design until phase 11.
@@ -548,8 +756,12 @@ D. **Offers answered in words, the overview's card with buttons.** In the conver
 
 Each phase is built against the mock first and then the real session. A phase is done when its mock scenarios render as
 this document says at 1280x800 and 900 px wide, in light and dark; `node --test` passes; the page makes no network
-request; then the same on the real session with Gemma 4 12B Q4_0, and the session's tests pass. The prototype is
-updated when a phase changes what it shows. This document is amended in the change that finds it wrong.
+request; then the same on the real session with Gemma 4 12B Q4_0, and the session's tests pass. Every feature lands on
+Windows, macOS and Linux, with the window on Linux stated as unverified. The prototype is updated when a phase changes
+what it shows. This document is amended in the change that finds it wrong.
+
+**The phases keep their numbers, since commits and other documents cite them, and are not built in numeric order.** The
+order after phase 3 is **T1, T2, 4, 8, 5, 6, 7, 9, 10, 11**. Each of T1 and T2 is small enough to finish alone.
 
 1. **The overview's data, from today's records** (built). Each conversation's summary in `conversations.list`; the
    page's sections. Checked: page tests 87/87, session tests 28/28, the real session's list over stdio, the screen over
@@ -578,30 +790,53 @@ updated when a phase changes what it shows. This document is amended in the chan
    the window's open panel on the Mac, and a chat reopened with its folder after the app restarts (`../ToolCalling.md`
    3.4, *Not measured*); `request_folder` measured on questions needing no files; every model's final run; the window
    on the real session.
-4. **Projects.** The store's `Projects/`; the sidebar's projects; *All projects* (4.4); a project's head, glance and
-   chats (4.5); *New project*; moving a chat by its menu; the overview's projects; a project's folders in its chats'
-   grant.
-5. **Going somewhere by asking.** `open_place` and `find` (5.2), `turn.went`, a request from inside a chat kept out of
-   it; measured before on by default.
-6. **Mila proposes.** `propose_project`, `move_to_project` by question A, the overview's card and the answered-in-words
-   offers (5.3, 5.4), undo.
-7. **What Mila understands.** `note_understanding`, the project's summary and *Next* (4.5), given to each chat in the
-   project.
-8. **Made and where it came from.** The creations index, digests, the *Made* drawer (4.9), *Keep* under a reply.
-9. **Plans and runs.** A plan kept as a project's process, the plan drawer, *Run again* (section 7).
-10. **Links and findings.** Section 9.
-11. **Work while you are elsewhere.** Questions 8 and 9, when a library task and more than one stream exist; a run's
-    record moves to the task's trace whenever `AgentTasks.md` phase 5 lands.
+
+The rest, in the proposed order:
+
+- **The prototype's next round** is set aside: Todd chose to judge T1 in the real app on the Mac (2026-11-18). The
+  prototype's example work and chat kinds are still to be brought up to this design when it is next used.
+- **T1. What leaves, and what Mila can reach** (the vision's steps 2 to 4). Section 5.7; folders read-first (5.5); section
+  4.12 for folders and what a chat was allowed; each call's time stored, and *Sent from this computer* read from the
+  stored calls. *Built 2026-11-18 (`0.21.0-dev+155`).* Checked: page tests 103/103, window tests 9/9 and session tests 36/36 on
+  Windows and macOS; the gate, web reader and client tests on both; every screen over the mock in the window on Windows,
+  whose network log held no proxy lookup in 25 s where it held four before; and on the Mac, through the packaged session
+  on Gemma 4 12B Q4_0, a folder given read-only, the first write asking to change it and then landing, and a page read
+  offered only *Allow once* and *Deny*. On Linux nothing was run for this phase. **Not done:** the conformance test through a whole turn, a question
+  that says which chat content led to it (T2), and asking before a gated model's download uses the person's account.
+- **T2. The mark and one store** (the vision's steps 5 and 7). The source of each tool result and section 5.6's mark
+  through the gate, storage and compaction; the store layer of section 8 with conversations behind it; the search key in
+  the credential store; the encryption design written. Done when section 5.6's tests pass.
+- **Phase 4. Projects** (the vision's step 8). The store's `Projects/`, its records and its events; the sidebar's
+  projects; *All projects* (4.4); a project's head, glance and chats (4.5); *New project*; moving a chat by its menu; the
+  overview's projects; a project's folders as sources (section 10); deletion as section 8 says.
+- **Phase 8. Made and where it came from.** The creations index, digests, the *Made* drawer (4.9), *Keep* under a reply.
+  First because it uses the records and asks nothing new of a model.
+- **Phase 5. Going somewhere, and finding things by asking** (the vision's step 9). `open_place` first, then
+  `find_records` over past chats and then a given folder, `turn.went` (5.2); measured before on by default. This is where
+  a person first feels the vision: *find the invoice from six months ago*.
+- **Phase 6. Mila proposes.** `propose_project`, `move_to_project` by question A, the overview's card and the
+  answered-in-words offers (5.3, 5.4), undo.
+- **Phase 7. What Mila understands.** `note_understanding`, waiting notes, the project's summary and *Next* (4.5), given
+  to each chat as section 5.6 says.
+- **Phase 9. Plans and runs.** A plan kept as a project's process, the plan drawer, *Run again* (section 7).
+- **Phase 10. Findings.** Section 9. Links are not in it.
+- **Phase 11. Work while you are elsewhere** (the vision's step 10). Questions 8 and 9, when a library task and more than
+  one stream exist; a run's record moves to the task's trace whenever `AgentTasks.md` phase 5 lands.
+
+Calendar, mail and acting on them (the vision's steps 11 and 12) come after these, each a source in section 4.12 with a
+design of its own.
 
 ## 13. Relationship to other specs
 
 - **`../MilaDesktop.md`** keeps the transcript, the limits, Settings, the session and its schema; its 3.3 and 3.4 are
   replaced at phase 2, its 3.1 at phase 3, and its section 4 gains section 10's messages in the change that builds
   each.
-- **`AssistantOnboarding.md`**: the setup ends on the overview.
+- **`AssistantOnboarding.md`**: the setup ends on the overview, and its section 4.2 is this design's rule on contacting
+  the publisher.
 - **`../Agents/AgentTasks.md`** is where a run's record goes (section 7).
+- **`../Agents/Compaction.md`** must keep a chat's mark (section 5.6).
 - **`../ToolCalling.md`** owns the gate every offer and placement passes through, and the grant a project's folder is
-  offered under.
+  offered under. Section 5.6 is a proposal for its open decision 2, and its 3.3 changes if sections 5.6 and 5.7 are taken.
 - **`../Direction.md`** 6.4 is why projects, creations and findings are the app's.
 - **`../Direction/MilaVision.md`** is where this design is going: a personal assistant for a person's digital life, of
-  which projects are one part. Nothing here is withdrawn by it.
+  which projects are one part. Round 3 holds the unbuilt phases to its sections 3, 6, 7 and 8.

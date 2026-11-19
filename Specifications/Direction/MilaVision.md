@@ -222,7 +222,7 @@ private; the person's typed words direct Mila and may still be private.
 | The app's own prompts | Yes | Not applicable | Proposed |
 | A public web page | No | Its address, only with approval | Proposed |
 | A stranger's message | No | Only with approval | Proposed |
-| The person's own files | **Open** | Only with approval | Needs discussion: a file in their folder may have come from anywhere |
+| The person's own files | No, to begin with, and the cost is counted before this is final | Only with approval | Decided to start (Todd, 2026-11-18, `../Apps/AssistantInterface.md` question E): a file in their folder may have come from anywhere |
 | A downloaded document | **Open**, starting from no | Only with approval | Needs discussion |
 | Mail from people they know | **Open** | Only with approval | Needs discussion: an account can be compromised |
 | What the model wrote after reading any of these | Takes the least trust of what it read | Takes the most privacy of what it read | Proposed |
@@ -292,6 +292,7 @@ Windows only.
 | The person can answer *allow for this conversation* for every tool except `run_command` and `request_folder` (`Desktop.SessionProcess.ixx`, `askAboutCall`) | Conflicts with "that specific thing" for `read_web_page` and `web_search` |
 | `web_search` can be allowed for a conversation, though `../MilaDesktop.md` 3.7 and `../Apps/AssistantInterface.md` 5.5 say every search is asked | **A defect today,** filed in `../../Issues/Untriaged.md` |
 | A link the model wrote opens on one click, with its address visible only on hover | **The most serious gap found:** private text could leave in the address |
+| A folder given to a chat can be read and changed at once (`Desktop.SessionProcess.ixx`, `grantChat`) | Short of a source starting read-only (section 7) |
 | An approved page read may follow redirects to hosts not shown, and may use `http` | Short of "that specific thing" |
 | Listing published models contacts HuggingFace unasked, with any HuggingFace token found on the computer | No conversation data, but unapproved and tied to the person's account |
 | The window performs proxy discovery, though its page uses no network | Measured on Windows; no URL request was made |
@@ -301,6 +302,12 @@ Windows only.
 | `mila-session` is confined by nothing at the operating system's level | Filed; matters more as Mila holds more |
 | Nothing outlives a conversation but the conversation | Personal Context does not exist yet |
 | One conversation runs at a time, and no work runs with the window closed | Foundations are missing |
+
+**Changed since, by `../Apps/AssistantInterface.md` phase T1 (2026-11-18, `0.21.0-dev+155`):** tools that use the
+network are asked every time; a link shows its whole address before it opens; a page read does not follow a redirect to
+another site or from `https` to `http`; the publisher is contacted only on the person's press and with no token; the
+window does no proxy discovery (measured on Windows); a chat's folder starts read-only. What was sent is listed in
+Activity. Commands with the network and encryption at rest stand as the table says.
 
 ## 11. Small engineering steps
 
@@ -325,6 +332,11 @@ and Linux, with Linux's window stated as unverified because WSL cannot run it (`
 | 10 | **Saved sessions and several streams,** so work can continue beside the person | Library | Their own specs' gates |
 | 11 | **Calendar read-only, then mail read-only** | App | Section 8's rules hold, by test, against hostile content |
 | 12 | **Propose, and last Act,** per source | App | Each source's own approval and undo |
+
+**How the Assistant's phases follow this order** (*proposed*, 2026-11-18). `../Apps/AssistantInterface.md` section 12
+places its phases against these steps: its T1 is steps 2 to 4, T2 is steps 5 and 7, phase 4 is step 8, phase 5 is step 9
+and phase 11 is step 10. Its sections 5.6 and 5.7 and `../Apps/AssistantOnboarding.md` 4.2 detail steps 2, 3, 6 and 7, and
+Todd took their recommendations on 2026-11-18 ("Proceed with your recommendations").
 
 ## 12. How this governs the work
 
@@ -362,23 +374,29 @@ Todd's. Claude's recommendation is that v0.21.0 takes the small corrections (ste
 ## 14. Open decisions
 
 1. **The final form of the local promise.** Section 3 is Todd's current thinking.
-2. **Trust:** how Mila treats the person's own files, downloaded documents and mail from known people (section 8).
-3. **Standing access:** how much may Mila read without being asked each time, and how is it granted and revoked?
-4. **The boundary:** do labels and enforcement go in `Mila::Agents`, and the store and connectors in the app? This would
-   amend `../Direction.md` 6.4.
-5. **How Mila files and organizes on its own** (`../Apps/AssistantInterface.md` question A).
+2. **Trust:** how Mila treats downloaded documents and mail from known people (section 8). The person's own files start
+   as content that may not direct Mila (`../Apps/AssistantInterface.md` 5.6, question E, decided 2026-11-18).
+3. **Standing access:** how much may Mila read without being asked each time, beyond a folder the person named? A named
+   folder starts read-only and is listed where it can be removed (`../Apps/AssistantInterface.md` 4.12, question G,
+   decided 2026-11-18).
+4. **The boundary.** *Decided (Todd, 2026-11-18):* labels and enforcement go in `Mila::Agents`, the store and connectors
+   in the app (`../Apps/AssistantInterface.md` question F). `../Direction.md` 6.4's line on retrieval stores stands, and
+   this is added beside it.
+5. **How Mila files and organizes on its own.** *Decided for projects (Todd, 2026-11-18):*
+   `../Apps/AssistantInterface.md` questions A and H.
 6. **The words:** is *Your Workspace* too small a name for a person's digital world, and how is the product described
    publicly? ChatGPT's "personal intelligence environment" and "an intelligence layer between a person and their digital
    life" are candidates only.
 7. **The audience statement** in the public message, once something ships that makes it true.
 8. **A frontier model** as an opt-in resource: whether, when, and how it is presented under the local promise.
-9. **What enters v0.21.0,** if anything (section 12).
+9. **What enters v0.21.0,** beyond this. *Decided (Todd, 2026-11-18):* the link that shows its address before it opens,
+   from step 3, enters it. The rest of section 11 is still Todd's to place.
 
 ## 15. Relationship to other specs
 
 - `../Direction.md` -- the library's trait, layering and release arc. Its 1.3 now points here for the product.
 - `../Apps/AssistantInterface.md`, `../Apps/AssistantOnboarding.md`, `../MilaDesktop.md` -- how today's Assistant works.
-  Their designs are the first stage of this vision, and nothing in them is withdrawn by it.
+  Their designs are the first stage of this vision. The first two hold their unbuilt work to it (round 3 and round 4).
 - `../ToolCalling.md` -- the gate and grant that section 8 builds on.
 - `../Agents/AgentTasks.md`, `../Agents/Compaction.md` -- long work and the labels it must keep.
 - `../ContainedPrograms.md` -- programs held to their grant.

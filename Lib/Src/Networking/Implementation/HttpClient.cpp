@@ -336,6 +336,16 @@ namespace Mila::Networking
                     return result;
                 }
 
+                if ( request.redirects_stay_on_site
+                    && ( hostOf( next ) != origin_host || ( url.starts_with( "https:" ) && !next.starts_with( "https:" ) ) ) )
+                {
+                    result.status = HttpStatus::RedirectLeftSite;
+                    result.redirect_target = next;
+                    result.message = std::format( "{} redirect to {}, which leaves the site", response.http_code, next );
+
+                    return result;
+                }
+
                 url = next;
 
                 continue;

@@ -10,48 +10,17 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
-## A link Mila writes sends its whole address on one click, with the address hidden behind any label
+## Mila Assistant cannot install a gated model, since it no longer sends a token and has no step to ask for one
 
-`Apps/Desktop/Ui/markdown.js` (`renderLink`, `safeUrlPattern`); `Apps/Desktop/Ui/app.js` (`onLinkActivate`); `Apps/Desktop/Window/src/main.js` (`openLink`); `Specifications/Notebooks/MilaVisionDiscussion.md` 8, G1 @ 0.21.0-dev+153
+`Apps/Desktop/Session/Src/Desktop.Models.ixx` (`installModel`); `Lib/Src/Distribution/Hub/HuggingFaceHub.ixx` (`makeAnonymousModelHub`); `Specifications/Apps/AssistantOnboarding.md` 4.2 @ 0.21.0-dev+154
 
-Found 2026-11-18 by reading. A markdown link in a reply opens in the system's browser or mail program when clicked, with no
-confirmation, for `http`, `https` and `mailto`. The address appears only as a hover title, and the model chooses both the
-label and the address, so private text could travel in the address of a link labelled as something else. Not run.
+Found 2026-11-18 building `AssistantInterface.md` phase T1. Listing and installing now send no token. The design has the person told and asked before a token found on the computer is used for a model that needs one; that question is not built, so such a model's install fails with the publisher's refusal.
 
-## An approved web page read can go on to hosts the person was not shown, and can use plain http
+## Chat still offers "all" for a tool that uses the network, and the gate now counts it as once
 
-`Lib/Src/Agents/ProvidedTools/Implementation/WebPageReader.cpp` (`fetch`, `kMostRedirects`); `Lib/Src/Networking/Implementation/HttpClient.cpp` (`fetch`) @ 0.21.0-dev+153
+`Apps/Chat/Src/Console/Chat.ConsoleFrontEnd.ixx` (`parseToolDecision`); `Lib/Src/Agents/Tools/ToolGate.ixx` (`decide`) @ 0.21.0-dev+154
 
-Found 2026-11-18 by reading (`Specifications/Notebooks/MilaVisionDiscussion.md` 8, G3). The question shows the address the
-model gave. Up to five redirects are then followed to any public address, unasked, and `http` is accepted, so the address
-can travel unencrypted. The result names the final address. Not known: how often real pages would break under a stricter rule.
-
-## Mila Assistant contacts HuggingFace unasked to list models, and sends a token it found on the computer
-
-`Apps/Desktop/Ui/views/transcript.js` (`renderModelPane`, `open-models`); `Apps/Desktop/Session/Src/Desktop.Models.ixx` (`publishedModels`); `Lib/Src/Distribution/Hub/HuggingFaceHub.ixx` (`discoverHuggingFaceToken`, `fetchText`) @ 0.21.0-dev+153
-
-Found 2026-11-18 by reading (`Specifications/Notebooks/MilaVisionDiscussion.md` 8, G4). The first run's model step and
-opening Models with no list both ask the publisher, with no question. If `MILA_HF_TOKEN`, `HF_TOKEN` or
-`~/.cache/huggingface/token` holds a token, it goes with the listing, manifests and weight reads, though the published
-models need none except gated ones, so the request is tied to the person's HuggingFace account. An install sends it too. Not run.
-
-## Mila Assistant's window looks for a network proxy although its page uses no network
-
-`Apps/Desktop/Window/src/main.js`; `Specifications/Notebooks/MilaVisionDiscussion.md` 8.2 and G5 @ 0.21.0-dev+153
-
-Measured 2026-11-18 on Windows, Electron 44.9.3, mock scenario 1, 120 s with Chromium's network log: 4 lookups of `wpad`
-with WPAD queries on the adapters, at start and about 8 s later, and no URL request. It depends on the computer's proxy
-setting. macOS and Linux not run. Log `D:\Claude\egress\window-netlog.json`.
-
-## Mila Assistant lets a person allow web search for a whole conversation, though every search is meant to be asked
-
-`Apps/Desktop/Session/Src/Desktop.SessionProcess.ixx` (`askAboutCall`, `every_time`); `Lib/Src/Agents/Tools/ToolGate.ixx` (`decide`); `Specifications/MilaDesktop.md` 3.7; `Specifications/Apps/AssistantInterface.md` 5.5 @ 0.21.0-dev+153
-
-Found 2026-11-18 by reading, while checking `Specifications/Direction/MilaVision.md`; not reproduced in the app. Both
-specs say every search is asked, since its words leave the machine. `every_time` holds only for `run_command` and
-`request_folder`, so `web_search` is offered `allow_conversation`, and after that answer the gate runs later searches
-unasked. No test covers it. `read_web_page` is offered the same answer, which the specs allow today and the vision's
-local promise would not.
+Found 2026-11-18 building `AssistantInterface.md` phase T1. The gate no longer lets `uses_network` tools be allowed for a conversation. Chat's prompt still accepts `a` or `all` for them, so the person is simply asked again at the next call, with nothing said about why.
 
 ## A grant opens a device a link leads to before it refuses it, on every platform
 

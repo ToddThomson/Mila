@@ -367,4 +367,20 @@ namespace Mila::Distribution
         return std::make_unique<HuggingFaceHub>(
             makeDefaultHttpTransport(), discoverHuggingFaceToken(), std::move( progress ) );
     }
+
+    /**
+     * @brief The default hub, sending no token even when one is on this computer.
+     *
+     * For a program that must not tie a person's requests to their account unasked. A gated repository is then
+     * refused, as it is to anyone who is not signed in.
+     */
+    export std::unique_ptr<IModelHub> makeAnonymousModelHub( ProgressCallback progress = {} )
+    {
+        if ( const auto directory = readEnvironmentVariable( kHubDirectoryVariable ) )
+        {
+            return std::make_unique<LocalDirectoryHub>( std::filesystem::path( *directory ), std::move( progress ) );
+        }
+
+        return std::make_unique<HuggingFaceHub>( makeDefaultHttpTransport(), std::string{}, std::move( progress ) );
+    }
 }

@@ -279,11 +279,11 @@ sends the page one of its own, `about`, when the page says `ready`.
 | `turn.text` | `turn_id`, `round`, `channel` (`"thought"` or `"answer"`), `text`, `tokens` (a thought's only: the round's tokens so far) | Raw text to append to that channel; a thought's label counts `tokens` while it is written (Todd, 2026-11-13). Gemma streams many; Llama and Qwen send one per round when it is complete. The page must render both. |
 | `turn.thought_break` | `turn_id`, `round` | The reasoning channel resumed after a tool call; start a new thought block. |
 | `turn.tool_call` | `turn_id`, `round`, `call_id`, `name`, `summary`, `arguments` (JSON string) | The model called a tool. |
-| `turn.tool_approval` | `turn_id`, `call_id`, `choices` (subset of `["allow_once", "allow_conversation", "deny"]`, in that order; a command's is `["allow_once", "deny"]`), `reaches` ({`folders`: [{`path`, `access`: `"read"` or `"read_write"`}], `program_folders`: [path], `network`: bool, `runs_programs`: bool}) | The call named by `call_id`, already sent as `turn.tool_call`, waits for the person's decision (section 4.5). `reaches` is what the call would reach if allowed, from its grant as narrowed to the tool; a command's `network` is true only when the call asks for it. A `decision` not among `choices` is ignored. |
+| `turn.tool_approval` | `turn_id`, `call_id`, `choices` (subset of `["allow_once", "allow_conversation", "deny"]`, in that order; that of a tool using the network, a command's included, is `["allow_once", "deny"]`), `changes_folder` (`Apps/AssistantInterface.md` 10), `reaches` ({`folders`: [{`path`, `access`: `"read"` or `"read_write"`}], `program_folders`: [path], `network`: bool, `runs_programs`: bool}) | The call named by `call_id`, already sent as `turn.tool_call`, waits for the person's decision (section 4.5). `reaches` is what the call would reach if allowed, from its grant as narrowed to the tool; a command's `network` is true only when the call asks for it. A `decision` not among `choices` is ignored. |
 | `turn.tool_result` | `turn_id`, `call_id`, `result`, `is_error` | The tool's result, fed back to the model. |
 | `turn.round_end` | `turn_id`, `round`, `prefill_ms`, `tokens_per_second`, `tokens`, `thought_tokens` (those of `tokens` the reasoning channel took; 0 when it did not open), `finish` (`turn.end`'s values, or `"tool_call"` for a round that ended in one) | One generate call ended. `thought_tokens` labels the round's thought block ("Thought for 412 tokens"), which the page cannot count from text. |
 | `turn.end` | `turn_id`, `finish` (`"stop"`, `"length"`, `"context"`, `"cancelled"`, `"error"`), `answer` (the parsed final answer) | The reply ended. `answer` is what the conversation keeps. |
-| `conversations.list` | `items` ([{`id`, `title`, `created` (ISO 8601), `updated` (ISO 8601), `model`, `folder`, `progress`, `finish`, `wrote`, `reply_start`}]) | After any change to the store. A conversation's stored activity is not read. `progress`, `finish`, `wrote` and `reply_start` are what the workspace's places read (`Apps/AssistantInterface.md` 10). |
+| `conversations.list` | `items` ([{`id`, `title`, `created` (ISO 8601), `updated` (ISO 8601), `model`, `folder`, `progress`, `finish`, `wrote`, `reply_start`, `sent`}]) | After any change to the store. A conversation's stored activity is not read. `progress`, `finish`, `wrote` and `reply_start` are what the workspace's places read (`Apps/AssistantInterface.md` 10). |
 | `conversation.loaded` | `id`, `title`, `model`, `folder`, `messages` (section 4.3) | The conversation now in the main pane. |
 | `attachment.accepted` | `attachment_id`, `kind`, `name`, `size_bytes` | The session has read and decoded the file. |
 | `attachment.refused` | `attachment_id`, `reason` | Not found, not decodable, too large, or no such modality on this model. |
@@ -316,7 +316,7 @@ sends the page one of its own, `about`, when the page says `ready`.
 | `settings.set` | one of: `context` (n or `"auto"`), `thinking` (bool), `effort` (one of `effort_levels`), `detail`, `sampling` ({`key`, `value` or `"model"`}), `seed`, `search_key` (the person's Tavily key, or null to remove it), `run_commands` (bool; on, from the next Build & Code conversation; off, at once) | One change per message; the reply is `session.state`, or `error` with `during: "settings"`. |
 | `attachment.add` | `attachment_id`, `kind`, `name`, `path` | The file on this machine; the session reads it (section 6.4). |
 | `attachment.remove` | `attachment_id` | |
-| `link.open` | `url` | Handled by the window, which opens it in the system browser. The page never navigates. |
+| `link.open` | `url` | Handled by the window, which opens it in the system browser, sent once the person has confirmed the sheet showing the whole address (`Apps/AssistantInterface.md` 5.7). The page never navigates. |
 | `app.quit` | -- | Handled by the window, which quits: the licence's pane's *Quit*. |
 | `setup.showing` | `showing` (bool) | Handled by the window: while the first-run setup shows, a packaged Mac's menu bar is the application menu and Edit only (`Apps/AssistantOnboarding.md` 4.1). |
 
@@ -353,7 +353,7 @@ hook for asking the person these messages carry; until the session is built on t
 tool the person has not allowed is asked about.
 
 - After `turn.tool_call`, the session sends `turn.tool_approval` and the reply waits; `busy` stays true.
-- `allow_once` runs this call. `allow_conversation` runs it, and later calls of the same tool in this
+- `allow_once` runs this call. `allow_conversation`, never offered for a tool using the network, runs it, and later calls of the same tool in this
   conversation run without asking; `conversation.new`, `conversation.open` and `model.load` end that.
 - `deny` does not run the call. The session sends `turn.tool_result` with `is_error: true` and a result saying
   the person declined, which is what the model reads, and the reply continues.

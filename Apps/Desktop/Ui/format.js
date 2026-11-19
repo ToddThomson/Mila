@@ -359,6 +359,9 @@ export function activityText( event )
 {
     const item = event.item;
 
+    if ( event.kind === 'sent' )
+        return sentText( event.sent );
+
     if ( event.kind === 'chat' )
         return 'Started a chat: ' + item.title;
 
@@ -371,6 +374,131 @@ export function activityText( event )
         return 'Worked through a plan of ' + progress.steps + ( progress.steps === 1 ? ' step' : ' steps' );
 
     return 'Stopped at step ' + Math.min( progress.finished + 1, progress.steps ) + ' of ' + progress.steps + ': ' + progress.current;
+}
+
+/** One thing that left the computer, exactly as it went (AssistantInterface.md 5.7). */
+function sentText( sent )
+{
+    switch ( sent.kind )
+    {
+        case 'page': return 'Read ' + sent.what;
+        case 'search': return 'Searched for “' + sent.what + '”';
+        case 'command': return 'Ran with internet access: ' + sent.what;
+        default: return 'Opened ' + sent.what;
+    }
+}
+
+/**
+ * What the sheet before a link says (AssistantInterface.md 5.7): where it goes and everything it carries, never the
+ * words the link was shown under, which the model chose. Null for what cannot be opened.
+ */
+export function linkDescription( url )
+{
+    let parsed = null;
+
+    try
+    {
+        parsed = new URL( url );
+    }
+    catch
+    {
+        return null;
+    }
+
+    if ( parsed.protocol === 'mailto:' )
+    {
+        const facts = [ [ 'To', decodeURIComponent( parsed.pathname ) ] ];
+
+        for ( const [ name, label ] of [ [ 'cc', 'Copy to' ], [ 'bcc', 'Hidden copy to' ], [ 'subject', 'Subject' ], [ 'body', 'Message' ] ] )
+        {
+            const value = parsed.searchParams.get( name );
+
+            if ( value !== null && value.length > 0 )
+                facts.push( [ label, value ] );
+        }
+
+        return { title: 'Start this email?', action: 'Open in Mail', facts, note: 'Your mail program opens with this filled in.' };
+    }
+
+    if ( parsed.protocol !== 'https:' && parsed.protocol !== 'http:' )
+        return null;
+
+    const note = parsed.protocol === 'http:'
+        ? 'This address is not encrypted, so others on the network can see it.'
+        : 'Everything in this address goes to this site.';
+
+    return { title: 'Open this page?', action: 'Open', facts: [ [ 'Site', parsed.host ], [ 'Full address', url ] ], note };
+}
+
+function argumentsOf( block )
+{
+    try
+    {
+        const parsed = JSON.parse( block.arguments );
+
+        return parsed !== null && typeof parsed === 'object' ? parsed : {};
+    }
+    catch
+    {
+        return {};
+    }
+}
+
+/**
+ * What a call waiting on the person asks, from its own arguments: what would leave and where, and whether allowing it
+ * also lets Mila change files in the chat's folder (AssistantInterface.md 5.5 and 5.7).
+ */
+export function approvalWords( block )
+{
+    const given = argumentsOf( block );
+    const facts = [];
+    const notes = [];
+    let question = 'Run this tool?';
+
+    if ( block.name === 'read_web_page' && typeof given.url === 'string' )
+    {
+        const link = linkDescription( given.url );
+
+        question = 'Read this page?';
+        facts.push( [ 'Address', given.url ] );
+
+        if ( link !== null )
+            notes.push( link.note );
+    }
+
+    if ( block.name === 'web_search' && typeof given.query === 'string' )
+    {
+        question = 'Send this search?';
+        facts.push( [ 'Search words', given.query ] );
+        notes.push( 'These words go to your search provider.' );
+    }
+
+    if ( block.name === 'run_command' && given.network === true )
+        notes.push( 'With internet access, this command can send anything in the folder to any address.' );
+
+    if ( block.changesFolder )
+    {
+        question = 'Allow this change?';
+        notes.push( 'This also lets Mila change files in ' + block.changesFolder + ' for the rest of this chat.' );
+    }
+
+    return { question, facts, notes };
+}
+
+const toolWords = {
+    list_folder: 'Listing folders',
+    read_file: 'Reading files',
+    find_files: 'Finding files',
+    search_text: 'Searching inside files',
+    write_file: 'Writing files',
+    edit_file: 'Editing files',
+    propose_plan: 'Proposing plans'
+};
+
+/** A tool allowed for a chat, as the person reads it. */
+export function toolWord( name )
+{
+    return toolWords[ name ] ?? name;
 }
 
 const longDateFormat = new Intl.DateTimeFormat( 'en-US', { weekday: 'long', month: 'long', day: 'numeric' } );

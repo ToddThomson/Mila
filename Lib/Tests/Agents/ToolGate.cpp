@@ -216,6 +216,38 @@ namespace Mila::Tests::AI
         EXPECT_EQ( ran_.size(), 2u );
     }
 
+    TEST_F( ToolGateTest, AToolThatUsesTheNetworkIsAskedAboutEveryTimeWhateverThePersonAnswered )
+    {
+        gate_.clear();
+
+        Tool sending = deleteTool();
+        sending.needs = {};
+        sending.needs.uses_network = true;
+        gate_.add( std::move( sending ) );
+
+        const auto ask = answering( { ToolAnswer::ForConversation, ToolAnswer::Deny } );
+
+        EXPECT_EQ( answer( ask ).decision, ToolDecision::AllowedByPerson );
+        EXPECT_TRUE( gate_.allowedForConversation().empty() );
+        EXPECT_EQ( answer( ask ).decision, ToolDecision::DeclinedByPerson );
+        EXPECT_EQ( asked_.size(), 2u );
+        EXPECT_EQ( ran_.size(), 1u );
+    }
+
+    TEST_F( ToolGateTest, AnAllowanceWithdrawnIsAskedAboutAgain )
+    {
+        const auto ask = answering( { ToolAnswer::ForConversation, ToolAnswer::Deny } );
+
+        EXPECT_EQ( answer( ask ).decision, ToolDecision::AllowedByPersonForConversation );
+        ASSERT_TRUE( gate_.allowedForConversation().contains( "delete_file" ) );
+
+        gate_.withdrawAllowance( "delete_file" );
+
+        EXPECT_FALSE( gate_.allowedForConversation().contains( "delete_file" ) );
+        EXPECT_EQ( answer( ask ).decision, ToolDecision::DeclinedByPerson );
+        EXPECT_EQ( asked_.size(), 2u );
+    }
+
     TEST_F( ToolGateTest, ClearedToolsAreNoLongerOfferedAndTheirAllowanceGoesWithThem )
     {
         EXPECT_EQ( answer( answering( { ToolAnswer::ForConversation } ) ).decision,

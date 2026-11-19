@@ -23,7 +23,8 @@ namespace Mila::Networking
         TransportError,   ///< Connection, TLS or I/O failure.
         ServerError,      ///< 5xx.
         RedirectRefused,  ///< A redirect not followed: no Location, an address other than http or https, or a request with a body.
-        TooManyRedirects  ///< More redirects than the request permits.
+        TooManyRedirects, ///< More redirects than the request permits.
+        RedirectLeftSite  ///< A redirect a request held to its site did not follow: another host, or https to http.
     };
 
     export inline std::string toString( HttpStatus status )
@@ -40,7 +41,8 @@ namespace Mila::Networking
             case HttpStatus::ServerError:    return "ServerError";
             case HttpStatus::RedirectRefused: return "RedirectRefused";
             case HttpStatus::TooManyRedirects: return "TooManyRedirects";
-            default:                         return "Unknown";
+            case HttpStatus::RedirectLeftSite: return "RedirectLeftSite";
+            default:                        return "Unknown";
         }
     }
 }

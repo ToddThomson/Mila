@@ -65,6 +65,9 @@ namespace Mila::Agents
             request.maximum_redirects = kMostRedirects;
             request.low_speed_timeout_seconds = 20;
 
+            // The address approved is the site that is contacted: going elsewhere is a call of its own, asked about.
+            request.redirects_stay_on_site = true;
+
             std::string body;
             const HttpResult result = client.fetchString( request, body );
 
@@ -78,6 +81,11 @@ namespace Mila::Agents
 
                 case HttpStatus::TooManyRedirects:
                     throw std::runtime_error( std::format( "{} redirected more than {} times", url, kMostRedirects ) );
+
+                case HttpStatus::RedirectLeftSite:
+                    throw std::runtime_error( std::format( "{} redirects to {}, which was not followed because it is "
+                        "another site or is not encrypted. If that page is what is needed, read it with its own call",
+                        result.final_url, result.redirect_target ) );
 
                 default:
                     break;

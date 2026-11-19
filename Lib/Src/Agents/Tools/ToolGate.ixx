@@ -25,8 +25,9 @@ namespace Mila::Agents
      *
      * A call of a tool not offered, or with arguments its parameters refuse, is never asked about, since nothing
      * will run. Otherwise the rules decide; where they ask, an answer for the conversation stands in for asking
-     * again, and a deny rule is never overridden by one. A call allowed runs with the gate's grant narrowed to the
-     * tool's needs (ToolCalling.md 3.4). Needs nothing of a model.
+     * again, and a deny rule is never overridden by one. A tool that uses the network is never allowed for the
+     * conversation: what it sends is approved call by call, so that answer counts as once. A call allowed runs with
+     * the gate's grant narrowed to the tool's needs (ToolCalling.md 3.4). Needs nothing of a model.
      */
     export class ToolGate
     {
@@ -134,6 +135,23 @@ namespace Mila::Agents
             allowed_for_conversation_.clear();
         }
 
+        /// The tools the person allowed for the conversation, by name.
+        [[nodiscard]] const std::set<std::string, std::less<>>& allowedForConversation() const noexcept
+        {
+            return allowed_for_conversation_;
+        }
+
+        /// Ask about this tool again from the next call on.
+        void withdrawAllowance( std::string_view name )
+        {
+            const auto allowed = allowed_for_conversation_.find( name );
+
+            if ( allowed != allowed_for_conversation_.end() )
+            {
+                allowed_for_conversation_.erase( allowed );
+            }
+        }
+
         /// Offer no tool from the next call on; a tool once offered can then be added again. The rules stay.
         void clear() noexcept
         {
@@ -235,6 +253,11 @@ namespace Mila::Agents
                     return ToolDecision::AllowedByPerson;
 
                 case ToolAnswer::ForConversation:
+                    if ( tool->needs.uses_network )
+                    {
+                        return ToolDecision::AllowedByPerson;
+                    }
+
                     allowed_for_conversation_.insert( tool->name );
 
                     return ToolDecision::AllowedByPersonForConversation;
