@@ -386,14 +386,15 @@ namespace Mila::ChatApp
          * Nothing but y or a runs the call: an empty answer, end of input and Ctrl+C all decline it, and Ctrl+C
          * also stops the reply. In one shot the question goes where everything else does, to standard error.
          */
-        ToolDecision approveToolCall( const ToolCall& call, std::span<const std::string> reach ) override
+        ToolDecision approveToolCall( const ToolCall& call, std::span<const std::string> reach,
+            std::span<const std::string> has_read, bool offers_conversation ) override
         {
             renderer_.stopSpinner();
             suspendStream();
 
             const std::string summary = formatToolSummary(
                 session_.tools(), call.name, call.arguments, "\x1b[1m", "\x1b[22m" );
-            renderer_.printToolApproval( summary, reach, call.arguments );
+            renderer_.printToolApproval( summary, reach, has_read, call.arguments, offers_conversation );
 
             std::string answer;
 
@@ -406,14 +407,17 @@ namespace Mila::ChatApp
                     return ToolDecision::Deny;
                 }
 
-                if ( const auto decision = parseToolDecision( answer ) )
+                const auto decision = parseToolDecision( answer );
+
+                // An answer for the conversation where it is not offered is none of the choices.
+                if ( decision && ( offers_conversation || *decision != ToolDecision::AllowConversation ) )
                 {
                     declined_ = *decision == ToolDecision::Deny;
 
                     return *decision;
                 }
 
-                renderer_.printToolApprovalChoices();
+                renderer_.printToolApprovalChoices( offers_conversation );
             }
 
             // A read cut short by Ctrl+C leaves the stream failed though more input may follow; at end of input the

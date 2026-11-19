@@ -97,5 +97,11 @@ function(mila_add_std_module_library target)
         # The sources declare `export module std;`, a name reserved to the implementation.
         target_compile_options(${target} PRIVATE -std=c++23 -fno-implicit-modules -fno-implicit-module-maps
             -Wno-reserved-module-identifier)
+
+        # Clang refuses a module built without -pthread in a unit compiled with it, and on Linux a library an importer
+        # links can bring it (glib's pkg-config does, for libsecret), so the module and every importer are built with it.
+        if(UNIX AND NOT APPLE)
+            target_compile_options(${target} PUBLIC $<$<COMPILE_LANGUAGE:CXX>:-pthread>)
+        endif()
     endif()
 endfunction()

@@ -83,8 +83,13 @@ namespace Mila::ChatApp
          * The reply waits on the answer (MilaDesktop.md section 4.5).
          *
          * @param reach What the call could reach if allowed, a line each; empty for a tool that reaches nothing.
+         * @param has_read What the conversation has read from outside, newest first, a line each; empty when it has
+         *        read nothing (ToolCalling.md 3.3).
+         * @param offers_conversation Whether allowing it for the conversation is a choice: never for a tool that uses
+         *        the network, nor for one that writes or runs in a conversation that has read from outside.
          */
-        virtual ToolDecision approveToolCall( const ToolCall& call, std::span<const std::string> reach ) = 0;
+        virtual ToolDecision approveToolCall( const ToolCall& call, std::span<const std::string> reach,
+            std::span<const std::string> has_read, bool offers_conversation ) = 0;
 
         /// A tool call was answered, by its tool or by the person declining it. The model reads @p result.
         virtual void toolCalled( const ToolCall& call, std::string_view result, bool is_error ) = 0;

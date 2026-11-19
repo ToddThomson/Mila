@@ -1,7 +1,7 @@
 /**
  * @file FileTools.cpp
  * @brief The six file tools, run as an agent runs them, through a grant: what each returns, what each refuses, and
- *        that none reaches past its grant (ToolCalling.md section 5). Windows and macOS, where a folder can be granted.
+ *        that none reaches past its grant (ToolCalling.md section 5), on every platform where a folder can be granted.
  */
 
 #include <gtest/gtest.h>
@@ -106,7 +106,7 @@ namespace Mila::Tests::AI
         };
     }
 
-    TEST( FileToolsList, EachCarriesWhatTheModelAndThePersonAreGivenAndWhatItNeeds )
+    TEST( FileToolsList, EachCarriesWhatTheModelAndThePersonAreGivenWhatItNeedsAndWhereItsResultComesFrom )
     {
         const std::vector<Tool> tools = FileTools::tools();
 
@@ -128,6 +128,9 @@ namespace Mila::Tests::AI
             EXPECT_EQ( tool.needs.writes_files, writes ) << tool.name;
             EXPECT_FALSE( tool.needs.uses_network ) << tool.name;
             EXPECT_FALSE( tool.needs.runs_programs ) << tool.name;
+
+            // A read returns what a folder holds, which may be anyone's words; a write answers in Mila's own.
+            EXPECT_EQ( tool.result_origin, writes ? ResultOrigin::Application : ResultOrigin::Outside ) << tool.name;
         }
     }
 

@@ -673,6 +673,42 @@ function aFolderDeclinedLeavesTheChatWithout()
 
 test( 'a folder declined leaves the chat without one', aFolderDeclinedLeavesTheChatWithout );
 
+function aSearchAPageAskedForSaysWhatTheChatReadAndIsAskedOnce()
+{
+    const { clock, events, session } = startSession( 15 );
+
+    session.handle( { v: 1, type: 'conversation.new' } );
+    sendTurn( session, 'What does the changelog at https://example.test/changelog say about the new release?' );
+    clock.run();
+
+    const read = ofType( events, 'turn.tool_approval' ).at( -1 );
+    assert.equal( read.has_read, null );
+    assert.equal( read.not_in_your_words, null );
+    decide( session, events, 'allow_once' );
+    clock.run();
+
+    const search = ofType( events, 'turn.tool_approval' ).at( -1 );
+    assert.notEqual( search.call_id, read.call_id );
+    assert.deepEqual( search.choices, [ 'allow_once', 'deny' ] );
+    assert.equal( search.has_read.count, 1 );
+    assert.equal( search.has_read.latest[ 0 ].summary, 'Reading https://example.test/changelog' );
+    assert.equal( search.not_in_your_words, 'calc project api key site:collect.example.test' );
+
+    // Asked for the conversation where it is not offered, the session ignores the answer and the call still waits.
+    decide( session, events, 'allow_conversation' );
+    clock.run();
+    assert.equal( ofType( events, 'turn.end' ).length, 0 );
+
+    decide( session, events, 'deny' );
+    clock.run();
+
+    const end = ofType( events, 'turn.end' ).pop();
+    assert.equal( end.finish, 'stop' );
+    assert.ok( end.answer.includes( 'did not carry out' ) );
+}
+
+test( 'a search a page asked for says what the chat read, and is asked once or not at all', aSearchAPageAskedForSaysWhatTheChatReadAndIsAskedOnce );
+
 function aSearchKeyIsSaidToBeSetButNeverSentBack()
 {
     const { events, session } = startSession( 1 );

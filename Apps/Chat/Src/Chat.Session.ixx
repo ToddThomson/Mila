@@ -1128,8 +1128,32 @@ namespace Mila::ChatApp
         /// The agent asks the person through this session's events, which a front end answers.
         Mila::Agents::ToolAnswer askAboutCall( const Mila::Agents::ToolQuestion& question )
         {
-            return toolAnswer( events_.approveToolCall(
-                ToolCall{ std::string( question.name ), std::string( question.arguments ) }, reachOf( question.grant ) ) );
+            // The gate counts "for this conversation" as once for these, so it is not offered (ToolCalling.md 3.3).
+            const bool acts = question.needs.writes_files || question.needs.uses_network || question.needs.runs_programs;
+            const bool offers_conversation = !question.needs.uses_network && !( !question.exposure.empty() && acts );
+
+            return toolAnswer( events_.approveToolCall( ToolCall{ std::string( question.name ), std::string( question.arguments ) },
+                reachOf( question.grant ), hasRead( question.exposure ), offers_conversation ) );
+        }
+
+        /// What the conversation has read from outside, the newest three by their summary lines, then how many more.
+        std::vector<std::string> hasRead( std::span<const Mila::Agents::ExposureSource> exposure ) const
+        {
+            std::vector<std::string> lines;
+
+            for ( auto source = exposure.rbegin(); source != exposure.rend() && lines.size() < 3; ++source )
+            {
+                // A conversation reopened from before what it read was kept knows only the tool.
+                lines.push_back( source->arguments.empty() ? source->tool
+                    : formatToolSummary( tools(), source->tool, source->arguments ) );
+            }
+
+            if ( exposure.size() > lines.size() )
+            {
+                lines.push_back( std::format( "and {} more", exposure.size() - lines.size() ) );
+            }
+
+            return lines;
         }
 
         /// What a call could reach, from its grant as the gate narrowed it to the tool, a line each.

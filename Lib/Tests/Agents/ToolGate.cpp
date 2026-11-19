@@ -556,7 +556,10 @@ namespace Mila::Tests::AI
 
     TEST_F( ToolGateTest, InAnExposedConversationADenyRuleStillDeniesAndAReadStaysAsItsRuleSays )
     {
-        gate_.add( readingTool( "read_more" ) );
+        // A read that reaches files, so only its needs, not its name, keep it out of asking every time.
+        Tool reads_files = readingTool( "read_more" );
+        reads_files.needs.reads_files = true;
+        gate_.add( std::move( reads_files ) );
         gate_.setRules( ToolRules{}
             .add( { "read_*", ToolPermission::Allow } )
             .add( { "delete_file", ToolPermission::Deny } ) );

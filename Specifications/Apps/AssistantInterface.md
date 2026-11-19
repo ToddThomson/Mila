@@ -835,10 +835,26 @@ The rest, in the proposed order:
   write this address* (or search words); the search key in the credential store, with `search.json` moved in once; section
   8's encryption design, proposed. Checked on Windows: the gate and session tests (138 with the grant's and the file
   tools'), the mark through a compaction and a change of model on Gemma 4 12B, the session's 40 (the key kept, replaced
-  and removed in Credential Manager), the page's 106, every target built in `x64-claude-verify`. **Not done:** the macOS and Linux key stores are written and not built (Linux
-  needs `libsecret-1-dev` and `pkg-config` in WSL); the tests of the mark with their checks removed one by one; the mock
-  scenario and the window on the real session; a note waiting for the person (5.6) has nothing to wait on until phase 7;
-  Mila Chat's console does not yet say what a conversation has read.
+  and removed in Credential Manager), the page's 106, every target built in `x64-claude-verify`. *Finished 2026-11-19
+  (`0.21.0-dev+157`):* the macOS and Linux key stores built, which found two defects Windows could not (the keychain
+  wrapper had no move, and libc++ has no `std::chrono::parse`, so a stored time is read by hand), and a third in the
+  build: libsecret brings `-pthread`, which Clang refuses against a `std` module built without it, so on Linux the
+  module and every importer are built with it (`cmake/StdModule.cmake`). The mark's tests with their checks removed one
+  by one: 22 mutants, each failed by a test but one that cannot differ from the code (an allowance checked after it
+  is withdrawn); three survivors first, so the gate's read test now reaches files, the file tools' test checks where
+  each result comes from, and the agent's tool events are checked to say whether a call exposed the chat. Mila Chat's
+  console says what a chat has read, and offers *for this conversation* only where the gate honours it. Mock scenario
+  15, a page that tries to direct Mila. Checked: Windows, the gate, session, file and agent tests (170, the agent's
+  on Gemma 4 12B), the session's 40, the page's 107, every target built; Linux (WSL, CPU-only), the library's 116 and
+  the session's 40, the key kept, replaced and removed in a Secret Service keyring; macOS, every target built, the
+  library's 117, the session's 39, the page's 106; scenario 15 in the window over the mock at 1280x800 and 900 px in
+  light and dark; the real session over stdio on Gemma 4 12B FP4 in a scratch store: a chat asked to read and change
+  `notes.txt` asked for a folder, read the file and asked to edit it with *Allow once* and *Deny* only, saying what it
+  had read; the stored chat kept the three sources and each call's `exposes`; reopened in a session started again, its
+  next edit was asked the same way. **Not done:** the macOS key store in the login keychain, which SSH cannot reach
+  (`~/mila-work/keychain-test.command`, run once at the Mac); the window on the real session; Chat's prompt run live
+  (built on Windows and macOS); a note waiting for the person (5.6) has nothing to wait on until phase 7. A failed call
+  still exposes a chat (filed).
 - **Phase 4. Projects** (the vision's step 8). The store's `Projects/`, its records and its events; the sidebar's
   projects; *All projects* (4.4); a project's head, glance and chats (4.5); *New project*; moving a chat by its menu; the
   overview's projects; a project's folders as sources (section 10); deletion as section 8 says.

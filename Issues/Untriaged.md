@@ -16,11 +16,11 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 Found 2026-11-18 building `AssistantInterface.md` phase T1. Listing and installing now send no token. The design has the person told and asked before a token found on the computer is used for a model that needs one; that question is not built, so such a model's install fails with the publisher's refusal.
 
-## Chat still offers "all" for a tool that uses the network, and the gate now counts it as once
+## A tool call that fails still marks the chat as having read from outside
 
-`Apps/Chat/Src/Console/Chat.ConsoleFrontEnd.ixx` (`parseToolDecision`); `Lib/Src/Agents/Tools/ToolGate.ixx` (`decide`) @ 0.21.0-dev+154
+`Lib/Src/Agents/Tools/ToolGate.ixx` (`answer`); `Specifications/ToolCalling.md` 3.3 *What a result may cause* @ 0.21.0-dev+156
 
-Found 2026-11-18 building `AssistantInterface.md` phase T1. The gate no longer lets `uses_network` tools be allowed for a conversation. Chat's prompt still accepts `a` or `all` for them, so the person is simply asked again at the next call, with nothing said about why.
+Found 2026-11-19 checking `AssistantInterface.md` phase T2 on the real session (Gemma 4 12B FP4). The model's first `list_folder`, in a chat with no folder yet, failed with the grant's own refusal, and the gate still recorded it as read from outside: a stopped or timed-out call exposes nothing, but a call whose tool threw does. Whether an error text counts (a tool's own words, or an HTTP error body from outside) is undecided; today it costs a question for a read that brought nothing in.
 
 ## A grant opens a device a link leads to before it refuses it, on every platform
 

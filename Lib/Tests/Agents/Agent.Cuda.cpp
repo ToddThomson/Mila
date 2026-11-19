@@ -731,6 +731,7 @@ namespace Mila::Tests::AI
         EXPECT_TRUE( arguments_seen_.empty() );
         EXPECT_TRUE( called.front().is_error );
         EXPECT_EQ( called.front().decision, ToolDecision::DeclinedByPerson );
+        EXPECT_FALSE( called.front().exposes );
     }
 
     TEST_F( AgentOnGemmaCuda, ACallTheRulesAllowRunsWithoutAskingAndIsRecorded )
@@ -753,6 +754,9 @@ namespace Mila::Tests::AI
         EXPECT_EQ( called.front().decision, ToolDecision::AllowedByRule );
         EXPECT_EQ( called.front().returned_bytes, std::string_view( kWeatherResult ).size() );
         EXPECT_FALSE( called.front().is_error );
+
+        // The weather comes from outside the program, so the event says the call exposed the conversation.
+        EXPECT_TRUE( called.front().exposes );
     }
 
     TEST_F( AgentOnGemmaCuda, ACallTheRulesDenyDoesNotRunAndTheModelReadsSo )

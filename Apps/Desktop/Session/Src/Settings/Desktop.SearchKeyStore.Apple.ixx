@@ -92,8 +92,10 @@ namespace Mila::Desktop
         public:
 
             explicit Owned( TReference reference ) noexcept : reference_( reference ) {}
+            Owned( Owned&& other ) noexcept : reference_( std::exchange( other.reference_, nullptr ) ) {}
             Owned( const Owned& ) = delete;
             Owned& operator=( const Owned& ) = delete;
+            Owned& operator=( Owned&& ) = delete;
 
             ~Owned()
             {

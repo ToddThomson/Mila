@@ -417,6 +417,11 @@ tool the person has not allowed is asked about.
   12. Scenario 8 with the publisher unreachable: the first run says so and offers *Try again*.
   13. Models installed and the licence not yet accepted: the welcome and the licence, then the remembered model
       opens.
+  14. Mila asks for a folder (`Apps/AssistantInterface.md` 5.5): chosen, the reply goes on in it; declined, without
+      files.
+  15. A page that tries to direct Mila (`Apps/AssistantInterface.md` 5.6): the page is read with the person's leave,
+      and the search it asks for is asked once or not at all, saying what the chat has read and that the person did
+      not write those words.
 - **Tests:** `node --test` over `state.js`, the markdown renderer and the mock's scenario scripts. No
   committed test dependency beyond Node itself. The visual checks of phase 1's gate may use whatever
   headless browser the building session has, with nothing of it committed.

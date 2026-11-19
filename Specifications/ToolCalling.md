@@ -144,7 +144,10 @@ built at `+156`.*
   counts as once. A deny rule still denies, and a tool that only reads is decided as before, since what it brings in
   cannot leave without its own approval.
 - **The question carries the exposure** (`ToolQuestion::exposure`), so the application can say what the conversation
-  has read. Comparing an address or search words with the person's own messages is the application's.
+  has read. Comparing an address or search words with the person's own messages is the application's. Both
+  applications say it: Mila Assistant in its question (`Apps/AssistantInterface.md` 5.6), and Mila Chat's console under
+  *This chat has read*, with its newest three and how many more. Neither offers *for this conversation* where the gate
+  would count it as once.
 - **The outcome says whether the call exposed the conversation** (`ToolOutcome::exposes`), for the application's record.
 - **Not here:** a mark per passage, and what an application derives into a lasting record, which carries the mark by
   the application's own store (`Apps/AssistantInterface.md` 8). A label does not stop a model from following what it

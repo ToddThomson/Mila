@@ -463,12 +463,14 @@ namespace Mila::ChatApp
         }
 
         /**
-         * @brief Ask before a tool runs: what it will do, its arguments in full, then the choices.
+         * @brief Ask before a tool runs: what it will do, what the chat has read from outside, its arguments in full,
+         *        then the choices.
          *
          * The arguments are shown whole, whatever the detail level, since they are what the person is approving.
          * The cursor is left after the choices for the answer.
          */
-        void printToolApproval( std::string_view summary, std::span<const std::string> reach, std::string_view arguments ) const
+        void printToolApproval( std::string_view summary, std::span<const std::string> reach,
+            std::span<const std::string> has_read, std::string_view arguments, bool offers_conversation ) const
         {
             const int max_width = std::max( 20, std::min( consoleWidth() - 6, 80 ) );
 
@@ -484,17 +486,29 @@ namespace Mila::ChatApp
                     std::cout << fg( 220, 190, 110 ) << "    " << line << reset() << '\n';
             }
 
+            if ( !has_read.empty() )
+            {
+                std::cout << fg( 220, 190, 110 ) << "    This chat has read:" << reset() << '\n';
+
+                for ( const std::string& source : has_read )
+                {
+                    for ( const auto& line : RichText::wordWrap( source, max_width - 2 ) )
+                        std::cout << fg( 160, 150, 120 ) << "      " << line << reset() << '\n';
+                }
+            }
+
             for ( const auto& line : RichText::wordWrap( arguments, max_width ) )
                 std::cout << fg( 160, 150, 120 ) << "    " << line << reset() << '\n';
 
-            printToolApprovalChoices();
+            printToolApprovalChoices( offers_conversation );
         }
 
         /// The choices alone, asked again after an answer that is none of them.
-        void printToolApprovalChoices() const
+        void printToolApprovalChoices( bool offers_conversation ) const
         {
-            std::cout << fg( 220, 190, 110 ) << "  Run it? [y] once, [a] for this conversation, [N]o: " << reset()
-                      << std::flush;
+            std::cout << fg( 220, 190, 110 )
+                      << ( offers_conversation ? "  Run it? [y] once, [a] for this conversation, [N]o: " : "  Run it? [y] once, [N]o: " )
+                      << reset() << std::flush;
         }
 
         // ── Generation stats (on demand via /stats) ───────────────────────────
