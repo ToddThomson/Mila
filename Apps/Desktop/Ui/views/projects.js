@@ -2,12 +2,46 @@
 // The places view owns the pane, its clicks and the rows' menus; this draws what a project's places show.
 
 import { element, button, iconButton } from '../dom.js';
-import { matchingProjects, projectFilters, projectSummaries, currentProject } from '../state.js';
-import { whenLabel, folderName, activityText, dayLabel, clockLabel } from '../format.js';
+import { matchingProjects, projectFilters, projectSummaries, currentProject, madeInProject } from '../state.js';
+import { whenLabel, folderName, activityText, dayLabel, clockLabel, plainLine } from '../format.js';
 import { head, section, figure, stateDot, stateWords, pulseStrip, countsLine } from './place-parts.js';
 
 const filterWords = { all: 'All', waiting: 'Waiting on you', active: 'Active', quiet: 'Quiet' };
 const sortWords = { recent: 'Most recent', name: 'By name' };
+
+const diskNotes = { changed: 'Changed on disk since', missing: 'No longer on disk' };
+
+/**
+ * One thing a project's chats made (4.5, 4.9): a file by its name, or a reply kept by how it begins, with its chat and
+ * when; it opens its drawer.
+ */
+export function madeRow( made, now )
+{
+    const row = button( 'row', null, 'open-creation' );
+    const main = element( 'span', 'row-main' );
+    const file = made.kind === 'file';
+    const title = file ? folderName( made.path ) : plainLine( made.start ?? '' ) || 'A reply you kept';
+    const parts = [ file ? ( made.tool === 'edit_file' ? 'Changed by Mila' : 'Written by Mila' ) : 'A reply you kept', 'in ' + made.item.title ];
+    const note = file ? diskNotes[ made.disk ] ?? null : null;
+
+    if ( note !== null )
+        parts.push( note );
+
+    row.dataset.identifier = made.item.id;
+
+    if ( file )
+        row.dataset.path = made.path;
+    else
+        row.dataset.message = String( made.message );
+
+    if ( file )
+        row.title = made.path;
+
+    main.append( element( 'span', 'row-title', title ), element( 'span', note === null ? 'row-sub' : 'row-sub made-changed', parts.join( ' · ' ) ) );
+    row.append( main, element( 'span', 'row-when', whenLabel( made.time ?? made.item.updated, now ) ) );
+
+    return row;
+}
 
 /** The latest thing that happened in a project, as one line, or when it was made. */
 function latestLine( summary, now )
@@ -219,7 +253,8 @@ export function renderProject( root, state, local, now, managedRow )
 
     glance.append(
         figure( summary.chats.length, 'Chats', newest, { action: 'show-section', data: { section: 'project-chats' } }, null ),
-        figure( summary.made, 'Made', summary.made === 1 ? 'A file Mila wrote' : 'Files Mila wrote', { action: null, data: {} }, 'still' ),
+        figure( summary.made, 'Made', summary.made === 1 ? 'One thing made' : 'Files and replies kept',
+            summary.made === 0 ? { action: null, data: {} } : { action: 'show-section', data: { section: 'project-made' } }, summary.made === 0 ? 'still' : null ),
         figure( summary.plans, 'Plans', summary.plans === 1 ? 'In one chat' : 'In its chats', { action: null, data: {} }, 'still' ) );
 
     const atGlance = section( 'At a glance', null, null );
@@ -252,6 +287,18 @@ export function renderProject( root, state, local, now, managedRow )
 
     chats.append( chatRows );
     root.append( chats );
+
+    const made = madeInProject( state, project.id );
+
+    if ( made.length > 0 )
+    {
+        const madeSection = section( 'Made', 'project-made', null );
+        const madeRows = element( 'div', 'rows' );
+
+        madeRows.append( ...made.map( ( entry ) => madeRow( entry, now ) ) );
+        madeSection.append( madeRows );
+        root.append( madeSection );
+    }
 
     const events = state.events.filter( ( event ) => event.project === project.id || event.from === project.id );
 

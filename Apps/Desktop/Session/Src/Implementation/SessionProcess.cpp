@@ -9,6 +9,8 @@ import std;
 import nlohmann.json;
 import Desktop.CommandTool;
 import Desktop.ConversationStore;
+import Desktop.ConversationSummary;
+import Desktop.Creations;
 import Desktop.EventLog;
 import Desktop.ProjectStore;
 import Desktop.WorkspaceFolder;
@@ -464,6 +466,14 @@ namespace Mila::Desktop
         {
             removeReach( request );
         }
+        else if ( type == "creation.open" )
+        {
+            openCreation( request );
+        }
+        else if ( type == "creation.keep" )
+        {
+            keepReply( request );
+        }
         else if ( type == "conversation.link_opened" )
         {
             recordLinkOpened( request.value( "url", std::string{} ) );
@@ -606,8 +616,9 @@ namespace Mila::Desktop
                 agent.model().tokenizer().encode( agent.prompt( text ).text ).size(), agent.plan().contextLength() ) } } );
         }
 
+        // The reply is stored next, as this message of the conversation, which is how the page keeps it.
         send( "turn.end", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "finish", turnFinish() },
-            { "answer", turn_.answer } } );
+            { "answer", turn_.answer }, { "message", conversation_messages_.size() } } );
 
         work_ = Work::None;
 
@@ -960,6 +971,20 @@ namespace Mila::Desktop
 
         // Where the result came from, so the stored call says what exposed the chat (AssistantInterface.md 5.6).
         stored[ "exposes" ] = exposes;
+
+        // What a write made, read straight after it, so the drawer can say later whether the file changed and who
+        // made it in which step (AssistantInterface.md 4.9).
+        if ( const std::optional<std::string> path = writtenPath( stored ) )
+        {
+            const std::filesystem::path named( std::u8string( path->begin(), path->end() ) );
+            const std::filesystem::path file = conversation_folder_
+                ? std::filesystem::path( std::u8string( conversation_folder_->begin(), conversation_folder_->end() ) ) / named
+                : named;
+
+            stored[ "written" ] = fileRecord( file );
+            stored[ "model" ] = model_.name();
+            stored[ "step" ] = plan_.currentStep();
+        }
     }
 
     std::string SessionProcess::announceCall( std::string_view name, std::string_view arguments )
@@ -1021,7 +1046,8 @@ namespace Mila::Desktop
             { "thought", turn_.thought.empty() ? nlohmann::json( nullptr ) : nlohmann::json( turn_.thought ) },
             { "tool_calls", turn_calls_.empty() ? nlohmann::json( nullptr ) : turn_calls_ },
             { "attachments", nullptr },
-            { "stats", stats } } );
+            { "stats", stats },
+            { "model", model_.name() } } );
 
         saveConversation();
     }
@@ -2440,7 +2466,119 @@ namespace Mila::Desktop
 
     void SessionProcess::sendConversations()
     {
-        send( "conversations.list", { { "items", store_.list() } } );
+        nlohmann::json items = store_.list();
+
+        // Each file Mila wrote is compared with the disk as the list is drawn (AssistantInterface.md 4.3, *Needs you*).
+        for ( nlohmann::json& item : items )
+        {
+            if ( !item.contains( "wrote" ) || !item[ "wrote" ].is_array() )
+            {
+                continue;
+            }
+
+            for ( nlohmann::json& file : item[ "wrote" ] )
+            {
+                file[ "disk" ] = diskState( file.value( "written", nlohmann::json( nullptr ) ) );
+                file.erase( "written" );
+            }
+        }
+
+        send( "conversations.list", { { "items", std::move( items ) } } );
+    }
+
+    void SessionProcess::openCreation( const nlohmann::json& request )
+    {
+        // Read from the store: between turns the open chat's file holds every message it has.
+        const std::string id = request.value( "conversation_id", std::string{} );
+        const std::optional<nlohmann::json> conversation = id.empty() ? std::nullopt : store_.load( id );
+        std::optional<nlohmann::json> creation;
+
+        if ( conversation.has_value() && request.contains( "path" ) && request[ "path" ].is_string() )
+        {
+            creation = fileCreation( *conversation, request[ "path" ].get<std::string>() );
+        }
+        else if ( conversation.has_value() && request.contains( "message" ) && request[ "message" ].is_number_unsigned() )
+        {
+            creation = replyCreation( *conversation, request[ "message" ].get<std::size_t>() );
+        }
+
+        if ( !creation.has_value() )
+        {
+            sendError( "That is no longer among what Mila made.", nullptr );
+
+            return;
+        }
+
+        nlohmann::json content = { { "content", nullptr }, { "content_kind", nullptr } };
+        nlohmann::json disk = nullptr;
+
+        if ( ( *creation )[ "kind" ] == "file" )
+        {
+            const nlohmann::json location = ( *creation )[ "location" ];
+
+            if ( location.is_string() )
+            {
+                const std::string text = location.get<std::string>();
+
+                content = showableContent( std::filesystem::path( std::u8string( text.begin(), text.end() ) ) );
+            }
+
+            // The last write's record, which only the stored calls hold.
+            for ( const nlohmann::json& file : summarizeConversation( *conversation )[ "wrote" ] )
+            {
+                if ( file[ "path" ] == ( *creation )[ "path" ] )
+                {
+                    disk = diskState( file[ "written" ] );
+                }
+            }
+        }
+
+        send( "creation.loaded", { { "creation", std::move( *creation ) }, { "content", content[ "content" ] },
+            { "content_kind", content[ "content_kind" ] }, { "disk", std::move( disk ) } } );
+    }
+
+    void SessionProcess::keepReply( const nlohmann::json& request )
+    {
+        const std::string id = request.value( "conversation_id", std::string{} );
+        const nlohmann::json index = request.value( "message", nlohmann::json( nullptr ) );
+        const bool keep = request.value( "keep", true );
+
+        if ( id.empty() || !index.is_number_unsigned() )
+        {
+            return;
+        }
+
+        const std::size_t message = index.get<std::size_t>();
+
+        const auto mark = [ & ]( nlohmann::json& messages )
+            {
+                if ( !messages.is_array() || message >= messages.size() || !messages[ message ].is_object()
+                    || messages[ message ].value( "role", std::string{} ) != "assistant" )
+                {
+                    return false;
+                }
+
+                messages[ message ][ "kept" ] = keep ? nlohmann::json( timestamp() ) : nlohmann::json( nullptr );
+
+                return true;
+            };
+
+        if ( id == conversation_id_ )
+        {
+            if ( mark( conversation_messages_ ) )
+            {
+                saveConversation();
+            }
+        }
+        else if ( std::optional<nlohmann::json> stored = store_.load( id ) )
+        {
+            if ( stored->contains( "messages" ) && mark( ( *stored )[ "messages" ] ) )
+            {
+                store_.save( *stored );
+            }
+        }
+
+        sendConversations();
     }
 
     void SessionProcess::sendProjects()

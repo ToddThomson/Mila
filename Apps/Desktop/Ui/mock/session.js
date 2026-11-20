@@ -3,7 +3,7 @@
 // and no timers of its own -- the host passes a clock -- so one implementation serves the page in
 // a browser, a Node wrapper on stdio, and node --test.
 
-import { findModel, mockLicense, models, seedConversations, seedProjects, summarizeConversation, titleFor } from './fixtures.js';
+import { describeCreation, findModel, mockLicense, models, seedConversations, seedMade, seedProjects, summarizeConversation, titleFor } from './fixtures.js';
 import { findScenario } from './scenarios.js';
 
 const streamId = 'stream-1';
@@ -59,6 +59,9 @@ export function createMockSession( options )
         events.push( ...seeded.events );
         nextProjectNumber = seeded.projects.length + 1;
     }
+
+    // A scenario of what Mila made (phase 8) gives the seeded chats' writes their records, and the files their text.
+    const files = scenario.made === true ? seedMade( seeds, startTime ) : {};
 
     const session = {
         model: licenseAccepted ? startModel : null,
@@ -412,6 +415,10 @@ export function createMockSession( options )
         if ( message.type === 'turn.begin' )
             message.conversation_id = session.conversationId;
 
+        // As the session's: the reply is stored after the person's message, as the next of the chat's messages.
+        if ( message.type === 'turn.end' )
+            message.message = session.history.length + 1;
+
         record( message );
         emit( message );
 
@@ -548,7 +555,8 @@ export function createMockSession( options )
 
         pending = null;
 
-        const end = { type: 'turn.end', stream_id: streamId, turn_id: reply.turnId, finish: 'cancelled', answer: reply.answer };
+        const end = { type: 'turn.end', stream_id: streamId, turn_id: reply.turnId, finish: 'cancelled', answer: reply.answer,
+            message: session.history.length + 1 };
 
         emit( end );
         finishTurn( end );
@@ -1398,6 +1406,12 @@ export function createMockSession( options )
             case 'conversation.link_opened':
                 return undefined;
 
+            case 'creation.open':
+                return openCreation( request );
+
+            case 'creation.keep':
+                return keepReply( request );
+
             case 'conversation.delete':
                 return deleteConversation( request );
 
@@ -1425,6 +1439,43 @@ export function createMockSession( options )
             default:
                 return ignore( request );
         }
+    }
+
+    /** A file a chat wrote, or a reply kept, as the session's `creation.loaded` describes it (AssistantInterface.md 4.9). */
+    function openCreation( request )
+    {
+        const conversation = conversations.get( request.conversation_id );
+        const loaded = conversation === undefined ? null : describeCreation( conversation, request, files );
+
+        if ( loaded === null )
+        {
+            emitError( 'That is no longer among what Mila made.', null );
+
+            return;
+        }
+
+        emit( { type: 'creation.loaded', ...loaded } );
+    }
+
+    /** A reply kept with its chat, or let go (8). */
+    function keepReply( request )
+    {
+        const conversation = conversations.get( request.conversation_id );
+        const message = conversation === undefined ? undefined : conversation.messages[ request.message ];
+
+        if ( message === undefined || message.role !== 'assistant' )
+        {
+            ignore( request );
+
+            return;
+        }
+
+        message.kept = request.keep === false ? null : new Date( options.now() ).toISOString();
+
+        if ( conversation.id === session.conversationId )
+            session.history = conversation.messages.slice();
+
+        emitConversations();
     }
 
     /** What the person took back of what Mila could reach (AssistantInterface.md 4.12). */

@@ -19,6 +19,7 @@ import { createNewProjectView } from './views/new-project.js';
 import { createDevelopmentView } from './views/development.js';
 import { createLogView } from './views/log.js';
 import { createPlanView } from './views/plan.js';
+import { createMadeView } from './views/made.js';
 
 const narrowQuery = window.matchMedia( '(max-width: 899.98px)' );
 
@@ -282,6 +283,32 @@ function linkConfirmed( url )
     transport.send( { type: 'conversation.link_opened', url } );
 }
 
+/**
+ * What was made, in its drawer (AssistantInterface.md 4.9): a file named by the chat that wrote it and its path, or a
+ * reply kept, by its chat and its place among the chat's messages.
+ */
+function openCreation( conversationId, made )
+{
+    const request = { type: 'creation.open', conversation_id: conversationId };
+
+    if ( typeof made.path === 'string' )
+        request.path = made.path;
+    else
+        request.message = made.message;
+
+    send( request );
+    changeSurface( { sidebarOverlay: false } );
+}
+
+/** A reply kept as made, or let go; it is kept with its chat, and no file is written anywhere (8). */
+function keepReply( message, keep )
+{
+    if ( state.conversationId === null || !Number.isInteger( message ) )
+        return;
+
+    send( { type: 'creation.keep', conversation_id: state.conversationId, message, keep } );
+}
+
 /** A shortcut's name in the keys of the computer the window runs on. */
 function shortcutLabel( key )
 {
@@ -311,6 +338,8 @@ const actions = {
     decideTool,
     chooseFolder,
     linkConfirmed,
+    openCreation,
+    keepReply,
     shortcutLabel,
     transmit: ( message ) => transport.send( message ),
     pathForFile: ( file ) => transport.pathForFile( file ),
@@ -343,6 +372,7 @@ const newProjectSheet = createNewProjectView( document.getElementById( 'project-
 const development = createDevelopmentView( sidebar.development, transport.development, composer );
 const log = createLogView( logElement, actions );
 const plan = createPlanView( planElement );
+const made = createMadeView( document.getElementById( 'made-drawer' ), actions );
 
 /**
  * What the pane shows: the first-run setup, which has the window to itself; the screen asking for a model, in the
@@ -415,6 +445,7 @@ function render()
     settings.render( state, surface );
     log.render( state, surface );
     plan.render( state );
+    made.render( state );
 
     // A moved transcript starts again at its latest turn.
     if ( moved )
@@ -485,8 +516,8 @@ function onKeyDown( event )
     if ( event.key !== 'Escape' )
         return;
 
-    // Search, the licence, About, a link's sheet and New project are dialogs, which Esc closes itself.
-    if ( search.isOpen() || license.isOpen() || about.isOpen() || linkSheet.isOpen() || newProjectSheet.isOpen() )
+    // Search, the licence, About, a link's sheet, New project and the Made drawer are dialogs, which Esc closes itself.
+    if ( search.isOpen() || license.isOpen() || about.isOpen() || linkSheet.isOpen() || newProjectSheet.isOpen() || made.isOpen() )
         return;
 
     // Settings is over everything, so Esc closes it before it stops a reply.

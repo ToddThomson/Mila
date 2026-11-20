@@ -1411,6 +1411,106 @@ kbd {
 
 .link-note { margin: 12px 0 0; color: var(--muted); font-size: 13px; }
 
+/* The Made drawer (AssistantInterface.md 4.9): over the pane from the right, the full height of the window. */
+.made-drawer {
+  box-sizing: border-box;
+  width: min(520px, 100vw);
+  max-width: 100vw;
+  height: 100vh;
+  max-height: 100vh;
+  margin: 0 0 0 auto;
+  padding: 18px 22px 24px;
+  border: 0;
+  border-left: 1px solid var(--rule);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+  overflow-y: auto;
+}
+
+.made-drawer[open] { animation: made-in .18s ease-out; }
+
+.made-drawer::backdrop { background: var(--scrim); }
+
+@keyframes made-in { from { transform: translateX(24px); opacity: .6; } to { transform: none; opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) { .made-drawer[open] { animation: none; } }
+
+.made-head { display: flex; align-items: flex-start; gap: 12px; }
+
+.made-head-words { flex: 1; min-width: 0; }
+
+.made-title { margin: 2px 0 0; font-size: 18px; font-weight: 650; overflow-wrap: anywhere; }
+
+.made-path { margin-top: 4px; color: var(--faint-text); font: 12px var(--mono); overflow-wrap: anywhere; }
+
+.made-disk {
+  margin: 14px 0 0;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--attention) 35%, var(--rule));
+  border-radius: 8px;
+  background: var(--attention-soft);
+  color: var(--attention);
+  font-size: 13px;
+}
+
+.made-contents {
+  max-height: 46vh;
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--faint);
+  overflow: auto;
+  font-size: 14px;
+}
+
+.made-contents.empty { color: var(--faint-text); font-size: 13px; }
+
+.made-text { margin: 0; font: 12.5px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.made-heading { margin: 20px 0 8px; color: var(--faint-text); font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+
+.made-facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; font-size: 13.5px; }
+
+.made-facts dt { color: var(--faint-text); }
+
+.made-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
+.made-list { margin: 0; padding: 0; list-style: none; font-size: 13.5px; }
+
+.made-list li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid var(--rule); }
+
+.made-list li:first-child { border-top: 0; }
+
+.made-list li > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+
+.made-list li.empty { color: var(--faint-text); }
+
+.made-when { flex: none; color: var(--faint-text); font-size: 12px; white-space: nowrap; }
+
+.made-note { margin: 10px 0 0; color: var(--muted); font-size: 13px; }
+
+.row-sub.made-changed { color: var(--attention); }
+
+/* Keep under a reply, and where a file a call wrote came from. */
+.keep-reply {
+  padding: 3px 9px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.keep-reply:hover { background: var(--hover); }
+
+.keep-reply[aria-pressed="true"] { border-color: color-mix(in srgb, var(--accent-2) 45%, var(--rule)); color: var(--accent-2); }
+
+.tool-made { display: block; margin: -2px 12px 8px 37px; font-size: 12.5px; }
+
+.turn.assistant.streaming .tool-made { display: none; }
+
 /* What Mila can reach (AssistantInterface.md 4.12) */
 .reach-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--rule); }
 

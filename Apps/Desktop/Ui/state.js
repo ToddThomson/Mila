@@ -41,7 +41,9 @@ export function createInitialState()
         barOwned: true,
         // The conversation risen over the pane above the bar (5.1).
         risen: false,
-        about: null
+        about: null,
+        // The *Made* drawer (4.9): what was asked for, the session's answer, and why there is none.
+        creation: null
     };
 }
 
@@ -86,6 +88,9 @@ export function reduce( state, message )
 
         case 'conversation.loaded':
             return reduceConversationLoaded( state, message );
+
+        case 'creation.loaded':
+            return state.creation === null ? state : { ...state, creation: { ...state.creation, loaded: message, problem: null } };
 
         case 'turn.begin':
             return reduceTurnBegin( state, message );
@@ -152,6 +157,13 @@ export function reduce( state, message )
 
         case 'activity.open':
             return { ...state, eventsPaging: message.before !== null && message.before !== undefined };
+
+        case 'creation.open':
+            return { ...state, creation: { request: message, loaded: null, problem: null } };
+
+        // The page's alone: the drawer closed.
+        case 'creation.close':
+            return { ...state, creation: null };
 
         // The page's alone, never sent: where the person goes, and the conversation risen or lowered over it.
         case 'place.open':
@@ -315,6 +327,10 @@ function reduceError( state, message )
     // A refused acceptance is said on the licence's pane, and the person is back on it.
     if ( message.during === 'license' )
         return { ...state, licenseError: message.text, setupStep: 'license' };
+
+    // A drawer still waiting has its answer: what it asked for is no longer there.
+    if ( state.creation !== null && state.creation.loaded === null && state.creation.problem === null )
+        return { ...state, creation: { ...state.creation, problem: message.text } };
 
     const entry = { kind: 'error', text: message.text, during: message.during };
     const aboutModels = message.during === 'load' || message.during === 'install' || message.during === 'models';
@@ -582,7 +598,10 @@ function reduceTurnEnd( turn, message )
 {
     const blocks = turn.blocks.map( markNotRun );
 
-    return { ...turn, blocks, streaming: false, finish: message.finish, answer: message.answer };
+    // The reply is stored as this message of the conversation, which is how it is kept (4.9).
+    const stored = Number.isInteger( message.message ) ? message.message : null;
+
+    return { ...turn, blocks, streaming: false, finish: message.finish, answer: message.answer, message: stored };
 }
 
 function reduceConversationLoaded( state, message )
@@ -590,7 +609,7 @@ function reduceConversationLoaded( state, message )
     let entries = [];
     let number = state.nextEntryNumber;
 
-    for ( const stored of message.messages )
+    for ( const [ position, stored ] of message.messages.entries() )
     {
         if ( stored.role === 'tool' )
             continue;
@@ -607,7 +626,7 @@ function reduceConversationLoaded( state, message )
             continue;
         }
 
-        const assistant = storedAssistantTurn( identifier, stored );
+        const assistant = { ...storedAssistantTurn( identifier, stored ), message: position };
         entries = [ ...entries, assistant ];
     }
 
@@ -953,6 +972,49 @@ function planStopped( item )
     return Boolean( item.progress ) && item.progress.current !== null;
 }
 
+function filesOf( item )
+{
+    return Array.isArray( item.wrote ) ? item.wrote : [];
+}
+
+function keptOf( item )
+{
+    return Array.isArray( item.kept ) ? item.kept : [];
+}
+
+/**
+ * What a chat made (4.9, 8): each file it wrote, and each reply the person kept, the most recent first. A file is
+ * named by its chat and its path, since two chats may write the same name in different folders.
+ */
+export function madeIn( item )
+{
+    const files = filesOf( item ).map( ( file ) => ( { kind: 'file', path: file.path, tool: file.tool, time: file.time ?? null,
+        disk: file.disk ?? null, item } ) );
+    const replies = keptOf( item ).map( ( reply ) => ( { kind: 'reply', message: reply.message, time: reply.time ?? null,
+        start: reply.start ?? null, item } ) );
+    const made = [ ...files, ...replies ];
+    const when = ( entry ) => entry.time ?? item.updated ?? '';
+
+    return made.sort( ( left, right ) => ( when( left ) < when( right ) ? 1 : when( left ) > when( right ) ? -1 : 0 ) );
+}
+
+/** What a project's chats made, the most recent first. */
+export function madeInProject( state, projectId )
+{
+    const made = projectChats( state, projectId ).flatMap( madeIn );
+    const when = ( entry ) => entry.time ?? entry.item.updated ?? '';
+
+    return made.sort( ( left, right ) => ( when( left ) < when( right ) ? 1 : when( left ) > when( right ) ? -1 : 0 ) );
+}
+
+/** Whether the open chat's reply, stored as message @p message, is kept. */
+export function isKept( state, message )
+{
+    const chat = currentChat( state );
+
+    return chat !== null && keptOf( chat ).some( ( reply ) => reply.message === message );
+}
+
 /**
  * What needs the person (4.3): a plan stopped short of its end, and a reply that ended before it finished, newest
  * first. The chat a reply is under way in needs nothing yet.
@@ -975,6 +1037,26 @@ export function needsYou( state )
 }
 
 /**
+ * What Mila noticed (4.3): each file it wrote that changed on disk since its last write, newest chat first. It is shown
+ * beside what needs the person and waits on nobody, so it turns no project amber.
+ */
+export function changedOnDisk( state )
+{
+    const rows = [];
+
+    for ( const item of chatsNewestFirst( state ) )
+    {
+        for ( const file of filesOf( item ) )
+        {
+            if ( file.disk === 'changed' )
+                rows.push( { kind: 'changed', item, file } );
+        }
+    }
+
+    return rows;
+}
+
+/**
  * The workspace overview (4.3): how many chats there are and the newest, what is waiting on the person, the most
  * recent projects, and the most recent chats in no project.
  */
@@ -989,6 +1071,7 @@ export function workspaceOverview( state )
         looseCount: loose.length,
         newest: chats.length > 0 ? chats[ 0 ] : null,
         waiting: needsYou( state ),
+        noticed: changedOnDisk( state ),
         projects,
         activeCount: projects.filter( ( summary ) => summary.state === 'active' ).length,
         waitingProjects: projects.filter( ( summary ) => summary.state === 'waiting' ),
@@ -1113,7 +1196,7 @@ export function projectSummaries( state, now = new Date() )
         const events = projectEvents( state, project.id );
         const changes = [ project.updated, ...chats.map( ( item ) => item.updated ) ].filter( Boolean );
         const updated = changes.reduce( ( latest, time ) => ( time > latest ? time : latest ), project.created ?? '' );
-        const made = chats.reduce( ( total, item ) => total + ( Array.isArray( item.wrote ) ? item.wrote.length : 0 ), 0 );
+        const made = chats.reduce( ( total, item ) => total + filesOf( item ).length + keptOf( item ).length, 0 );
         const plans = chats.filter( ( item ) => Boolean( item.progress ) ).length;
 
         return {
@@ -1238,7 +1321,7 @@ export function searchResults( state, query )
                     continue;
 
                 seen.add( key );
-                results.push( { kind: 'file', path: file.path, item } );
+                results.push( { kind: 'file', path: file.path, disk: file.disk ?? null, item } );
             }
         }
     }
@@ -1292,9 +1375,10 @@ export function reachOverview( state )
 }
 
 /**
- * Activity (4.8), from what the store says of each chat today: when it was started, what left the computer from it,
- * and the files Mila wrote in it and how far its plan came, both as of the chat's last change, since the store keeps no
- * time for either. Newest first, by the viewer's local day; `kind` keeps one kind, or `'all'`.
+ * Activity (4.8), from what the store says of each chat: when it was started, what left the computer from it, each
+ * file Mila wrote at its last write and each reply the person kept, and how far its plan came as of the chat's last
+ * change, since the store keeps no time for that. Newest first, by the viewer's local day; `kind` keeps one kind, or
+ * `'all'`.
  */
 export function activityDays( state, kind )
 {
@@ -1306,8 +1390,20 @@ export function activityDays( state, kind )
 
         events.push( { kind: 'chat', who: 'you', time: started, item } );
 
-        if ( Array.isArray( item.wrote ) && item.wrote.length > 0 )
-            events.push( { kind: 'file', who: 'mila', time: item.updated, item } );
+        // A file written before calls kept a time is shown with the others like it, at the chat's last change.
+        const untimed = filesOf( item ).filter( ( file ) => typeof file.time !== 'string' );
+
+        if ( untimed.length > 0 )
+            events.push( { kind: 'file', who: 'mila', time: item.updated, item, files: untimed } );
+
+        for ( const file of filesOf( item ) )
+        {
+            if ( typeof file.time === 'string' )
+                events.push( { kind: 'file', who: 'mila', time: file.time, item, files: [ file ], file } );
+        }
+
+        for ( const reply of keptOf( item ) )
+            events.push( { kind: 'file', who: 'you', time: reply.time ?? item.updated, item, reply } );
 
         if ( item.progress )
             events.push( { kind: 'plan', who: 'mila', time: item.updated, item } );

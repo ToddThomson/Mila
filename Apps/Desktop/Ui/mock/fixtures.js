@@ -157,12 +157,145 @@ export function summarizeConversation( conversation )
                 continue;
 
             const path = JSON.parse( call.arguments ).path;
+
+            // The disk is the mock's to say: a seeded call names how its file stands now.
+            const disk = call.mock_disk ?? ( call.written ? 'same' : null );
+
             wrote = wrote.filter( ( file ) => file.path !== path );
-            wrote.push( { path, tool: call.name } );
+            wrote.push( { path, tool: call.name, time: call.time ?? null, disk } );
         }
     }
 
-    return { progress, finish, reply_start: replyStart, wrote };
+    const kept = [];
+
+    messages.forEach( ( message, index ) =>
+    {
+        if ( message.role === 'assistant' && typeof message.kept === 'string' )
+        {
+            const start = typeof message.content === 'string' ? message.content.replace( /\s+/g, ' ' ).trim().slice( 0, 160 ) : '';
+
+            kept.push( { message: index, time: message.kept, start: start.length > 0 ? start : null } );
+        }
+    } );
+
+    return { progress, finish, reply_start: replyStart, wrote, kept };
+}
+
+const notReads = [ 'write_file', 'edit_file', 'propose_plan', 'update_step', 'request_folder' ];
+
+function readsOf( calls )
+{
+    const reads = calls.filter( ( call ) => typeof call.result === 'string' && !call.is_error && call.decision !== 'deny' && !notReads.includes( call.name ) )
+        .map( ( call ) => ( { tool: call.name, what: call.summary ?? call.name, time: call.time ?? null, exposes: call.exposes ?? null } ) );
+
+    return { read_before: reads.slice( -20 ), read_before_total: reads.length, exposed: reads.some( ( read ) => read.exposes === true ) };
+}
+
+/**
+ * What the session's `creation.loaded` says of a file a chat wrote or a reply kept (Desktop.Creations), or null when the
+ * chat made no such thing; `files` holds the text of each file the mock pretends is on disk, by path.
+ */
+export function describeCreation( conversation, request, files )
+{
+    const messages = Array.isArray( conversation.messages ) ? conversation.messages : [];
+    const chat = { conversation_id: conversation.id, title: conversation.title, project: conversation.project ?? null };
+
+    if ( typeof request.path === 'string' )
+    {
+        const before = [];
+        const writes = [];
+        let disk = null;
+
+        for ( const message of messages )
+        {
+            for ( const call of message.tool_calls ?? [] )
+            {
+                const writesFile = ( call.name === 'write_file' || call.name === 'edit_file' ) && !call.is_error && call.result !== null;
+
+                if ( writesFile && JSON.parse( call.arguments ).path === request.path )
+                {
+                    writes.push( { call_id: call.call_id, tool: call.name, time: call.time ?? null, model: call.model ?? null,
+                        step: call.step ?? null, sha256: call.written ? call.written.sha256 : null } );
+                    disk = call.mock_disk ?? ( call.written ? 'same' : null );
+                }
+                else if ( writes.length === 0 )
+                {
+                    before.push( call );
+                }
+            }
+        }
+
+        if ( writes.length === 0 )
+            return null;
+
+        const folder = conversation.folder ?? null;
+        const location = folder === null ? null : folder + '\\' + request.path.replace( /\//g, '\\' );
+        const text = disk === 'missing' ? null : files[ request.path ] ?? null;
+        const markdown = /\.(md|markdown)$/i.test( request.path );
+
+        return {
+            creation: { kind: 'file', ...chat, path: request.path, location, made: writes[ 0 ], writes, ...readsOf( before ) },
+            content: text,
+            content_kind: text === null ? null : markdown ? 'markdown' : 'text',
+            disk
+        };
+    }
+
+    const reply = messages[ request.message ];
+
+    if ( reply === undefined || reply.role !== 'assistant' || typeof reply.kept !== 'string' )
+        return null;
+
+    const calls = messages.slice( 0, request.message + 1 ).flatMap( ( message ) => message.tool_calls ?? [] );
+
+    return {
+        creation: { kind: 'reply', ...chat, message: request.message, kept: reply.kept, model: reply.model ?? null,
+            text: reply.content, ...readsOf( calls ) },
+        content: null,
+        content_kind: null,
+        disk: null
+    };
+}
+
+/**
+ * Scenario 17's work (AssistantInterface.md phase 8): the calculator chat's files written at known times in a plan's
+ * step after Mila read the tests, one changed on disk since; and the Kyoto chat's reply kept. Returns the files' text,
+ * by path.
+ */
+export function seedMade( conversations, now )
+{
+    const at = ( age ) => new Date( now - age ).toISOString();
+    const calculator = conversations.find( ( conversation ) => conversation.id === 'conversation-6' );
+    const kyoto = conversations.find( ( conversation ) => conversation.id === 'conversation-3' );
+    const record = ( sha256 ) => ( { location: null, sha256, size: 1, modified: 1 } );
+
+    if ( calculator !== undefined )
+    {
+        const reply = calculator.messages.find( ( message ) => message.role === 'assistant' );
+        const read = { call_id: 'call-read', name: 'read_file', summary: 'Reading tests/test_calc.py', arguments: JSON.stringify( { path: 'tests/test_calc.py' } ),
+            decision: 'allow_once', result: 'def test_add(): ...', is_error: false, exposes: true, time: at( 5 * hourMilliseconds + 9 * 60000 ) };
+        const [ parser, notes ] = reply.tool_calls;
+
+        Object.assign( parser, { time: at( 5 * hourMilliseconds + 6 * 60000 ), model: 'gemma-4-12b-it-fp4',
+            step: 'Move the parser cases into their own file', written: record( 'a1' ) } );
+        Object.assign( notes, { time: at( 5 * hourMilliseconds + 2 * 60000 ), model: 'gemma-4-12b-it-fp4',
+            step: 'Move the parser cases into their own file', written: record( 'b2' ), mock_disk: 'changed' } );
+        reply.tool_calls = [ read, parser, notes ];
+        reply.model = 'gemma-4-12b-it-fp4';
+    }
+
+    if ( kyoto !== undefined )
+    {
+        const reply = kyoto.messages.findLast( ( message ) => message.role === 'assistant' );
+
+        reply.kept = at( 2 * dayMilliseconds );
+        reply.model = kyoto.model;
+    }
+
+    return {
+        'tests/test_parser.py': 'from calc import parse\n\n\ndef test_numbers():\n    assert parse( "12" ) == 12\n\n\ndef test_sum():\n    assert parse( "1 + 2" ) == 3\n',
+        'TESTING.md': '# Testing\n\nRun the suite with `pytest`.\n\n- `tests/test_parser.py`: the parser\n- `tests/test_calc.py`: the arithmetic\n\nYou added a note here after Mila wrote it.\n'
+    };
 }
 
 /**

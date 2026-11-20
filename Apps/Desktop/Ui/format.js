@@ -295,6 +295,9 @@ export function attentionLine( row )
         return 'Stopped at step ' + Math.min( step, progress.steps ) + ' of ' + progress.steps + ': ' + progress.current;
     }
 
+    if ( row.kind === 'changed' )
+        return 'Changed on disk after Mila last wrote it, in ' + row.item.title;
+
     const endings = {
         length: 'The last reply was cut short',
         context: 'The conversation ran out of room',
@@ -401,6 +404,18 @@ function movedText( recorded, to, from )
     return 'Moved ' + chat;
 }
 
+/** A line cut at the last word that fits @p most characters, with an ellipsis when anything was cut. */
+function shortLine( line, most )
+{
+    if ( line.length <= most )
+        return line;
+
+    const cut = line.slice( 0, most );
+    const space = cut.lastIndexOf( ' ' );
+
+    return ( space > most / 2 ? cut.slice( 0, space ) : cut ).replace( /[\s,.;:]+$/, '' ) + '…';
+}
+
 /** What an Activity entry says (AssistantInterface.md 4.8). */
 export function activityText( event )
 {
@@ -415,8 +430,11 @@ export function activityText( event )
     if ( event.kind === 'chat' )
         return 'Started a chat: ' + item.title;
 
+    if ( event.kind === 'file' && event.reply !== undefined )
+        return 'Kept a reply' + ( event.reply.start ? ': ' + shortLine( plainLine( event.reply.start ), 80 ) : '' );
+
     if ( event.kind === 'file' )
-        return 'Wrote ' + filesNamed( item.wrote );
+        return ( event.file !== undefined && event.file.tool === 'edit_file' ? 'Changed ' : 'Wrote ' ) + filesNamed( event.files ?? item.wrote );
 
     const progress = item.progress;
 

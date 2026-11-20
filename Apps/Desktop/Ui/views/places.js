@@ -4,11 +4,11 @@
 
 import { element, button, iconButton, clear } from '../dom.js';
 import { workspaceOverview, filteredChats, chatFilters, activityDays, activityKinds, reachOverview, projectOfChat } from '../state.js';
-import { attentionLine, activityText, longDate, dayLabel, clockLabel, toolWord } from '../format.js';
+import { attentionLine, activityText, longDate, dayLabel, clockLabel, toolWord, folderName } from '../format.js';
 import { head, section, chatRow, figure } from './place-parts.js';
 import { renderProjects, renderProject, projectCard } from './projects.js';
 
-const activityFilters = { all: 'Everything', project: 'Projects', chat: 'Chats', file: 'Files', plan: 'Plans', sent: 'Sent from this computer' };
+const activityFilters = { all: 'Everything', project: 'Projects', chat: 'Chats', file: 'Made', plan: 'Plans', sent: 'Sent from this computer' };
 const chatFilterWords = { all: 'All', loose: 'Not in a project', placed: 'In a project' };
 
 // What the person can do about a reply that ended early: one cut short can be finished; one that ran out of room or
@@ -80,6 +80,9 @@ export function createPlacesView( scroller, root, actions )
 
         if ( action === 'finish-reply' )
             actions.openConversation( identifier, finishRequest );
+
+        if ( action === 'open-creation' )
+            actions.openCreation( identifier, target.dataset.path !== undefined ? { path: target.dataset.path } : { message: Number( target.dataset.message ) } );
 
         if ( action === 'show-section' )
             root.querySelector( '#' + target.dataset.section )?.scrollIntoView( { block: 'start' } );
@@ -301,6 +304,9 @@ export function createPlacesView( scroller, root, actions )
 
     function noticeFor( row )
     {
+        if ( row.kind === 'changed' )
+            return changedNotice( row );
+
         const notice = element( 'div', 'notice-card waiting' );
         const actionsRow = element( 'div', 'notice-actions' );
         const item = row.item;
@@ -313,6 +319,23 @@ export function createPlacesView( scroller, root, actions )
         actionsRow.append( act );
         notice.append( element( 'div', 'notice-kind', project === null ? 'Needs you' : 'Needs you · ' + project.name ),
             element( 'div', 'notice-title', item.title ), element( 'div', 'notice-text', attentionLine( row ) ), actionsRow );
+
+        return notice;
+    }
+
+    /** What Mila noticed (4.3): a file it wrote changed on disk since; it opens where the file came from. */
+    function changedNotice( row )
+    {
+        const notice = element( 'div', 'notice-card' );
+        const actionsRow = element( 'div', 'notice-actions' );
+        const act = button( 'button', 'Where it came from', 'open-creation' );
+        const project = projectOfChat( actions.getState(), row.item );
+
+        act.dataset.identifier = row.item.id;
+        act.dataset.path = row.file.path;
+        actionsRow.append( act );
+        notice.append( element( 'div', 'notice-kind', project === null ? 'Mila noticed' : 'Mila noticed · ' + project.name ),
+            element( 'div', 'notice-title', folderName( row.file.path ) ), element( 'div', 'notice-text', attentionLine( row ) ), actionsRow );
 
         return notice;
     }
@@ -363,12 +386,12 @@ export function createPlacesView( scroller, root, actions )
         atGlance.append( glanceOf( overview ) );
         root.append( head( longDate( now ), 'Your Workspace' ), atGlance );
 
-        if ( waiting.length > 0 )
+        if ( waiting.length > 0 || overview.noticed.length > 0 )
         {
-            const needs = section( 'Needs you', 'needs-you', null );
+            const needs = section( waiting.length > 0 ? 'Needs you' : 'Mila noticed', 'needs-you', null );
             const notices = element( 'div', 'notices' );
 
-            notices.append( ...waiting.map( noticeFor ) );
+            notices.append( ...waiting.map( noticeFor ), ...overview.noticed.map( noticeFor ) );
             needs.append( notices );
             root.append( needs );
         }
@@ -596,6 +619,20 @@ export function createPlacesView( scroller, root, actions )
      */
     function eventOpener( state, event )
     {
+        // One file, or a reply kept, opens where it came from; files written before calls had a time open their chat.
+        if ( event.kind === 'file' && ( event.file !== undefined || event.reply !== undefined ) )
+        {
+            const open = button( 'link', activityText( event ), 'open-creation' );
+            open.dataset.identifier = event.item.id;
+
+            if ( event.file !== undefined )
+                open.dataset.path = event.file.path;
+            else
+                open.dataset.message = String( event.reply.message );
+
+            return open;
+        }
+
         if ( event.kind !== 'project' )
         {
             const open = button( 'link', activityText( event ), 'open-conversation' );
@@ -630,6 +667,9 @@ export function createPlacesView( scroller, root, actions )
 
         if ( event.kind === 'sent' )
             return ( event.who === 'mila' ? 'Mila' : 'You' ) + ' · in ' + event.item.title + ' · to ' + event.sent.where;
+
+        if ( event.kind === 'file' && event.reply !== undefined )
+            return 'You · in ' + event.item.title;
 
         return event.who === 'mila' ? 'Mila · in ' + event.item.title : 'You';
     }

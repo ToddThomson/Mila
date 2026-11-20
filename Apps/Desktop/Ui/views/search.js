@@ -84,6 +84,8 @@ export function createSearchView( dialog, actions )
 
         if ( result.kind === 'project' )
             actions.openProject( result.project.id );
+        else if ( result.kind === 'file' )
+            actions.openCreation( result.item.id, { path: result.path } );
         else
             actions.openConversation( result.item.id );
     }

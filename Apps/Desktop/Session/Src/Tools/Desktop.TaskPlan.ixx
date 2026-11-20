@@ -95,6 +95,20 @@ namespace Mila::Desktop
             return steps;
         }
 
+        /// The step in progress, for a file written during it (AssistantInterface.md 4.9); null when none is.
+        [[nodiscard]] nlohmann::json currentStep() const
+        {
+            for ( const Step& step : steps_ )
+            {
+                if ( step.status == "in_progress" )
+                {
+                    return step.text;
+                }
+            }
+
+            return nullptr;
+        }
+
         /// A stored plan, as toJson() wrote it; anything else is no plan.
         void restore( const nlohmann::json& stored )
         {

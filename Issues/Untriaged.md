@@ -10,6 +10,17 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Gemma 4 12B FP4 often sends a file tool's path as `="."`, and some of its calls are not understood at all
+
+`Lib/Src/Models/Gemma` (Gemma's chat protocol, its tool-call reading); `Apps/Desktop/Session` @ 0.21.0-dev+158
+
+Found 2026-11-19 checking `AssistantInterface.md` phase 8 on the real session. Asked to read `notes.txt` and write
+`summary.md` in a project's folder, the model's calls were stored with arguments `{"path":"=\".\""}` and `{"path":"=\"\""}`,
+and two more were refused as `[tool call not understood: <|tool_call>call:list_folder{path:,"."}<tool_call|>]`; the
+turn ended with no file written. The same prompt run again wrote the file with clean calls. Phase 4's run on the same
+model stored `{"path":"=\".\""}` and `{"path":"=\"notes.txt\""}` before recovering. Not
+seen on the Mac's Q4_0 in one run. Whether the model writes this or the reading takes it so is not known.
+
 ## Mila Assistant cannot install a gated model, since it no longer sends a token and has no step to ask for one
 
 `Apps/Desktop/Session/Src/Desktop.Models.ixx` (`installModel`); `Lib/Src/Distribution/Hub/HuggingFaceHub.ixx` (`makeAnonymousModelHub`); `Specifications/Apps/AssistantOnboarding.md` 4.2 @ 0.21.0-dev+154

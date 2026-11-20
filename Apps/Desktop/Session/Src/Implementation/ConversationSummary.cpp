@@ -9,6 +9,7 @@ module Desktop.ConversationSummary;
 
 import std;
 import nlohmann.json;
+import Desktop.Creations;
 
 namespace Mila::Desktop
 {
@@ -160,43 +161,17 @@ namespace Mila::Desktop
             return nullptr;
         }
 
-        /// The path a file tool's call named, or nothing when the call failed, did not run or named none.
-        std::optional<std::string> writtenPath( const nlohmann::json& call )
-        {
-            if ( !call.is_object() )
-            {
-                return std::nullopt;
-            }
-
-            const std::string name = call.value( "name", std::string{} );
-            const bool failed = call.value( "is_error", false );
-            const bool ran = call.value( "result", nlohmann::json( nullptr ) ).is_string();
-
-            if ( ( name != "write_file" && name != "edit_file" ) || failed || !ran )
-            {
-                return std::nullopt;
-            }
-
-            const nlohmann::json arguments_text = call.value( "arguments", nlohmann::json( nullptr ) );
-
-            if ( !arguments_text.is_string() )
-            {
-                return std::nullopt;
-            }
-
-            const nlohmann::json arguments = nlohmann::json::parse( arguments_text.get<std::string>(), nullptr, false );
-
-            if ( !arguments.is_object() || !arguments.value( "path", nlohmann::json( nullptr ) ).is_string() )
-            {
-                return std::nullopt;
-            }
-
-            return arguments[ "path" ].get<std::string>();
-        }
-
         nlohmann::json filesWritten( const nlohmann::json& messages )
         {
-            std::vector<std::pair<std::string, std::string>> written;
+            struct Written
+            {
+                std::string path;
+                std::string tool;
+                nlohmann::json time;
+                nlohmann::json record;
+            };
+
+            std::vector<Written> written;
 
             for ( const nlohmann::json& message : messages )
             {
@@ -215,8 +190,9 @@ namespace Mila::Desktop
                     }
 
                     // A file written again moves to the end, where the most recent writes are.
-                    std::erase_if( written, [ & ]( const auto& entry ) { return entry.first == *path; } );
-                    written.emplace_back( *path, call[ "name" ].get<std::string>() );
+                    std::erase_if( written, [ & ]( const Written& entry ) { return entry.path == *path; } );
+                    written.push_back( { *path, call[ "name" ].get<std::string>(), call.value( "time", nlohmann::json( nullptr ) ),
+                        call.value( "written", nlohmann::json( nullptr ) ) } );
                 }
             }
 
@@ -225,10 +201,34 @@ namespace Mila::Desktop
 
             for ( std::size_t index = first; index < written.size(); ++index )
             {
-                files.push_back( { { "path", written[ index ].first }, { "tool", written[ index ].second } } );
+                files.push_back( { { "path", written[ index ].path }, { "tool", written[ index ].tool },
+                    { "time", written[ index ].time }, { "written", written[ index ].record } } );
             }
 
             return files;
+        }
+
+        nlohmann::json repliesKept( const nlohmann::json& messages )
+        {
+            nlohmann::json kept = nlohmann::json::array();
+
+            for ( std::size_t index = 0; index < messages.size(); ++index )
+            {
+                const nlohmann::json& message = messages[ index ];
+
+                if ( !message.is_object() || message.value( "role", std::string{} ) != "assistant"
+                    || !message.value( "kept", nlohmann::json( nullptr ) ).is_string() )
+                {
+                    continue;
+                }
+
+                const std::string line = flattened( message.value( "content", std::string{} ), kReplyStartBytes );
+
+                kept.push_back( { { "message", index }, { "time", message[ "kept" ] },
+                    { "start", line.empty() ? nlohmann::json( nullptr ) : nlohmann::json( line ) } } );
+            }
+
+            return kept;
         }
 
         /// The host of a web address, for saying where something went; the address itself when it has none.
@@ -358,6 +358,6 @@ namespace Mila::Desktop
 
         return { { "progress", planProgress( plan ) }, { "finish", lastFinish( messages ) },
             { "reply_start", replyStart( messages ) }, { "wrote", filesWritten( messages ) },
-            { "sent", whatWasSent( conversation, messages ) } };
+            { "sent", whatWasSent( conversation, messages ) }, { "kept", repliesKept( messages ) } };
     }
 }

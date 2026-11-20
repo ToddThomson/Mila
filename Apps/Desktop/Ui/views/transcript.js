@@ -4,7 +4,7 @@
 
 import { element, button, iconButton, setIcon, clear, previewOrIcon } from '../dom.js';
 import { renderMarkdown } from '../markdown.js';
-import { summarizeTurn, isBusy, emptyScreen, firstRunStep, suggestedModel, setupPane } from '../state.js';
+import { summarizeTurn, isBusy, emptyScreen, firstRunStep, suggestedModel, setupPane, isKept } from '../state.js';
 import { thoughtLabel, statsLine, finishNotice, readableJson, formatBytes, modelAbilities, fitLine, modelTitle, namedTitle,
     licenseParagraphs, approvalWords, folderName } from '../format.js';
 
@@ -50,6 +50,12 @@ export function createTranscriptView( scroller, container, actions )
 
         if ( action === 'copy-reply' )
             copyReply( target );
+
+        if ( action === 'keep-reply' )
+            actions.keepReply( Number( target.dataset.message ), target.dataset.kept !== 'true' );
+
+        if ( action === 'open-made-file' )
+            actions.openCreation( actions.getState().conversationId, { path: target.dataset.path } );
 
         if ( action === 'tool-decision' )
             actions.decideTool( target.dataset.turn, target.dataset.call, target.dataset.decision, target.dataset.folder );
@@ -145,7 +151,8 @@ export function createTranscriptView( scroller, container, actions )
         {
             seen.add( entry.id );
 
-            const record = renderEntry( entry, surface );
+            const kept = entry.kind === 'assistant' && Number.isInteger( entry.message ) && isKept( state, entry.message );
+            const record = renderEntry( entry, surface, kept );
             children.push( record.element );
         }
 
@@ -548,7 +555,7 @@ export function createTranscriptView( scroller, container, actions )
         target.append( all );
     }
 
-    function renderEntry( entry, surface )
+    function renderEntry( entry, surface, kept )
     {
         const existing = records.get( entry.id );
 
@@ -566,6 +573,7 @@ export function createTranscriptView( scroller, container, actions )
 
         const record = existing !== undefined ? existing : createAssistantRecord( entry );
         updateAssistant( record, entry, surface );
+        updateKeep( record, entry, kept );
         records.set( entry.id, record );
 
         return record;
@@ -645,13 +653,35 @@ function createAssistantRecord( entry )
     const notice = element( 'p', 'finish-notice' );
     const footer = element( 'div', 'turn-footer' );
     const copy = iconButton( 'quiet-icon copy-reply', 'copy', 'Copy reply', 'copy-reply' );
+    const keep = button( 'keep-reply', 'Keep', 'keep-reply' );
     const stats = element( 'span', 'stats' );
 
     copy.dataset.identifier = entry.id;
-    footer.append( copy, stats );
+    keep.hidden = true;
+    footer.append( copy, keep, stats );
     turn.append( body, notice, footer );
 
-    return { entry: null, element: turn, body, notice, footer, stats, blocks: new Map() };
+    return { entry: null, element: turn, body, notice, footer, keep, stats, blocks: new Map() };
+}
+
+/**
+ * *Keep* under a finished reply (4.9): offered once the reply is stored, which gives it its place among the chat's
+ * messages, and pressed again to let it go.
+ */
+function updateKeep( record, entry, kept )
+{
+    const offered = !entry.streaming && Number.isInteger( entry.message ) && typeof entry.answer === 'string' && entry.answer.trim().length > 0;
+
+    record.keep.hidden = !offered;
+
+    if ( !offered )
+        return;
+
+    record.keep.dataset.message = String( entry.message );
+    record.keep.dataset.kept = kept ? 'true' : 'false';
+    record.keep.textContent = kept ? 'Kept' : 'Keep';
+    record.keep.setAttribute( 'aria-pressed', kept ? 'true' : 'false' );
+    record.keep.title = kept ? 'Kept with what Mila made. Press to let it go.' : 'Keep this reply with what Mila made';
 }
 
 function updateAssistant( record, entry, surface )
@@ -820,15 +850,17 @@ function createToolRecord( block )
     const resultBody = element( 'pre', 'tool-text' );
 
     const approval = element( 'div', 'tool-approval' );
+    const made = button( 'link tool-made', 'Where it came from', 'open-made-file' );
 
+    made.hidden = true;
     toggle.dataset.identifier = block.id;
     setIcon( icon, 'tool' );
     setIcon( chevron, 'chevronRight' );
     toggle.append( icon, summary, name, status, chevron );
     detail.append( argumentsLabel, argumentsBody, resultLabel, resultBody );
-    card.append( toggle, detail, approval );
+    card.append( toggle, made, detail, approval );
 
-    return { element: card, toggle, status, detail, argumentsBody, resultBody, approval, choices: null };
+    return { element: card, toggle, status, detail, argumentsBody, resultBody, approval, made, choices: null };
 }
 
 const choiceLabels = {
@@ -883,7 +915,37 @@ function updateTool( built, block, expanded )
     built.detail.hidden = !open;
     built.argumentsBody.textContent = readableJson( block.arguments );
     built.resultBody.textContent = toolResultText( block );
+    updateMadeLink( built, block );
     updateApproval( built, block );
+}
+
+/** A file a call wrote opens its drawer (4.9) once the reply is stored, which the turn's own class shows. */
+function updateMadeLink( built, block )
+{
+    const writes = block.name === 'write_file' || block.name === 'edit_file';
+    const wrote = writes && typeof block.result === 'string' && !block.isError && block.decision !== 'deny';
+    let path = null;
+
+    if ( wrote )
+    {
+        try
+        {
+            const parsed = JSON.parse( block.arguments );
+            path = typeof parsed.path === 'string' ? parsed.path : null;
+        }
+        catch
+        {
+            path = null;
+        }
+    }
+
+    built.made.hidden = path === null;
+
+    if ( path !== null )
+    {
+        built.made.dataset.path = path;
+        built.made.setAttribute( 'aria-label', 'Where ' + folderName( path ) + ' came from' );
+    }
 }
 
 function updateApproval( built, block )

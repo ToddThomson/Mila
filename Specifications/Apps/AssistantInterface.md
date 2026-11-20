@@ -1,7 +1,7 @@
 # Mila Assistant Interface
 
 **Status:** design, round 3 (2026-11-18), phases 1 to 3 built (`0.21.0-dev+147`, `+149`, `+150`), T1 (`+155`), T2
-(`+156`, `+157`) and 4 (`+158`). Round 1, 2026-11-16,
+(`+156`, `+157`), 4 (`+158`) and 8 (`+159`). Round 1, 2026-11-16,
 set out projects, processes and creations around a home screen and a sidebar of conversations. Round 2
 is the layout Todd reached through a working prototype the same afternoon, iterated with him on the Mac: a sidebar,
 a workspace overview, projects that open on their summary, chats that need no project, and Mila as a bar at the foot
@@ -22,6 +22,17 @@ given the workspace folder, which on macOS moves to `~/Library/Application Suppo
 by each of its chats from the start, several are chosen among, and the project's access is where a chat starts (10);
 instructions are stored and not shown until phase 7 (8); and the session's and the store's bodies move to implementation
 units before any of it is built (12).
+
+**Phase 8's decisions** (Todd, 2026-11-19, "Please continue", taking Claude's lean on each): what was made is read from
+each chat's stored calls, with no `creations.json`, so a chat moved between projects takes what it made with it and a chat
+in no project has its own (8); each write's call keeps the file's SHA-256, size and modified time after the write, the
+model and the plan step then in progress, and a chat stored before has these as *not recorded*; a file is compared with
+its last write by size and time first and hashed only when those differ, when its drawer opens and when the overview is
+drawn; *what Mila read first* is the calls that read before that file's first write in the same chat, each with whether
+it read from outside; the drawer shows a text file's contents up to a limit, markdown drawn as markdown, and the page
+names a creation by its chat and path, never by a path alone; a kept reply is kept with its chat in the workspace, and
+nothing is written into the person's folders; and *Made* opens from a project's figure and section, Search, a file
+written in a chat's transcript, and Activity, where a file written is shown at its call's time.
 
 The prototype is beside this document, `AssistantInterface.prototype.html`: one page, example work, and replies
 canned by keyword, since nothing runs a model behind it. It is the reference for how a screen looks and moves; this
@@ -106,7 +117,10 @@ Seven rules follow, and every section below is held to them:
 - **Projects gather chats** (phase 4, `0.21.0-dev+158`): each a record with a name, a purpose, folders and its history,
   in the workspace's own folder beside the conversations; a chat names its project by one field. A project's folder is
   held by its chats at the project's access (section 10).
-- **Nothing else outlives a conversation**: no instructions, files or findings shared between chats yet.
+- **What was made is read from each chat's stored calls** (phase 8, `0.21.0-dev+159`): every file a chat wrote, with the
+  file's digest after each write, the model and plan step, and what Mila read first; and each reply the person kept. A
+  project's *Made* is its chats'.
+- **Nothing else outlives a conversation**: no instructions or findings shared between chats yet.
 - **The library's task** (`../Agents/AgentTasks.md`, agreed 2026-11-03, not built) gives an agent a task carried
   across responses, a plan, a versioned trace of every step, and a task folder holding them.
 - **The session holds one conversation's state at a time** (one stream, `../MilaDesktop.md` 4, *Streams*).
@@ -232,6 +246,11 @@ What the window opens on. Top to bottom, a section left out when it has nothing:
 Not on it, by Todd's trim the same afternoon: the files made (*Recently made*), and any buttons of suggestions beside
 the Mila bar. Phase 1's panels give way to this at phase 2: their data stays, their layout goes.
 
+*As built at phase 8:* a file changed on disk since Mila last wrote it is a card of its own, *Mila noticed*, after
+what needs the person, with *Where it came from*; the section is headed *Mila noticed* when it holds nothing else. It
+waits on nobody, so it is not counted in *Waiting on you* and turns no project amber. It stays while the file differs
+from Mila's last write: nothing yet lets the person say a change was theirs and set it aside (section 11, question I).
+
 ### 4.4 All projects
 
 Every project: a search, a filter (*All*, *Waiting on you*, *Active*, *Quiet*), a sort (most recent, by name), and one
@@ -256,6 +275,10 @@ with phases 10 and 7. Then *Folders* (each with *Read* or *Read and change* and 
 the window's picker), *Chats* (each with the chat menu, *Move to…* among it), and *History*. The column beside the
 contents is not built. *All chats* has the menu's *Move to…* too, listing each project and *No project*.
 
+*As built at phase 8:* *Made* counts the files its chats wrote and the replies kept in them, and opens a section of
+them between *Chats* and *History*, the most recent first: each a file's name, or how a kept reply begins, with its chat,
+*Changed on disk since* or *No longer on disk* where that is so, and when; each opens its drawer.
+
 ### 4.6 All chats
 
 Every chat, newest first: a search, a filter (*All*, *Not in a project*, *In a project*) when the workspace has
@@ -279,6 +302,10 @@ wrote and how far its plan came, each at the chat's last change, since the store
 filters are *Everything*, *Chats*, *Files* and *Plans*. Its own events, with their times, come with the store's
 `activity.jsonl` and `history.jsonl` at phase 4.
 
+*As built at phase 8:* the filter *Files* is *Made*. Each file Mila wrote is an entry at its last write's time
+(*Wrote* or *Changed*, opening its drawer), and each reply kept is the person's entry (*Kept a reply* and how it
+begins). Files written before calls kept a time are one entry at their chat's last change, as before.
+
 **Activity is also the trace of what left the computer** (*proposed*, section 5.7). A filter, *Sent from this computer*,
 lists each page read, search, link opened and network command: exactly what went, where, when, from which chat, and who
 allowed it.
@@ -290,6 +317,14 @@ Over the pane, from the right, closed by Esc or outside it:
 - **Made**: the file's name and path, its contents where the page can show them, *Changed on disk after Mila last wrote
   it* when it did, and *Where it came from*: for which project, in which chat, during which plan step, what Mila read
   first, by Mila with which model, and every write.
+  *As built at phase 8:* the drawer is a dialog the height of the window, 520 px wide or the window's width. It opens
+  from the overview's *Mila noticed* card, a project's *Made*, Search, Activity, and *Where it came from* under each
+  file a call wrote in a chat's transcript, shown once the reply is stored. A text file up to 256 KB is shown, markdown
+  as markdown; anything else is named only. *Where it came from* gives the project, the chat (opening it), the plan step
+  in progress at the first write, the model, when it was made, the latest 20 calls that read before the first write
+  (and how many came before those), *You did not write what Mila read here, and it may have shaped what Mila wrote*
+  when one of them exposed the chat (5.6), and every write. A kept reply shows its text and what Mila read up to it.
+  *Keep* is under each stored reply in a transcript, and *Kept* pressed again lets it go.
 - **A plan**: its goal, its steps and their state, its runs and how each ended, *Continue this run* and *Run again*.
 - **Settings**, until the app's Settings window takes the place (`../MilaDesktop.md` 3.7).
 
@@ -597,8 +632,6 @@ Mila/
         understanding.json the current note and any waiting, each a record
         history.jsonl      one event a line
         processes.json     each plan: id, goal, steps, version, and its runs (conversation id, started, ended, end)
-        creations.json     each creation, a record: kind, path or reply, made by (conversation, call, model, time),
-                           each write (call, time, SHA-256 of what was written), what was read before it
         findings.json      each finding, a record (phase 10)
     activity.jsonl         the workspace's events not in a project: chats started, suggestions declined
 ```
@@ -673,11 +706,12 @@ which can ask for the key as Mila does.
 - **A file in the person's folder is never touched.** The question before deleting says so, and the file's record goes.
 
 - **A chat is moved by one field**, never by moving its file.
-- **A creation is indexed when a file tool writes it** (`write_file`, `edit_file`), from the call's arguments and
-  result, with a digest of the file after the write. A file changed outside Mila is noticed by its digest when its
-  drawer opens or the overview is drawn; Mila never watches the disk.
-- **A reply the person keeps** is a creation stored in the project's folder as a markdown file, or in the project's
-  store when it has no folder.
+- **A creation is read from the call that wrote it** (`write_file`, `edit_file`; phase 8's decisions, no
+  `creations.json`): the stored call keeps `written` (`location`, `sha256`, `size`, `modified`, the file as the write left
+  it), `model` and `step`. A file changed outside Mila is noticed when its drawer opens or the conversations are listed,
+  by size and time and then its digest; Mila never watches the disk.
+- **A reply the person keeps** stays with its chat: the stored message gains `kept`, the time. Nothing is written into
+  the person's folders.
 - **Ids** are made as the conversation store makes them, `project-<UTC time>-<hex>`, and are folder names only when made
   of those characters.
 - **Conversations stored before projects** are chats in no project: a missing `project` is null. Nothing is dropped.
@@ -795,6 +829,18 @@ holds the project's folder as the project has it then.
   since the page draws a project from the lists it has; `project.undo`, `suggestion.decide` and `note.decide` (phases 6
   and 7); `creation.*` and `run.*` (phases 8 and 9).
 
+**Built at phase 8:**
+
+- **Stored:** a write's call carries `written` ({`location`, `sha256`, `size`, `modified`}, or null when the file could
+  not be read after it), `model` and `step` (the plan step in progress, or null); an assistant message carries `model`,
+  and `kept` (a time) once the person keeps it.
+- **Session to page:** `conversations.list` items' `wrote` entries gain `time` (the last write's) and `disk` (`"same"`,
+  `"changed"`, `"missing"`, or null), and items gain `kept` ([{`message`, `time`, `start`}]). `turn.end` gains `message`.
+  `creation.loaded` is `creation`, `content`, `content_kind` and `disk`, as `../MilaDesktop.md` 4.1 lists them.
+- **Page to session:** `creation.open` names a creation by `conversation_id` and `path`, or `conversation_id` and
+  `message`, not by an `id`, since a creation has no record of its own; `creation.keep` takes `conversation_id`,
+  `message` and `keep`, the reply being a stored message rather than a turn the session still holds.
+
 ## 11. Questions
 
 ### All decided. A and D to H: Todd, 2026-11-18, "Proceed with your recommendations", taking each lean below
@@ -832,6 +878,13 @@ G. **Does a folder start read-only?** Claude's lean: yes, with changing files as
 
 H. **Does a note from an exposed chat wait for the person?** Claude's lean: yes. Otherwise a hostile page could shape
    every later chat in a project. The cost is one more thing under *Needs you* after research.
+
+### Open
+
+I. **May the person set aside a change on disk?** (Claude, phase 8.) A file Mila wrote and the person then edited stays
+   under *Mila noticed* for as long as it differs from Mila's last write, though the change was theirs. Claude's lean: a
+   *That was me* on the card and in the drawer, stored on the chat as the digest the person accepted, so a later change
+   is noticed again. Not built until Todd decides.
 
 ### Carried, with answers
 
@@ -951,7 +1004,23 @@ The rest, in the proposed order:
   now `~/Library/Application Support/Mila`. The key store's test skipped on both, which needs a keyring the run could
   not unlock (no display in WSL, SSH on the Mac). **Not done:** the window on the real session; Q4_0 on the PC (it has FP4 only); the prototype.
 - **Phase 8. Made and where it came from.** The creations index, digests, the *Made* drawer (4.9), *Keep* under a reply.
-  First because it uses the records and asks nothing new of a model.
+  First because it uses the records and asks nothing new of a model. *Built 2026-11-19 (`0.21.0-dev+159`)*, as sections
+  4.3, 4.5, 4.8, 4.9, 8 and 10 record: `Desktop.Creations` reads a chat's creations from its calls and compares a file
+  with the disk; the page's drawer is `views/made.js`; mock scenario 17 is scenario 16's workspace with files written in
+  a plan's step, one changed since, and a reply kept. Checked on Windows: the session's tests (64, the 9 new ones
+  `Desktop.Creations`'), the page's 130, the session and its tests built in `x64-claude-verify` (the window's code is
+  unchanged); scenario 17 in the window over the mock at 1280x800, 900 and 860 px in light and dark, with every check
+  passing, nothing scrolling sideways and no network request; and the real session over stdio on Gemma 4 12B FP4 in a scratch workspace: a chat
+  in a project read `notes.txt` and wrote `summary.md`; the list said it was the same on disk at its write's time; its
+  drawer named the model, the two reads before it and the file's text as markdown, and the stored digest is the SHA-256
+  of the bytes written; after the file was changed by hand the list and drawer said *changed*; the reply was kept and
+  opened as a reply. The first such run ended with no file, the model sending `path:="."` and calls not understood, as
+  it did in phase 4's run; the second wrote it. macOS: the session and its tests built, 63 passing and the key store's
+  skipped as before, the page's 130, and the same stdio run against the Mac's session on Gemma 4 12B **Q4_0**, with
+  the same results. Linux (WSL, CPU-only, where the session process is not built without a GPU backend): the session's
+  tests, 63 passing and the key store's skipped (no display to unlock a keyring), and the page's 130. **Not done:** the window on the real session; a write during a
+  plan step on a real model (the step is checked by the tests only); setting aside a change on disk the person made
+  (section 11, question I).
 - **Phase 5. Going somewhere, and finding things by asking** (the vision's step 9). `open_place` first, then
   `find_records` over past chats and then a given folder, `turn.went` (5.2); measured before on by default. This is where
   a person first feels the vision: *find the invoice from six months ago*.

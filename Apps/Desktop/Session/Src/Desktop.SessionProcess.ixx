@@ -264,6 +264,13 @@ namespace Mila::Desktop
         /// A link the person opened from this chat, kept with it for Activity (AssistantInterface.md 5.7).
         void recordLinkOpened( const std::string& url );
 
+        /// `creation.loaded` for a file a chat wrote (`conversation_id`, `path`) or a reply kept (`conversation_id`,
+        /// `message`): where it came from, its text where the page can show it, and how it compares with the disk.
+        void openCreation( const nlohmann::json& request );
+
+        /// The person kept a reply as made, or let it go (`keep` false); it stays with its chat (AssistantInterface.md 8).
+        void keepReply( const nlohmann::json& request );
+
         /// The person took back something Mila could reach (AssistantInterface.md 4.12): a chat's folder, or what they
         /// allowed for the open chat. A request waits for any reply being written, so it applies from the next.
         void removeReach( const nlohmann::json& request );

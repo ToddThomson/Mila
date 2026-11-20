@@ -29,6 +29,7 @@ PUBLIC
         "Src/Store/Desktop.StoreFile.ixx"
         "Src/Store/Desktop.WorkspaceFolder.ixx"
         "Src/Desktop.ConversationSummary.ixx"
+        "Src/Desktop.Creations.ixx"
         "Src/Desktop.ExposureRecord.ixx"
         "Src/Tools/Desktop.CommandTool.ixx"
         "Src/Tools/Desktop.TaskPlan.ixx"
@@ -44,6 +45,7 @@ target_sources( mila-session PRIVATE
     "Src/Store/Implementation/EventLog.cpp"
     "Src/Store/Implementation/StoreFile.cpp"
     "Src/Implementation/ConversationSummary.cpp"
+    "Src/Implementation/Creations.cpp"
     "Src/Implementation/ExposureRecord.cpp"
 )
 
