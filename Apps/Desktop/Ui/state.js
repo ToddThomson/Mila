@@ -43,7 +43,11 @@ export function createInitialState()
         risen: false,
         about: null,
         // The *Made* drawer (4.9): what was asked for, the session's answer, and why there is none.
-        creation: null
+        creation: null,
+        // A chat Mila opened by asking (5.2), which opens once the reply that opened it ends.
+        wentToChat: null,
+        // The project the bar's conversation asked Mila to open (5.2), on whose page the bar goes on with it.
+        barWentTo: null
     };
 }
 
@@ -110,6 +114,9 @@ export function reduce( state, message )
         case 'turn.tool_result':
             return updateTurn( state, message.turn_id, reduceToolResult, message );
 
+        case 'turn.went':
+            return reduceTurnWent( state, message );
+
         case 'turn.round_end':
             return updateTurn( state, message.turn_id, reduceRoundEnd, message );
 
@@ -144,10 +151,10 @@ export function reduce( state, message )
 
         // Every new conversation is the bar's: it goes on there wherever the person goes, until another is opened.
         case 'conversation.new':
-            return { ...state, conversationId: null, transcript: [], attachments: [], barOwned: true, risen: false };
+            return { ...state, conversationId: null, transcript: [], attachments: [], barOwned: true, risen: false, barWentTo: null };
 
         case 'conversation.open':
-            return { ...state, place: 'chat', barOwned: false, risen: false };
+            return { ...state, place: 'chat', barOwned: false, risen: false, barWentTo: null };
 
         case 'conversation.delete':
             return reduceConversationDelete( state, message );
@@ -164,6 +171,10 @@ export function reduce( state, message )
         // The page's alone: the drawer closed.
         case 'creation.close':
             return { ...state, creation: null };
+
+        // The page's alone: the chat Mila opened has been asked for, now that the reply that opened it has ended.
+        case 'went.chat_opened':
+            return { ...state, wentToChat: null };
 
         // The page's alone, never sent: where the person goes, and the conversation risen or lowered over it.
         case 'place.open':
@@ -416,7 +427,7 @@ function reduceConversationDelete( state, message )
 
     const place = state.place === 'chat' ? 'chats' : state.place;
 
-    return { ...state, place, conversationId: null, transcript: [], attachments: [], barOwned: true, risen: false };
+    return { ...state, place, conversationId: null, transcript: [], attachments: [], barOwned: true, risen: false, barWentTo: null };
 }
 
 function reduceTurnBegin( state, message )
@@ -513,7 +524,8 @@ function reduceToolCall( turn, message )
         hasRead: null,
         notInYourWords: null,
         decision: null,
-        notRun: false
+        notRun: false,
+        went: null
     };
 
     return { ...turn, blocks: [ ...turn.blocks, block ] };
@@ -536,7 +548,8 @@ function reduceToolApproval( turn, message )
 {
     const change = { choices: message.choices, reaches: message.reaches ?? null, changesFolder: message.changes_folder ?? null,
         hasRead: message.has_read ?? null, notInYourWords: message.not_in_your_words ?? null,
-        projectFolders: Array.isArray( message.folders ) ? message.folders : [] };
+        projectFolders: Array.isArray( message.folders ) ? message.folders : [],
+        places: Array.isArray( message.places ) ? message.places : [] };
 
     return updateToolBlock( turn, message.call_id, change );
 }
@@ -549,6 +562,29 @@ function reduceToolDecision( turn, message )
     const change = { choices: null, decision: message.decision };
 
     return updateToolBlock( turn, message.call_id, change );
+}
+
+/**
+ * Mila took the pane somewhere (AssistantInterface.md 5.2): the call keeps the line saying where, and the pane goes
+ * there, as a click would take it. Asked from the open chat, the chat rises over the place while its reply goes on. A
+ * chat other than the one replying opens once the reply ends, since the session holds one conversation at a time.
+ */
+function reduceTurnWent( state, message )
+{
+    const went = { place: message.place, text: message.text };
+    const marked = updateTurn( state, message.turn_id, ( turn ) => updateToolBlock( turn, message.call_id, { went } ), message );
+    const place = message.place ?? {};
+
+    if ( place.view === 'chat' )
+        return place.id === marked.conversationId ? marked : { ...marked, wentToChat: place.id };
+
+    if ( place.view === 'project' )
+        return reducePlaceOpen( { ...marked, barWentTo: place.id }, { type: 'place.open', place: 'project', project: place.id } );
+
+    if ( !places.includes( place.view ) )
+        return marked;
+
+    return reducePlaceOpen( marked, { type: 'place.open', place: place.view } );
 }
 
 function reduceToolResult( turn, message )
@@ -685,7 +721,8 @@ function storedToolBlock( identifier, call )
         isError: call.is_error,
         choices: null,
         decision: call.decision,
-        notRun: call.result === null
+        notRun: call.result === null,
+        went: call.went ?? null
     };
 }
 
@@ -1446,7 +1483,8 @@ export function activityDays( state, kind )
 /**
  * What the Mila bar does with what is typed (5.1, 5.3): reply in the open chat; elsewhere, go on with the
  * conversation begun from the bar, or begin a new chat when the session holds one opened from a list. On a project's
- * page the bar's conversation is the project's: one begun elsewhere is not continued there.
+ * page the bar's conversation is the project's: one begun elsewhere is not continued there, unless it asked Mila to
+ * open that project (5.2), when the person is still talking to it.
  */
 export function barMode( state )
 {
@@ -1463,7 +1501,7 @@ export function barMode( state )
     if ( state.transcript.length === 0 )
         return sessionProject === here ? 'continue' : 'start';
 
-    return here === null || sessionProject === here ? 'continue' : 'start';
+    return here === null || sessionProject === here || state.barWentTo === here ? 'continue' : 'start';
 }
 
 /** The project a chat begun from the bar here belongs to: the project open in the pane, or none. */

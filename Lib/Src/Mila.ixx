@@ -484,6 +484,7 @@ export import Data.TokenSequenceLoader;
 // ============================================================================
 export import Agents.ToolNeeds;
 export import Agents.ResultOrigin;
+export import Agents.ToolResult;
 export import Agents.ExposureSource;
 export import Agents.FolderAccess;
 export import Agents.GrantFolder;
@@ -491,6 +492,7 @@ export import Agents.FolderEntry;
 export import Agents.GrantPathForm;
 export import Agents.GrantPath;
 export import Agents.GrantFile;
+export import Agents.GrantRefusal;
 export import Agents.ProgramRequest;
 export import Agents.ProgramResult;
 export import Agents.ProgramFolders;

@@ -91,7 +91,7 @@ namespace Mila::Tests::Apps::Desktop
 
         const PromptFile prompt = PromptFile::load( shippedPrompts() / "general.json" );
 
-        EXPECT_EQ( prompt.tools.size(), 12u );
+        EXPECT_EQ( prompt.tools.size(), 14u );
 
         for ( const PromptTool& tool : prompt.tools )
         {
@@ -119,7 +119,8 @@ namespace Mila::Tests::Apps::Desktop
         const std::string on_mac = prompt.systemPromptFor( mac );
         const std::string on_windows = prompt.systemPromptFor( windows );
 
-        for ( const std::string_view absent : { "web_search", "request_folder", "list_folder", "edit_file", "run_command" } )
+        for ( const std::string_view absent : { "web_search", "request_folder", "list_folder", "edit_file", "run_command",
+            "open_place", "find_records" } )
         {
             EXPECT_EQ( on_mac.find( absent ), std::string::npos ) << absent;
         }
@@ -130,6 +131,15 @@ namespace Mila::Tests::Apps::Desktop
         EXPECT_NE( on_windows.find( "web_search" ), std::string::npos );
         EXPECT_EQ( on_windows.find( "You cannot search the web" ), std::string::npos );
         EXPECT_EQ( on_windows.find( "run_command" ), std::string::npos );
+
+        // The workspace's own tools are named only where they are offered (AssistantInterface.md 5.2).
+        std::set<std::string, std::less<>> workspace = mac;
+        workspace.insert( { "open_place", "find_records" } );
+
+        const std::string with_workspace = prompt.systemPromptFor( workspace );
+
+        EXPECT_NE( with_workspace.find( "call open_place" ), std::string::npos );
+        EXPECT_NE( with_workspace.find( "call find_records" ), std::string::npos );
     }
 
     TEST_F( PromptFileTest, APassageIsKeptByTheToolItNamesAndLeftOutByTheOneItStandsInFor )

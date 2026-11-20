@@ -83,7 +83,7 @@ namespace Mila::Tests::AI
 
             std::string run( std::string_view name, const std::string& arguments, FolderAccess access = FolderAccess::ReadWrite ) const
             {
-                return toolNamed( name ).run( arguments, ToolGrant( { GrantFolder{ project_, access } }, false ), {} );
+                return toolNamed( name ).run( arguments, ToolGrant( { GrantFolder{ project_, access } }, false ), {} ).text;
             }
 
             void expectRefused( std::string_view name, const std::string& arguments, std::string_view reason,

@@ -155,6 +155,18 @@ namespace Mila::Desktop
                 return grantChosenFolder();
             }, Mila::Agents::ResultOrigin::Application );
 
+        // The workspace's own records: open_place answers in Mila's words, and find_records says per call whether a
+        // match came from a chat that read from outside (AssistantInterface.md 5.2 and 5.6).
+        registerTool( std::string( kOpenPlaceName ), {}, [this]( const std::string& arguments, const Mila::Agents::ToolGrant&, std::stop_token )
+            {
+                return openPlace( arguments );
+            }, Mila::Agents::ResultOrigin::Application );
+
+        registerTool( std::string( kFindRecordsName ), {}, [this]( const std::string& arguments, const Mila::Agents::ToolGrant&, std::stop_token )
+            {
+                return findRecordsIn( arguments );
+            }, Mila::Agents::ResultOrigin::Application );
+
         // A key kept in search.json before the credential store held it moves there once, and the file goes. Refused,
         // the file stays and its key is still used, so the person's key is never lost.
         if ( const std::optional<std::string> kept_in_file = search_key_file_.read() )
@@ -356,6 +368,26 @@ namespace Mila::Desktop
             std::cerr << "Ignored a tool decision for a call that is not waiting.\n";
 
             return;
+        }
+
+        if ( !approval_->places.empty() && *parsed != ToolAnswer::Deny )
+        {
+            // Only one of the places the person was shown, named by its view and id.
+            const nlohmann::json named = request.value( "place", nlohmann::json( nullptr ) );
+            const auto offered = std::ranges::find_if( approval_->places, [&named]( const nlohmann::json& place )
+                {
+                    return named.is_object() && named.value( "view", nlohmann::json( nullptr ) ) == place[ "view" ]
+                        && named.value( "id", nlohmann::json( nullptr ) ) == place[ "id" ];
+                } );
+
+            if ( offered == approval_->places.end() )
+            {
+                std::cerr << "Ignored a place's answer that names none of the places offered.\n";
+
+                return;
+            }
+
+            chosen_place_ = *offered;
         }
 
         if ( approval_->folder_asked && *parsed != ToolAnswer::Deny )
@@ -773,6 +805,26 @@ namespace Mila::Desktop
         // asked about it: the grant refuses it, and the prompt has the model ask for a folder.
         const bool needs_folder = question.needs.reads_files || question.needs.writes_files || question.needs.runs_programs;
 
+        // The workspace's own tools run unasked in a chat that has not read from outside (AssistantInterface.md 5.6). In
+        // one that has, find_records is asked with its words shown, and open_place asks only when several places fit,
+        // for the person to choose, so their names never reach the model.
+        nlohmann::json places = nlohmann::json::array();
+
+        if ( question.name == kFindRecordsName && question.exposure.empty() )
+        {
+            return ToolAnswer::Once;
+        }
+
+        if ( question.name == kOpenPlaceName )
+        {
+            places = question.exposure.empty() ? nlohmann::json::array() : placesFor( std::string( question.arguments ) );
+
+            if ( places.size() < 2 )
+            {
+                return ToolAnswer::Once;
+            }
+        }
+
         if ( needs_folder && !conversation_folder_ )
         {
             return ToolAnswer::Once;
@@ -782,7 +834,8 @@ namespace Mila::Desktop
         // asked for: no answer covers the conversation. Nor does one in a chat that has read from outside, for a
         // call that writes or runs (5.6), as the gate decides.
         const bool exposed_and_acting = !question.exposure.empty() && ( question.needs.writes_files || question.needs.runs_programs );
-        const bool every_time = question.needs.uses_network || folder_asked || exposed_and_acting;
+        const bool every_time = question.needs.uses_network || folder_asked || exposed_and_acting
+            || question.name == kFindRecordsName || !places.empty();
 
         // A folder starts read-only, so the first call that changes a file also asks to change files there.
         const bool changes_folder = question.needs.writes_files && conversation_folder_
@@ -801,7 +854,8 @@ namespace Mila::Desktop
             }
 
             chosen_folder_.reset();
-            approval_.emplace( Approval{ turn_id_, call_id, std::move( answer ), !every_time, folder_asked } );
+            chosen_place_.reset();
+            approval_.emplace( Approval{ turn_id_, call_id, std::move( answer ), !every_time, folder_asked, places } );
         }
 
         nlohmann::ordered_json approval = { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "call_id", call_id },
@@ -821,6 +875,11 @@ namespace Mila::Desktop
             }
 
             approval[ "folders" ] = std::move( offered );
+        }
+
+        if ( !places.empty() )
+        {
+            approval[ "places" ] = places;
         }
 
         send( "turn.tool_approval", std::move( approval ) );
@@ -1147,7 +1206,7 @@ namespace Mila::Desktop
         {
             conversation_folder_.reset();
             conversation_folder_access_ = Mila::Agents::FolderAccess::Read;
-            grantChat();
+            refreshTools();
 
             if ( !conversation_id_.empty() )
             {
@@ -1404,6 +1463,8 @@ namespace Mila::Desktop
             throw std::runtime_error( std::format( "the folder {} cannot be used: {}", *chosen, refused.what() ) );
         }
 
+        // The file tools are offered from the next round, now that there is a folder for them to work in (5.5).
+        offerTools();
         sendState();
 
         if ( conversation_folder_access_ == Mila::Agents::FolderAccess::ReadWrite )
@@ -1414,6 +1475,78 @@ namespace Mila::Desktop
 
         return std::format( "The user gave you the folder {} to read. Paths are relative to it, as list_folder shows "
             "them. The user is asked the first time you change a file in it.", *chosen );
+    }
+
+    nlohmann::json SessionProcess::placesFor( const std::string& arguments ) const
+    {
+        const nlohmann::json parsed = nlohmann::json::parse( arguments, nullptr, false );
+        const std::string words = parsed.is_object() ? parsed.value( "place", std::string{} ) : std::string{};
+        const std::vector<nlohmann::json> projects = projects_.list();
+
+        return findPlaces( words, projects, store_.list(), conversation_id_ );
+    }
+
+    std::string SessionProcess::openPlace( const std::string& arguments )
+    {
+        std::optional<nlohmann::json> chosen;
+
+        {
+            std::lock_guard<std::mutex> lock( approval_mutex_ );
+            chosen = std::exchange( chosen_place_, std::nullopt );
+        }
+
+        const bool names_allowed = session().exposure().empty();
+        nlohmann::json place;
+
+        if ( chosen )
+        {
+            place = std::move( *chosen );
+        }
+        else
+        {
+            const nlohmann::json places = placesFor( arguments );
+
+            if ( places.empty() )
+            {
+                return "Nothing in the workspace is called that, and nothing was opened. The places are workspace, "
+                    "projects, chats, activity and reach, or a project or chat by its name.";
+            }
+
+            if ( places.size() > 1 )
+            {
+                // In a chat that has read from outside the person was asked; one that has not asks them through the model.
+                return names_allowed ? severalPlaces( places )
+                    : std::format( "{} places fit, none was opened, and the user was not shown them.", places.size() );
+            }
+
+            place = places.front();
+        }
+
+        const std::string line = wentLine( place );
+        const nlohmann::json where = { { "view", place[ "view" ] }, { "id", place[ "id" ] } };
+
+        send( "turn.went", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "call_id", announced_call_id_ },
+            { "place", where }, { "text", line } } );
+
+        // Kept with the call, so the chat shows where Mila went when it is opened again.
+        if ( !announced_call_id_.empty() )
+        {
+            storedCall( announced_call_id_ )[ "went" ] = { { "place", where }, { "text", line } };
+        }
+
+        const std::vector<nlohmann::json> projects = projects_.list();
+
+        return describePlace( place, projects, store_.list(), conversation_id_, names_allowed );
+    }
+
+    Mila::Agents::ToolResult SessionProcess::findRecordsIn( const std::string& arguments ) const
+    {
+        const nlohmann::json parsed = nlohmann::json::parse( arguments, nullptr, false );
+        const std::string words = parsed.is_object() ? parsed.value( "words", std::string{} ) : std::string{};
+        const std::vector<nlohmann::json> conversations = store_.loadAll();
+        const std::vector<nlohmann::json> projects = projects_.list();
+
+        return findRecords( words, conversations, projects, conversation_id_ );
     }
 
     void SessionProcess::usePrompt( const std::filesystem::path& path )
@@ -1486,10 +1619,17 @@ namespace Mila::Desktop
             }
 
             const Mila::Agents::ToolNeeds& needs = handler->second.needs;
-            const bool needs_folder = needs.reads_files || needs.writes_files || needs.runs_programs
-                || described.name == kRequestFolderName;
+            const bool works_in_folder = needs.reads_files || needs.writes_files || needs.runs_programs;
+            const bool needs_folder = works_in_folder || described.name == kRequestFolderName;
 
             if ( needs_folder && !folders_enforced_ )
+            {
+                continue;
+            }
+
+            // A tool that works in a folder can do nothing in a chat that holds none, so it is offered once the chat has
+            // one; until then the chat has request_folder (AssistantInterface.md 5.5).
+            if ( works_in_folder && !conversation_folder_ )
             {
                 continue;
             }
@@ -2813,7 +2953,7 @@ namespace Mila::Desktop
                 conversation_folder_.reset();
                 conversation_folder_access_ = Mila::Agents::FolderAccess::Read;
                 conversation_folder_from_project_ = false;
-                grantChat();
+                refreshTools();
             }
             else if ( *held == Mila::Agents::FolderAccess::Read && conversation_folder_access_ == Mila::Agents::FolderAccess::ReadWrite )
             {

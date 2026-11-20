@@ -530,6 +530,15 @@ export function createMockSession( options )
         if ( message.type === 'turn.tool_result' )
             recordToolResult( message );
 
+        // Kept with the call, as the session keeps it, so a chat opened again says where Mila went (5.2).
+        if ( message.type === 'turn.went' )
+        {
+            const call = reply.toolCalls.find( ( candidate ) => candidate.call_id === message.call_id );
+
+            if ( call !== undefined )
+                call.went = { place: message.place, text: message.text };
+        }
+
         if ( message.type === 'turn.round_end' )
             reply.rounds.push( message );
     }

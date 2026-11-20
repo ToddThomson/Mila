@@ -1258,6 +1258,7 @@ target_sources(Mila
         TYPE CXX_MODULES FILES
             "Src/Agents/Tools/ToolNeeds.ixx"
             "Src/Agents/Tools/ResultOrigin.ixx"
+            "Src/Agents/Tools/ToolResult.ixx"
             "Src/Agents/Tools/ExposureSource.ixx"
             "Src/Agents/Grants/FolderAccess.ixx"
             "Src/Agents/Grants/GrantFolder.ixx"
@@ -1265,6 +1266,7 @@ target_sources(Mila
             "Src/Agents/Grants/GrantPathForm.ixx"
             "Src/Agents/Grants/GrantPath.ixx"
             "Src/Agents/Grants/GrantFile.ixx"
+            "Src/Agents/Grants/GrantRefusal.ixx"
             "Src/Agents/Programs/ProgramRequest.ixx"
             "Src/Agents/Programs/ProgramResult.ixx"
             "Src/Agents/Programs/ProgramFolders.ixx"

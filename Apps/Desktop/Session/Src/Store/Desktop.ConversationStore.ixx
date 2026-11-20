@@ -34,6 +34,9 @@ namespace Mila::Desktop
 
         std::optional<nlohmann::json> load( const std::string& id ) const;
 
+        /// Every stored conversation whole, in no order, for a search through what they say (AssistantInterface.md 5.2).
+        std::vector<nlohmann::json> loadAll() const;
+
         /**
          * @brief Write a conversation whole, replacing what its id held.
          *

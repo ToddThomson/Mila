@@ -15,6 +15,7 @@ import Agents.GrantFile;
 import Agents.GrantFileSystem;
 import Agents.GrantPath;
 import Agents.GrantPathForm;
+import Agents.GrantRefusal;
 import Agents.ProgramContainer;
 import Agents.ProgramFolders;
 import Agents.ProgramRequest;
@@ -274,12 +275,12 @@ namespace Mila::Agents
         {
             if ( !container_ )
             {
-                throw std::runtime_error( "this tool was granted no way to run programs" );
+                throw GrantRefusal( "this tool was granted no way to run programs" );
             }
 
             if ( folders_.empty() )
             {
-                throw std::runtime_error( "this tool was granted no folder to run a program in" );
+                throw GrantRefusal( "this tool was granted no folder to run a program in" );
             }
 
             const ToolGrantDetail::HeldHandle start = openChecked( request.folder.empty() ? std::string_view( "." ) : request.folder, true );
@@ -332,7 +333,7 @@ namespace Mila::Agents
 
             if ( std::ranges::none_of( folders_, []( const GrantFolder& folder ) { return folder.access == FolderAccess::ReadWrite; } ) )
             {
-                throw std::runtime_error( std::format( "this tool was granted its folders only to read, so it cannot write '{}'", path ) );
+                throw GrantRefusal( std::format( "this tool was granted its folders only to read, so it cannot write '{}'", path ) );
             }
 
             const std::vector<std::string> names = ToolGrantDetail::pathNames( path );
@@ -480,7 +481,7 @@ namespace Mila::Agents
         {
             if ( !network_ )
             {
-                throw std::runtime_error( "this tool was granted no network" );
+                throw GrantRefusal( "this tool was granted no network" );
             }
 
             return network_;
@@ -535,7 +536,7 @@ namespace Mila::Agents
         {
             if ( folders_.empty() )
             {
-                throw std::runtime_error( std::format( "this tool was granted no folder, so it cannot open '{}'", path ) );
+                throw GrantRefusal( std::format( "this tool was granted no folder, so it cannot open '{}'", path ) );
             }
         }
 

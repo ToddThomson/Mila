@@ -33,6 +33,8 @@ PUBLIC
         "Src/Desktop.ExposureRecord.ixx"
         "Src/Tools/Desktop.CommandTool.ixx"
         "Src/Tools/Desktop.TaskPlan.ixx"
+        "Src/Tools/Desktop.Places.ixx"
+        "Src/Tools/Desktop.RecordSearch.ixx"
         "Src/Settings/Desktop.SearchKeyFile.ixx"
         "Src/Tools/Desktop.WebSearch.ixx"
 )
@@ -47,6 +49,8 @@ target_sources( mila-session PRIVATE
     "Src/Implementation/ConversationSummary.cpp"
     "Src/Implementation/Creations.cpp"
     "Src/Implementation/ExposureRecord.cpp"
+    "Src/Tools/Implementation/Places.cpp"
+    "Src/Tools/Implementation/RecordSearch.cpp"
 )
 
 # Desktop.ProgramSetup has two candidate files and exactly one is compiled, as Agents.MxcProgramContainer does:

@@ -212,6 +212,15 @@ function onTransportMessage( message )
 
     dispatch( message );
 
+    // A chat Mila opened by asking opens once the reply that opened it has ended (5.2).
+    if ( message.type === 'turn.end' && state.wentToChat !== null )
+    {
+        const identifier = state.wentToChat;
+
+        dispatch( { type: 'went.chat_opened' } );
+        openConversation( identifier );
+    }
+
     if ( message.type === 'conversation.loaded' && afterOpen !== null && afterOpen.id === message.id )
     {
         const text = afterOpen.text;
@@ -221,13 +230,17 @@ function onTransportMessage( message )
     }
 }
 
-function decideTool( turnId, callId, decision, folder )
+function decideTool( turnId, callId, decision, folder, place )
 {
     const stream = streamIdentifier( state );
     const message = { type: 'turn.tool_decision', stream_id: stream, turn_id: turnId, call_id: callId, decision };
 
     if ( folder !== undefined )
         message.folder = folder;
+
+    // One of the places the person was shown when several fit, by its view and id (AssistantInterface.md 5.2).
+    if ( place !== undefined && place !== null )
+        message.place = place;
 
     send( message );
 }

@@ -17,8 +17,8 @@ namespace Mila::Desktop
         constexpr std::size_t kMostReadsBefore = 20;
 
         // The session's own tools answer in Mila's words and read nothing; the file tools that write are the creations.
-        constexpr std::array<std::string_view, 5> kNotReads = {
-            "write_file", "edit_file", "propose_plan", "update_step", "request_folder" };
+        constexpr std::array<std::string_view, 6> kNotReads = {
+            "write_file", "edit_file", "propose_plan", "update_step", "request_folder", "open_place" };
 
         std::filesystem::path pathFromUtf8( const std::string& text )
         {

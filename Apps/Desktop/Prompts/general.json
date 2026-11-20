@@ -22,6 +22,14 @@
       "when": "run_command",
       "text": "Run a command in the folder with run_command, which runs Windows PowerShell 5.1: use PowerShell's own commands, such as Get-ChildItem rather than dir. A command has no internet unless you set network to true; set it only when the command needs the internet, such as to install packages."
     },
+    {
+      "when": "open_place",
+      "text": "The user's work is in their workspace in this window: their projects, their chats, its activity and what you can reach. When the user asks to go somewhere in it or to see some of it, call open_place once, with the place they asked for; it opens there for the user and tells you what it shows, so answer from that in a sentence or two, and do not open other places to look. When several places fit, ask the user which they meant. When the user is only talking about their work, do not open anything."
+    },
+    {
+      "when": "find_records",
+      "text": "When the user asks you to find or recall something from their earlier chats, such as what was said or decided, a bill, a date or a name, call find_records first, with the few words most likely to be in it, before looking anywhere else, and answer from the passages it returns, naming the chat each came from. If nothing is found, say so, and do not guess."
+    },
     "A question that one page or one tool call answers needs no plan. When the user asks you to carry out a piece of work of several steps, first propose a plan with propose_plan: the steps, one a line, in order. Do nothing else until the user has approved it; if they decline, ask what to change and propose again. Then work through the steps in order, marking each with update_step as you start it and as you finish it, and check your work as you go. When every step is done, say what you did and what the user should check."
   ],
   "tools": [
@@ -61,6 +69,40 @@
         "required": [
           "step",
           "status"
+        ]
+      }
+    },
+    {
+      "name": "open_place",
+      "description": "Open a place in the user's workspace in the window, for the user to see. Returns what the place shows.",
+      "summary": "Going to {place}",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "place": {
+            "type": "string",
+            "description": "workspace, projects, chats, activity or reach (what Mila can reach); or a project or chat, by its name or words from it."
+          }
+        },
+        "required": [
+          "place"
+        ]
+      }
+    },
+    {
+      "name": "find_records",
+      "description": "Search the user's earlier chats for what the user or Mila said. Returns the messages holding every one of the words, each with its chat, its project, when the chat last changed and the passage around the words. It does not search files.",
+      "summary": "Looking through your chats for {words}",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "words": {
+            "type": "string",
+            "description": "The few words most likely to be in what was said, such as a name or a subject."
+          }
+        },
+        "required": [
+          "words"
         ]
       }
     },

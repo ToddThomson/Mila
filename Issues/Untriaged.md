@@ -27,11 +27,11 @@ seen on the Mac's Q4_0 in one run. Whether the model writes this or the reading 
 
 Found 2026-11-18 building `AssistantInterface.md` phase T1. Listing and installing now send no token. The design has the person told and asked before a token found on the computer is used for a model that needs one; that question is not built, so such a model's install fails with the publisher's refusal.
 
-## A tool call that fails still marks the chat as having read from outside
+## A tool call that fails on what it met still marks the chat as having read from outside
 
-`Lib/Src/Agents/Tools/ToolGate.ixx` (`answer`); `Specifications/ToolCalling.md` 3.3 *What a result may cause* @ 0.21.0-dev+156
+`Lib/Src/Agents/Tools/ToolGate.ixx` (`answer`); `Specifications/ToolCalling.md` 3.3 *What a result may cause* @ 0.21.0-dev+160
 
-Found 2026-11-19 checking `AssistantInterface.md` phase T2 on the real session (Gemma 4 12B FP4). The model's first `list_folder`, in a chat with no folder yet, failed with the grant's own refusal, and the gate still recorded it as read from outside: a stopped or timed-out call exposes nothing, but a call whose tool threw does. Whether an error text counts (a tool's own words, or an HTTP error body from outside) is undecided; today it costs a question for a read that brought nothing in.
+Found 2026-11-19 at phase T2; narrowed 2026-11-20 at phase 5, where a refusal by the grant alone (`GrantRefusal`) no longer exposes. Every other failure still does, though many are the tool's own words with no outside text (*there is no file*, a path outside the folder). Telling those from an error that carries outside text, such as an HTTP error body, is undecided.
 
 ## A grant opens a device a link leads to before it refuses it, on every platform
 

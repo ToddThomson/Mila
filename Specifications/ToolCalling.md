@@ -130,10 +130,16 @@ built at `+156`.*
   not direct the agent: a page, search results, a file or a file's name, a command's output. `ResultOrigin::Application`
   is the program's own answer, such as the folder the person chose or a plan step recorded. **Outside is the default,**
   so a tool that says nothing is the safe case. Of the provided tools, the four that read and the web page reader are
-  Outside; `write_file` and `edit_file` answer in their own words and are Application.
+  Outside; `write_file` and `edit_file` answer in their own words and are Application. **A result may name its own
+  origin** (`ToolResult`, `0.21.0-dev+160`, Todd, 2026-11-20), which decides for that call: a search whose matches come
+  from the program's own records or from content that may not direct the agent says which on each result, so the
+  program's own words expose nothing. A tool's function that returns a string has the tool's origin.
 - **A conversation is exposed from the first Outside call that ran.** The gate keeps what exposed it, in order
   (`ToolGate::exposure()`, each an `ExposureSource`: the tool, its arguments, when). A call stopped or out of its time
-  exposes nothing, since the model reads only the gate's own words for it. The mark is on the conversation, not on a
+  exposes nothing, since the model reads only the gate's own words for it, and nor does one its grant refused
+  (`GrantRefusal`: no folder, folders only to read, no network, no way to run programs), which is decided from the grant
+  before anything is opened or sent (`0.21.0-dev+160`, Todd, 2026-11-20). Any other failure still exposes, since its
+  words may come from what the tool met, such as a server's error. The mark is on the conversation, not on a
   passage: what the model writes after reading something carries the least trust of what it read.
 - **The mark lives in the session, never in the turns,** so it survives compaction and a change of model by
   construction, and a fork carries it. A new conversation starts clear. A program reopening a stored conversation

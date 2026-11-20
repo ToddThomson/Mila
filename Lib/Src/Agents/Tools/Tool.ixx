@@ -10,6 +10,7 @@ import std;
 import Dnn.TensorTypes;
 import Agents.ToolNeeds;
 import Agents.ResultOrigin;
+import Agents.ToolResult;
 import Agents.ToolGrant;
 
 namespace Mila::Agents
@@ -38,9 +39,10 @@ namespace Mila::Agents
          * The grant is what this call may reach -- the agent's grant narrowed to the tool's needs -- and a tool that
          * opens files and makes connections through it is held to it (ToolCalling.md 3.4). The stop token is
          * requested when the reply is stopped, or the response's or the call's time runs out, while the call runs.
-         * A tool that can end early should, since what it returns after a stop does not reach the model.
+         * A tool that can end early should, since what it returns after a stop does not reach the model. A function
+         * that returns a string returns a result whose origin is `result_origin`.
          */
-        std::function<std::string( std::string_view arguments, const ToolGrant& grant, std::stop_token stop )> run;
+        std::function<ToolResult( std::string_view arguments, const ToolGrant& grant, std::stop_token stop )> run;
 
         /// Where the tool comes from, such as the application that registers it.
         std::string source;
@@ -52,7 +54,8 @@ namespace Mila::Agents
         ToolNeeds needs;
 
         /// Where its result comes from. Outside unless the tool answers only in the program's own words, since a
-        /// conversation that reads content from outside is held to asking (ToolCalling.md 3.3).
+        /// conversation that reads content from outside is held to asking (ToolCalling.md 3.3). A result that names
+        /// its own origin decides for that call.
         ResultOrigin result_origin{ ResultOrigin::Outside };
 
         /// The longest one call may run; the response's tool_time when not set.

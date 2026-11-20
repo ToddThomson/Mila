@@ -72,6 +72,32 @@ namespace Mila::Desktop
         return items;
     }
 
+    std::vector<nlohmann::json> ConversationStore::loadAll() const
+    {
+        std::vector<nlohmann::json> conversations;
+        std::error_code missing;
+
+        if ( !std::filesystem::is_directory( directory_, missing ) )
+        {
+            return conversations;
+        }
+
+        for ( const auto& entry : std::filesystem::directory_iterator( directory_, missing ) )
+        {
+            if ( entry.path().extension() != ".json" )
+            {
+                continue;
+            }
+
+            if ( std::optional<nlohmann::json> conversation = read( entry.path() ) )
+            {
+                conversations.push_back( std::move( *conversation ) );
+            }
+        }
+
+        return conversations;
+    }
+
     std::optional<nlohmann::json> ConversationStore::load( const std::string& id ) const
     {
         if ( !isStoreIdentifier( id ) )

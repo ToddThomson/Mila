@@ -17,9 +17,11 @@ import Desktop.ExposureRecord;
 import Desktop.MemoryHolder;
 import Desktop.MilaLicense;
 import Desktop.Models;
+import Desktop.Places;
 import Desktop.PromptFile;
 import Desktop.ProgramSetup;
 import Desktop.PromptTool;
+import Desktop.RecordSearch;
 import Desktop.ResidentAgent;
 import Desktop.RoundTimer;
 import Desktop.SearchKeyFile;
@@ -138,6 +140,12 @@ namespace Mila::Desktop
         /// The app's own tool that asks the person for a folder and widens the chat's grant by it (AssistantInterface.md 5.5).
         static constexpr std::string_view kRequestFolderName = "request_folder";
 
+        /// The app's own tool that takes the pane somewhere in the workspace (AssistantInterface.md 5.2).
+        static constexpr std::string_view kOpenPlaceName = "open_place";
+
+        /// The app's own tool that finds what the person's past chats said (AssistantInterface.md 5.2).
+        static constexpr std::string_view kFindRecordsName = "find_records";
+
         /// What a request the licence holds back is told; the page asks for the licence before it sends one.
         static constexpr std::string_view kLicenseFirst = "Accept Mila's licence first. It is shown when Mila starts.";
 
@@ -163,9 +171,13 @@ namespace Mila::Desktop
 
             /// True for request_folder, whose allowing answer must carry the folder the person chose.
             bool folder_asked{ false };
+
+            /// For open_place in a chat that has read from outside: the places the person chooses among, whose
+            /// allowing answer must name one.
+            nlohmann::json places;
         };
 
-        using Handler = std::function<std::string( const std::string& arguments, const Mila::Agents::ToolGrant& grant, std::stop_token stop )>;
+        using Handler = std::function<Mila::Agents::ToolResult( const std::string& arguments, const Mila::Agents::ToolGrant& grant, std::stop_token stop )>;
 
         /// The code that runs a tool, what it touches and where its result comes from.
         struct RegisteredTool
@@ -366,6 +378,21 @@ namespace Mila::Desktop
          */
         std::string grantChosenFolder();
 
+        /**
+         * @brief open_place's work: the place the person's words name, or the one they chose among several, opened in
+         *        the pane by `turn.went`, and what it shows said to the model (AssistantInterface.md 5.2).
+         *
+         * Several that fit go to the model to ask about; in a chat that has read from outside they went to the person
+         * when the call was asked about, and the model is told none of their names.
+         */
+        std::string openPlace( const std::string& arguments );
+
+        /// The places open_place's words name, from the store as it stands.
+        nlohmann::json placesFor( const std::string& arguments ) const;
+
+        /// find_records' work over every other stored chat; from outside when a match is from a chat that read from outside.
+        Mila::Agents::ToolResult findRecordsIn( const std::string& arguments ) const;
+
         /// The prompt's passages and its tools, from the next response on; the model and conversation stay.
         void usePrompt( const std::filesystem::path& path );
 
@@ -385,7 +412,8 @@ namespace Mila::Desktop
          *        passages about them.
          *
          * Describing a tool nothing runs primes the model to call it, so one with no handler is left out, and so is
-         * every tool that needs a folder where the grant holds none (AssistantInterface.md 5.5, *On a Mac*).
+         * every tool that needs a folder where the grant can hold none (AssistantInterface.md 5.5, *On a Mac*), and every
+         * tool that works in a folder while the chat holds none: it is offered once the chat is given one.
          */
         void offerTools();
 
@@ -673,6 +701,9 @@ namespace Mila::Desktop
 
         // The folder the person chose in answer to request_folder, until its call takes it. Under approval_mutex_.
         std::optional<std::string> chosen_folder_;
+
+        // The place the person chose in answer to open_place, until its call takes it. Under approval_mutex_.
+        std::optional<nlohmann::json> chosen_place_;
 
         // Whether a grant can hold a folder on this computer: true on Windows and macOS, false where the grant has no
         // file checks (ToolCalling.md 3.4), when no tool that needs one is offered. Found by asking for one.

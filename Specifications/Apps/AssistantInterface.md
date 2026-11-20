@@ -1,7 +1,7 @@
 # Mila Assistant Interface
 
 **Status:** design, round 3 (2026-11-18), phases 1 to 3 built (`0.21.0-dev+147`, `+149`, `+150`), T1 (`+155`), T2
-(`+156`, `+157`), 4 (`+158`) and 8 (`+159`). Round 1, 2026-11-16,
+(`+156`, `+157`), 4 (`+158`), 8 (`+159`) and 5 (`+160`). Round 1, 2026-11-16,
 set out projects, processes and creations around a home screen and a sidebar of conversations. Round 2
 is the layout Todd reached through a working prototype the same afternoon, iterated with him on the Mac: a sidebar,
 a workspace overview, projects that open on their summary, chats that need no project, and Mila as a bar at the foot
@@ -33,6 +33,21 @@ it read from outside; the drawer shows a text file's contents up to a limit, mar
 names a creation by its chat and path, never by a path alone; a kept reply is kept with its chat in the workspace, and
 nothing is written into the person's folders; and *Made* opens from a project's figure and section, Search, a file
 written in a chat's transcript, and Activity, where a file written is shown at its call's time.
+
+**Phase 5's decisions** (Todd, 2026-11-20, "Please continue", taking Claude's lean on each; and after the measurement,
+"Yes to all and the measure": the prompt's two passages reworded, the file tools offered only once a chat holds a
+folder (5.5), and a call its grant refused exposing nothing (`../ToolCalling.md` 3.3)): `open_place` opens the
+workspace, *All projects*, *All chats*, Activity, *What Mila can reach*, or a project or chat named in words, and *what
+did Mila make here?* opens the project (5.2); names are matched as Search matches them, every word and case folded, an
+exact name winning and projects before chats, with up to five returned when several fit; its result says what the place
+shows, a list's names and states up to twenty, as the app's own words; in an exposed chat several matches return no
+names and the window asks the person to choose, as `request_folder`'s picker does; asked inside a whole chat, the pane
+goes there and the chat rises over it, keeping one call and one line; a tool's result may name its own origin call by
+call, in `Mila::Agents` (`../ToolCalling.md` 3.3), so a `find_records` match exposes a chat only when it came from an
+exposed one; `find_records` reads the person's messages and Mila's replies in every other stored chat, never a call's
+result, up to eight matches newest first; a chat's folder is searched by `find_files` and `search_text`, which the
+prompt points to, so `find_records` has no folder search of its own; and both tools are measured on Gemma 4 12B Q4_0
+before they are offered by default.
 
 The prototype is beside this document, `AssistantInterface.prototype.html`: one page, example work, and replies
 canned by keyword, since nothing runs a model behind it. It is the reference for how a screen looks and moves; this
@@ -120,6 +135,8 @@ Seven rules follow, and every section below is held to them:
 - **What was made is read from each chat's stored calls** (phase 8, `0.21.0-dev+159`): every file a chat wrote, with the
   file's digest after each write, the model and plan step, and what Mila read first; and each reply the person kept. A
   project's *Made* is its chats'.
+- **Mila goes somewhere and finds things when asked** (phase 5, `0.21.0-dev+160`; section 5.2): `open_place` takes the
+  pane to a view, a project or a chat, and `find_records` finds what the person's other chats said.
 - **Nothing else outlives a conversation**: no instructions or findings shared between chats yet.
 - **The library's task** (`../Agents/AgentTasks.md`, agreed 2026-11-03, not built) gives an agent a task carried
   across responses, a plan, a versioned trace of every step, and a task folder holding them.
@@ -398,6 +415,46 @@ before they are on by default, and on every model in a final run (`ToolCalling.m
 over-calling, 2026-10-25, may make its default differ). `find_records` is also measured on what it is for: found, cited
 correctly, and honest when nothing matches.
 
+**As built at phase 5** (`0.21.0-dev+160`), by the decisions at the head of this document: `Desktop.Places` matches the
+words and says what a place shows, and `Desktop.RecordSearch` searches the stored chats; both are the session's, in
+`Apps/Desktop/Session/Src/Tools/`. A view is named by its own word (`workspace`, `projects`, `chats`, `activity`,
+`reach`); a project or chat by its exact name, or else by each word left once *the*, *my*, *project* and *chat* are
+dropped being the start of a word in its name. A list's result gives names and whether each waits on the person, the
+chat asking never counting as waiting; in an exposed chat it gives only how many, so no list of the person's names
+enters a chat that has read from outside. The session sends `turn.went` before the call's result and keeps it on the
+stored call, so a chat opened again shows *Opened Calculator app* and goes nowhere. A chat other than the one replying
+opens once the reply ends. On a project's page the bar goes on with the conversation that asked Mila to open it, where
+a project clicked into begins a new chat as phase 4 decided. `find_records` drops a few common words and needs every
+other word in an exchange, a message of the person's and Mila's reply to it searched together, since an answer seldom
+repeats the words of its question: searched message by message, Q4_0 on the Mac found *Which tomatoes did we choose for
+the south bed?* without its answer and went on searching and opening places. It says per match when its chat had read
+from outside, which the model reads as well as the gate.
+
+**Measured** (2026-11-20, Gemma 4 12B Q4_0 on the M1 Pro, its defaults, thinking on; 34 questions asked twice in new
+chats of a seeded workspace of three projects and six chats, each chat deleted after its question so no later search
+found it; every call the person would be asked about declined; at most five calls a chat; scripts and data
+`D:\Claude\phase5`; 68 chats in 1,499 s). On the 16 needing no tool, 30 of 32 made no call; both calls were on *How
+should I organise my notes about the garden?*, a project's name (`find_files` twice, `find_records` once). Asked to go
+somewhere, 14 of 18 went where asked: *Which of my projects are waiting on me?* opened *All projects* and then every
+project and Activity in turn, both times, until the limit stopped it; *Open my chat about the weekend in Lisbon* found
+the asking chat by its own title, a defect fixed the same day (the asking chat is never a place); *Open the house bills*
+tried `list_folder` in a chat with no folder first, whose refusal marked the chat as having read from outside (the
+defect filed at T2, *A tool call that fails still marks the chat*), so the list of projects then gave no names and
+the reply ran out of calls. *Open the calculator*, which a project and a chat fit, was not asked about either time: once
+Mila said it had no calculator, once it walked from the workspace to the project. Of 10 questions whose answer an
+earlier chat held, 8 were found and cited; *Find the electricity invoice from about six months ago* went to the file
+tools and `request_folder` first and ran out of calls both times. All 6 with nothing to find said so, with no guess.
+
+**Measured again after the changes it pointed to** (the same day and conditions, 68 chats in 1,283 s): the asking chat
+never a place; the two passages saying to open one place and answer from it, and to look in earlier chats before
+anywhere else; the file tools offered only once a chat holds a folder (5.5); and a call its grant refused exposing
+nothing (`../ToolCalling.md` 3.3). Needing no tool, 30 of 32 made no call: both calls were `find_records` on *How should
+I organise my notes about the garden?*, which found nothing and answered, a read-only search the person sees and that
+moves nothing. Going somewhere, 18 of 18, with *Open the house bills* searching the chats and opening *All projects*
+before the project both times. Both choices between a project and a chat that fit were asked about. Finding, 10 of 10
+by reading each answer (the script's literal check passed 8: one answer was cut where the record ends, one wrote *Belém*
+for *Belem*). Nothing to find, 6 of 6. On this, both tools stay in every chat's prompt.
+
 **A request to go somewhere made from the bar outside a chat** belongs to the bar's own conversation. **Made inside a
 chat, it stays in that chat** as one call and one line (*proposed*, replacing "it begins a conversation of its own"): the
 session holds one conversation at a time, so a second would evict the chat's state, and returning would prefill the chat
@@ -492,7 +549,10 @@ written as passages, each kept only while the tool it names is offered and one o
 one folder: `request_folder` asked again in a chat that has one is answered with it, unasked. A file tool called in a
 chat with no folder is not asked about, since its grant reaches nothing: it fails, and Mila asks for a folder, as it did
 on the PC with Q4_0 (it listed the folder, read the README and answered). The plan's `update_step` runs by rule; every
-other call is asked.
+other call is asked. *Changed at phase 5* (Todd, 2026-11-20): a tool that works in a folder is offered only once the
+chat holds one, as this section's own rule for a tool that cannot do its work says, since phase 5's measurement found
+models calling them in chats with no folder; until then the chat has `request_folder`, and the chat's prompt changes
+when it is given a folder, which reads the conversation again once from where the tools are listed.
 
 **On every platform.** The grant's file checks exist on Windows, on macOS (`0.21.0-dev+152`) and on Linux (`+153`, tested
 in WSL, where the window cannot run, so the window on Linux is unverified; `../ToolCalling.md` 3.4). A computer where the
@@ -829,6 +889,15 @@ holds the project's folder as the project has it then.
   since the page draws a project from the lists it has; `project.undo`, `suggestion.decide` and `note.decide` (phases 6
   and 7); `creation.*` and `run.*` (phases 8 and 9).
 
+**Built at phase 5:**
+
+- **Stored:** an `open_place` call carries `went` ({`place`, `text`}).
+- **Session to page:** `turn.went` (`turn_id`, `call_id`, `place` {`view`, `id`}, `text`), sent before the call's
+  result. `turn.tool_approval` carries `places` ([{`view`, `id`, `name`}]) for `open_place` in an exposed chat when
+  several fit.
+- **Page to session:** `turn.tool_decision` carries `place` ({`view`, `id`}, one of the approval's) when it allows such
+  a call.
+
 **Built at phase 8:**
 
 - **Stored:** a write's call carries `written` ({`location`, `sha256`, `size`, `modified`}, or null when the file could
@@ -1022,8 +1091,33 @@ The rest, in the proposed order:
   plan step on a real model (the step is checked by the tests only); setting aside a change on disk the person made
   (section 11, question I).
 - **Phase 5. Going somewhere, and finding things by asking** (the vision's step 9). `open_place` first, then
-  `find_records` over past chats and then a given folder, `turn.went` (5.2); measured before on by default. This is where
-  a person first feels the vision: *find the invoice from six months ago*.
+  `find_records` over past chats, `turn.went` (5.2); measured before on by default. This is where a person first feels
+  the vision: *find the invoice from six months ago*. A folder is searched by `find_files` and `search_text` (phase 5's
+  decisions). *Built 2026-11-20 (`0.21.0-dev+160`)*, as sections 5.2 and 10 record, with `ToolResult` in `Mila::Agents`
+  so a result names its own origin (`../ToolCalling.md` 3.3). Checked on Windows: the gate's tests with two new ones
+  (a result in the program's words exposing nothing from a tool declared Outside, and one from outside exposing from a
+  tool declared the program's own), the file, page-reader and grant tests, 137 with one skip for case; the agent and
+  session tests on Gemma 4 12B, 99 with Llama's two skipped (its install predates `architecture_version`); every target
+  built in `x64-claude-verify`; the session's 85, 21 new; the page's 139, 9 new; mock scenario 18 in the window over the mock at 1280x800, 900 and 860 px in light and
+  dark, with no console error, nothing scrolling sideways and no network request, which found the bar beginning a new
+  chat in the project Mila had just opened (fixed: 5.2); and the real session over stdio on Gemma 4 12B FP4 in a seeded
+  workspace: *Show me all my projects* opened them and answered from the list; *Open the garden project* opened it; two
+  questions about earlier chats were found and cited; *my passport number* was said not to be found; in a chat that had
+  read a page, *Open the calculator* asked the person to choose between the project and a chat, with no name reaching
+  the model, and `find_records` was asked about, its one match from a chat that had not read from outside exposing
+  nothing. Once, after finding the tomatoes, the model also opened that chat unasked; in a later run the same request
+  in the exposed chat went to `find_files` instead. macOS: the session, its tests and the library's built; the
+  session's 83 with the key store's skipped as before, the gate's 123 with two skipped, the page's 139; and the same
+  stdio run on Gemma 4 12B **Q4_0**, every turn right, the exposed chat's list of projects giving only how many, with Q4_0
+  sometimes opening *All projects* before the project it was asked for. Linux (WSL, CPU-only): the session's tests, 83
+  with the key store's skipped (no display to unlock a keyring), and the page's 139. **Not done:** every model's final
+  run; the window on the real session. *Measured 2026-11-20* (5.2): talk-only questions 30 of 32 with no call, going somewhere 14 of 18, finding 8
+  of 10, nothing to find 6 of 6, a choice between two places 0 of 2; and after the changes it pointed to (5.5, 5.2's
+  two passages, `GrantRefusal`), 30 of 32, 18 of 18, 10 of 10, 6 of 6 and 2 of 2, so both stay in every chat's prompt.
+  Checked again after them: the session's 85 on Windows and 84 with the key store's skipped on the Mac and in WSL
+  (with the page's 139), the gate's
+  with a new test (a refusal by the grant exposes nothing, a tool's own failure still does), the agent tests on Gemma 4
+  12B, and every target built.
 - **Phase 6. Mila proposes.** `propose_project`, `move_to_project` by question A, the overview's card and the
   answered-in-words offers (5.3, 5.4), undo.
 - **Phase 7. What Mila understands.** `note_understanding`, waiting notes, the project's summary and *Next* (4.5), given

@@ -19,7 +19,9 @@ import Agents.AgentLimits;
 import Agents.ToolGrant;
 import Agents.ToolNeeds;
 import Agents.ResultOrigin;
+import Agents.ToolResult;
 import Agents.ExposureSource;
+import Agents.GrantRefusal;
 
 namespace Mila::Agents
 {
@@ -227,10 +229,11 @@ namespace Mila::Agents
             }
 
             outcome.result_tokens = tool->result_tokens ? tool->result_tokens : limits.result_tokens;
-            run( *tool, arguments, grant_.narrowedTo( tool->needs ), halted, tool->time ? tool->time : limits.tool_time, outcome );
+            const ResultOrigin origin = run( *tool, arguments, grant_.narrowedTo( tool->needs ), halted,
+                tool->time ? tool->time : limits.tool_time, outcome );
 
             // A stopped or timed-out call's result is the gate's own words, so only a call that returned exposes.
-            if ( outcome.ran && !outcome.stopped && !outcome.timed_out && tool->result_origin == ResultOrigin::Outside )
+            if ( outcome.ran && !outcome.stopped && !outcome.timed_out && origin == ResultOrigin::Outside )
             {
                 outcome.exposes = true;
                 exposure_.push_back( ExposureSource{ tool->name, std::string( arguments ), std::chrono::system_clock::now() } );
@@ -353,9 +356,12 @@ namespace Mila::Agents
             }
         }
 
-        static void run( const Tool& tool, std::string_view arguments, const ToolGrant& grant, std::stop_token halted,
+        /// @return Where the result came from: the result's own word, else the tool's.
+        static ResultOrigin run( const Tool& tool, std::string_view arguments, const ToolGrant& grant, std::stop_token halted,
             std::optional<std::chrono::milliseconds> time, ToolOutcome& outcome )
         {
+            ResultOrigin origin = tool.result_origin;
+
             std::stop_source call_stop;
             const std::stop_callback forward_stop( halted, [&call_stop] { call_stop.request_stop(); } );
             std::atomic<bool> timed_out{ false };
@@ -386,9 +392,17 @@ namespace Mila::Agents
 
             try
             {
-                outcome.result = tool.run( arguments, grant, call_stop.get_token() );
+                ToolResult returned = tool.run( arguments, grant, call_stop.get_token() );
+                origin = returned.origin.value_or( tool.result_origin );
+                outcome.result = std::move( returned.text );
                 outcome.returned_bytes = outcome.result.size();
                 outcome.is_error = false;
+            }
+            catch ( const GrantRefusal& refused )
+            {
+                // Decided from the grant before anything was opened or sent, so the call read nothing from outside.
+                outcome.result = std::format( "Error: tool '{}' failed: {}", tool.name, refused.what() );
+                origin = ResultOrigin::Application;
             }
             catch ( const std::exception& error )
             {
@@ -420,6 +434,8 @@ namespace Mila::Agents
                 outcome.is_error = true;
                 outcome.timed_out = true;
             }
+
+            return origin;
         }
 
         std::vector<Tool> tools_;

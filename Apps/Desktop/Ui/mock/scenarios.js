@@ -9,6 +9,7 @@ import { folderRequest } from './scenario-folder-request.js';
 import { exposedChat } from './scenario-exposed-chat.js';
 import { projectsWorkspace } from './scenario-projects.js';
 import { madeWorkspace } from './scenario-made.js';
+import { goingSomewhere } from './scenario-going-somewhere.js';
 
 export const scenarios = [
     streamedReply,
@@ -21,7 +22,8 @@ export const scenarios = [
     folderRequest,
     exposedChat,
     projectsWorkspace,
-    madeWorkspace
+    madeWorkspace,
+    goingSomewhere
 ];
 
 export function findScenario( number )

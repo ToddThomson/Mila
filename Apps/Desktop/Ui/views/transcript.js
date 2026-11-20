@@ -58,7 +58,12 @@ export function createTranscriptView( scroller, container, actions )
             actions.openCreation( actions.getState().conversationId, { path: target.dataset.path } );
 
         if ( action === 'tool-decision' )
-            actions.decideTool( target.dataset.turn, target.dataset.call, target.dataset.decision, target.dataset.folder );
+        {
+            const place = target.dataset.placeView === undefined ? undefined
+                : { view: target.dataset.placeView, id: target.dataset.placeId === '' ? null : target.dataset.placeId };
+
+            actions.decideTool( target.dataset.turn, target.dataset.call, target.dataset.decision, target.dataset.folder, place );
+        }
 
         if ( action === 'choose-folder' )
             actions.chooseFolder( target.dataset.turn, target.dataset.call );
@@ -860,7 +865,7 @@ function createToolRecord( block )
     detail.append( argumentsLabel, argumentsBody, resultLabel, resultBody );
     card.append( toggle, made, detail, approval );
 
-    return { element: card, toggle, status, detail, argumentsBody, resultBody, approval, made, choices: null };
+    return { element: card, toggle, summary, status, detail, argumentsBody, resultBody, approval, made, choices: null };
 }
 
 const choiceLabels = {
@@ -912,6 +917,13 @@ function updateTool( built, block, expanded )
     built.element.classList.toggle( 'failed', block.isError && !declined );
     built.toggle.setAttribute( 'aria-expanded', open ? 'true' : 'false' );
     built.status.textContent = toolStatus( block );
+
+    // Where Mila went is the call's line once it has gone there (5.2): *Opened Calculator app*.
+    const line = block.went ? block.went.text : block.summary;
+
+    if ( built.summary.textContent !== line )
+        built.summary.textContent = line;
+
     built.detail.hidden = !open;
     built.argumentsBody.textContent = readableJson( block.arguments );
     built.resultBody.textContent = toolResultText( block );
@@ -964,6 +976,13 @@ function updateApproval( built, block )
     if ( block.name === 'request_folder' )
     {
         folderQuestion( built, block );
+
+        return;
+    }
+
+    if ( Array.isArray( block.places ) && block.places.length > 0 )
+    {
+        placeQuestion( built, block );
 
         return;
     }
@@ -1034,6 +1053,33 @@ function folderQuestion( built, block )
     }
 
     built.approval.append( choose, decline );
+}
+
+/**
+ * Several places fit what Mila was asked to open, in a chat that has read from outside (AssistantInterface.md 5.2 and
+ * 5.6): the person chooses, so their names never reach the model. Choosing none opens nothing.
+ */
+function placeQuestion( built, block )
+{
+    built.approval.append( element( 'span', 'tool-question', 'Which did you mean?' ) );
+
+    for ( const place of block.places )
+    {
+        const pick = button( 'chip-button', place.name, 'tool-decision' );
+        pick.dataset.turn = block.turnId;
+        pick.dataset.call = block.callId;
+        pick.dataset.decision = 'allow_once';
+        pick.dataset.placeView = place.view;
+        pick.dataset.placeId = place.id ?? '';
+        pick.title = place.view === 'project' ? 'The project ' + place.name : 'The chat ' + place.name;
+        built.approval.append( pick );
+    }
+
+    const none = button( 'chip-button quiet', 'None of these', 'tool-decision' );
+    none.dataset.turn = block.turnId;
+    none.dataset.call = block.callId;
+    none.dataset.decision = 'deny';
+    built.approval.append( none );
 }
 
 /**

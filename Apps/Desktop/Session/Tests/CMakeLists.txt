@@ -16,6 +16,8 @@ add_executable( DesktopSessionTests
     "ConversationStore.cpp"
     "ProjectStore.cpp"
     "EventLog.cpp"
+    "Places.cpp"
+    "RecordSearch.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Settings/Implementation/MilaLicense.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Implementation/ConversationSummary.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Implementation/Creations.cpp"
@@ -24,6 +26,8 @@ add_executable( DesktopSessionTests
     "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Store/Implementation/ProjectStore.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Store/Implementation/EventLog.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Store/Implementation/StoreFile.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Tools/Implementation/Places.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Tools/Implementation/RecordSearch.cpp"
 )
 
 # BASE_DIRS is explicit because a module file set otherwise roots itself at this directory, and the modules being tested
@@ -40,6 +44,8 @@ PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Tools/Desktop.PromptTool.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Tools/Desktop.PromptPart.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Tools/Desktop.PromptFile.ixx"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Tools/Desktop.Places.ixx"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Tools/Desktop.RecordSearch.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Desktop.ConversationSummary.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Desktop.Creations.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Desktop.ExposureRecord.ixx"
