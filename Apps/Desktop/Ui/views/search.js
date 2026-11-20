@@ -1,8 +1,8 @@
-// Search (AssistantInterface.md 4.11): one box over the pane, the chats first and then the files Mila wrote, each
-// with where it is; arrow keys and Enter, Esc to close.
+// Search (AssistantInterface.md 4.11): one box over the pane, projects first, then chats and the files Mila wrote,
+// each with where it is; arrow keys and Enter, Esc to close.
 
 import { element, button, clear } from '../dom.js';
-import { searchResults } from '../state.js';
+import { searchResults, projectOfChat } from '../state.js';
 import { folderName } from '../format.js';
 
 export function createSearchView( dialog, actions )
@@ -13,7 +13,7 @@ export function createSearchView( dialog, actions )
     let results = [];
 
     input.type = 'search';
-    input.placeholder = 'Jump to a chat or a file';
+    input.placeholder = 'Jump to a project, a chat or a file';
     input.autocomplete = 'off';
     input.setAttribute( 'aria-label', 'Search' );
     input.setAttribute( 'aria-controls', 'search-results' );
@@ -37,18 +37,40 @@ export function createSearchView( dialog, actions )
         results.forEach( ( result, index ) =>
         {
             const option = button( 'search-result', null, 'choose' );
-            const label = result.kind === 'chat' ? result.item.title : folderName( result.path );
-            const kind = result.kind === 'chat' ? 'Chat' : 'File · in ' + result.item.title;
+            const label = labelOf( result );
+            const kind = kindOf( result );
 
             option.dataset.index = String( index );
             option.setAttribute( 'role', 'option' );
             option.setAttribute( 'aria-selected', index === selected ? 'true' : 'false' );
-            option.title = result.kind === 'chat' ? result.item.title : result.path;
+            option.title = result.kind === 'file' ? result.path : label;
             option.append( element( 'span', 'search-result-label', label ), element( 'span', 'search-result-kind', kind ) );
             list.append( option );
         } );
 
         list.querySelector( '[aria-selected="true"]' )?.scrollIntoView( { block: 'nearest' } );
+    }
+
+    function labelOf( result )
+    {
+        if ( result.kind === 'project' )
+            return result.project.name;
+
+        return result.kind === 'chat' ? result.item.title : folderName( result.path );
+    }
+
+    /** Where a result is: a project, a chat in a project or in none, or a file in its chat. */
+    function kindOf( result )
+    {
+        if ( result.kind === 'project' )
+            return 'Project';
+
+        if ( result.kind === 'file' )
+            return 'File · in ' + result.item.title;
+
+        const project = projectOfChat( actions.getState(), result.item );
+
+        return project === null ? 'Chat' : 'Chat · in ' + project.name;
     }
 
     function choose( index )
@@ -59,7 +81,11 @@ export function createSearchView( dialog, actions )
             return;
 
         close();
-        actions.openConversation( result.item.id );
+
+        if ( result.kind === 'project' )
+            actions.openProject( result.project.id );
+        else
+            actions.openConversation( result.item.id );
     }
 
     function onInput()

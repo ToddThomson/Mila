@@ -23,7 +23,11 @@ PUBLIC
         "Src/Desktop.Models.ixx"
         "Src/Desktop.RoundTimer.ixx"
         "Src/Desktop.MemoryHolder.ixx"
-        "Src/Desktop.ConversationStore.ixx"
+        "Src/Store/Desktop.ConversationStore.ixx"
+        "Src/Store/Desktop.ProjectStore.ixx"
+        "Src/Store/Desktop.EventLog.ixx"
+        "Src/Store/Desktop.StoreFile.ixx"
+        "Src/Store/Desktop.WorkspaceFolder.ixx"
         "Src/Desktop.ConversationSummary.ixx"
         "Src/Desktop.ExposureRecord.ixx"
         "Src/Tools/Desktop.CommandTool.ixx"
@@ -34,6 +38,11 @@ PUBLIC
 
 target_sources( mila-session PRIVATE
     "Src/Settings/Implementation/MilaLicense.cpp"
+    "Src/Implementation/SessionProcess.cpp"
+    "Src/Store/Implementation/ConversationStore.cpp"
+    "Src/Store/Implementation/ProjectStore.cpp"
+    "Src/Store/Implementation/EventLog.cpp"
+    "Src/Store/Implementation/StoreFile.cpp"
     "Src/Implementation/ConversationSummary.cpp"
     "Src/Implementation/ExposureRecord.cpp"
 )

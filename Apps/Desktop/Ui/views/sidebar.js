@@ -2,7 +2,8 @@
 // recent chats; and at its foot Settings, the model as a quiet fact, and the person.
 
 import { element, button, setIcon, clear, milaMark } from '../dom.js';
-import { recentChats, appStatus } from '../state.js';
+import { recentChats, recentProjects, appStatus } from '../state.js';
+import { stateDot, stateWords } from './place-parts.js';
 import { contextShare, contextDetails, thinkingFact, namedTitle, initials } from '../format.js';
 
 // The ring's arc: a circle of radius 7 drawn from twelve o'clock, filled by the share of the context used.
@@ -48,6 +49,12 @@ export function createSidebarView( root, actions )
 
         if ( action === 'open-conversation' )
             actions.openConversation( target.dataset.identifier );
+
+        if ( action === 'open-project' )
+            actions.openProject( target.dataset.project );
+
+        if ( action === 'new-project' )
+            actions.newProject();
 
         if ( action === 'open-search' )
             actions.openSearch();
@@ -133,12 +140,50 @@ export function createSidebarView( root, actions )
         const place = state.place;
         const places = [
             placeItem( 'workspace', 'Workspace', 'workspace', place === 'workspace', null ),
+            placeItem( 'projects', 'Projects', 'projects', place === 'projects', state.projects.length ),
             placeItem( 'chats', 'Chats', 'chats', place === 'chats', state.conversations.length ),
             placeItem( 'activity', 'Activity', 'activity', place === 'activity', null )
         ];
 
         clear( top );
         top.append( workspace, search, element( 'div', 'side-rule' ), ...places );
+
+        // The five most recently active projects, then New project; left out while there are none (4.1), when
+        // New project is under Projects.
+        const projects = recentProjects( state );
+        const create = button( 'side-item side-new', null, 'new-project' );
+        const createIcon = element( 'span', 'side-icon' );
+
+        setIcon( createIcon, 'plus' );
+        create.append( createIcon, element( 'span', 'side-label', 'New project' ) );
+
+        if ( projects.length > 0 )
+        {
+            const title = element( 'div', 'side-title' );
+            title.append( element( 'span', null, 'Projects' ), element( 'span', 'side-count', String( state.projects.length ) ) );
+            top.append( title );
+
+            for ( const summary of projects )
+            {
+                const row = button( 'side-item side-project', null, 'open-project' );
+                const dot = stateDot( summary.state );
+
+                row.dataset.project = summary.project.id;
+                row.title = summary.project.name + ' · ' + stateWords[ summary.state ];
+                row.append( dot, element( 'span', 'side-label', summary.project.name ) );
+
+                if ( place === 'project' && summary.project.id === state.projectId )
+                    row.setAttribute( 'aria-current', 'page' );
+
+                top.append( row );
+            }
+
+            top.append( create );
+        }
+        else if ( place === 'projects' )
+        {
+            top.append( element( 'div', 'side-title', 'Projects' ), create );
+        }
 
         const recent = recentChats( state );
 
@@ -301,9 +346,9 @@ export function createSidebarView( root, actions )
 
     function render( state )
     {
-        const chats = state.conversations.map( ( item ) => [ item.id, item.title, item.updated ] );
-        const key = JSON.stringify( [ chats, state.place, state.conversationId, state.session, state.progress, state.restore,
-            state.installedModels, state.publishedModels === null, state.about, local ] );
+        const chats = state.conversations.map( ( item ) => [ item.id, item.title, item.updated, item.project, item.progress, item.finish ] );
+        const key = JSON.stringify( [ chats, state.projects, state.events.length, state.place, state.projectId, state.conversationId,
+            state.session, state.progress, state.restore, state.installedModels, state.publishedModels === null, state.about, local ] );
 
         if ( key === lastKey )
             return;

@@ -17,11 +17,12 @@ for running any one of them alone.
 
 `mila-session` is built with the C++ targets, at the top of the build directory. It reads
 requests as JSON lines on standard input and writes events as JSON lines on standard output (section 4 of the
-spec); log records go to standard error, and end of input ends it. It keeps its settings in `settings.json`
-beside the conversations folder; `--help` lists its flags, each of which stands over the kept settings for the run.
+spec); log records go to standard error, and end of input ends it. It keeps its settings in `settings.json` at
+the top of the workspace folder, beside its conversations and projects; `--help` lists its flags, each of which
+stands over the kept settings for the run.
 
 ```
-mila-session --model gemma-4-12b-it-q4_0 --conversations D:\scratch\conversations
+mila-session --model gemma-4-12b-it-q4_0 --workspace D:\scratch\workspace
 {"v": 1, "type": "ready"}
 ```
 

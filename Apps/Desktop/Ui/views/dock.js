@@ -3,7 +3,7 @@
 // moves here while it is risen.
 
 import { element, iconButton, clear } from '../dom.js';
-import { currentChat } from '../state.js';
+import { currentChat, projectOfChat, openChatProject } from '../state.js';
 
 export function createDockView( head, actions )
 {
@@ -43,12 +43,17 @@ export function createDockView( head, actions )
     {
         const chat = currentChat( state );
         const named = chat === null ? 'New chat' : chat.title;
+        const project = chat === null ? openChatProject( state ) : projectOfChat( state, chat );
+        const where = project === null ? 'Not in a project' : 'In ' + project.name;
 
         if ( title.textContent !== named )
         {
             title.textContent = named;
             title.title = named;
         }
+
+        if ( placement.textContent !== where )
+            placement.textContent = where;
 
         expand.hidden = state.transcript.length === 0;
     }

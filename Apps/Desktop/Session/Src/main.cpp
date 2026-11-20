@@ -28,7 +28,7 @@
 #endif
 
 import Mila;
-import Desktop.ConversationStore;
+import Desktop.WorkspaceFolder;
 import Desktop.MilaLicense;
 import Desktop.Models;
 import Desktop.SessionProcess;
@@ -95,7 +95,7 @@ struct CommandLine
 
     /// Set with --device: the devices the model may run on, as written.
     std::optional<std::string> devices;
-    std::optional<std::filesystem::path> conversations;
+    std::optional<std::filesystem::path> workspace;
     bool show_help = false;
 };
 
@@ -146,9 +146,9 @@ static CommandLine parseCommandLine( int argc, char* argv[] )
 
             line.devices = std::string( value );
         }
-        else if ( arg == "--conversations" )
+        else if ( arg == "--workspace" )
         {
-            line.conversations = std::filesystem::path( requireValue( argc, argv, i, arg ) );
+            line.workspace = std::filesystem::path( requireValue( argc, argv, i, arg ) );
         }
         else
         {
@@ -166,15 +166,15 @@ static void printUsage( const char* program )
         << "\n"
         << "Mila Desktop's session: requests in as JSON lines on standard input, events out as JSON lines on\n"
         << "standard output (Specifications/MilaDesktop.md section 4). Log records go to standard error. End of input\n"
-        << "ends it. Its settings are kept in settings.json beside the conversations folder.\n"
+        << "ends it. Its settings are kept in settings.json at the top of the workspace folder.\n"
         << "\n"
         << "  --model <name>          Load this model, as 'mila-store models' lists it.\n"
         << "  --context-length <n>    Maximum sequence length, or auto.\n"
         << "  --device <devices>      The devices the model may run on: cuda, cuda:1, metal or a card's\n"
         << "                          identity, several separated by commas. Default: every GPU, and\n"
         << "                          Mila chooses the card.\n"
-        << "  --conversations <dir>   Where conversations are stored. Default: "
-        << ConversationStore::defaultDirectory().string() << "\n"
+        << "  --workspace <dir>       Where conversations and projects are kept. Default: "
+        << defaultWorkspaceFolder().string() << "\n"
         << "  --help, -h              Show this message.\n";
 }
 
@@ -218,8 +218,8 @@ int main( int argc, char* argv[] )
 
     try
     {
-        const std::filesystem::path conversations = line.conversations.value_or( ConversationStore::defaultDirectory() );
-        SettingsFile settings_file( conversations.parent_path() / "settings.json" );
+        const std::filesystem::path workspace = line.workspace.value_or( defaultWorkspaceFolder() );
+        SettingsFile settings_file( workspace / "settings.json" );
 
         std::vector<std::string> problems;
         Settings settings = settings_file.read( problems );
@@ -268,7 +268,7 @@ int main( int argc, char* argv[] )
         std::expected<MilaLicense, std::string> license = MilaLicense::read( executable_directory() / "License.md" );
 
         SessionProcess process( std::move( settings ), std::move( settings_file ), std::move( problems ),
-            std::move( license ), std::move( devices ), conversations, executable_directory() / "Prompts", protocol_out );
+            std::move( license ), std::move( devices ), workspace, executable_directory() / "Prompts", protocol_out );
 
         return process.run( std::cin );
     }

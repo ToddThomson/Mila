@@ -1,6 +1,7 @@
 # Mila Assistant Interface
 
-**Status:** design, round 3 (2026-11-18), phases 1 to 3 built (`0.21.0-dev+147`, `+149`, `+150`). Round 1, 2026-11-16,
+**Status:** design, round 3 (2026-11-18), phases 1 to 3 built (`0.21.0-dev+147`, `+149`, `+150`), T1 (`+155`), T2
+(`+156`, `+157`) and 4 (`+158`). Round 1, 2026-11-16,
 set out projects, processes and creations around a home screen and a sidebar of conversations. Round 2
 is the layout Todd reached through a working prototype the same afternoon, iterated with him on the Mac: a sidebar,
 a workspace overview, projects that open on their summary, chats that need no project, and Mila as a bar at the foot
@@ -14,6 +15,13 @@ and 5.7 are new; sections 5.2, 5.4, 5.5, 6, 8, 9, 10 and 12 change. **Todd took 
 with your recommendations"; section 11, questions A and D to H), and asked to see the real app in place of a prototype
 round.** So what is marked *proposed* below stands as the design, and phase T1 is being built first. The prototype has
 not caught up with it.
+
+**Phase 4's decisions** (Todd, 2026-11-19, "Please continue as per your recommendations", taking Claude's lean on each):
+*New project* is a sheet until phase 6 (4.1); a project's state is read from its chats' records (4.1); the session is
+given the workspace folder, which on macOS moves to `~/Library/Application Support/Mila` (8); one project folder is held
+by each of its chats from the start, several are chosen among, and the project's access is where a chat starts (10);
+instructions are stored and not shown until phase 7 (8); and the session's and the store's bodies move to implementation
+units before any of it is built (12).
 
 The prototype is beside this document, `AssistantInterface.prototype.html`: one page, example work, and replies
 canned by keyword, since nothing runs a model behind it. It is the reference for how a screen looks and moves; this
@@ -95,7 +103,10 @@ Seven rules follow, and every section below is held to them:
   the model read, and its folder and plan; one stored before phase 3 also carries an activity, which is not read.
 - **A chat has a plan when Mila proposes one** (`Desktop.TaskPlan.ixx`): `propose_plan`, approved by the person, and
   `update_step`, allowed by rule.
-- **Nothing outlives a conversation** but the conversation: no instructions, files or findings shared between them.
+- **Projects gather chats** (phase 4, `0.21.0-dev+158`): each a record with a name, a purpose, folders and its history,
+  in the workspace's own folder beside the conversations; a chat names its project by one field. A project's folder is
+  held by its chats at the project's access (section 10).
+- **Nothing else outlives a conversation**: no instructions, files or findings shared between chats yet.
 - **The library's task** (`../Agents/AgentTasks.md`, agreed 2026-11-03, not built) gives an agent a task carried
   across responses, a plan, a versioned trace of every step, and a task folder holding them.
 - **The session holds one conversation's state at a time** (one stream, `../MilaDesktop.md` 4, *Streams*).
@@ -173,6 +184,14 @@ Always the same places, with where the person is marked among them.
 - **Projects**: the five most recently active, each a dot of its state (amber waiting on you, teal active, grey
   quiet) and its name, the open one marked; then *New project*, which asks Mila to start one. Left out when the
   workspace has none.
+  **A project's state is read from its chats' records,** with no span of time in it (phase 4): *Waiting on you* when
+  one of its chats is under *Needs you* (4.3: a plan stopped short of its end, or a last reply cut short); else
+  *Active* while a reply is being written in one of its chats; else *Quiet*. A plan with steps unfinished in a chat
+  nobody is replying in is a stopped plan, so it waits on the person rather than counting as active. While the session
+  holds one stream (phase 11) at most one project is active.
+  **Until phase 6** gives Mila `propose_project`, *New project* opens a sheet: a name, a purpose that may be left
+  empty, and *Create*, which sends `project.new`. At phase 6 it asks Mila, and the sheet stays as the way to make one
+  without asking.
 - **Recent chats**: the four most recent, in any project or none; the open one marked.
 - **At the foot**: *Settings* (Command+, or Ctrl+,), the window of `../MilaDesktop.md` 3.7; the model, its name and
   *Model*, which opens what Mila chose (the model, chosen for this computer, the context, thinking, the share of the
@@ -228,6 +247,14 @@ A project opens on its summary, so the person knows where it stands before anyth
   there is one, the one action that moves it: *Answer and continue*, *Ask Mila to finish*).
 - **Then its contents**: *Chats*, *Made*, *Plans*, *Findings*, *History*. On a wide window a column beside them lists
   *In this project* with counts; the sidebar already lists the other projects.
+
+*As built at phase 4:* the head has the name and purpose, each edited in place, the state and the latest event, and a
+menu of *Rename*, *Change what it is for*, *Add a folder* and *Delete project*. Deleting asks, with *Delete, keep its
+chats* first and the words *Its folders and the files in them are not touched*. The figures are *Chats*, *Made* (files
+Mila wrote in its chats) and *Plans*, the last two opening nothing until phases 8 and 9; *Findings* and the summary come
+with phases 10 and 7. Then *Folders* (each with *Read* or *Read and change* and *Remove*, and *Add a folder* through
+the window's picker), *Chats* (each with the chat menu, *Move to…* among it), and *History*. The column beside the
+contents is not built. *All chats* has the menu's *Move to…* too, listing each project and *No project*.
 
 ### 4.6 All chats
 
@@ -578,6 +605,22 @@ Mila/
 
 The workspace is this folder: there is one per person (question C).
 
+**Where it is, and how the session is given it** (phase 4). The session takes the workspace folder, `--workspace <dir>`,
+in place of the conversations folder it took before (`--conversations`), and keeps `settings.json` at its top as before,
+so nothing on disk moves on Windows or Linux:
+
+| Platform | The workspace folder | Its folders |
+|---|---|---|
+| Windows | `%LOCALAPPDATA%\Mila` | `Conversations`, `Projects` |
+| macOS | `~/Library/Application Support/Mila` | `Conversations`, `Projects` |
+| Linux | `$XDG_DATA_HOME/mila`, else `~/.local/share/mila` | `conversations`, `projects` |
+
+macOS kept conversations in Linux's place until phase 4; no released Mila wrote there, so nothing is moved from it.
+
+**A project's instructions are stored from phase 4 and not shown or given to a chat until phase 7,** which brings the
+project's understanding into its chats in the same change, so the cost of what a chat is given at its start is measured
+once for both.
+
 **Every lasting thing Mila derives is a record of one shape** (*proposed*, the vision's section 6), so `find_records`, the
 drawers and deletion read one form:
 
@@ -722,6 +765,36 @@ chat may do in it stays its tools' grant (`../ToolCalling.md` 3.4); being in a p
 it is the first **source** of section 4.12, listed there, read-only unless the person chose *Read and change*, and
 removable at any time. How far standing access goes beyond a folder the person named is the vision's question 3.
 
+**As decided for phase 4.** A chat still holds one folder (5.5, as built at phase 3). A chat in a project with one
+folder holds it from its start; in a project with several, `request_folder` offers them, and a folder chosen outside
+them is that chat's alone and is not added to the project. The project's access is where its chats start: *Read*, and a
+chat's first write asks to change files for the rest of that chat, as in a chat of its own; *Read and change*, and its
+chats start able to change files, since the person chose that on the project. A chat moved into a project keeps the
+folder it holds. Removing a folder from the project takes it from the chats that hold it through the project, once any
+reply being written has ended. Changing a folder to *Read* narrows the open chat at once; changing it to *Read and
+change* reaches a chat from its next start, so nothing widens under a chat already running. A chat reopened in a project
+holds the project's folder as the project has it then.
+
+**Built at phase 4:**
+
+- **Stored:** a conversation carries `project` (an id, or null) and `folder_from_project`. `Projects/<id>/project.json`
+  holds `v`, `id`, `name`, `purpose`, `instructions`, `folders` (`[{path, access}]`), `created`, `updated`; its
+  `history.jsonl` and the workspace's `activity.jsonl` hold events `{time, who, kind}` with any of `project`, `from`,
+  `conversation`, `name`, `path`, `access`. The kinds are `project.made`, `project.renamed`, `project.purpose`,
+  `project.instructions`, `project.folder_added`, `project.folder_access`, `project.folder_removed`, `project.deleted`
+  and `chat.moved`. An event goes in the history of each stored project it names as `project` or `from`, else in
+  `activity.jsonl`. A deletion rewrites each file to forget the id, and the name and folder that came with it.
+- **Session to page:** `projects.list` carries each project's record, and the page works out its state, chats, what
+  was made and its fourteen days from the records it already has, so `projects.list` is not the table's richer item.
+  `activity.list` carries the events, newest first, at most 200, and `before` the time to page back from, or null.
+  `project.made` (`id`) follows a `project.new`, so the page opens the project. `session.state` gains `project` and
+  `folder_from_project`; `conversations.list` items gain `project` and `folder_from_project`, and `conversation.loaded`
+  gains `project`. `request_folder`'s `turn.tool_approval` carries `folders`, the project's, to choose among.
+- **Page to session:** `project.new`, `project.update` (one change a message), `project.delete`, `conversation.move`,
+  `conversation.new` with `project`, and `activity.open` (`before`). Not built: `project.open` and `project.loaded`,
+  since the page draws a project from the lists it has; `project.undo`, `suggestion.decide` and `note.decide` (phases 6
+  and 7); `creation.*` and `run.*` (phases 8 and 9).
+
 ## 11. Questions
 
 ### All decided. A and D to H: Todd, 2026-11-18, "Proceed with your recommendations", taking each lean below
@@ -857,7 +930,26 @@ The rest, in the proposed order:
   still exposes a chat (filed).
 - **Phase 4. Projects** (the vision's step 8). The store's `Projects/`, its records and its events; the sidebar's
   projects; *All projects* (4.4); a project's head, glance and chats (4.5); *New project*; moving a chat by its menu; the
-  overview's projects; a project's folders as sources (section 10); deletion as section 8 says.
+  overview's projects; a project's folders as sources (section 10); deletion as section 8 says. Built in this order:
+  (a) `Desktop.SessionProcess` and `Desktop.ConversationStore` keep their bodies in `Implementation/`, by CLAUDE.md's
+  rule for a plain class, moved unchanged and checked before anything else changes; (b) the workspace folder (section
+  8); (c) the project store, `history.jsonl` and `activity.jsonl`, and section 10's messages; (d) the page; (e) mock
+  scenarios, then the real session. *Built 2026-11-19 (`0.21.0-dev+158`)*, as sections 4.1, 4.5, 8 and 10 record: the
+  store layer is `Desktop.StoreFile` (whole-file writes and records a line), `Desktop.WorkspaceFolder`,
+  `Desktop.ConversationStore`, `Desktop.ProjectStore` and `Desktop.EventLog`, in `Apps/Desktop/Session/Src/Store/`; the
+  page's projects are `views/projects.js` and `views/new-project.js` over `state.js`; mock scenario 16 is a workspace
+  with three projects. Checked on Windows: the session's tests (55, the store's 15 new), the page's 122 and the window's
+  9, every target built in `x64-claude-verify`; the session over stdio with no model (a project made, a chat moved in, a
+  folder given and held by a new chat at the project's access, narrowed and taken back, the project deleted keeping its
+  chats, a deleted chat forgotten in the history); scenario 16 in the window over the mock at 1280x800, 900 and 860 px in
+  light and dark, with no console error, nothing scrolling sideways and no network request; and the real session over
+  stdio on Gemma 4 12B FP4 in a scratch workspace: a chat begun in a project of one folder read `notes.txt` with no
+  folder question and its first write asked to change files there; after the project was set to *Read and change*, the
+  next chat's write asked without that step; both chats stored with the project. Linux (WSL, CPU-only, where the session
+  process is not built without a GPU backend): the session's tests and the page's. macOS: the session and its tests
+  built and passing, the page's tests, and the same stdio check against the Mac's session, whose default workspace is
+  now `~/Library/Application Support/Mila`. The key store's test skipped on both, which needs a keyring the run could
+  not unlock (no display in WSL, SSH on the Mac). **Not done:** the window on the real session; Q4_0 on the PC (it has FP4 only); the prototype.
 - **Phase 8. Made and where it came from.** The creations index, digests, the *Made* drawer (4.9), *Keep* under a reply.
   First because it uses the records and asks nothing new of a model.
 - **Phase 5. Going somewhere, and finding things by asking** (the vision's step 9). `open_place` first, then

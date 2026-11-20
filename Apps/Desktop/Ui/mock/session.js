@@ -3,7 +3,7 @@
 // and no timers of its own -- the host passes a clock -- so one implementation serves the page in
 // a browser, a Node wrapper on stdio, and node --test.
 
-import { findModel, mockLicense, models, seedConversations, summarizeConversation, titleFor } from './fixtures.js';
+import { findModel, mockLicense, models, seedConversations, seedProjects, summarizeConversation, titleFor } from './fixtures.js';
 import { findScenario } from './scenarios.js';
 
 const streamId = 'stream-1';
@@ -36,6 +36,30 @@ export function createMockSession( options )
     for ( const seed of seeds )
         conversations.set( seed.id, seed );
 
+    // A scenario with projects (AssistantInterface.md phase 4) gathers some of the seeded chats into them.
+    const projects = new Map();
+    const events = [];
+    let nextProjectNumber = 1;
+
+    if ( scenario.projects === true )
+    {
+        const seeded = seedProjects( startTime );
+
+        for ( const project of seeded.projects )
+            projects.set( project.id, project );
+
+        for ( const [ conversationId, projectId ] of seeded.placements )
+        {
+            const conversation = conversations.get( conversationId );
+
+            if ( conversation !== undefined )
+                conversation.project = projectId;
+        }
+
+        events.push( ...seeded.events );
+        nextProjectNumber = seeded.projects.length + 1;
+    }
+
     const session = {
         model: licenseAccepted ? startModel : null,
         noModelReason: null,
@@ -48,8 +72,10 @@ export function createMockSession( options )
         sampling: {},
         busy: false,
         conversationId: null,
+        project: null,
         folder: null,
         folderAccess: 'read',
+        folderFromProject: false,
         webSearch: false,
         history: [],
         nextConversationNumber: seeds.length + 1,
@@ -128,6 +154,8 @@ export function createMockSession( options )
             modalities: model === null ? [] : model.modalities,
             folder: session.folder,
             folder_access: session.folder === null ? null : session.folderAccess,
+            folder_from_project: session.folder !== null && session.folderFromProject,
+            project: session.project,
             allowed_for_chat: [ ...allowedTools ],
             plan: null,
             web_search: session.webSearch,
@@ -184,8 +212,58 @@ export function createMockSession( options )
             updated: conversation.updated,
             model: conversation.model,
             folder: conversation.folder,
+            project: conversation.project ?? null,
+            folder_from_project: conversation.folderFromProject === true,
             ...summarizeConversation( conversation )
         };
+    }
+
+    function emitProjects()
+    {
+        const items = Array.from( projects.values() ).map( ( project ) => ( { ...project, folders: project.folders.map( ( folder ) => ( { ...folder } ) ) } ) );
+
+        items.sort( ( left, right ) => ( left.updated < right.updated ? 1 : -1 ) );
+        emit( { type: 'projects.list', items } );
+    }
+
+    function emitActivity()
+    {
+        const items = events.map( ( event ) => ( { ...event } ) )
+            .sort( ( left, right ) => ( left.time < right.time ? 1 : left.time > right.time ? -1 : 0 ) );
+
+        emit( { type: 'activity.list', items, before: null } );
+    }
+
+    function recordEvent( event )
+    {
+        events.push( { time: new Date( options.now() ).toISOString(), who: 'you', ...event } );
+    }
+
+    /** As the session's: an event about something deleted keeps its kind and time, and loses the name. */
+    function forgetEverywhere( identifier )
+    {
+        for ( const event of events )
+        {
+            if ( event.conversation === identifier )
+            {
+                delete event.conversation;
+                delete event.name;
+            }
+
+            if ( event.project === identifier )
+            {
+                delete event.project;
+
+                if ( event.conversation === undefined )
+                {
+                    delete event.name;
+                    delete event.path;
+                }
+            }
+
+            if ( event.from === identifier )
+                delete event.from;
+        }
     }
 
     function emitConversations()
@@ -361,6 +439,14 @@ export function createMockSession( options )
         }
 
         const approval = { ...step.message, stream_id: streamId, turn_id: reply.turnId };
+
+        // As the session's: a folder asked for in a project of several folders is chosen among them (10).
+        if ( step.tool === 'request_folder' )
+        {
+            const project = session.project === null ? null : projects.get( session.project ) ?? null;
+            approval.folders = project === null ? [] : project.folders.map( ( folder ) => ( { ...folder } ) );
+        }
+
         reply.waiting = step;
         emit( approval );
     }
@@ -396,9 +482,15 @@ export function createMockSession( options )
 
         reply.waiting = null;
 
+        // One of the project's folders is held at the project's access; any other is this chat's alone, read first.
         if ( folderAsked && chosen !== null )
         {
+            const project = session.project === null ? null : projects.get( session.project ) ?? null;
+            const held = project === null ? undefined : project.folders.find( ( folder ) => folder.path === chosen );
+
             session.folder = chosen;
+            session.folderAccess = held === undefined ? 'read' : held.access;
+            session.folderFromProject = held !== undefined;
             emitState();
         }
 
@@ -504,6 +596,8 @@ export function createMockSession( options )
                 title,
                 model: session.model.name,
                 folder: session.folder,
+                project: session.project,
+                folderFromProject: session.folderFromProject,
                 created: updated,
                 updated,
                 messages: session.history.slice()
@@ -615,15 +709,226 @@ export function createMockSession( options )
 
     // ---- Conversations -----------------------------------------------------------------------
 
-    /** A chat begins with no folder; it gains one when the person answers request_folder (AssistantInterface.md 5.5). */
-    function newConversation()
+    /**
+     * A chat begins with no folder; it gains one when the person answers request_folder (AssistantInterface.md 5.5). One
+     * begun in a project of one folder holds it from the start, at the project's access (10).
+     */
+    function newConversation( request )
     {
+        const project = request !== undefined && typeof request.project === 'string' ? projects.get( request.project ) ?? null : null;
+        const only = project !== null && project.folders.length === 1 ? project.folders[ 0 ] : null;
+
         session.conversationId = null;
-        session.folder = null;
+        session.project = project === null ? null : project.id;
+        session.folder = only === null ? null : only.path;
+        session.folderAccess = only === null ? 'read' : only.access;
+        session.folderFromProject = only !== null;
         session.history = [];
         allowedTools.clear();
 
         emitState();
+    }
+
+    // ---- Projects (AssistantInterface.md phase 4) -------------------------------------------
+
+    /** After any change to projects or where chats are, as the session sends. */
+    function emitWorkspace()
+    {
+        emitProjects();
+        emitConversations();
+        emitState();
+        emitActivity();
+    }
+
+    function newProject( request )
+    {
+        const name = typeof request.name === 'string' ? request.name.trim() : '';
+
+        if ( name.length === 0 )
+        {
+            emitError( 'A project needs a name.', null );
+
+            return;
+        }
+
+        const stamp = new Date( options.now() ).toISOString();
+        const identifier = 'project-mock-' + nextProjectNumber;
+        nextProjectNumber = nextProjectNumber + 1;
+
+        projects.set( identifier, { v: 1, id: identifier, name, purpose: typeof request.purpose === 'string' ? request.purpose.trim() : '',
+            instructions: '', folders: [], created: stamp, updated: stamp } );
+        recordEvent( { kind: 'project.made', project: identifier, name } );
+
+        for ( const moved of Array.isArray( request.conversation_ids ) ? request.conversation_ids : [] )
+            moveOne( moved, identifier );
+
+        emitWorkspace();
+        emit( { type: 'project.made', id: identifier } );
+    }
+
+    function changeProjectFolders( project, requested )
+    {
+        const before = project.folders;
+        const after = requested.map( ( folder ) => ( { path: folder.path, access: folder.access === 'read_write' ? 'read_write' : 'read' } ) );
+
+        for ( const folder of after )
+        {
+            const was = before.find( ( old ) => old.path === folder.path );
+
+            if ( was === undefined )
+                recordEvent( { kind: 'project.folder_added', project: project.id, path: folder.path, access: folder.access } );
+            else if ( was.access !== folder.access )
+                recordEvent( { kind: 'project.folder_access', project: project.id, path: folder.path, access: folder.access } );
+        }
+
+        for ( const folder of before )
+        {
+            if ( !after.some( ( now ) => now.path === folder.path ) )
+                recordEvent( { kind: 'project.folder_removed', project: project.id, path: folder.path } );
+        }
+
+        project.folders = after;
+
+        // The open chat lets go of a folder its project let go, and is narrowed with it.
+        if ( session.project !== project.id || !session.folderFromProject || session.folder === null )
+            return;
+
+        const held = after.find( ( folder ) => folder.path === session.folder );
+
+        if ( held === undefined )
+        {
+            session.folder = null;
+            session.folderAccess = 'read';
+            session.folderFromProject = false;
+        }
+        else if ( held.access === 'read' )
+        {
+            session.folderAccess = 'read';
+        }
+    }
+
+    function updateProject( request )
+    {
+        const project = projects.get( request.id );
+
+        if ( project === undefined )
+        {
+            emitError( 'That project is no longer stored.', null );
+
+            return;
+        }
+
+        if ( Object.hasOwn( request, 'name' ) )
+        {
+            const name = String( request.name ).trim();
+
+            if ( name.length === 0 )
+            {
+                emitError( 'A project needs a name.', null );
+
+                return;
+            }
+
+            project.name = name;
+            recordEvent( { kind: 'project.renamed', project: project.id, name } );
+        }
+        else if ( Object.hasOwn( request, 'purpose' ) )
+        {
+            project.purpose = String( request.purpose ).trim();
+            recordEvent( { kind: 'project.purpose', project: project.id, name: project.name } );
+        }
+        else if ( Object.hasOwn( request, 'folders' ) && Array.isArray( request.folders ) )
+        {
+            changeProjectFolders( project, request.folders );
+        }
+        else
+        {
+            return;
+        }
+
+        project.updated = new Date( options.now() ).toISOString();
+        emitWorkspace();
+    }
+
+    function deleteProject( request )
+    {
+        const project = projects.get( request.id );
+
+        if ( project === undefined )
+        {
+            emitError( 'That project is no longer stored.', null );
+
+            return;
+        }
+
+        const deleting = request.conversations === 'delete';
+
+        for ( const conversation of Array.from( conversations.values() ) )
+        {
+            if ( conversation.project !== project.id )
+                continue;
+
+            if ( deleting )
+            {
+                conversations.delete( conversation.id );
+                forgetEverywhere( conversation.id );
+            }
+            else
+            {
+                conversation.project = null;
+                conversation.folderFromProject = false;
+            }
+        }
+
+        if ( session.project === project.id )
+        {
+            if ( deleting )
+                newConversation();
+
+            session.project = null;
+            session.folderFromProject = false;
+        }
+
+        projects.delete( project.id );
+        forgetEverywhere( project.id );
+        recordEvent( { kind: 'project.deleted' } );
+        emitWorkspace();
+    }
+
+    /** One field moves a chat; the move is in the history of each project it left and joined. */
+    function moveOne( identifier, projectId )
+    {
+        const conversation = conversations.get( identifier );
+        const from = conversation === undefined ? null : conversation.project ?? null;
+
+        if ( conversation === undefined || from === projectId )
+            return;
+
+        conversation.project = projectId;
+        conversation.folderFromProject = false;
+
+        if ( session.conversationId === identifier )
+        {
+            session.project = projectId;
+            session.folderFromProject = false;
+        }
+
+        recordEvent( { kind: 'chat.moved', conversation: identifier, name: conversation.title, project: projectId, from } );
+    }
+
+    function moveConversation( request )
+    {
+        const projectId = typeof request.project === 'string' ? request.project : null;
+
+        if ( projectId !== null && !projects.has( projectId ) )
+        {
+            emitError( 'That project is no longer stored.', null );
+
+            return;
+        }
+
+        moveOne( request.id, projectId );
+        emitWorkspace();
     }
 
     function openConversation( request )
@@ -637,9 +942,17 @@ export function createMockSession( options )
             return;
         }
 
-        // A chat stored with an activity opens like any other, its folder kept; the activity is not read.
+        // A chat stored with an activity opens like any other, its folder kept; the activity is not read. One in a
+        // project holds the project's folder at the project's access (AssistantInterface.md 10).
+        const project = conversation.project ? projects.get( conversation.project ) ?? null : null;
+        const held = project === null ? undefined : project.folders.find( ( folder ) => folder.path === conversation.folder );
+        const only = project !== null && conversation.folder === null && project.folders.length === 1 ? project.folders[ 0 ] : null;
+
         session.conversationId = conversation.id;
-        session.folder = conversation.folder;
+        session.project = project === null ? null : project.id;
+        session.folder = only !== null ? only.path : conversation.folder;
+        session.folderAccess = held !== undefined ? held.access : only !== null ? only.access : 'read';
+        session.folderFromProject = held !== undefined || only !== null;
         session.history = conversation.messages.slice();
         allowedTools.clear();
 
@@ -648,7 +961,8 @@ export function createMockSession( options )
             id: conversation.id,
             title: conversation.title,
             model: conversation.model,
-            folder: conversation.folder,
+            folder: session.folder,
+            project: session.project,
             messages: conversation.messages
         };
 
@@ -670,12 +984,16 @@ export function createMockSession( options )
 
     function deleteConversation( request )
     {
-        conversations.delete( request.id );
+        if ( !conversations.delete( request.id ) )
+            return;
+
+        forgetEverywhere( request.id );
 
         if ( session.conversationId === request.id )
             newConversation();
 
         emitConversations();
+        emitActivity();
     }
 
     // ---- Settings ----------------------------------------------------------------------------
@@ -1027,7 +1345,9 @@ export function createMockSession( options )
             case 'ready':
                 emitLicense();
                 emitState();
+                emitProjects();
                 emitConversations();
+                emitActivity();
                 emitModels();
 
                 return;
@@ -1045,7 +1365,22 @@ export function createMockSession( options )
                 return decideTool( request );
 
             case 'conversation.new':
-                return newConversation();
+                return newConversation( request );
+
+            case 'conversation.move':
+                return moveConversation( request );
+
+            case 'project.new':
+                return newProject( request );
+
+            case 'project.update':
+                return updateProject( request );
+
+            case 'project.delete':
+                return deleteProject( request );
+
+            case 'activity.open':
+                return emitActivity();
 
             // The window answers this; with no window, as in a browser, the mock does.
             case 'folder.choose':

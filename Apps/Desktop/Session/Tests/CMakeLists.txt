@@ -1,4 +1,5 @@
-# Mila Desktop's tests: its settings file, licence and prompt (AssistantInterface.md 5.5, MilaDesktop.md 3.7), which need no model.
+# Mila Desktop's tests: its settings file, licence, prompt and workspace store (AssistantInterface.md 5.5 and 8, MilaDesktop.md
+# 3.7), which need no model.
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
 include( GoogleTest )
@@ -11,9 +12,16 @@ add_executable( DesktopSessionTests
     "ConversationSummary.cpp"
     "ExposureRecord.cpp"
     "SearchKeyStore.cpp"
+    "ConversationStore.cpp"
+    "ProjectStore.cpp"
+    "EventLog.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Settings/Implementation/MilaLicense.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Implementation/ConversationSummary.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Implementation/ExposureRecord.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Store/Implementation/ConversationStore.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Store/Implementation/ProjectStore.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Store/Implementation/EventLog.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Store/Implementation/StoreFile.cpp"
 )
 
 # BASE_DIRS is explicit because a module file set otherwise roots itself at this directory, and the modules being tested
@@ -32,6 +40,11 @@ PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Tools/Desktop.PromptFile.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Desktop.ConversationSummary.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Desktop.ExposureRecord.ixx"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Store/Desktop.ConversationStore.ixx"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Store/Desktop.ProjectStore.ixx"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Store/Desktop.EventLog.ixx"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Store/Desktop.StoreFile.ixx"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../Src/Store/Desktop.WorkspaceFolder.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/../${MILA_SESSION_KEY_STORE}"
 )
 

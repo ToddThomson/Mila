@@ -6,7 +6,7 @@ import { element, button, iconButton, setIcon, clear, previewOrIcon } from '../d
 import { renderMarkdown } from '../markdown.js';
 import { summarizeTurn, isBusy, emptyScreen, firstRunStep, suggestedModel, setupPane } from '../state.js';
 import { thoughtLabel, statsLine, finishNotice, readableJson, formatBytes, modelAbilities, fitLine, modelTitle, namedTitle,
-    licenseParagraphs, approvalWords } from '../format.js';
+    licenseParagraphs, approvalWords, folderName } from '../format.js';
 
 const stickDistance = 80;
 
@@ -52,7 +52,7 @@ export function createTranscriptView( scroller, container, actions )
             copyReply( target );
 
         if ( action === 'tool-decision' )
-            actions.decideTool( target.dataset.turn, target.dataset.call, target.dataset.decision );
+            actions.decideTool( target.dataset.turn, target.dataset.call, target.dataset.decision, target.dataset.folder );
 
         if ( action === 'choose-folder' )
             actions.chooseFolder( target.dataset.turn, target.dataset.call );
@@ -942,12 +942,14 @@ function updateApproval( built, block )
 
 /**
  * Mila asking for a folder (AssistantInterface.md 5.5): the call's line already says why, and the answer is the
- * picker, since the folder chosen is what the answer gives.
+ * picker, since the folder chosen is what the answer gives. In a project of several folders each is offered first,
+ * with how far Mila may go in it (10); another from the picker is this chat's alone.
  */
 function folderQuestion( built, block )
 {
+    const offered = Array.isArray( block.projectFolders ) ? block.projectFolders : [];
     const question = element( 'span', 'tool-question', 'Give this chat a folder?' );
-    const choose = button( 'chip-button', 'Choose a folder', 'choose-folder' );
+    const choose = button( offered.length > 0 ? 'chip-button quiet' : 'chip-button', offered.length > 0 ? 'Another folder' : 'Choose a folder', 'choose-folder' );
     choose.dataset.turn = block.turnId;
     choose.dataset.call = block.callId;
 
@@ -956,7 +958,20 @@ function folderQuestion( built, block )
     decline.dataset.call = block.callId;
     decline.dataset.decision = 'deny';
 
-    built.approval.append( question, choose, decline );
+    built.approval.append( question );
+
+    for ( const folder of offered )
+    {
+        const pick = button( 'chip-button', folderName( folder.path ) + ( folder.access === 'read_write' ? ' (read and change)' : ' (read)' ), 'tool-decision' );
+        pick.dataset.turn = block.turnId;
+        pick.dataset.call = block.callId;
+        pick.dataset.decision = 'allow_once';
+        pick.dataset.folder = folder.path;
+        pick.title = folder.path;
+        built.approval.append( pick );
+    }
+
+    built.approval.append( choose, decline );
 }
 
 /**

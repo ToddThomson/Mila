@@ -11,6 +11,12 @@ export function createInitialState()
         session: null,
         conversations: [],
         conversationId: null,
+        // The workspace's projects and events (AssistantInterface.md phase 4), and the project open in the pane.
+        projects: [],
+        events: [],
+        eventsBefore: null,
+        eventsPaging: false,
+        projectId: null,
         transcript: [],
         installedModels: [],
         modelsKnown: false,
@@ -28,7 +34,8 @@ export function createInitialState()
         attachments: [],
         logs: [],
         nextEntryNumber: 1,
-        // Where the person is (AssistantInterface.md 4): the workspace, all chats, activity, or the open chat.
+        // Where the person is (AssistantInterface.md 4): the workspace, all projects, a project, all chats, activity,
+        // what Mila can reach, or the open chat.
         place: 'workspace',
         // The session's conversation was begun from the Mila bar, so the bar goes on with it away from the chat.
         barOwned: true,
@@ -38,7 +45,7 @@ export function createInitialState()
     };
 }
 
-export const places = [ 'workspace', 'chats', 'activity', 'reach', 'chat' ];
+export const places = [ 'workspace', 'projects', 'project', 'chats', 'activity', 'reach', 'chat' ];
 
 export function reduce( state, message )
 {
@@ -66,6 +73,16 @@ export function reduce( state, message )
 
         case 'conversations.list':
             return { ...state, conversations: message.items };
+
+        case 'projects.list':
+            return reduceProjectsList( state, message );
+
+        case 'activity.list':
+            return reduceActivityList( state, message );
+
+        // A project the person just made opens.
+        case 'project.made':
+            return { ...state, place: 'project', projectId: message.id, risen: false };
 
         case 'conversation.loaded':
             return reduceConversationLoaded( state, message );
@@ -129,6 +146,12 @@ export function reduce( state, message )
 
         case 'conversation.delete':
             return reduceConversationDelete( state, message );
+
+        case 'project.delete':
+            return state.projectId === message.id ? { ...state, place: state.place === 'project' ? 'projects' : state.place, projectId: null } : state;
+
+        case 'activity.open':
+            return { ...state, eventsPaging: message.before !== null && message.before !== undefined };
 
         // The page's alone, never sent: where the person goes, and the conversation risen or lowered over it.
         case 'place.open':
@@ -338,9 +361,35 @@ function reducePlaceOpen( state, message )
     if ( message.place === 'chat' )
         return { ...state, place: 'chat', risen: false };
 
-    const leavingReply = state.place === 'chat' && isBusy( state ) && state.transcript.length > 0;
+    // A project opens by its id, and only while it is stored.
+    if ( message.place === 'project' && !state.projects.some( ( project ) => project.id === message.project ) )
+        return state;
 
-    return { ...state, place: message.place, risen: state.risen || leavingReply };
+    const leavingReply = state.place === 'chat' && isBusy( state ) && state.transcript.length > 0;
+    const projectId = message.place === 'project' ? message.project : state.projectId;
+
+    return { ...state, place: message.place, projectId, risen: state.risen || leavingReply };
+}
+
+/** A project that is no longer stored is not shown: its page goes back to all projects. */
+function reduceProjectsList( state, message )
+{
+    const items = Array.isArray( message.items ) ? message.items : [];
+    const stillThere = state.projectId !== null && items.some( ( project ) => project.id === state.projectId );
+
+    if ( stillThere || state.projectId === null )
+        return { ...state, projects: items };
+
+    return { ...state, projects: items, projectId: null, place: state.place === 'project' ? 'projects' : state.place };
+}
+
+/** The latest events replace what was shown; a page asked for further back is added after them. */
+function reduceActivityList( state, message )
+{
+    const items = Array.isArray( message.items ) ? message.items : [];
+    const events = state.eventsPaging ? [ ...state.events, ...items ] : items;
+
+    return { ...state, events, eventsBefore: message.before ?? null, eventsPaging: false };
 }
 
 /** The open chat deleted, the session starts a new conversation, which is the bar's; the pane goes to all chats. */
@@ -470,7 +519,8 @@ function updateToolBlock( turn, callId, change )
 function reduceToolApproval( turn, message )
 {
     const change = { choices: message.choices, reaches: message.reaches ?? null, changesFolder: message.changes_folder ?? null,
-        hasRead: message.has_read ?? null, notInYourWords: message.not_in_your_words ?? null };
+        hasRead: message.has_read ?? null, notInYourWords: message.not_in_your_words ?? null,
+        projectFolders: Array.isArray( message.folders ) ? message.folders : [] };
 
     return updateToolBlock( turn, message.call_id, change );
 }
@@ -925,25 +975,202 @@ export function needsYou( state )
 }
 
 /**
- * The workspace overview (4.3) of a workspace of chats: how many there are and the newest, what is waiting on the
- * person, and the most recent chats. Projects join it at phase 4.
+ * The workspace overview (4.3): how many chats there are and the newest, what is waiting on the person, the most
+ * recent projects, and the most recent chats in no project.
  */
 export function workspaceOverview( state )
 {
     const chats = chatsNewestFirst( state );
+    const loose = chats.filter( ( item ) => !inProject( item ) );
+    const projects = projectSummaries( state );
 
     return {
         chatCount: chats.length,
+        looseCount: loose.length,
         newest: chats.length > 0 ? chats[ 0 ] : null,
         waiting: needsYou( state ),
-        chats: chats.slice( 0, overviewChats )
+        projects,
+        activeCount: projects.filter( ( summary ) => summary.state === 'active' ).length,
+        waitingProjects: projects.filter( ( summary ) => summary.state === 'waiting' ),
+        recentProjects: projects.slice( 0, overviewProjects ),
+        chats: loose.slice( 0, overviewChats )
     };
 }
 
-/** The sidebar's recent chats (4.1). */
+/** The sidebar's recent chats (4.1), in any project or none. */
 export function recentChats( state )
 {
     return chatsNewestFirst( state ).slice( 0, sidebarChats );
+}
+
+// ---- Projects (AssistantInterface.md 4.4, 4.5) --------------------------------------------------
+
+const overviewProjects = 3;
+const sidebarProjects = 5;
+const pulseDays = 14;
+
+function inProject( item )
+{
+    return typeof item.project === 'string' && item.project.length > 0;
+}
+
+/** A stored project's name as it is now, or null for none or one deleted. */
+export function projectName( state, projectId )
+{
+    if ( typeof projectId !== 'string' )
+        return null;
+
+    const project = state.projects.find( ( candidate ) => candidate.id === projectId );
+
+    return project === undefined ? null : project.name;
+}
+
+/** The project open in the pane, or null. */
+export function currentProject( state )
+{
+    return state.projects.find( ( project ) => project.id === state.projectId ) ?? null;
+}
+
+/** The project a chat is in, or null for one in none or in a project no longer stored. */
+export function projectOfChat( state, item )
+{
+    if ( item === null || !inProject( item ) )
+        return null;
+
+    return state.projects.find( ( project ) => project.id === item.project ) ?? null;
+}
+
+/** The project the open chat is in, as the session holds it, or null. */
+export function openChatProject( state )
+{
+    const named = state.session === null ? null : state.session.project ?? null;
+
+    return named === null ? null : state.projects.find( ( project ) => project.id === named ) ?? null;
+}
+
+/** A project's chats, newest first. */
+export function projectChats( state, projectId )
+{
+    return chatsNewestFirst( state ).filter( ( item ) => item.project === projectId );
+}
+
+/** The events that name a project, as where it went or where a chat came from; newest first, as the session sends. */
+export function projectEvents( state, projectId )
+{
+    return state.events.filter( ( event ) => event.project === projectId || event.from === projectId );
+}
+
+/**
+ * A project's state (4.1), from its chats' records: waiting on the person when one of them needs them (4.3), active
+ * while a reply is being written in one, quiet otherwise.
+ */
+export function projectState( state, projectId )
+{
+    const chats = projectChats( state, projectId );
+    const waiting = needsYou( state ).some( ( row ) => row.item.project === projectId );
+
+    if ( waiting )
+        return 'waiting';
+
+    const replying = isBusy( state ) && ( state.session.project === projectId
+        || chats.some( ( item ) => item.id === state.conversationId ) );
+
+    return replying ? 'active' : 'quiet';
+}
+
+/** The count of days, oldest first, ending today: each a count of the project's chats changed and events that day. */
+function pulseOf( chats, events, now )
+{
+    const today = startOfDay( now );
+    const day = 24 * 60 * 60 * 1000;
+    const counts = new Array( pulseDays ).fill( 0 );
+    const count = ( time ) =>
+    {
+        const index = pulseDays - 1 - Math.round( ( today - startOfDay( new Date( time ) ) ) / day );
+
+        if ( index >= 0 && index < pulseDays )
+            counts[ index ] += 1;
+    };
+
+    for ( const item of chats )
+        count( item.updated );
+
+    for ( const event of events )
+        count( event.time );
+
+    return counts;
+}
+
+/**
+ * Every project with what its pages show of it: its state, its chats, what Mila wrote in them, its plans, when it last
+ * changed (itself or one of its chats), its latest event and its last fourteen days. The most recently changed first.
+ */
+export function projectSummaries( state, now = new Date() )
+{
+    const summaries = state.projects.map( ( project ) =>
+    {
+        const chats = projectChats( state, project.id );
+        const events = projectEvents( state, project.id );
+        const changes = [ project.updated, ...chats.map( ( item ) => item.updated ) ].filter( Boolean );
+        const updated = changes.reduce( ( latest, time ) => ( time > latest ? time : latest ), project.created ?? '' );
+        const made = chats.reduce( ( total, item ) => total + ( Array.isArray( item.wrote ) ? item.wrote.length : 0 ), 0 );
+        const plans = chats.filter( ( item ) => Boolean( item.progress ) ).length;
+
+        return {
+            project,
+            state: projectState( state, project.id ),
+            chats,
+            made,
+            plans,
+            updated,
+            latest: events.length > 0 ? events[ 0 ] : null,
+            pulse: pulseOf( chats, events, now )
+        };
+    } );
+
+    return summaries.sort( ( left, right ) => ( left.updated < right.updated ? 1 : left.updated > right.updated ? -1 : 0 ) );
+}
+
+/** The sidebar's projects (4.1): the five most recently changed. */
+export function recentProjects( state )
+{
+    return projectSummaries( state ).slice( 0, sidebarProjects );
+}
+
+export const projectFilters = [ 'all', 'waiting', 'active', 'quiet' ];
+
+/** All projects (4.4): with words typed, those whose name or purpose holds each; by filter, and by sort. */
+export function matchingProjects( state, query, filter, sort )
+{
+    const words = wordsOf( query );
+    let shown = projectSummaries( state );
+
+    if ( words.length > 0 )
+        shown = shown.filter( ( summary ) => holdsEvery( summary.project.name + ' ' + ( summary.project.purpose ?? '' ), words ) );
+
+    if ( filter !== 'all' )
+        shown = shown.filter( ( summary ) => summary.state === filter );
+
+    if ( sort === 'name' )
+        shown = shown.slice().sort( ( left, right ) => left.project.name.localeCompare( right.project.name ) );
+
+    return shown;
+}
+
+export const chatFilters = [ 'all', 'loose', 'placed' ];
+
+/** All chats (4.6) under a filter: every chat, those in no project, or those in one. */
+export function filteredChats( state, query, filter )
+{
+    const shown = matchingChats( state, query );
+
+    if ( filter === 'loose' )
+        return shown.filter( ( item ) => !inProject( item ) );
+
+    if ( filter === 'placed' )
+        return shown.filter( inProject );
+
+    return shown;
 }
 
 function wordsOf( query )
@@ -971,8 +1198,8 @@ export function matchingChats( state, query )
 }
 
 /**
- * Search (4.11): the chats whose title holds every word, then the files Mila wrote whose path does, each file once
- * at its latest chat. Nothing typed lists the most recent chats.
+ * Search (4.11): the projects whose name holds every word, then the chats whose title does, then the files Mila wrote
+ * whose path does, each file once at its latest chat. Nothing typed lists the most recent chats.
  */
 export function searchResults( state, query )
 {
@@ -980,6 +1207,16 @@ export function searchResults( state, query )
     const chats = chatsNewestFirst( state );
     const results = [];
     const seen = new Set();
+
+    // Projects first (4.11), when words are typed.
+    if ( words.length > 0 )
+    {
+        for ( const summary of projectSummaries( state ) )
+        {
+            if ( holdsEvery( summary.project.name, words ) )
+                results.push( { kind: 'project', project: summary.project } );
+        }
+    }
 
     for ( const item of chats )
     {
@@ -1009,19 +1246,29 @@ export function searchResults( state, query )
     return results.slice( 0, searchLimit );
 }
 
-export const activityKinds = [ 'all', 'chat', 'file', 'plan', 'sent' ];
+export const activityKinds = [ 'all', 'project', 'chat', 'file', 'plan', 'sent' ];
 
 /**
- * What Mila can reach (4.12): each folder a chat holds, the open chat's first with the access it has now, since a chat
- * opened again starts read-only; and what the person allowed for the open chat.
+ * What Mila can reach (4.12): each project's folders, a source of their own at the project's access (10); each folder
+ * a chat holds of its own, the open chat's first with the access it has now, since a chat opened again starts
+ * read-only; and what the person allowed for the open chat. A chat holding its project's folder is listed under the
+ * project, which is where the folder is removed.
  */
 export function reachOverview( state )
 {
     const session = state.session;
     const openFolder = session === null ? null : session.folder ?? null;
+    const openFromProject = session !== null && session.folder_from_project === true;
     const folders = [];
+    const projectFolders = [];
 
-    if ( openFolder !== null )
+    for ( const project of state.projects )
+    {
+        for ( const folder of Array.isArray( project.folders ) ? project.folders : [] )
+            projectFolders.push( { project, path: folder.path, changes: folder.access === 'read_write' } );
+    }
+
+    if ( openFolder !== null && !openFromProject )
     {
         const chat = currentChat( state );
 
@@ -1031,11 +1278,12 @@ export function reachOverview( state )
 
     for ( const item of state.conversations )
     {
-        if ( item.folder && item.id !== state.conversationId )
+        if ( item.folder && item.id !== state.conversationId && item.folder_from_project !== true )
             folders.push( { id: item.id, path: item.folder, title: item.title, changes: false } );
     }
 
     return {
+        projectFolders,
         folders,
         allowed: session === null ? [] : session.allowed_for_chat ?? [],
         webSearch: session !== null && session.web_search === true,
@@ -1068,8 +1316,18 @@ export function activityDays( state, kind )
             events.push( { kind: 'sent', who: sent.kind === 'link' ? 'you' : 'mila', time: sent.time ?? item.updated, item, sent } );
     }
 
+    // The session's own events (8): projects made, changed and deleted, and chats moved between them.
+    for ( const recorded of state.events )
+    {
+        const item = typeof recorded.conversation === 'string'
+            ? state.conversations.find( ( chat ) => chat.id === recorded.conversation ) ?? null : null;
+
+        events.push( { kind: 'project', who: recorded.who === 'mila' ? 'mila' : 'you', time: recorded.time, item, recorded,
+            project: recorded.project ?? null, to: projectName( state, recorded.project ), from: projectName( state, recorded.from ) } );
+    }
+
     const kept = kind === 'all' ? events : events.filter( ( event ) => event.kind === kind );
-    const order = { sent: 0, plan: 1, file: 2, chat: 3 };
+    const order = { sent: 0, project: 1, plan: 2, file: 3, chat: 4 };
 
     kept.sort( ( left, right ) => new Date( right.time ).getTime() - new Date( left.time ).getTime() || order[ left.kind ] - order[ right.kind ] );
 
@@ -1091,14 +1349,31 @@ export function activityDays( state, kind )
 
 /**
  * What the Mila bar does with what is typed (5.1, 5.3): reply in the open chat; elsewhere, go on with the
- * conversation begun from the bar, or begin a new chat when the session holds one opened from a list.
+ * conversation begun from the bar, or begin a new chat when the session holds one opened from a list. On a project's
+ * page the bar's conversation is the project's: one begun elsewhere is not continued there.
  */
 export function barMode( state )
 {
     if ( state.place === 'chat' )
         return 'reply';
 
-    return state.barOwned ? 'continue' : 'start';
+    if ( !state.barOwned )
+        return 'start';
+
+    const sessionProject = state.session === null ? null : state.session.project ?? null;
+    const here = state.place === 'project' ? state.projectId : null;
+
+    // A conversation not yet begun takes the place it is begun in.
+    if ( state.transcript.length === 0 )
+        return sessionProject === here ? 'continue' : 'start';
+
+    return here === null || sessionProject === here ? 'continue' : 'start';
+}
+
+/** The project a chat begun from the bar here belongs to: the project open in the pane, or none. */
+export function barProject( state )
+{
+    return state.place === 'project' ? state.projectId : null;
 }
 
 /** Whether the conversation shows risen over the place: raised, and with something in it. */

@@ -84,6 +84,7 @@ export const icons = {
     image: svg( '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.75"/><polyline points="21 16 15.5 11 5 20"/>' ),
     audio: svg( '<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>' ),
     workspace: svg( '<rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/>' ),
+    projects: svg( '<rect x="3.5" y="6.5" width="17" height="12.5" rx="2"/><path d="M3.5 10.5h17M9 6.5V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1.5"/>' ),
     chats: svg( '<path d="M20 12a7.5 7.5 0 0 1-11 6.6L4.5 20l1.3-4.2A7.5 7.5 0 1 1 20 12z"/>' ),
     activity: svg( '<path d="M3.5 12h4l2.5-6 4 12 2.5-6h4"/>' ),
     search: svg( '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4-4"/>' ),

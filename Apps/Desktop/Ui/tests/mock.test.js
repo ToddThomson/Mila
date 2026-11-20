@@ -39,14 +39,15 @@ function readyIsAnsweredWithTheSessionStateTheConversationsAndTheMode()
     session.handle( ready );
 
     const types = events.map( ( event ) => event.type );
-    assert.deepEqual( types, [ 'license', 'session.state', 'conversations.list', 'models.list' ] );
+    assert.deepEqual( types, [ 'license', 'session.state', 'projects.list', 'conversations.list', 'activity.list', 'models.list' ] );
     assert.equal( events[ 0 ].accepted, true );
     assert.equal( events[ 1 ].model, 'gemma-4-12b-it-fp4' );
     assert.equal( events[ 1 ].busy, false );
-    assert.equal( events[ 2 ].items.length, 7 );
+    assert.equal( events[ 2 ].items.length, 0 );
+    assert.equal( events[ 3 ].items.length, 7 );
 }
 
-test( 'ready is answered with the licence, the session state, the conversations and the models', readyIsAnsweredWithTheSessionStateTheConversationsAndTheMode );
+test( 'ready is answered with the licence, the session state, the projects, the conversations, the events and the models', readyIsAnsweredWithTheSessionStateTheConversationsAndTheMode );
 
 function everyEventCarriesTheVersionAndSurvivesJson()
 {

@@ -218,9 +218,16 @@ export function readableJson( text )
  * What the empty Mila bar says (AssistantInterface.md 5.1): in a chat it is the reply box; elsewhere it takes
  * anything, and the person's chats are a click away.
  */
-export function barPrompt( place )
+export function barPrompt( place, projectName )
 {
-    return place === 'chat' ? 'Reply to Mila' : 'Ask Mila anything, or open one of your chats';
+    if ( place === 'chat' )
+        return 'Reply to Mila';
+
+    // On a project's page what is asked begins a chat in it (5.3).
+    if ( place === 'project' && projectName )
+        return 'Ask Mila about ' + projectName;
+
+    return 'Ask Mila anything, or open one of your chats';
 }
 
 /**
@@ -354,10 +361,53 @@ function filesNamed( wrote )
     return names[ 0 ] + ', ' + names[ 1 ] + ' and ' + more + ( more === 1 ? ' more' : ' others' );
 }
 
+/**
+ * What one of the session's events says (AssistantInterface.md 8): `recorded` is the event as stored, and `to` and
+ * `from` the names of the projects it names as they are now, or null for one deleted since.
+ */
+export function projectEventText( recorded, to, from )
+{
+    const project = to ?? recorded.name ?? 'a project';
+    const folder = typeof recorded.path === 'string' ? folderName( recorded.path ) : 'a folder';
+
+    switch ( recorded.kind )
+    {
+        case 'project.made': return 'Made the project ' + project;
+        case 'project.renamed': return typeof recorded.name === 'string' ? 'Renamed a project to ' + recorded.name : 'Renamed a project';
+        case 'project.purpose': return 'Changed what ' + project + ' is for';
+        case 'project.instructions': return 'Changed the instructions of ' + project;
+        case 'project.folder_added': return 'Gave ' + project + ' the folder ' + folder + ( recorded.access === 'read_write' ? ', to read and change' : ', to read' );
+        case 'project.folder_access': return ( recorded.access === 'read_write' ? 'Let ' + project + ' change files in ' : 'Kept ' + project + ' to reading ' ) + folder;
+        case 'project.folder_removed': return 'Took the folder ' + folder + ' from ' + project;
+        case 'project.deleted': return 'Deleted a project';
+        case 'chat.moved': return movedText( recorded, to, from );
+        default: return 'Changed a project';
+    }
+}
+
+function movedText( recorded, to, from )
+{
+    const chat = recorded.name ?? 'a chat';
+
+    if ( to !== null && from !== null )
+        return 'Moved ' + chat + ' from ' + from + ' to ' + to;
+
+    if ( to !== null )
+        return 'Moved ' + chat + ' into ' + to;
+
+    if ( from !== null )
+        return 'Moved ' + chat + ' out of ' + from;
+
+    return 'Moved ' + chat;
+}
+
 /** What an Activity entry says (AssistantInterface.md 4.8). */
 export function activityText( event )
 {
     const item = event.item;
+
+    if ( event.kind === 'project' )
+        return projectEventText( event.recorded, event.to, event.from );
 
     if ( event.kind === 'sent' )
         return sentText( event.sent );

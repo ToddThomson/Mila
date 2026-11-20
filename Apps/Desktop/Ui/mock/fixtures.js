@@ -288,6 +288,48 @@ export function seedConversations( now )
     return seeds.map( ( seed ) => storedConversation( seed, now ) );
 }
 
+/**
+ * The projects of a workspace that has grown some (AssistantInterface.md phase 4): each record as the session stores it,
+ * which seeded chats are in which, and the events that put them there.
+ */
+export function seedProjects( now )
+{
+    const at = ( age ) => new Date( now - age ).toISOString();
+    const made = ( id, name, age ) => ( { time: at( age ), who: 'you', kind: 'project.made', project: id, name } );
+    const moved = ( conversation, name, project, age ) => ( { time: at( age ), who: 'you', kind: 'chat.moved', conversation, name, project, from: null } );
+
+    const projects = [
+        { v: 1, id: 'project-mock-calculator', name: 'Calculator app', purpose: 'A small calculator with a parser and its tests.',
+            instructions: '', folders: [ { path: 'C:\\Users\\you\\Projects\\calc', access: 'read_write' } ],
+            created: at( 9 * dayMilliseconds ), updated: at( 6 * hourMilliseconds ) },
+        { v: 1, id: 'project-mock-kyoto', name: 'Kyoto in November', purpose: 'Three days in Kyoto for the autumn leaves.',
+            instructions: '', folders: [], created: at( 4 * dayMilliseconds ), updated: at( 3 * dayMilliseconds ) },
+        { v: 1, id: 'project-mock-llms', name: 'Local LLMs on 16 GB', purpose: '',
+            instructions: '', folders: [ { path: 'C:\\Users\\you\\Notes\\llms', access: 'read' },
+                { path: 'C:\\Users\\you\\Projects\\bench', access: 'read' } ],
+            created: at( 12 * dayMilliseconds ), updated: at( 12 * dayMilliseconds ) }
+    ];
+
+    const placements = [
+        [ 'conversation-6', 'project-mock-calculator' ],
+        [ 'conversation-3', 'project-mock-kyoto' ],
+        [ 'conversation-1', 'project-mock-llms' ]
+    ];
+
+    const events = [
+        made( 'project-mock-llms', 'Local LLMs on 16 GB', 12 * dayMilliseconds ),
+        made( 'project-mock-calculator', 'Calculator app', 9 * dayMilliseconds ),
+        { time: at( 9 * dayMilliseconds - 60000 ), who: 'you', kind: 'project.folder_added', project: 'project-mock-calculator',
+            path: 'C:\\Users\\you\\Projects\\calc', access: 'read_write' },
+        made( 'project-mock-kyoto', 'Kyoto in November', 4 * dayMilliseconds ),
+        moved( 'conversation-3', 'Plan a three-day trip to Kyoto', 'project-mock-kyoto', 3 * dayMilliseconds - 60000 ),
+        moved( 'conversation-6', 'Tidy the calculator project\'s tests', 'project-mock-calculator', 6 * hourMilliseconds ),
+        moved( 'conversation-1', 'Why does a KV cache make decoding faster?', 'project-mock-llms', hourMilliseconds )
+    ];
+
+    return { projects, placements, events };
+}
+
 function storedConversation( seed, now )
 {
     const updated = new Date( now - seed.age );

@@ -7,6 +7,7 @@ import { noModelLoaded } from './scenario-no-model.js';
 import { firstRun, firstRunOffline, licenseNotAccepted } from './scenario-first-run.js';
 import { folderRequest } from './scenario-folder-request.js';
 import { exposedChat } from './scenario-exposed-chat.js';
+import { projectsWorkspace } from './scenario-projects.js';
 
 export const scenarios = [
     streamedReply,
@@ -17,7 +18,8 @@ export const scenarios = [
     toolApproval,
     licenseNotAccepted,
     folderRequest,
-    exposedChat
+    exposedChat,
+    projectsWorkspace
 ];
 
 export function findScenario( number )

@@ -10,6 +10,9 @@ import std;
 import nlohmann.json;
 import Desktop.CommandTool;
 import Desktop.ConversationStore;
+import Desktop.EventLog;
+import Desktop.ProjectStore;
+import Desktop.WorkspaceFolder;
 import Desktop.ExposureRecord;
 import Desktop.MemoryHolder;
 import Desktop.MilaLicense;
@@ -119,120 +122,14 @@ namespace Mila::Desktop
          */
         SessionProcess( Settings settings, SettingsFile settings_file, std::vector<std::string> problems,
             std::expected<MilaLicense, std::string> license, Mila::Deployment::AllowedDevices devices,
-            std::filesystem::path conversation_directory, std::filesystem::path prompt_directory, std::ostream& protocol_out )
-            : settings_( std::move( settings ) ), settings_file_( std::move( settings_file ) ),
-              settings_problems_( std::move( problems ) ), license_( std::move( license ) ), devices_( std::move( devices ) ),
-              store_( std::move( conversation_directory ) ), prompts_( std::move( prompt_directory ) ), out_( protocol_out ),
-              search_key_file_( store_.directory().parent_path() / "search.json" )
-        {
-            session().onAsk( [this]( const Mila::Agents::ToolQuestion& question ) { return askAboutCall( question ); } );
-            session().withSampling( settings_.sampling );
-            useDetail( settings_.detail );
-
-            // A plan's change is shown at once, while the reply that made it is still running.
-            // The plan's tools and request_folder answer in Mila's own words, so they expose nothing (ToolCalling.md 3.3).
-            registerTool( std::string( TaskPlan::kProposeName ), {}, [this]( const std::string& arguments, const Mila::Agents::ToolGrant&, std::stop_token )
-                {
-                    std::string result = plan_.propose( arguments );
-                    sendState();
-
-                    return result;
-                }, Mila::Agents::ResultOrigin::Application );
-
-            registerTool( std::string( TaskPlan::kUpdateName ), {}, [this]( const std::string& arguments, const Mila::Agents::ToolGrant&, std::stop_token )
-                {
-                    std::string result = plan_.update( arguments );
-                    sendState();
-
-                    return result;
-                }, Mila::Agents::ResultOrigin::Application );
-
-            useMiloTool( Mila::Agents::WebPageReader::tool() );
-
-            // Registered once; each call reaches the folder of the conversation it belongs to, through its grant.
-            for ( Mila::Agents::Tool& tool : Mila::Agents::FileTools::tools() )
-            {
-                useMiloTool( std::move( tool ) );
-            }
-
-            // Runs only once the person has chosen the folder, which their answer to the call carries.
-            registerTool( std::string( kRequestFolderName ), {}, [this]( const std::string&, const Mila::Agents::ToolGrant&, std::stop_token )
-                {
-                    return grantChosenFolder();
-                }, Mila::Agents::ResultOrigin::Application );
-
-            // A key kept in search.json before the credential store held it moves there once, and the file goes. Refused,
-            // the file stays and its key is still used, so the person's key is never lost.
-            if ( const std::optional<std::string> kept_in_file = search_key_file_.read() )
-            {
-                try
-                {
-                    search_key_store_.write( *kept_in_file );
-                    search_key_file_.remove();
-                }
-                catch ( const std::runtime_error& refused )
-                {
-                    Mila::Logging::Logger::info( std::format( "The search key stays in search.json: {}", refused.what() ) );
-                }
-            }
-
-            std::optional<std::string> key = search_key_store_.read();
-
-            if ( !key )
-            {
-                key = search_key_file_.read();
-            }
-
-            if ( key )
-            {
-                useSearchKey( *key );
-            }
-
-            if ( settings_.run_commands )
-            {
-                useCommands();
-            }
-        }
+            std::filesystem::path workspace_directory, std::filesystem::path prompt_directory, std::ostream& protocol_out );
 
         /**
          * @brief Open the model the settings name, then answer requests until @p requests ends.
          *
          * @return The process's exit code.
          */
-        int run( std::istream& requests )
-        {
-            std::jthread reader( [this, &requests] { readRequests( requests ); } );
-
-            for ( const std::string& problem : settings_problems_ )
-            {
-                sendError( problem, nullptr );
-            }
-
-            useChat( {} );
-
-            if ( !settings_.model.empty() && licenseAccepted() )
-            {
-                openRemembered();
-            }
-
-            while ( const std::optional<nlohmann::json> request = queue_.pop() )
-            {
-                try
-                {
-                    handle( *request );
-                }
-                catch ( const std::exception& failure )
-                {
-                    // A request that fails says so and leaves the session answering the next.
-                    work_ = Work::None;
-                    busy_ = false;
-                    sendError( std::format( "Something went wrong: {}", failure.what() ), nullptr );
-                    sendState();
-                }
-            }
-
-            return 0;
-        }
+        int run( std::istream& requests );
 
     private:
 
@@ -278,15 +175,9 @@ namespace Mila::Desktop
             Mila::Agents::ResultOrigin origin{ Mila::Agents::ResultOrigin::Outside };
         };
 
-        Mila::Agents::Session& session() noexcept
-        {
-            return model_.session();
-        }
+        Mila::Agents::Session& session() noexcept;
 
-        const Mila::Agents::Session& session() const noexcept
-        {
-            return model_.session();
-        }
+        const Mila::Agents::Session& session() const noexcept;
 
         // ---- The reading thread -----------------------------------------------------------
 
@@ -296,751 +187,57 @@ namespace Mila::Desktop
          * A stop and a tool decision are acted on here, because the session's thread is inside the reply they are
          * about. A second turn while one is running is refused here, so that the refusal does not wait for it.
          */
-        void readRequests( std::istream& requests )
-        {
-            std::string line;
+        void readRequests( std::istream& requests );
 
-            while ( std::getline( requests, line ) )
-            {
-                if ( !line.empty() && line.back() == '\r' )
-                {
-                    line.pop_back();
-                }
+        void stopReply();
 
-                if ( line.empty() )
-                {
-                    continue;
-                }
-
-                nlohmann::json request;
-
-                try
-                {
-                    request = nlohmann::json::parse( line );
-                }
-                catch ( const nlohmann::json::parse_error& )
-                {
-                    std::cerr << "Ignored a request line that is not JSON.\n";
-                    continue;
-                }
-
-                if ( !request.is_object() || !request.contains( "type" ) || !request[ "type" ].is_string() )
-                {
-                    std::cerr << "Ignored a request with no type.\n";
-                    continue;
-                }
-
-                const std::string type = request[ "type" ].get<std::string>();
-
-                if ( type == "turn.stop" )
-                {
-                    stopReply();
-                }
-                else if ( type == "app.active" )
-                {
-                    // Here rather than in the queue, so that a reply being written does not delay it.
-                    memory_holder_.activate();
-                }
-                else if ( type == "app.background" )
-                {
-                    memory_holder_.deactivate();
-                }
-                else if ( type == "turn.tool_decision" )
-                {
-                    decideToolCall( request );
-                }
-                else if ( type == "turn.send" )
-                {
-                    if ( busy_.exchange( true ) )
-                    {
-                        sendError( "A reply is still being written. Stop it first, or wait for it to finish.", "turn" );
-                        continue;
-                    }
-
-                    stop_asked_ = false;
-                    queue_.push( std::move( request ) );
-                }
-                else
-                {
-                    queue_.push( std::move( request ) );
-                }
-            }
-
-            queue_.close();
-            stopReply();
-        }
-
-        void stopReply()
-        {
-            std::lock_guard<std::mutex> lock( approval_mutex_ );
-
-            stop_asked_ = true;
-
-            {
-                std::lock_guard<std::mutex> stopping( stop_mutex_ );
-                stop_.request_stop();
-            }
-
-            // The agent reads the stop before it runs the call, so this answer is never acted on.
-            if ( approval_.has_value() )
-            {
-                approval_->answer.set_value( ToolAnswer::Deny );
-                approval_.reset();
-            }
-        }
-
-        void decideToolCall( const nlohmann::json& request )
-        {
-            const std::string turn_id = request.value( "turn_id", std::string{} );
-            const std::string call_id = request.value( "call_id", std::string{} );
-            const std::string decision = request.value( "decision", std::string{} );
-
-            std::optional<ToolAnswer> parsed;
-
-            if ( decision == "allow_once" )
-            {
-                parsed = ToolAnswer::Once;
-            }
-            else if ( decision == "allow_conversation" )
-            {
-                parsed = ToolAnswer::ForConversation;
-            }
-            else if ( decision == "deny" )
-            {
-                parsed = ToolAnswer::Deny;
-            }
-
-            std::lock_guard<std::mutex> lock( approval_mutex_ );
-
-            if ( !parsed.has_value() || !approval_.has_value()
-                || approval_->turn_id != turn_id || approval_->call_id != call_id
-                || ( *parsed == ToolAnswer::ForConversation && !approval_->conversation_offered ) )
-            {
-                std::cerr << "Ignored a tool decision for a call that is not waiting.\n";
-
-                return;
-            }
-
-            if ( approval_->folder_asked && *parsed != ToolAnswer::Deny )
-            {
-                const std::string folder = request.contains( "folder" ) && request[ "folder" ].is_string()
-                    ? request[ "folder" ].get<std::string>() : std::string{};
-
-                if ( folder.empty() )
-                {
-                    std::cerr << "Ignored a folder request's answer that names no folder.\n";
-
-                    return;
-                }
-
-                chosen_folder_ = folder;
-            }
-
-            approval_->answer.set_value( *parsed );
-            approval_.reset();
-        }
+        void decideToolCall( const nlohmann::json& request );
 
         // ---- The session's thread ---------------------------------------------------------
 
-        void handle( const nlohmann::json& request )
-        {
-            const std::string type = request[ "type" ].get<std::string>();
-
-            if ( type == "ready" )
-            {
-                sendLicense();
-                sendState();
-                sendConversations();
-                sendModels( false );
-            }
-            else if ( type == "license.accept" )
-            {
-                acceptLicense( request.value( "sha256", std::string{} ) );
-            }
-            else if ( type == "turn.send" )
-            {
-                respond( request );
-            }
-            else if ( type == "conversation.new" )
-            {
-                // A chat begins with no folder, whatever an older page asks for (AssistantInterface.md 5.5).
-                useChat( {} );
-                startNewConversation();
-                sendState();
-            }
-            else if ( type == "conversation.open" )
-            {
-                openConversation( request.value( "id", std::string{} ) );
-            }
-            else if ( type == "conversation.rename" )
-            {
-                renameConversation( request.value( "id", std::string{} ), request.value( "title", std::string{} ) );
-            }
-            else if ( type == "conversation.delete" )
-            {
-                deleteConversation( request.value( "id", std::string{} ) );
-            }
-            else if ( type == "models.refresh" )
-            {
-                sendModels( request.value( "online", false ) );
-            }
-            else if ( type == "model.load" )
-            {
-                loadModel( request );
-            }
-            else if ( type == "model.install" )
-            {
-                installModel( request.value( "name", std::string{} ) );
-            }
-            else if ( type == "model.remove" )
-            {
-                removeModel( request.value( "name", std::string{} ) );
-            }
-            else if ( type == "settings.set" )
-            {
-                work_ = Work::Settings;
-                changeSetting( request );
-                work_ = Work::None;
-                sendState();
-            }
-            else if ( type == "attachment.add" )
-            {
-                refuseAttachment( request );
-            }
-            else if ( type == "reach.remove" )
-            {
-                removeReach( request );
-            }
-            else if ( type == "conversation.link_opened" )
-            {
-                recordLinkOpened( request.value( "url", std::string{} ) );
-            }
-            else if ( type == "attachment.remove" || type == "link.open" )
-            {
-                // Nothing is held for an attachment, which is refused when added; a link is the window's.
-            }
-            else
-            {
-                std::cerr << std::format( "Ignored a request of type {}.\n", type );
-            }
-        }
+        void handle( const nlohmann::json& request );
 
         // ---- A turn -----------------------------------------------------------------------
 
-        void respond( const nlohmann::json& request )
-        {
-            const std::string text = request.value( "text", std::string{} );
+        void respond( const nlohmann::json& request );
 
-            if ( !licenseAccepted() )
-            {
-                busy_ = false;
-                sendError( std::string( kLicenseFirst ), "turn" );
-                sendState();
+        void onAgentEvent( const AgentEvent& event, RoundTimer& timer, const std::stop_token& stop );
 
-                return;
-            }
-
-            if ( !model_.resident() )
-            {
-                busy_ = false;
-                sendError( "No model is loaded. Choose one from the model menu.", "turn" );
-                sendState();
-
-                return;
-            }
-
-            if ( conversation_id_.empty() )
-            {
-                conversation_id_ = store_.newIdentifier();
-                conversation_title_ = titleFor( text );
-                conversation_created_ = timestamp();
-                conversation_messages_ = nlohmann::json::array();
-            }
-
-            // Stored at once with the person's message, so the list shows the conversation on send and a quit during
-            // the reply keeps what they wrote; the reply is stored when it ends (Todd, 2026-11-13).
-            conversation_messages_.push_back( { { "role", "user" }, { "content", text }, { "thought", nullptr },
-                { "tool_calls", nullptr }, { "attachments", nullptr }, { "stats", nullptr } } );
-
-            Turn sent;
-            sent.role = Role::User;
-            sent.content = text;
-            saveConversation( &sent );
-            sendConversations();
-
-            turn_id_ = std::format( "turn-{}", ++turn_number_ );
-            round_ = 0;
-            turn_ = TurnRecord{};
-            turn_calls_ = nlohmann::json::array();
-            announced_call_id_.clear();
-
-            const std::stop_token stop = [this]
-                {
-                    std::lock_guard<std::mutex> lock( stop_mutex_ );
-
-                    // A fresh source per turn, so a stop asked for during one reply never ends the next; one asked for
-                    // since this turn was accepted stops it at once.
-                    stop_ = std::stop_source{};
-
-                    if ( stop_asked_.load() )
-                    {
-                        stop_.request_stop();
-                    }
-
-                    return stop_.get_token();
-                }();
-
-            work_ = Work::Turn;
-            sendState();
-
-            Mila::Agents::Agent& agent = model_.agent();
-            RoundTimer timer;
-
-            const auto began = std::chrono::steady_clock::now();
-            memory_holder_.use( agent.model().model().getDeviceId() );
-
-            // What a person waits for before the round starts, which the round's own prefill time leaves out.
-            Mila::Logging::Logger::info( std::format( "{}: the model's memory held after {:.0f} ms", turn_id_,
-                std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began ).count() ) );
-
-            // After the hold, so the page shows "Getting ready" in the turn's place while memory comes back.
-            send( "turn.begin", { { "stream_id", kStreamId }, { "turn_id", turn_id_ },
-                { "conversation_id", conversation_id_ } } );
-
-            std::optional<Mila::Agents::Response> responded;
-
-            try
-            {
-                responded = agent.respond( text,
-                    [&]( const AgentEvent& event ) { onAgentEvent( event, timer, stop ); }, stop );
-            }
-            catch ( const DeviceOutOfMemoryError& )
-            {
-                // The agent left the conversation as it was and the model loaded, so the message stored on send is
-                // taken back out -- with the conversation, when it was its first -- and the person can send it again.
-                memory_holder_.idle();
-                conversation_messages_.erase( conversation_messages_.size() - 1 );
-
-                if ( conversation_messages_.empty() )
-                {
-                    store_.remove( conversation_id_ );
-                    forgetConversation();
-                }
-                else
-                {
-                    saveConversation();
-                }
-
-                sendConversations();
-                send( "turn.end", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "finish", "error" },
-                    { "answer", turn_.answer } } );
-                sendError( "Another application is using the GPU's memory, so Mila could not answer. Your message "
-                    "was not added to the conversation; send it again once that application is done.", "turn" );
-
-                work_ = Work::None;
-                busy_ = false;
-                sendState();
-
-                return;
-            }
-
-            memory_holder_.idle();
-
-            const Mila::Agents::Response& answered = *responded;
-
-            if ( answered.rounds == 0 && answered.status == GenerateStatus::ContextOverflow )
-            {
-                send( "info", { { "text", std::format( "The prompt is {} tokens and the context is {}, so there is no "
-                    "room to answer. Start a new conversation, or choose a longer context.",
-                    agent.model().tokenizer().encode( agent.prompt( text ).text ).size(), agent.plan().contextLength() ) } } );
-            }
-
-            send( "turn.end", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "finish", turnFinish() },
-                { "answer", turn_.answer } } );
-
-            work_ = Work::None;
-
-            recordTurn();
-            busy_ = false;
-
-            sendState();
-            sendConversations();
-        }
-
-        void onAgentEvent( const AgentEvent& event, RoundTimer& timer, const std::stop_token& stop )
-        {
-            using Kind = AgentEvent::Kind;
-
-            switch ( event.kind )
-            {
-                case Kind::RoundBegan:
-                    ++round_;
-                    context_used_ = event.prompt_tokens;
-                    sendState();
-                    timer.begin();
-                    break;
-
-                case Kind::Token:
-                    timer.token();
-                    break;
-
-                case Kind::ReasoningOpened:
-                    send( "turn.thought_break", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "round", round_ } } );
-                    break;
-
-                case Kind::Reasoning:
-                    // With the round's count so far: the page cannot count tokens from text, and a long thought
-                    // otherwise shows the person nothing moving.
-                    send( "turn.text", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "round", round_ },
-                        { "channel", "thought" }, { "text", event.text }, { "tokens", timer.tokens() } } );
-                    break;
-
-                case Kind::Answer:
-                    sendText( "answer", event.text );
-                    break;
-
-                case Kind::ToolCalled:
-                    callAnswered( *event.call, event.text, event.is_error, event.exposes );
-                    break;
-
-                case Kind::MalformedToolCall:
-                    // A call the template's grammar could not read is said, never dropped: the model meant to call
-                    // something.
-                    sendError( std::format( "[tool call not understood: {}]", event.text ), "turn" );
-                    break;
-
-                case Kind::RoundEnded:
-                    endRound( timer, event, stop );
-                    break;
-
-                case Kind::CompactionBegan:
-                    send( "info", { { "text", std::format(
-                        "The conversation holds {} tokens, so it is being compacted.", *event.tokens_before ) } } );
-                    break;
-
-                case Kind::Compacted:
-                    context_used_ = event.tokens_after;
-                    sendState();
-                    send( "info", { { "text", event.text.empty() && event.dropped_turns > 0
-                        ? std::format( "The {} oldest turns were dropped unread, taking the conversation from {} tokens to {}.",
-                            event.dropped_turns, *event.tokens_before, *event.tokens_after )
-                        : std::format( "Compacted from {} tokens to {}.", *event.tokens_before, *event.tokens_after ) } } );
-                    break;
-
-                case Kind::CompactionFailed:
-                    send( "info", { { "text", std::format( "The conversation could not be compacted: {}.", event.text ) } } );
-                    break;
-
-                case Kind::ReasoningClosed:
-                case Kind::ToolCallOpened:
-                    break;
-            }
-        }
-
-        void sendText( std::string_view channel, std::string_view text )
-        {
-            send( "turn.text", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "round", round_ },
-                { "channel", channel }, { "text", text } } );
-        }
+        void sendText( std::string_view channel, std::string_view text );
 
         /// A round's measurements, and its reasoning and text for the turn as stored.
-        void endRound( const RoundTimer& timer, const AgentEvent& event, const std::stop_token& stop )
-        {
-            const Mila::Dnn::Conversation::Reply& reply = *event.reply;
-            const Mila::Agents::Agent& agent = model_.agent();
-
-            const int thought_tokens = reply.reasoning.empty()
-                ? 0 : static_cast<int>( agent.model().tokenizer().encode( reply.reasoning ).size() );
-
-            // The agent runs a round's calls when the round finished them.
-            const bool called = !reply.tool_calls.empty() && !session().tools().empty()
-                && event.status == GenerateStatus::Success && !stop.stop_requested();
-
-            send( "turn.round_end", {
-                { "stream_id", kStreamId },
-                { "turn_id", turn_id_ },
-                { "round", round_ },
-                { "prefill_ms", std::round( timer.prefillMilliseconds() ) },
-                { "tokens_per_second", std::round( timer.decodeRate() * 10.0 ) / 10.0 },
-                { "tokens", timer.tokens() },
-                { "thought_tokens", thought_tokens },
-                { "finish", called ? std::string_view( "tool_call" ) : finishName( event.status ) } } );
-
-            Mila::Logging::Logger::info( std::format( "{} round {}: first token after {:.0f} ms, {} tokens at {:.1f} per second, {}",
-                turn_id_, round_, timer.prefillMilliseconds(), timer.tokens(), timer.decodeRate(),
-                called ? std::string_view( "tool_call" ) : finishName( event.status ) ) );
-
-            ++turn_.rounds;
-            turn_.prefill_ms += timer.prefillMilliseconds();
-            turn_.tokens += timer.tokens();
-            turn_.decoded_tokens += std::max( timer.tokens() - 1, 0 );
-            turn_.decode_seconds += timer.decodeSeconds();
-            turn_.last_status = event.status;
-            turn_.last_called = called;
-
-            const auto append = []( std::string& into, const std::string& part )
-                {
-                    if ( part.empty() )
-                    {
-                        return;
-                    }
-
-                    into += into.empty() ? "" : "\n\n";
-                    into += part;
-                };
-
-            append( turn_.thought, reply.reasoning );
-            append( turn_.answer, reply.content );
-        }
+        void endRound( const RoundTimer& timer, const AgentEvent& event, const std::stop_token& stop );
 
         /// How the person is asked: the call is shown, and the reply waits for their answer from the reading thread.
-        ToolAnswer askAboutCall( const Mila::Agents::ToolQuestion& question )
-        {
-            const std::string call_id = announceCall( question.name, question.arguments );
-
-            std::promise<ToolAnswer> answer;
-            std::future<ToolAnswer> decision = answer.get_future();
-
-            // A chat that has a folder is not asked for another: the call says which it has.
-            const bool folder_asked = question.name == kRequestFolderName;
-
-            if ( folder_asked && conversation_folder_ )
-            {
-                return ToolAnswer::Once;
-            }
-
-            // A file call in a chat with no folder can reach nothing, since the grant holds none, so the person is not
-            // asked about it: the grant refuses it, and the prompt has the model ask for a folder.
-            const bool needs_folder = question.needs.reads_files || question.needs.writes_files || question.needs.runs_programs;
-
-            if ( needs_folder && !conversation_folder_ )
-            {
-                return ToolAnswer::Once;
-            }
-
-            // What goes out is approved call by call (AssistantInterface.md 5.7), and a folder is chosen each time it is
-            // asked for: no answer covers the conversation. Nor does one in a chat that has read from outside, for a
-            // call that writes or runs (5.6), as the gate decides.
-            const bool exposed_and_acting = !question.exposure.empty() && ( question.needs.writes_files || question.needs.runs_programs );
-            const bool every_time = question.needs.uses_network || folder_asked || exposed_and_acting;
-
-            // A folder starts read-only, so the first call that changes a file also asks to change files there.
-            const bool changes_folder = question.needs.writes_files && conversation_folder_
-                && conversation_folder_access_ == Mila::Agents::FolderAccess::Read;
-
-            const std::vector<std::string> choices = every_time
-                ? std::vector<std::string>{ "allow_once", "deny" }
-                : std::vector<std::string>{ "allow_once", "allow_conversation", "deny" };
-
-            {
-                std::lock_guard<std::mutex> lock( approval_mutex_ );
-
-                if ( stop_asked_.load() )
-                {
-                    return ToolAnswer::Deny;
-                }
-
-                chosen_folder_.reset();
-                approval_.emplace( Approval{ turn_id_, call_id, std::move( answer ), !every_time, folder_asked } );
-            }
-
-            send( "turn.tool_approval", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "call_id", call_id },
-                { "choices", choices }, { "reaches", reaches( question ) },
-                { "changes_folder", changes_folder ? conversationFolder() : nlohmann::json( nullptr ) },
-                { "has_read", hasRead( question ) },
-                { "not_in_your_words", notInPersonsWords( question ) } } );
-
-            const ToolAnswer decided = decision.get();
-
-            // A stop answers the wait with Deny that the person never gave, so the stored call keeps no decision.
-            if ( !stop_asked_.load() )
-            {
-                storedCall( call_id )[ "decision" ] = answerName( decided );
-            }
-
-            if ( changes_folder && decided != ToolAnswer::Deny && !stop_asked_.load() )
-            {
-                allowChangesInFolder();
-            }
-
-            return decided;
-        }
+        ToolAnswer askAboutCall( const Mila::Agents::ToolQuestion& question );
 
         /// The person allowed a change: the chat's grant now holds its folder to read and write. The app widens it, on
         /// the person's answer; the gate gives the call the grant as it stands once the answer is in.
-        void allowChangesInFolder()
-        {
-            conversation_folder_access_ = Mila::Agents::FolderAccess::ReadWrite;
-
-            try
-            {
-                grantChat();
-            }
-            catch ( const std::invalid_argument& )
-            {
-                // The folder has gone: the grant is unchanged, so the call fails and says why.
-                conversation_folder_access_ = Mila::Agents::FolderAccess::Read;
-            }
-
-            sendState();
-        }
+        void allowChangesInFolder();
 
         /**
          * @brief What the call would reach if allowed, from its grant as the gate narrowed it to the tool: each
          *        folder and its access, the program folders, and whether the network -- for a command, only when
          *        the call asks for it, as it runs.
          */
-        static nlohmann::json reaches( const Mila::Agents::ToolQuestion& question )
-        {
-            const auto shown = []( const std::filesystem::path& path )
-                {
-                    const std::u8string text = path.u8string();
-
-                    return std::string( text.begin(), text.end() );
-                };
-
-            nlohmann::json folders = nlohmann::json::array();
-
-            for ( const Mila::Agents::GrantFolder& folder : question.grant.folders() )
-            {
-                folders.push_back( { { "path", shown( folder.folder ) },
-                    { "access", folder.access == Mila::Agents::FolderAccess::ReadWrite ? "read_write" : "read" } } );
-            }
-
-            nlohmann::json program_folders = nlohmann::json::array();
-
-            for ( const std::filesystem::path& folder : question.grant.programFolders() )
-            {
-                // Windows' long-path prefix, which the person never wrote; a POSIX path never carries it.
-                std::filesystem::path::string_type plain = folder.native();
-                const std::filesystem::path::string_type long_path_prefix = std::filesystem::path( R"(\\?\)" ).native();
-
-                if ( plain.starts_with( long_path_prefix ) )
-                {
-                    plain.erase( 0, long_path_prefix.size() );
-                }
-
-                program_folders.push_back( shown( std::filesystem::path( plain ) ) );
-            }
-
-            const bool network = question.grant.network()
-                && ( question.name != CommandTool::kName || CommandTool::asksForNetwork( question.arguments ) );
-
-            return { { "folders", std::move( folders ) }, { "program_folders", std::move( program_folders ) },
-                { "network", network }, { "runs_programs", question.grant.runsPrograms() } };
-        }
+        static nlohmann::json reaches( const Mila::Agents::ToolQuestion& question );
 
         /// In a chat that has read from outside, what it read, the newest first and at most three, for the question's
         /// *This chat has read* (AssistantInterface.md 5.6); null in a chat that has not.
-        nlohmann::json hasRead( const Mila::Agents::ToolQuestion& question ) const
-        {
-            if ( question.exposure.empty() )
-            {
-                return nullptr;
-            }
-
-            nlohmann::json sources = nlohmann::json::array();
-
-            for ( auto source = question.exposure.rbegin(); source != question.exposure.rend() && sources.size() < 3; ++source )
-            {
-                // A conversation reopened from before the mark was stored knows only the tool.
-                sources.push_back( {
-                    { "name", source->tool },
-                    { "summary", source->arguments.empty() ? source->tool : callSummary( prompt_tools_, source->tool, source->arguments ) },
-                    { "time", source->when ? nlohmann::json( std::format( "{:%FT%TZ}",
-                        std::chrono::floor<std::chrono::milliseconds>( *source->when ) ) ) : nlohmann::json( nullptr ) } } );
-            }
-
-            return { { "count", question.exposure.size() }, { "latest", std::move( sources ) } };
-        }
+        nlohmann::json hasRead( const Mila::Agents::ToolQuestion& question ) const;
 
         /**
          * @brief In a chat that has read from outside, the address or search words a call sends when the person's own
          *        messages never wrote them, compared literally; null otherwise (AssistantInterface.md 5.6).
          */
-        nlohmann::json notInPersonsWords( const Mila::Agents::ToolQuestion& question ) const
-        {
-            if ( question.exposure.empty() )
-            {
-                return nullptr;
-            }
+        nlohmann::json notInPersonsWords( const Mila::Agents::ToolQuestion& question ) const;
 
-            const std::string_view argument = question.name == WebSearch::kName ? "query"
-                : question.name == "read_web_page" ? "url" : std::string_view{};
+        void callAnswered( const ToolCall& call, std::string_view result, bool is_error, bool exposes );
 
-            if ( argument.empty() )
-            {
-                return nullptr;
-            }
-
-            const nlohmann::json arguments = nlohmann::json::parse( question.arguments, nullptr, false );
-
-            if ( !arguments.is_object() || !arguments.contains( argument ) || !arguments[ argument ].is_string() )
-            {
-                return nullptr;
-            }
-
-            const std::string sent = arguments[ argument ].get<std::string>();
-
-            for ( const nlohmann::json& message : conversation_messages_ )
-            {
-                if ( message.value( "role", std::string{} ) == "user"
-                    && message.value( "content", std::string{} ).find( sent ) != std::string::npos )
-                {
-                    return nullptr;
-                }
-            }
-
-            return sent;
-        }
-
-        void callAnswered( const ToolCall& call, std::string_view result, bool is_error, bool exposes )
-        {
-            // A call the rules decided was not asked about, so it has not been announced yet.
-            const std::string call_id = announced_call_id_.empty() ? announceCall( call.name, call.arguments ) : announced_call_id_;
-            announced_call_id_.clear();
-
-            send( "turn.tool_result", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "call_id", call_id },
-                { "result", result }, { "is_error", is_error } } );
-
-            nlohmann::json& stored = storedCall( call_id );
-            stored[ "result" ] = result;
-            stored[ "is_error" ] = is_error;
-
-            // Where the result came from, so the stored call says what exposed the chat (AssistantInterface.md 5.6).
-            stored[ "exposes" ] = exposes;
-        }
-
-        std::string announceCall( std::string_view name, std::string_view arguments )
-        {
-            announced_call_id_ = std::format( "call-{}", ++call_number_ );
-            const std::string summary = callSummary( prompt_tools_, name, arguments );
-
-            send( "turn.tool_call", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "round", round_ },
-                { "call_id", announced_call_id_ }, { "name", name }, { "summary", summary },
-                { "arguments", arguments } } );
-
-            // Stored as announced, so a call the person stopped before it ran is kept with no result (6.3).
-            turn_calls_.push_back( { { "call_id", announced_call_id_ }, { "name", name }, { "summary", summary },
-                { "arguments", arguments }, { "time", timestamp() }, { "decision", nullptr }, { "result", nullptr },
-                { "is_error", false } } );
-
-            return announced_call_id_;
-        }
+        std::string announceCall( std::string_view name, std::string_view arguments );
 
         /// The stored record of a call this turn announced.
-        nlohmann::json& storedCall( const std::string& call_id )
-        {
-            for ( nlohmann::json& stored : turn_calls_ )
-            {
-                if ( stored[ "call_id" ] == call_id )
-                {
-                    return stored;
-                }
-            }
-
-            throw std::logic_error( std::format( "No call {} was announced in this turn.", call_id ) );
-        }
+        nlohmann::json& storedCall( const std::string& call_id );
 
         /**
          * @brief How the turn ended, from its last round.
@@ -1048,246 +245,78 @@ namespace Mila::Desktop
          * A reply stopped while a call waited ends on a round that finished its call, so the stop is what says it
          * was cancelled. A turn with no round had no room in the context to start one.
          */
-        std::string_view turnFinish() const
-        {
-            if ( turn_.rounds == 0 )
-            {
-                return "context";
-            }
-
-            if ( stop_asked_.load() && turn_.last_called )
-            {
-                return "cancelled";
-            }
-
-            return finishName( turn_.last_status );
-        }
+        std::string_view turnFinish() const;
 
         /// The reply joins the stored conversation, after the message stored on send, as the page shows it and as
         /// the model read it.
-        void recordTurn()
-        {
-            const double rate = turn_.decode_seconds > 0.0
-                ? std::round( 10.0 * turn_.decoded_tokens / turn_.decode_seconds ) / 10.0 : 0.0;
-
-            const nlohmann::json stats = { { "prefill_ms", std::round( turn_.prefill_ms ) }, { "tokens_per_second", rate },
-                { "tokens", turn_.tokens }, { "rounds", turn_.rounds }, { "finish", turnFinish() } };
-
-            conversation_messages_.push_back( {
-                { "role", "assistant" },
-                { "content", turn_.answer },
-                { "thought", turn_.thought.empty() ? nlohmann::json( nullptr ) : nlohmann::json( turn_.thought ) },
-                { "tool_calls", turn_calls_.empty() ? nlohmann::json( nullptr ) : turn_calls_ },
-                { "attachments", nullptr },
-                { "stats", stats } } );
-
-            saveConversation();
-        }
+        void recordTurn();
 
         // ---- Conversations ----------------------------------------------------------------
 
         /// Store the conversation as it stands; `sent` is a message the agent has not taken in yet, stored after it.
-        void saveConversation( const Turn* sent = nullptr )
-        {
-            nlohmann::json turns = nlohmann::json::array();
+        void saveConversation( const Turn* sent = nullptr );
 
-            for ( const Turn& turn : session().conversation() )
-            {
-                if ( turn.role != Role::System )
-                {
-                    turns.push_back( turnToJson( turn ) );
-                }
-            }
-
-            if ( sent != nullptr )
-            {
-                turns.push_back( turnToJson( *sent ) );
-            }
-
-            const nlohmann::json conversation = {
-                { "v", 1 },
-                { "id", conversation_id_ },
-                { "title", conversation_title_ },
-                { "model", model_.name() },
-                { "folder", conversationFolder() },
-                { "plan", plan_.toJson() },
-                { "created", conversation_created_ },
-                { "updated", timestamp() },
-                { "messages", conversation_messages_ },
-                { "links_opened", conversation_links_ },
-                { "exposure", exposureToJson( session().exposure() ) },
-                { "turns", std::move( turns ) } };
-
-            try
-            {
-                store_.save( conversation );
-            }
-            catch ( const std::exception& failure )
-            {
-                sendError( std::format( "This conversation could not be saved: {}", failure.what() ), nullptr );
-            }
-        }
-
-        void startNewConversation()
-        {
-            // Ends the tools allowed for the conversation with it.
-            session().newConversation();
-            forgetConversation();
-        }
+        void startNewConversation();
 
         /// The session's conversation no longer belongs to a stored one; the next turn starts one.
-        void forgetConversation()
-        {
-            conversation_id_.clear();
-            conversation_title_.clear();
-            conversation_created_.clear();
-            conversation_messages_ = nlohmann::json::array();
-            conversation_links_ = nlohmann::json::array();
-        }
+        void forgetConversation();
 
         /// A link the person opened from this chat, kept with it for Activity (AssistantInterface.md 5.7).
-        void recordLinkOpened( const std::string& url )
-        {
-            if ( url.empty() || conversation_id_.empty() )
-            {
-                return;
-            }
-
-            conversation_links_.push_back( { { "url", url }, { "time", timestamp() } } );
-            saveConversation();
-            sendConversations();
-        }
+        void recordLinkOpened( const std::string& url );
 
         /// The person took back something Mila could reach (AssistantInterface.md 4.12): a chat's folder, or what they
         /// allowed for the open chat. A request waits for any reply being written, so it applies from the next.
-        void removeReach( const nlohmann::json& request )
-        {
-            const std::string kind = request.value( "kind", std::string{} );
+        void removeReach( const nlohmann::json& request );
 
-            if ( kind == "allowed" )
-            {
-                session().gate().withdrawAllowance( request.value( "name", std::string{} ) );
-                sendState();
+        void openConversation( const std::string& id );
 
-                return;
-            }
+        void renameConversation( const std::string& id, std::string title );
 
-            if ( kind != "folder" )
-            {
-                return;
-            }
+        void deleteConversation( const std::string& id );
 
-            const std::string id = request.value( "id", std::string{} );
+        bool conversationHasUserTurn() const;
 
-            if ( id.empty() || id == conversation_id_ )
-            {
-                conversation_folder_.reset();
-                conversation_folder_access_ = Mila::Agents::FolderAccess::Read;
-                grantChat();
+        // ---- Projects (AssistantInterface.md phase 4) ---------------------------------------
 
-                if ( !conversation_id_.empty() )
-                {
-                    saveConversation();
-                }
-            }
-            else if ( std::optional<nlohmann::json> stored = store_.load( id ) )
-            {
-                ( *stored )[ "folder" ] = nullptr;
-                store_.save( *stored );
-            }
+        /// A new chat, in the project the request names when it names one that is stored.
+        void newConversation( const nlohmann::json& request );
 
-            sendState();
-            sendConversations();
-        }
+        /// `project.new`: a name, a purpose that may be empty, and chats to move in.
+        void newProject( const nlohmann::json& request );
 
-        void openConversation( const std::string& id )
-        {
-            const std::optional<nlohmann::json> conversation = store_.load( id );
+        /// `project.update`: one change of a project's name, purpose, instructions or folders.
+        void updateProject( const nlohmann::json& request );
 
-            if ( !conversation.has_value() )
-            {
-                sendError( "That conversation is no longer stored.", nullptr );
+        /// `project.delete`: the project, its history and its record go; its chats are kept in no project or deleted,
+        /// as the request says. No folder of the person's is touched.
+        void deleteProject( const nlohmann::json& request );
 
-                return;
-            }
+        /// `conversation.move`: a chat into a project, or into none. It keeps the folder it holds.
+        void moveConversation( const nlohmann::json& request );
 
-            // A conversation stored with an activity opens as a chat like any other, its folder in its grant
-            // (AssistantInterface.md 5.5); the activity is not read.
-            const nlohmann::json stored_folder = conversation->value( "folder", nlohmann::json( nullptr ) );
-            const std::string folder = stored_folder.is_string() ? stored_folder.get<std::string>() : std::string{};
+        /// Move one chat, stored or open, and record it in the histories of the projects it left and joined.
+        void moveOne( const std::string& id, const std::string& project );
 
-            useChat( folder );
+        /// The stored project, or nothing for an empty id or one that names none.
+        std::optional<nlohmann::json> projectOf( const std::string& id ) const;
 
-            plan_.restore( conversation->value( "plan", nlohmann::json( nullptr ) ) );
+        /**
+         * @brief The folder a chat in this project starts with: the project's one folder, at the project's access.
+         *
+         * @return The folder in UTF-8 and its access, or nothing for a project with none or several, whose chats ask
+         *         for one with request_folder.
+         */
+        static std::optional<std::pair<std::string, Mila::Agents::FolderAccess>> startingFolder( const nlohmann::json& project );
 
-            std::vector<Turn> turns;
+        /// The access the project holds a folder at, or nothing when the folder is not one of the project's.
+        static std::optional<Mila::Agents::FolderAccess> projectAccess( const nlohmann::json& project, std::string_view folder );
 
-            for ( const nlohmann::json& turn : conversation->value( "turns", nlohmann::json::array() ) )
-            {
-                turns.push_back( turnFromJson( turn ) );
-            }
+        /// An event, by the person unless it says otherwise: in the history of each stored project it names, as
+        /// `project` or `from`, else in the workspace's activity.
+        void recordEvent( nlohmann::json event );
 
-            // No tool is allowed for it yet: what the person allowed when it was written is asked about again. A
-            // conversation stored before its exposure was counts every tool result in it as read from outside.
-            if ( conversation->contains( "exposure" ) )
-            {
-                session().openConversation( std::move( turns ), exposureFromJson( ( *conversation )[ "exposure" ] ) );
-            }
-            else
-            {
-                session().openConversation( std::move( turns ) );
-            }
-
-            conversation_id_ = id;
-            conversation_title_ = conversation->value( "title", std::string{} );
-            conversation_created_ = conversation->value( "created", std::string{} );
-            conversation_messages_ = conversation->value( "messages", nlohmann::json::array() );
-            conversation_links_ = conversation->value( "links_opened", nlohmann::json::array() );
-
-            send( "conversation.loaded", { { "id", id }, { "title", conversation_title_ },
-                { "model", conversation->value( "model", std::string{} ) },
-                { "folder", conversationFolder() }, { "messages", conversation_messages_ } } );
-
-            sendState();
-        }
-
-        void renameConversation( const std::string& id, std::string title )
-        {
-            const auto first = title.find_first_not_of( " \t\r\n" );
-            const auto last = title.find_last_not_of( " \t\r\n" );
-
-            if ( first == std::string::npos )
-            {
-                return;
-            }
-
-            title = title.substr( first, last - first + 1 );
-
-            if ( store_.rename( id, title ) && id == conversation_id_ )
-            {
-                conversation_title_ = title;
-            }
-
-            sendConversations();
-        }
-
-        void deleteConversation( const std::string& id )
-        {
-            store_.remove( id );
-
-            if ( id == conversation_id_ )
-            {
-                startNewConversation();
-                sendState();
-            }
-
-            sendConversations();
-        }
-
-        bool conversationHasUserTurn() const
-        {
-            return std::ranges::any_of( session().conversation(), []( const Turn& turn ) { return turn.role == Role::User; } );
-        }
+        /// Forget a deleted project or chat in every event that names it (AssistantInterface.md 8, *Deleting*).
+        void forgetEverywhere( const std::string& id );
 
         // ---- The chat and its tools --------------------------------------------------------
 
@@ -1302,42 +331,13 @@ namespace Mila::Desktop
          *
          * @param folder The folder the chat was stored with, in UTF-8, or empty. One that cannot be granted -- gone, or
          *               on a computer whose grant holds no folder yet -- is said, and the chat opens without it.
+         * @param access How far the chat starts in it: read, unless the folder is its project's and the person chose
+         *               *Read and change* there (AssistantInterface.md 10).
+         * @param from_project True for a folder the chat holds because its project does, which goes from the chat when
+         *                     the project lets it go.
          */
-        void useChat( const std::string& folder )
-        {
-            conversation_folder_.reset();
-            conversation_folder_access_ = Mila::Agents::FolderAccess::Read;
-
-            if ( !folder.empty() && !folders_enforced_ )
-            {
-                send( "info", { { "text", std::format(
-                    "This chat was started in the folder {}, and Mila cannot work in folders on this computer yet.", folder ) } } );
-            }
-            else if ( !folder.empty() )
-            {
-                conversation_folder_ = folder;
-            }
-
-            try
-            {
-                grantChat();
-            }
-            catch ( const std::invalid_argument& )
-            {
-                send( "info", { { "text", std::format( "The folder {} is not there any more, so this chat has none.", folder ) } } );
-                conversation_folder_.reset();
-                grantChat();
-            }
-
-            usePrompt( prompts_ / "general.json" );
-            session().withLimits( Mila::Agents::AgentLimits{} );
-
-            Mila::Agents::ToolRules rules;
-            rules.add( { std::string( TaskPlan::kUpdateName ), Mila::Agents::ToolPermission::Allow, {} } );
-            session().withRules( std::move( rules ) );
-
-            plan_.clear();
-        }
+        void useChat( const std::string& folder, Mila::Agents::FolderAccess access = Mila::Agents::FolderAccess::Read,
+            bool from_project = false );
 
         /**
          * @brief The chat's grant, from its folder and whether commands are on: the network, the folder at the access the
@@ -1348,28 +348,7 @@ namespace Mila::Desktop
          *
          * @throws std::invalid_argument for a folder the grant refuses; the grant is unchanged then.
          */
-        void grantChat()
-        {
-            std::vector<Mila::Agents::GrantFolder> folders;
-
-            if ( conversation_folder_ )
-            {
-                folders.push_back( { std::filesystem::path( std::u8string( conversation_folder_->begin(), conversation_folder_->end() ) ),
-                    conversation_folder_access_ } );
-            }
-
-            if ( container_ && !folders.empty() && conversation_folder_access_ == Mila::Agents::FolderAccess::ReadWrite )
-            {
-                const std::filesystem::path project = folders.front().folder;
-                Mila::Agents::ToolGrant grant( std::move( folders ), true, ProgramSetup::forProject( programs_, project ), container_ );
-                ProgramSetup::writeGitIdentity( grant.folders().front().folder );
-                session().withGrant( std::move( grant ) );
-
-                return;
-            }
-
-            session().withGrant( Mila::Agents::ToolGrant( std::move( folders ), true ) );
-        }
+        void grantChat();
 
         /**
          * @brief request_folder's work, once the person has allowed it: the folder they chose joins the chat's grant for
@@ -1378,102 +357,21 @@ namespace Mila::Desktop
          * The grant is the app's to widen and is never widened by a call (ToolCalling.md 3.3): the call only asks, and the
          * person's choice in the picker is what widens it.
          */
-        std::string grantChosenFolder()
-        {
-            if ( conversation_folder_ )
-            {
-                return std::format( "This chat already works in the folder {}; paths are relative to it.", *conversation_folder_ );
-            }
-
-            std::optional<std::string> chosen;
-
-            {
-                std::lock_guard<std::mutex> lock( approval_mutex_ );
-                chosen = std::exchange( chosen_folder_, std::nullopt );
-            }
-
-            if ( !chosen )
-            {
-                throw std::runtime_error( "no folder was chosen" );
-            }
-
-            conversation_folder_ = *chosen;
-            conversation_folder_access_ = Mila::Agents::FolderAccess::Read;
-
-            try
-            {
-                grantChat();
-            }
-            catch ( const std::invalid_argument& refused )
-            {
-                conversation_folder_.reset();
-
-                throw std::runtime_error( std::format( "the folder {} cannot be used: {}", *chosen, refused.what() ) );
-            }
-
-            sendState();
-
-            return std::format( "The user gave you the folder {} to read. Paths are relative to it, as list_folder shows "
-                "them. The user is asked the first time you change a file in it.", *chosen );
-        }
+        std::string grantChosenFolder();
 
         /// The prompt's passages and its tools, from the next response on; the model and conversation stay.
-        void usePrompt( const std::filesystem::path& path )
-        {
-            prompt_ = PromptFile::load( path );
-            prompt_tools_ = prompt_.tools;
-
-            for ( PromptTool& named : prompt_tools_ )
-            {
-                if ( !named.description.empty() )
-                {
-                    continue;
-                }
-
-                const auto tool = std::ranges::find( milo_tools_, named.name, &Mila::Agents::Tool::name );
-
-                if ( tool == milo_tools_.end() )
-                {
-                    const std::u8string file = path.u8string();
-
-                    throw std::runtime_error( std::format( "the prompt {} names a tool Mila does not have: {}",
-                        std::string( file.begin(), file.end() ), named.name ) );
-                }
-
-                named.description = tool->description;
-                named.parameters = tool->parameters;
-                named.summary = tool->summary;
-            }
-
-            offerTools();
-        }
+        void usePrompt( const std::filesystem::path& path );
 
         /// A key given or removed, or commands turned on or off, changes the open chat's prompt and tools from its next
         /// response.
-        void refreshTools()
-        {
-            grantChat();
-            offerTools();
-        }
+        void refreshTools();
 
         /// The code that runs a tool, offered whenever the chat's prompt describes it.
         void registerTool( std::string name, Mila::Agents::ToolNeeds needs, Handler handler,
-            Mila::Agents::ResultOrigin origin = Mila::Agents::ResultOrigin::Outside )
-        {
-            handlers_.insert_or_assign( std::move( name ), RegisteredTool{ needs, std::move( handler ), origin } );
-        }
+            Mila::Agents::ResultOrigin origin = Mila::Agents::ResultOrigin::Outside );
 
         /// A tool Mila::Agents provides, which a prompt names rather than describes.
-        void useMiloTool( Mila::Agents::Tool tool )
-        {
-            registerTool( tool.name, tool.needs,
-                [run = tool.run]( const std::string& arguments, const Mila::Agents::ToolGrant& grant, std::stop_token stop )
-                {
-                    return run( arguments, grant, stop );
-                }, tool.result_origin );
-
-            milo_tools_.push_back( std::move( tool ) );
-        }
+        void useMiloTool( Mila::Agents::Tool tool );
 
         /**
          * @brief Offer exactly the tools the prompt describes and the session can run here, and the system prompt's
@@ -1482,137 +380,19 @@ namespace Mila::Desktop
          * Describing a tool nothing runs primes the model to call it, so one with no handler is left out, and so is
          * every tool that needs a folder where the grant holds none (AssistantInterface.md 5.5, *On a Mac*).
          */
-        void offerTools()
-        {
-            Mila::Agents::Session& offering = session();
-            offering.withoutTools();
-
-            std::set<std::string, std::less<>> offered;
-
-            for ( const PromptTool& described : prompt_tools_ )
-            {
-                const auto handler = handlers_.find( described.name );
-
-                if ( handler == handlers_.end() )
-                {
-                    continue;
-                }
-
-                const Mila::Agents::ToolNeeds& needs = handler->second.needs;
-                const bool needs_folder = needs.reads_files || needs.writes_files || needs.runs_programs
-                    || described.name == kRequestFolderName;
-
-                if ( needs_folder && !folders_enforced_ )
-                {
-                    continue;
-                }
-
-                offered.insert( described.name );
-
-                Mila::Agents::Tool tool{
-                    described.name,
-                    described.description,
-                    described.parameters,
-                    [run = handler->second.run]( std::string_view arguments, const Mila::Agents::ToolGrant& grant, std::stop_token stop )
-                    {
-                        return run( std::string( arguments ), grant, stop );
-                    } };
-
-                tool.needs = handler->second.needs;
-                tool.result_origin = handler->second.origin;
-                offering.withTool( std::move( tool ) );
-            }
-
-            offering.withSystemPrompt( prompt_.systemPromptFor( offered ) );
-            applyTemplateVariables();
-        }
+        void offerTools();
 
         // ---- Models -----------------------------------------------------------------------
 
         /// The request a load sends: these devices, the context fixed or the longest that fits, and a quantization to
         /// apply as the weights load when one is asked for.
-        DeploymentRequest requestFor( std::optional<WeightQuantization> quantization ) const
-        {
-            DeploymentRequest request;
-            request.withAllowedDevices( devices_ )
-                .withKvCacheCompression( Mila::Dnn::KvCacheCompression::None );
-
-            if ( quantization && *quantization != WeightQuantization::None )
-            {
-                request.withWeightQuantization( *quantization );
-            }
-
-            if ( settings_.context_length )
-            {
-                request.withContextLength( *settings_.context_length );
-            }
-            else
-            {
-                request.withAutomaticContextLength();
-            }
-
-            return request;
-        }
+        DeploymentRequest requestFor( std::optional<WeightQuantization> quantization ) const;
 
         /// The model the settings remember, opened as the session starts; one that will not open is said in the
         /// page's no-model state, where the person chooses another.
-        void openRemembered()
-        {
-            const DeploymentRequest request = requestFor( std::nullopt );
+        void openRemembered();
 
-            if ( auto refusal = Mila::Agents::Agent::check( settings_.model, request ) )
-            {
-                no_model_reason_ = refusalText( *refusal );
-
-                return;
-            }
-
-            work_ = Work::Load;
-            open( settings_.model, std::nullopt, request );
-            work_ = Work::None;
-        }
-
-        void loadModel( const nlohmann::json& request )
-        {
-            if ( !licenseAccepted() )
-            {
-                sendError( std::string( kLicenseFirst ), "load" );
-
-                return;
-            }
-
-            std::optional<WeightQuantization> quantization;
-
-            if ( request.contains( "quantization" ) && request[ "quantization" ].is_string() )
-            {
-                quantization = parseLoadQuantization( request[ "quantization" ].get<std::string>() );
-
-                if ( !quantization.has_value() )
-                {
-                    sendError( "Quantization is none, fp8, fp4 or q4_0.", "load" );
-
-                    return;
-                }
-            }
-
-            const std::string asked = request.value( "name", std::string{} );
-            const std::string name = InstalledModel::find( asked )
-                .transform( []( const InstalledModel& model ) { return model.name(); } )
-                .value_or( asked );
-
-            if ( model_.resident() && model_.name() == name && ( !quantization || quantization == loaded_quantization_ ) )
-            {
-                send( "info", { { "text", std::format( "{} is already loaded.", name ) } } );
-
-                return;
-            }
-
-            work_ = Work::Load;
-            switchModel( name, quantization );
-            work_ = Work::None;
-
-            sendState();
-        }
+        void loadModel( const nlohmann::json& request );
 
         /**
          * @brief Change model, clearing the conversation, as the person asked: a model's name, checked before the
@@ -1620,44 +400,7 @@ namespace Mila::Desktop
          *
          * A model that does not fit is found only once the card is free; the one it replaced is then loaded again.
          */
-        void switchModel( const std::string& name, std::optional<WeightQuantization> quantization )
-        {
-            const bool had_model = model_.resident();
-            const std::string previous = model_.name();
-            const std::optional<WeightQuantization> previous_quantization = loaded_quantization_;
-            const DeploymentRequest previous_request = had_model ? model_.request() : DeploymentRequest{};
-
-            const DeploymentRequest request = requestFor( quantization );
-
-            if ( auto refusal = Mila::Agents::Agent::check( name, request ) )
-            {
-                sendError( refusalText( *refusal ), workName() );
-
-                return;
-            }
-
-            if ( !open( name, quantization, request ) )
-            {
-                if ( had_model && open( previous, previous_quantization, previous_request ) )
-                {
-                    send( "info", { { "text", std::format( "{} is loaded again.", previous ) }, { "during", workName() } } );
-                }
-
-                return;
-            }
-
-            startNewConversation();
-
-            // Said during the load or install, so a conversation that has not begun keeps its home screen.
-            send( "info", { { "text", had_model ? "Model switched. Conversation history cleared." : "Model loaded." },
-                { "during", workName() } } );
-
-            if ( !settings_.context_length )
-            {
-                send( "info", { { "text", std::format( "Context {} (auto).", model_.agent().plan().contextLength() ) },
-                    { "during", workName() } } );
-            }
-        }
+        void switchModel( const std::string& name, std::optional<WeightQuantization> quantization );
 
         /**
          * @brief Open a model on a request, saying how it goes: a load from start to end, and why it failed if it did.
@@ -1665,155 +408,13 @@ namespace Mila::Desktop
          * @return False, having said why, when nothing could be opened; nothing is resident then, and the session is
          *         held.
          */
-        bool open( const std::string& name, std::optional<WeightQuantization> quantization, const DeploymentRequest& request )
-        {
-            const bool applied_at_load = quantization && *quantization != WeightQuantization::None;
+        bool open( const std::string& name, std::optional<WeightQuantization> quantization, const DeploymentRequest& request );
 
-            // The quantization is quoted only when it is applied as the weights load: a pre-quantized model already
-            // carries it in its name. The model is named as a person reads it.
-            const std::string shown = displayName( name );
-            load_label_ = applied_at_load
-                ? std::format( "Loading {} ({})", shown, quantizationWord( *quantization ) )
-                : std::format( "Loading {}", shown );
+        void installModel( const std::string& name );
 
-            loading_ = name;
-            sendState();
-            send( "progress", { { "task", loadTask() }, { "label", load_label_ }, { "done", nullptr }, { "total", nullptr } } );
+        void installProgress( std::uint64_t received, std::uint64_t total );
 
-            std::string failure;
-
-            try
-            {
-                model_.open( name, request );
-            }
-            catch ( const Mila::Deployment::OpenRefusedError& error )
-            {
-                failure = refusalText( error.refusal() );
-            }
-            catch ( const DeploymentRefusedError& error )
-            {
-                const std::optional<InstalledModel> installed = InstalledModel::find( name );
-                const bool quantizable = !applied_at_load && installed
-                    && installed->storedWeightQuantization() == WeightQuantization::None;
-
-                failure = refusalText( error.refusal(), quantizable );
-            }
-            catch ( const std::exception& error )
-            {
-                failure = error.what();
-            }
-
-            loading_.clear();
-            send( "progress", { { "task", loadTask() }, { "label", load_label_ }, { "done", 1 }, { "total", 1 } } );
-
-            if ( !failure.empty() )
-            {
-                loaded_quantization_.reset();
-                sendError( std::format( "Could not load {}: {}", name, failure ), workName() );
-
-                return false;
-            }
-
-            loaded_quantization_ = quantization;
-            no_model_reason_.clear();
-            settings_.model = model_.name();
-            saveSettings();
-
-            applyTemplateVariables();
-
-            if ( settings_.detail == "all" )
-            {
-                send( "log", { { "level", "info" }, { "text", model_.agent().model().model().toString() } } );
-                send( "log", { { "level", "info" }, { "text", model_.agent().model().model().getMemoryStats().toString() } } );
-            }
-
-            // A model just loaded is about to be used: held from now, so the first prompt starts at once.
-            memory_holder_.use( model_.agent().model().model().getDeviceId() );
-            memory_holder_.idle();
-
-            return true;
-        }
-
-        void installModel( const std::string& name )
-        {
-            if ( !licenseAccepted() )
-            {
-                sendError( std::string( kLicenseFirst ), "install" );
-
-                return;
-            }
-
-            const auto published = published_display_names_.find( name );
-            install_name_ = published != published_display_names_.end() ? published->second : name;
-            install_total_ = 0;
-            install_percent_ = -1;
-
-            work_ = Work::Install;
-            sendState();
-
-            bool installed = false;
-
-            try
-            {
-                for ( const std::string& line : Mila::Desktop::installModel( name,
-                    [this]( std::uint64_t received, std::uint64_t total ) { installProgress( received, total ); } ) )
-                {
-                    send( "info", { { "text", line }, { "during", "install" } } );
-                }
-
-                installed = true;
-            }
-            catch ( const std::exception& error )
-            {
-                sendError( std::format( "Install failed: {}", error.what() ), "install" );
-            }
-
-            // A session with nothing resident wants the model it just installed; a load that fails is said as part of
-            // the install.
-            if ( installed && !model_.resident() )
-            {
-                switchModel( name, std::nullopt );
-            }
-
-            work_ = Work::None;
-
-            sendModels( false );
-            sendState();
-        }
-
-        void installProgress( std::uint64_t received, std::uint64_t total )
-        {
-            // One message per whole percent of each file, and every file's last.
-            const int percent = static_cast<int>( ( received * 100 ) / total );
-
-            if ( total == install_total_ && percent == install_percent_ && received < total )
-            {
-                return;
-            }
-
-            install_total_ = total;
-            install_percent_ = percent;
-
-            send( "progress", { { "task", "install" }, { "label", std::format( "Installing {}", install_name_ ) },
-                { "done", received }, { "total", total } } );
-        }
-
-        void removeModel( const std::string& name )
-        {
-            try
-            {
-                for ( const std::string& line : Mila::Desktop::removeModel( name ) )
-                {
-                    send( "info", { { "text", line } } );
-                }
-            }
-            catch ( const std::exception& error )
-            {
-                sendError( std::format( "Remove failed: {}", error.what() ), nullptr );
-            }
-
-            sendModels( false );
-        }
+        void removeModel( const std::string& name );
 
         /**
          * @brief Open the resident model again on another request, the conversation kept: a context sizes the
@@ -1821,496 +422,65 @@ namespace Mila::Desktop
          *
          * A request that does not fit puts the model back at the context it had.
          */
-        void reopen( const DeploymentRequest& request, std::string_view done )
-        {
-            const std::string name = model_.name();
-            const DeploymentRequest previous = model_.request();
-
-            if ( open( name, loaded_quantization_, request ) )
-            {
-                send( "info", { { "text", std::format( "Context {}{}. Conversation kept.", model_.agent().plan().contextLength(), done ) } } );
-
-                return;
-            }
-
-            if ( open( name, loaded_quantization_, previous ) )
-            {
-                send( "info", { { "text", std::format( "{} is loaded again at context {}.", name,
-                    model_.agent().plan().contextLength() ) } } );
-            }
-        }
+        void reopen( const DeploymentRequest& request, std::string_view done );
 
         // ---- Settings ---------------------------------------------------------------------
 
         /// One change per request (MilaDesktop.md 4.2); what the session says about it arrives as its own events.
-        void changeSetting( const nlohmann::json& request )
-        {
-            if ( request.contains( "context" ) )
-            {
-                changeContext( request[ "context" ] );
-            }
-            else if ( request.contains( "thinking" ) )
-            {
-                changeThinking( request[ "thinking" ] );
-            }
-            else if ( request.contains( "effort" ) )
-            {
-                changeEffort( request[ "effort" ] );
-            }
-            else if ( request.contains( "detail" ) )
-            {
-                const nlohmann::json& value = request[ "detail" ];
+        void changeSetting( const nlohmann::json& request );
 
-                if ( !value.is_string() || !std::ranges::contains( kDetailLevels, value.get<std::string>() ) )
-                {
-                    sendError( "Detail is off, thoughts or all.", "settings" );
+        void changeContext( const nlohmann::json& value );
 
-                    return;
-                }
+        void changeThinking( const nlohmann::json& value );
 
-                settings_.detail = value.get<std::string>();
-                useDetail( settings_.detail );
-                saveSettings();
-            }
-            else if ( request.contains( "sampling" ) )
-            {
-                changeSampling( request[ "sampling" ] );
-            }
-            else if ( request.contains( "seed" ) )
-            {
-                changeSeed( request[ "seed" ] );
-            }
-            else if ( request.contains( "search_key" ) )
-            {
-                changeSearchKey( request[ "search_key" ] );
-            }
-            else if ( request.contains( "run_commands" ) )
-            {
-                changeRunCommands( request[ "run_commands" ] );
-            }
-            else
-            {
-                sendError( "That is not a setting this session has.", "settings" );
-            }
-        }
+        void changeEffort( const nlohmann::json& value );
 
-        void changeContext( const nlohmann::json& value )
-        {
-            if ( value.is_string() && value.get<std::string>() == "auto" )
-            {
-                settings_.context_length.reset();
-                saveSettings();
+        void changeSampling( const nlohmann::json& change );
 
-                if ( !model_.resident() )
-                {
-                    send( "info", { { "text", "Context set to auto; it is measured when a model loads." } } );
+        static std::string_view samplingBounds( std::string_view key ) noexcept;
 
-                    return;
-                }
-
-                // Measured again: the card's free memory may have changed since the model loaded.
-                reopen( requestFor( loaded_quantization_ ), " (auto)" );
-
-                return;
-            }
-
-            if ( !value.is_number_unsigned() || value.get<std::uint64_t>() == 0
-                || value.get<std::uint64_t>() > static_cast<std::uint64_t>( std::numeric_limits<dim_t>::max() ) )
-            {
-                sendError( "A context window is a number of tokens, or auto.", "settings" );
-
-                return;
-            }
-
-            const dim_t length = value.get<dim_t>();
-
-            if ( !model_.resident() )
-            {
-                settings_.context_length = length;
-                saveSettings();
-                send( "info", { { "text", std::format( "Context set to {}; it applies when a model loads.", length ) } } );
-
-                return;
-            }
-
-            Mila::Agents::Agent& agent = model_.agent();
-
-            if ( length == agent.plan().contextLength() )
-            {
-                const bool was_fixed = settings_.context_length.has_value();
-
-                settings_.context_length = length;
-                saveSettings();
-
-                // The buffers are this size already, so pinning the number auto chose rebuilds nothing.
-                send( "info", { { "text", was_fixed
-                    ? std::format( "Context is already {}.", length )
-                    : std::format( "Context {} is now pinned.", length ) } } );
-
-                return;
-            }
-
-            // Refused below what the conversation already holds, which would load and then have no room to answer.
-            const dim_t held = static_cast<dim_t>( agent.model().tokenizer().encode( agent.prompt().text ).size() );
-
-            if ( length <= held )
-            {
-                sendError( std::format( "This conversation is already {} tokens, so a context of {} has no room to "
-                    "answer. Start a new conversation, or choose a longer context.", held, length ), "settings" );
-
-                return;
-            }
-
-            const std::optional<dim_t> previous = settings_.context_length;
-            settings_.context_length = length;
-
-            const DeploymentRequest request = requestFor( loaded_quantization_ );
-
-            reopen( request, "" );
-
-            // A context that did not fit is not the one the person has.
-            if ( !model_.resident() || model_.agent().plan().contextLength() != length )
-            {
-                settings_.context_length = previous;
-            }
-
-            saveSettings();
-        }
-
-        void changeThinking( const nlohmann::json& value )
-        {
-            if ( !value.is_boolean() || !hasThinkingSwitch() )
-            {
-                sendError( "This model has no reasoning channel.", "settings" );
-
-                return;
-            }
-
-            settings_.thinking = value.get<bool>();
-            saveSettings();
-            applyTemplateVariables();
-        }
-
-        void changeEffort( const nlohmann::json& value )
-        {
-            const Mila::Dnn::Conversation::TemplateVariable* effort = effortVariable();
-
-            if ( effort == nullptr )
-            {
-                sendError( "This model's thinking is on or off; it has no effort levels.", "settings" );
-
-                return;
-            }
-
-            if ( !value.is_string() || !std::ranges::contains( effort->values, value.get<std::string>() ) )
-            {
-                std::string levels;
-
-                for ( const std::string& level : effort->values )
-                {
-                    levels += levels.empty() ? "" : ", ";
-                    levels += level;
-                }
-
-                sendError( std::format( "Effort is one of {}.", levels ), "settings" );
-
-                return;
-            }
-
-            settings_.effort = value.get<std::string>();
-            saveSettings();
-            applyTemplateVariables();
-        }
-
-        void changeSampling( const nlohmann::json& change )
-        {
-            const std::string key = change.is_object() ? change.value( "key", std::string{} ) : std::string{};
-            const nlohmann::json value = change.is_object() && change.contains( "value" ) ? change[ "value" ] : nlohmann::json{};
-            const bool follow_model = value.is_string() && value.get<std::string>() == "model";
-
-            if ( !std::ranges::contains( kSamplingKeys, key ) )
-            {
-                sendError( "That is not a sampling setting.", "settings" );
-
-                return;
-            }
-
-            const bool whole = key != "top_k" || value.is_number_integer();
-
-            if ( !follow_model && ( !value.is_number() || !whole || !samplingValueAllowed( key, value.get<double>() ) ) )
-            {
-                sendError( samplingBounds( key ), "settings" );
-
-                return;
-            }
-
-            Mila::Agents::SamplingOverride& sampling = settings_.sampling;
-
-            if ( key == "temperature" )
-                sampling.temperature = follow_model ? std::nullopt : std::optional<float>( value.get<float>() );
-            else if ( key == "top_k" )
-                sampling.top_k = follow_model ? std::nullopt : std::optional<int>( value.get<int>() );
-            else if ( key == "top_p" )
-                sampling.top_p = follow_model ? std::nullopt : std::optional<float>( value.get<float>() );
-            else
-                sampling.presence_penalty = follow_model ? std::nullopt : std::optional<float>( value.get<float>() );
-
-            session().withSampling( sampling );
-            saveSettings();
-        }
-
-        static std::string_view samplingBounds( std::string_view key ) noexcept
-        {
-            if ( key == "temperature" )
-                return "Temperature is from 0 to 5; 0 always picks the likeliest word.";
-
-            if ( key == "top_k" )
-                return "top_k is a whole number, 0 or more; 0 turns it off.";
-
-            if ( key == "top_p" )
-                return "top_p is from 0 to 1; 1 turns it off.";
-
-            return "presence_penalty is from -2 to 2; 0 turns it off.";
-        }
-
-        void changeSeed( const nlohmann::json& value )
-        {
-            if ( !value.is_number_unsigned() )
-            {
-                sendError( "A seed is a whole number, 0 or more.", "settings" );
-
-                return;
-            }
-
-            if ( !model_.resident() )
-            {
-                sendError( "No model is loaded.", "settings" );
-
-                return;
-            }
-
-            const std::uint64_t seed = value.get<std::uint64_t>();
-            model_.agent().model().model().seedSampler( seed );
-
-            send( "info", { { "text", std::format( "Sampler reseeded ({}).", seed ) } } );
-        }
+        void changeSeed( const nlohmann::json& value );
 
         /// A key is kept and searching offered from the next response; null or empty removes both.
-        void changeSearchKey( const nlohmann::json& value )
-        {
-            const std::string key = value.is_string() ? value.get<std::string>() : std::string{};
-            const auto first = key.find_first_not_of( " \t\r\n" );
-            const auto last = key.find_last_not_of( " \t\r\n" );
-            const std::string trimmed = first == std::string::npos ? std::string{} : key.substr( first, last - first + 1 );
+        void changeSearchKey( const nlohmann::json& value );
 
-            if ( trimmed.empty() )
-            {
-                search_key_store_.remove();
-                search_key_file_.remove();
-                web_search_.reset();
-                handlers_.erase( std::string( WebSearch::kName ) );
-                refreshTools();
+        void useSearchKey( const std::string& key );
 
-                return;
-            }
-
-            search_key_store_.write( trimmed );
-            search_key_file_.remove();
-            useSearchKey( trimmed );
-            refreshTools();
-        }
-
-        void useSearchKey( const std::string& key )
-        {
-            web_search_.emplace( key );
-
-            Mila::Agents::ToolNeeds network;
-            network.uses_network = true;
-
-            // Registered once; a later key replaces the search it runs.
-            registerTool( std::string( WebSearch::kName ), network,
-                [this]( const std::string& arguments, const Mila::Agents::ToolGrant& grant, std::stop_token )
-                {
-                    if ( !web_search_ )
-                    {
-                        throw std::runtime_error( "web search is not set up" );
-                    }
-
-                    return web_search_->search( arguments, grant );
-                } );
-        }
-
-        void changeRunCommands( const nlohmann::json& value )
-        {
-            if ( !value.is_boolean() )
-            {
-                sendError( "Running commands is on or off.", "settings" );
-
-                return;
-            }
-
-            settings_.run_commands = value.get<bool>();
-            saveSettings();
-
-            if ( !settings_.run_commands )
-            {
-                // Off at once, in the open conversation too: no prompt names the tool and nothing runs it.
-                container_.reset();
-                container_problem_.clear();
-                handlers_.erase( std::string( CommandTool::kName ) );
-
-                refreshTools();
-
-                return;
-            }
-
-            useCommands();
-
-            if ( container_ )
-            {
-                refreshTools();
-                send( "info", { { "text", "Mila can run commands in a chat's folder now." } } );
-            } else {
-                sendError( std::format( "Commands cannot be run here: {}", container_problem_ ), "settings" );
-            }
-        }
+        void changeRunCommands( const nlohmann::json& value );
 
         /**
          * @brief Opens MXC from the session's own folder and finds the build tools, so a chat with a folder can offer
          *        run_command; what failed is kept for Settings to show.
          */
-        void useCommands()
-        {
-            auto opened = Mila::Agents::MxcProgramContainer::open( prompts_.parent_path() / "mxc_ffi.dll" );
+        void useCommands();
 
-            if ( !opened )
-            {
-                container_.reset();
-                container_problem_ = opened.error();
-
-                return;
-            }
-
-            container_ = std::move( *opened );
-            container_problem_.clear();
-            programs_ = ProgramSetup::find();
-
-            registerTool( std::string( CommandTool::kName ), CommandTool::needs(),
-                []( const std::string& arguments, const Mila::Agents::ToolGrant& grant, std::stop_token stop )
-                {
-                    return CommandTool::run( arguments, grant, stop );
-                } );
-        }
-
-        void useDetail( const std::string& detail )
-        {
-            Mila::Logging::Logger::defaultLogger().setLevel( detail == "all"
-                ? Mila::Logging::LogLevel::Info
-                : Mila::Logging::LogLevel::Warning );
-        }
+        void useDetail( const std::string& detail );
 
         // ---- The licence ------------------------------------------------------------------
 
         /// Whether the person accepted the very text this package carries; a package with another text asks again.
-        bool licenseAccepted() const
-        {
-            return license_.has_value() && !settings_.license_accepted.empty()
-                && settings_.license_accepted == license_->sha256;
-        }
+        bool licenseAccepted() const;
 
-        void sendLicense()
-        {
-            if ( !license_.has_value() )
-            {
-                send( "license", { { "text", nullptr }, { "sha256", nullptr }, { "accepted", false },
-                    { "problem", license_.error() } } );
-
-                return;
-            }
-
-            send( "license", { { "text", license_->text }, { "sha256", license_->sha256 },
-                { "accepted", licenseAccepted() }, { "problem", nullptr } } );
-        }
+        void sendLicense();
 
         /**
          * @brief The person accepted the licence the page showed them, named by its digest, so an acceptance is
          *        always of the text that was read. Kept for the next launch; the remembered model then opens.
          */
-        void acceptLicense( const std::string& sha256 )
-        {
-            if ( !license_.has_value() )
-            {
-                sendError( license_.error(), "license" );
-
-                return;
-            }
-
-            if ( sha256 != license_->sha256 )
-            {
-                sendError( "The licence shown is not the one Mila carries. Close Mila and open it again.", "license" );
-                sendLicense();
-
-                return;
-            }
-
-            if ( !licenseAccepted() )
-            {
-                const auto now = std::chrono::floor<std::chrono::seconds>( std::chrono::system_clock::now() );
-                settings_.license_accepted = license_->sha256;
-                settings_.license_accepted_at = std::format( "{:%FT%TZ}", now );
-                saveSettings();
-            }
-
-            sendLicense();
-            sendState();
-
-            if ( !settings_.model.empty() && !model_.resident() )
-            {
-                openRemembered();
-                sendState();
-            }
-        }
+        void acceptLicense( const std::string& sha256 );
 
         /// Kept for the next launch; a file that cannot be written is said, and the setting still applies now.
-        void saveSettings()
-        {
-            try
-            {
-                settings_file_.write( settings_ );
-            }
-            catch ( const std::exception& failure )
-            {
-                sendError( std::format( "This setting applies now but could not be kept: {}", failure.what() ), "settings" );
-            }
-        }
+        void saveSettings();
 
         // ---- The template's own variables -------------------------------------------------
 
-        const Mila::Dnn::Conversation::TemplateVariable* templateVariable( std::string_view name ) const
-        {
-            if ( !model_.resident() )
-            {
-                return nullptr;
-            }
-
-            const auto variables = model_.agent().model().protocol()->templateVariables();
-            const auto found = std::ranges::find( variables, name, &Mila::Dnn::Conversation::TemplateVariable::name );
-
-            return found == variables.end() ? nullptr : &*found;
-        }
+        const Mila::Dnn::Conversation::TemplateVariable* templateVariable( std::string_view name ) const;
 
         /// Whether the resident model reasons, and its template can turn that off.
-        bool hasThinkingSwitch() const
-        {
-            return model_.resident() && model_.agent().model().capabilities().thinking
-                && templateVariable( "enable_thinking" ) != nullptr;
-        }
+        bool hasThinkingSwitch() const;
 
         /// The template's effort variable, where its thinking has levels and is on.
-        const Mila::Dnn::Conversation::TemplateVariable* effortVariable() const
-        {
-            return hasThinkingSwitch() ? templateVariable( "reasoning_effort" ) : nullptr;
-        }
+        const Mila::Dnn::Conversation::TemplateVariable* effortVariable() const;
 
         /**
          * @brief The settings as the resident model's template variables, each only where the template has it.
@@ -2320,40 +490,7 @@ namespace Mila::Desktop
          * a tool for every question; with them in the system message and a system prompt saying when to call, it
          * answered 10 of 10 questions that needed none (measured 2026-10-25).
          */
-        void applyTemplateVariables()
-        {
-            if ( !model_.resident() )
-            {
-                return;
-            }
-
-            std::map<std::string, std::string> variables;
-
-            if ( templateVariable( "enable_thinking" ) != nullptr )
-            {
-                variables[ "enable_thinking" ] = settings_.thinking ? "true" : "false";
-            }
-
-            if ( const auto* effort = templateVariable( "reasoning_effort" );
-                effort != nullptr && settings_.thinking && std::ranges::contains( effort->values, settings_.effort ) )
-            {
-                variables[ "reasoning_effort" ] = settings_.effort;
-            }
-
-            if ( templateVariable( "tools_in_user_message" ) != nullptr && !session().tools().empty() )
-            {
-                variables[ "tools_in_user_message" ] = "false";
-            }
-
-            model_.agent().withTemplateVariables( std::move( variables ) );
-
-            // Thinking off: Qwen 3.8 at its default effort ran out of 8192 tokens writing a summary, in 4 of 6
-            // (Notebooks/CompactionSummaries.md). 6000 is above the longest thinking-off summary measured, from a small
-            // sample (Agents/Compaction.md, decision 8); a quarter of a short context leaves it room to answer.
-            session().withCompaction( {
-                .summary_tokens = std::min<Mila::Dnn::dim_t>( 6000, model_.agent().plan().contextLength() / 4 ),
-                .template_variables = { { "enable_thinking", "false" } } } );
-        }
+        void applyTemplateVariables();
 
         // ---- Attachments ------------------------------------------------------------------
 
@@ -2361,385 +498,65 @@ namespace Mila::Desktop
          * @brief Every attachment is refused, by name: no model this build runs takes an image or audio yet
          *        (InstalledModel's isSupportedModality), so session.state lists no modality to accept one for.
          */
-        void refuseAttachment( const nlohmann::json& request )
-        {
-            const std::string kind = request.value( "kind", std::string{} );
-
-            std::string reason;
-
-            if ( !model_.resident() )
-            {
-                reason = "No model is loaded to read it.";
-            }
-            else if ( kind == "image" || kind == "audio" )
-            {
-                reason = std::format( "{} cannot take {}.", model_.name(), kind == "image" ? "images" : "audio" );
-            }
-            else
-            {
-                reason = "Only PNG and JPEG images and WAV audio can be attached.";
-            }
-
-            send( "attachment.refused", { { "attachment_id", request.value( "attachment_id", std::string{} ) },
-                { "reason", reason } } );
-        }
+        void refuseAttachment( const nlohmann::json& request );
 
         // ---- Events of the process's own --------------------------------------------------
 
-        void sendState()
-        {
-            const bool resident = model_.resident();
-            const bool thinking_capable = hasThinkingSwitch();
-            const auto* effort = effortVariable();
-
-            nlohmann::ordered_json effort_levels = nullptr;
-            nlohmann::ordered_json effort_in_effect = nullptr;
-            std::string thinking = "off";
-
-            if ( effort != nullptr )
-            {
-                effort_levels = effort->values;
-                effort_in_effect = std::string( Mila::Dnn::Conversation::resolveTemplateVariable(
-                    model_.agent().model().protocol()->templateVariables(), session().templateVariables(), "reasoning_effort" ) );
-            }
-
-            if ( thinking_capable && model_.agent().thinks() )
-            {
-                thinking = effort != nullptr ? effort_in_effect.get<std::string>() : "on";
-            }
-
-            nlohmann::ordered_json sampling = nlohmann::ordered_json::object();
-
-            if ( resident )
-            {
-                const Mila::Dnn::SamplingParams effective = model_.agent().sampling();
-                const Mila::Agents::SamplingOverride& chosen = settings_.sampling;
-
-                sampling[ "temperature" ] = { { "value", effective.temperature }, { "is_model_default", !chosen.temperature } };
-                sampling[ "top_k" ] = { { "value", effective.top_k }, { "is_model_default", !chosen.top_k } };
-                sampling[ "top_p" ] = { { "value", effective.top_p }, { "is_model_default", !chosen.top_p } };
-                sampling[ "presence_penalty" ] = { { "value", effective.presence_penalty },
-                    { "is_model_default", !chosen.presence_penalty } };
-            }
-
-            // The modalities this build runs for the resident model, from the library's own answer.
-            nlohmann::ordered_json modalities = nlohmann::ordered_json::array();
-
-            if ( resident )
-            {
-                for ( const std::string& modality : model_.agent().model().capabilities().modalities )
-                {
-                    modalities.push_back( modality );
-                }
-            }
-
-            const bool busy = busy_.load() || work_ != Work::None;
-
-            const nlohmann::ordered_json stream = {
-                { "stream_id", kStreamId },
-                { "parent_stream_id", nullptr },
-                { "conversation_id", conversation_id_.empty() ? nlohmann::ordered_json( nullptr ) : nlohmann::ordered_json( conversation_id_ ) },
-                { "busy", busy } };
-
-            const dim_t context_length = resident ? model_.agent().plan().contextLength() : settings_.context_length.value_or( 0 );
-
-            // Counted whole between turns; within one, each round's start says it (onAgentEvent).
-            if ( work_ != Work::Turn )
-            {
-                measureContext();
-            }
-
-            const std::optional<dim_t> compacts_at = resident ? model_.agent().compactionThreshold() : std::nullopt;
-
-            send( "session.state", {
-                { "model", resident ? nlohmann::ordered_json( model_.name() ) : nlohmann::ordered_json( nullptr ) },
-                { "loading", loading_.empty() ? nlohmann::ordered_json( nullptr ) : nlohmann::ordered_json( loading_ ) },
-                { "no_model_reason", no_model_reason_.empty() || resident
-                    ? nlohmann::ordered_json( nullptr ) : nlohmann::ordered_json( no_model_reason_ ) },
-                { "context_length", context_length },
-                { "context_automatic", !settings_.context_length.has_value() },
-                { "context_used", context_used_ ? nlohmann::ordered_json( *context_used_ ) : nlohmann::ordered_json( nullptr ) },
-                { "compacts_at", compacts_at ? nlohmann::ordered_json( *compacts_at ) : nlohmann::ordered_json( nullptr ) },
-                { "thinking_capable", thinking_capable },
-                { "thinking", thinking },
-                { "effort", std::move( effort_in_effect ) },
-                { "effort_levels", std::move( effort_levels ) },
-                { "detail", settings_.detail },
-                { "sampling", std::move( sampling ) },
-                { "modalities", std::move( modalities ) },
-                { "folder", conversationFolder() },
-                { "folder_access", !conversation_folder_ ? nlohmann::ordered_json( nullptr )
-                    : nlohmann::ordered_json( conversation_folder_access_ == Mila::Agents::FolderAccess::ReadWrite ? "read_write" : "read" ) },
-                { "allowed_for_chat", allowedForChat() },
-                { "plan", plan_.toJson() },
-                { "web_search", web_search_.has_value() },
-                { "run_commands", settings_.run_commands },
-                { "run_commands_problem", container_problem_.empty()
-                    ? nlohmann::ordered_json( nullptr ) : nlohmann::ordered_json( container_problem_ ) },
-                { "program_folders", programFoldersShown() },
-                { "busy", busy },
-                { "license_accepted", licenseAccepted() },
-                { "streams", nlohmann::ordered_json::array( { stream } ) } } );
-        }
+        void sendState();
 
         /// The context the conversation takes now, counted by the agent; unknown with no model resident.
-        void measureContext()
-        {
-            if ( !model_.resident() )
-            {
-                context_used_.reset();
-
-                return;
-            }
-
-            try
-            {
-                context_used_ = model_.agent().contextTokens();
-            }
-            catch ( const std::invalid_argument& )
-            {
-                // A template variable the template refuses is said where it is set; the count waits for it.
-                context_used_.reset();
-            }
-        }
+        void measureContext();
 
         /// The folders commands are given to read, for Settings to show; none while commands are off.
-        nlohmann::ordered_json programFoldersShown() const
-        {
-            nlohmann::ordered_json shown = nlohmann::ordered_json::array();
+        nlohmann::ordered_json programFoldersShown() const;
 
-            if ( container_ )
-            {
-                for ( const std::filesystem::path& folder : programs_.folders )
-                {
-                    const std::u8string text = folder.u8string();
-                    shown.push_back( std::string( text.begin(), text.end() ) );
-                }
-            }
-
-            return shown;
-        }
-
-        nlohmann::json conversationFolder() const
-        {
-            return conversation_folder_ ? nlohmann::json( *conversation_folder_ ) : nlohmann::json( nullptr );
-        }
+        nlohmann::json conversationFolder() const;
 
         /// The tools the person allowed for the open chat, by name.
-        nlohmann::ordered_json allowedForChat() const
-        {
-            nlohmann::ordered_json allowed = nlohmann::ordered_json::array();
+        nlohmann::ordered_json allowedForChat() const;
 
-            for ( const std::string& name : session().gate().allowedForConversation() )
-            {
-                allowed.push_back( name );
-            }
+        void sendConversations();
 
-            return allowed;
-        }
+        /// `projects.list`: every project's record, the most recently changed first.
+        void sendProjects();
 
-        void sendConversations()
-        {
-            send( "conversations.list", { { "items", store_.list() } } );
-        }
+        /// `activity.list`: the workspace's and every project's events, newest first, the latest 200 before @p before
+        /// (an event's time), or the latest 200 when it is empty.
+        void sendActivity( const std::string& before );
 
         /// What is installed, and, when asked for, what the publisher offers.
-        void sendModels( bool online )
-        {
-            nlohmann::json published = nullptr;
-            nlohmann::json suggested = nullptr;
-
-            if ( online )
-            {
-                try
-                {
-                    // With a model resident the list is planned against the whole card, as a listing is (Deployment.md
-                    // 12.5), so the memory that model holds does not count against the others.
-                    DeploymentRequest request = requestFor( std::nullopt );
-
-                    if ( model_.resident() )
-                    {
-                        request.withWholeDeviceMemory();
-                    }
-
-                    nlohmann::json listed = publishedModels( request );
-                    published = std::move( listed[ "models" ] );
-                    published_display_names_.clear();
-
-                    for ( const auto& model : published )
-                    {
-                        const std::string display_name = model.value( "display_name", std::string{} );
-
-                        if ( !display_name.empty() )
-                        {
-                            published_display_names_[ model.value( "name", std::string{} ) ] = display_name;
-                        }
-                    }
-                    suggested = std::move( listed[ "suggested" ] );
-                }
-                catch ( const std::exception& failure )
-                {
-                    published = nullptr;
-                    sendError( std::format( "Could not list the models that can be installed: {}", failure.what() ), "models" );
-                }
-            }
-
-            send( "models.list", { { "installed", installedModels() }, { "published", std::move( published ) },
-                { "suggested", std::move( suggested ) } } );
-        }
+        void sendModels( bool online );
 
         // ---- Writing ----------------------------------------------------------------------
 
-        void sendError( std::string_view text, nlohmann::ordered_json during )
-        {
-            send( "error", { { "text", text }, { "during", std::move( during ) } } );
-        }
+        void sendError( std::string_view text, nlohmann::ordered_json during );
 
         /// One message, one line. Text the model wrote that is not valid UTF-8 is replaced rather than ending the line.
-        void send( std::string_view type, nlohmann::ordered_json fields )
-        {
-            nlohmann::ordered_json message = { { "v", 1 }, { "type", type } };
-
-            for ( auto field = fields.begin(); field != fields.end(); ++field )
-            {
-                message[ field.key() ] = std::move( field.value() );
-            }
-
-            const std::string line = message.dump( -1, ' ', false, nlohmann::ordered_json::error_handler_t::replace );
-
-            std::lock_guard<std::mutex> lock( output_mutex_ );
-            out_ << line << '\n' << std::flush;
-        }
+        void send( std::string_view type, nlohmann::ordered_json fields );
 
         // ---- Small facts ------------------------------------------------------------------
 
         /// Where an error happened, for the page to show it there.
-        nlohmann::ordered_json workName() const
-        {
-            switch ( work_ )
-            {
-                case Work::Turn:     return "turn";
-                case Work::Load:     return "load";
-                case Work::Install:  return "install";
-                case Work::Settings: return "settings";
-                case Work::None:     break;
-            }
-
-            return nullptr;
-        }
+        nlohmann::ordered_json workName() const;
 
         /// A context change rebuilds the model it already holds; anything else that loads, loads.
-        std::string_view loadTask() const
-        {
-            return work_ == Work::Settings ? "rebuild" : "load";
-        }
+        std::string_view loadTask() const;
 
-        static std::string_view finishName( GenerateStatus status )
-        {
-            switch ( status )
-            {
-                case GenerateStatus::Success:             return "stop";
-                case GenerateStatus::MaxNewTokensReached: return "length";
-                case GenerateStatus::ContextOverflow:     return "context";
-                case GenerateStatus::ClientCancelled:     return "cancelled";
-            }
+        static std::string_view finishName( GenerateStatus status );
 
-            return "error";
-        }
-
-        static std::string_view answerName( ToolAnswer answer )
-        {
-            switch ( answer )
-            {
-                case ToolAnswer::Once:            return "allow_once";
-                case ToolAnswer::ForConversation: return "allow_conversation";
-                case ToolAnswer::Deny:            break;
-            }
-
-            return "deny";
-        }
+        static std::string_view answerName( ToolAnswer answer );
 
         /// The first user message, cut at a word under 60 characters (MilaDesktop.md 6.3).
-        static std::string titleFor( const std::string& text )
-        {
-            std::string title = text.substr( 0, text.find( '\n' ) );
-
-            if ( title.size() < 60 )
-            {
-                return title;
-            }
-
-            const auto cut = title.rfind( ' ', 59 );
-
-            title.resize( cut == std::string::npos || cut == 0 ? 59 : cut );
-
-            // Not inside a UTF-8 sequence: back off continuation bytes, then the lead byte they belonged to.
-            while ( !title.empty() && ( static_cast<unsigned char>( title.back() ) & 0xC0 ) == 0x80 )
-            {
-                title.pop_back();
-            }
-
-            if ( !title.empty() && static_cast<unsigned char>( title.back() ) >= 0xC0 )
-            {
-                title.pop_back();
-            }
-
-            return title;
-        }
+        static std::string titleFor( const std::string& text );
 
         /// To the millisecond: the store lists conversations by it, and two can change within a second.
-        static std::string timestamp()
-        {
-            const auto now = std::chrono::floor<std::chrono::milliseconds>( std::chrono::system_clock::now() );
+        static std::string timestamp();
 
-            return std::format( "{:%FT%TZ}", now );
-        }
+        static std::string_view roleName( Role role );
 
-        static std::string_view roleName( Role role )
-        {
-            switch ( role )
-            {
-                case Role::System:    return "system";
-                case Role::User:      return "user";
-                case Role::Assistant: return "assistant";
-                case Role::Tool:      return "tool";
-            }
+        static nlohmann::json turnToJson( const Turn& turn );
 
-            return "user";
-        }
-
-        static nlohmann::json turnToJson( const Turn& turn )
-        {
-            nlohmann::json calls = nlohmann::json::array();
-
-            for ( const ToolCall& call : turn.tool_calls )
-            {
-                calls.push_back( { { "name", call.name }, { "arguments", call.arguments } } );
-            }
-
-            return { { "role", roleName( turn.role ) }, { "content", turn.content }, { "tool_calls", std::move( calls ) },
-                { "tool_name", turn.tool_name }, { "reasoning", turn.reasoning } };
-        }
-
-        static Turn turnFromJson( const nlohmann::json& stored )
-        {
-            const std::string role = stored.value( "role", std::string{} );
-
-            Turn turn;
-            turn.role = role == "assistant" ? Role::Assistant
-                : role == "tool" ? Role::Tool
-                : Role::User;
-            turn.content = stored.value( "content", std::string{} );
-            turn.tool_name = stored.value( "tool_name", std::string{} );
-            turn.reasoning = stored.value( "reasoning", std::string{} );
-
-            for ( const nlohmann::json& call : stored.value( "tool_calls", nlohmann::json::array() ) )
-            {
-                turn.tool_calls.push_back( { call.value( "name", std::string{} ), call.value( "arguments", std::string{} ) } );
-            }
-
-            return turn;
-        }
+        static Turn turnFromJson( const nlohmann::json& stored );
 
         /// The turn in flight, as its rounds come to it.
         struct TurnRecord
@@ -2770,6 +587,10 @@ namespace Mila::Desktop
         std::string no_model_reason_;
 
         ConversationStore store_;
+        ProjectStore projects_;
+
+        // The workspace's events that belong to no project (AssistantInterface.md 8).
+        EventLog activity_;
         std::filesystem::path prompts_;
         std::ostream& out_;
         SearchKeyStore search_key_store_;
@@ -2840,6 +661,9 @@ namespace Mila::Desktop
         // How far: read until the person allows a change in it, for this chat only.
         Mila::Agents::FolderAccess conversation_folder_access_{ Mila::Agents::FolderAccess::Read };
 
+        // Whether the chat holds its folder because its project does (AssistantInterface.md 10).
+        bool conversation_folder_from_project_{ false };
+
         // The folder the person chose in answer to request_folder, until its call takes it. Under approval_mutex_.
         std::optional<std::string> chosen_folder_;
 
@@ -2864,6 +688,9 @@ namespace Mila::Desktop
         std::string conversation_id_;
         std::string conversation_title_;
         std::string conversation_created_;
+
+        // The project the chat is in, or empty for none.
+        std::string conversation_project_;
         nlohmann::json conversation_messages_ = nlohmann::json::array();
         nlohmann::json conversation_links_ = nlohmann::json::array();
 

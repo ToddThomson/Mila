@@ -3,7 +3,7 @@
 // conversation begun here, or begins a chat. A file dropped anywhere on the main pane attaches.
 
 import { element, iconButton, setIcon, clear, previewOrIcon, milaMark } from '../dom.js';
-import { isBusy } from '../state.js';
+import { isBusy, currentProject } from '../state.js';
 import { barPrompt } from '../format.js';
 
 const maximumRows = 12;
@@ -313,7 +313,9 @@ export function createComposerView( root, dropZone, actions )
         attach.title = attachRefusal === null ? 'Attach an image or audio clip' : attachRefusal;
         picker.accept = acceptFor( session );
 
-        input.placeholder = loaded ? barPrompt( state.place ) : 'Load a model to start a conversation';
+        const project = currentProject( state );
+
+        input.placeholder = loaded ? barPrompt( state.place, project === null ? null : project.name ) : 'Load a model to start a conversation';
         input.disabled = !loaded;
 
         setIcon( submit, busy ? 'stop' : 'send' );

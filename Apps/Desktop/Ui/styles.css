@@ -1422,6 +1422,114 @@ kbd {
 
 .reach-note { white-space: normal; }
 
+/* ---- Projects (AssistantInterface.md 4.1, 4.4, 4.5) ------------------------------------------- */
+
+/* A project's state: amber waiting on the person, teal active, grey quiet. */
+.state-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: color-mix(in srgb, var(--faint-text) 70%, transparent); }
+
+.state-dot.waiting { background: var(--attention); }
+
+.state-dot.active { background: var(--accent-2); }
+
+.side-project .state-dot { margin: 0 5px 0 4px; }
+
+.side-title .side-count { margin-left: 6px; letter-spacing: 0; }
+
+.side-new { color: var(--muted); }
+
+.project-row { align-items: center; }
+
+.project-row .row-when { max-width: 34%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.project-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+
+.project-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  background: var(--surface);
+  text-align: left;
+}
+
+.project-card:hover { border-color: var(--faint-text); }
+
+.project-card-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+.project-card-name { flex: 1; min-width: 0; overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+
+.project-card-state { flex: none; color: var(--faint-text); font-size: 12px; }
+
+.project-card-purpose { display: -webkit-box; overflow: hidden; color: var(--muted); font-size: 13px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+
+.project-card-latest, .project-card-counts { overflow: hidden; color: var(--faint-text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The last fourteen days, a bar a day, today last. */
+.pulse { display: flex; align-items: flex-end; gap: 3px; height: 16px; margin: 2px 0; }
+
+.pulse-bar { flex: 1; max-width: 10px; border-radius: 2px; background: color-mix(in srgb, var(--accent-2) 70%, transparent); }
+
+.pulse-bar.none { background: var(--rule); }
+
+.project-head { position: relative; }
+
+.project-title-row { display: flex; align-items: center; gap: 8px; }
+
+.project-title-row .place-title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+
+.project-title-row .row-menu-button { position: static; transform: none; visibility: visible; }
+
+.project-menu { top: 64px; right: 0; }
+
+.project-edit { margin: 4px 0; }
+
+textarea.project-edit { display: block; width: 100%; resize: vertical; }
+
+.project-purpose { margin: 6px 0 0; color: var(--muted); overflow-wrap: anywhere; }
+
+.project-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; color: var(--faint-text); font-size: 13px; }
+
+.project-confirm { margin-top: 16px; border-color: var(--error-rule); background: var(--error-soft); }
+
+.figure.still { cursor: default; }
+
+.folder-access {
+  flex: none;
+  padding: 4px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  background: var(--bg);
+  font-size: 13px;
+}
+
+.move-menu { max-height: 260px; overflow-y: auto; }
+
+.menu-note { padding: 4px 9px 6px; color: var(--faint-text); font-size: 13px; }
+
+.event-line { overflow-wrap: anywhere; }
+
+.activity-earlier { display: block; margin: 18px auto 0; }
+
+/* New project: a name, what it is for, and Create. */
+.sheet-label { display: flex; flex-direction: column; gap: 4px; margin-top: 14px; color: var(--muted); font-size: 13px; }
+
+.sheet-input {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 15px;
+}
+
+.sheet-input:focus-visible { outline: 2px solid var(--accent-2); outline-offset: -1px; border-color: transparent; }
+
+.sheet-purpose { resize: vertical; }
+
 /* ---- Panels ------------------------------------------------------------------------------ */
 
 .panel-header {

@@ -2,7 +2,7 @@
 // animation frame however many messages arrived in it.
 
 import { createTransport } from './transport.js';
-import { createInitialState, reduce, isBusy, isWelcoming, isAskingForModel, isRisen, barMode, streamIdentifier } from './state.js';
+import { createInitialState, reduce, isBusy, isWelcoming, isAskingForModel, isRisen, barMode, barProject, streamIdentifier } from './state.js';
 import { createSidebarView } from './views/sidebar.js';
 import { createHeaderView } from './views/header.js';
 import { createPlacesView } from './views/places.js';
@@ -15,6 +15,7 @@ import { createSearchView } from './views/search.js';
 import { createLicenseView } from './views/license.js';
 import { createAboutView } from './views/about.js';
 import { createLinkView } from './views/link.js';
+import { createNewProjectView } from './views/new-project.js';
 import { createDevelopmentView } from './views/development.js';
 import { createLogView } from './views/log.js';
 import { createPlanView } from './views/plan.js';
@@ -36,7 +37,8 @@ let shownPlace = null;
 // A turn to send once a chat opened from a button has loaded: "Ask Mila to finish".
 let afterOpen = null;
 
-// The request_folder call waiting on the window's picker, until it answers.
+// What the window's picker is choosing a folder for, until it answers: the request_folder call waiting on it, or a
+// project being given one.
 let folderFor = null;
 
 const surface = {
@@ -116,10 +118,33 @@ function openConversation( identifier, then )
     changeSurface( { sidebarOverlay: false, settingsOpen: false } );
 }
 
-/** A new conversation is the bar's; from a chat the person goes back to the workspace to begin it. */
+/** A project opens on its summary (4.5). */
+function openProject( identifier )
+{
+    dispatch( { type: 'place.open', place: 'project', project: identifier } );
+    changeSurface( { sidebarOverlay: false, settingsOpen: false } );
+}
+
+/** A new chat, in the project open in the pane when there is one (5.3). */
+function newChatRequest()
+{
+    const project = barProject( state );
+
+    return project === null ? { type: 'conversation.new' } : { type: 'conversation.new', project };
+}
+
+/**
+ * A new conversation is the bar's; from a chat the person goes back to begin it, to its project when it is in one, so
+ * the new chat is begun there too.
+ */
 function newConversation()
 {
-    send( { type: 'conversation.new' } );
+    const fromProject = state.place === 'chat' && state.session !== null ? state.session.project ?? null : null;
+
+    if ( fromProject !== null && state.projects.some( ( project ) => project.id === fromProject ) )
+        dispatch( { type: 'place.open', place: 'project', project: fromProject } );
+
+    send( newChatRequest() );
 
     if ( state.place === 'chat' )
         dispatch( { type: 'place.open', place: 'workspace' } );
@@ -139,7 +164,7 @@ function sendTurn( text, attachmentIds )
     {
         const waiting = state.attachments;
 
-        send( { type: 'conversation.new' } );
+        send( newChatRequest() );
         dispatch( { type: 'attachments.keep', attachments: waiting } );
     }
 
@@ -216,7 +241,14 @@ function chooseFolder( turnId, callId )
     transport.send( { type: 'folder.choose' } );
 }
 
-/** A picker closed without a choice leaves the question waiting. */
+/** A folder given to a project (10) is chosen in the window's picker, and the project starts holding it to read. */
+function chooseProjectFolder( projectId )
+{
+    folderFor = { project: projectId };
+    transport.send( { type: 'folder.choose' } );
+}
+
+/** A picker closed without a choice leaves the question waiting, and the project as it was. */
 function folderChosen( path )
 {
     const asking = folderFor;
@@ -224,6 +256,21 @@ function folderChosen( path )
 
     if ( asking === null || typeof path !== 'string' || path.length === 0 )
         return;
+
+    if ( asking.project !== undefined )
+    {
+        const project = state.projects.find( ( candidate ) => candidate.id === asking.project );
+
+        if ( project === undefined )
+            return;
+
+        const folders = Array.isArray( project.folders ) ? project.folders : [];
+
+        if ( !folders.some( ( folder ) => folder.path === path ) )
+            send( { type: 'project.update', id: project.id, folders: [ ...folders, { path, access: 'read' } ] } );
+
+        return;
+    }
 
     decideTool( asking.turnId, asking.callId, 'allow_once', path );
 }
@@ -249,8 +296,11 @@ const actions = {
     toggleExpanded,
     closeOverlay,
     openPlace,
+    openProject,
     openConversation,
     newConversation,
+    newProject: () => newProjectSheet.open(),
+    chooseProjectFolder,
     sendTurn,
     stopTurn,
     openSettings,
@@ -289,6 +339,7 @@ const search = createSearchView( document.getElementById( 'search' ), actions );
 const license = createLicenseView( document.getElementById( 'license-window' ), actions );
 const about = createAboutView( document.getElementById( 'about-window' ), actions );
 const linkSheet = createLinkView( document.getElementById( 'link-window' ), actions );
+const newProjectSheet = createNewProjectView( document.getElementById( 'project-window' ), actions );
 const development = createDevelopmentView( sidebar.development, transport.development, composer );
 const log = createLogView( logElement, actions );
 const plan = createPlanView( planElement );
@@ -434,8 +485,8 @@ function onKeyDown( event )
     if ( event.key !== 'Escape' )
         return;
 
-    // Search, the licence, About and a link's sheet are dialogs, which Esc closes itself.
-    if ( search.isOpen() || license.isOpen() || about.isOpen() || linkSheet.isOpen() )
+    // Search, the licence, About, a link's sheet and New project are dialogs, which Esc closes itself.
+    if ( search.isOpen() || license.isOpen() || about.isOpen() || linkSheet.isOpen() || newProjectSheet.isOpen() )
         return;
 
     // Settings is over everything, so Esc closes it before it stops a reply.
