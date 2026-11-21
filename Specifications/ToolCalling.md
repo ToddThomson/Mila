@@ -155,6 +155,16 @@ built at `+156`.*
   *This chat has read*, with its newest three and how many more. Neither offers *for this conversation* where the gate
   would count it as once.
 - **The outcome says whether the call exposed the conversation** (`ToolOutcome::exposes`), for the application's record.
+- **A program may place calls of its own after the person's message** (`Agent::respond( message, placed )`, Todd,
+  2026-11-21, `Apps/AssistantInterface.md` 5.6 and phase 7's decisions), so what it keeps for a conversation, such as
+  a project's notes, reaches the model as a result read as data rather than as the person's words or the system
+  prompt. Each placed call is a turn of its own after the message, one call a turn since Llama's template renders no
+  more, and runs through the gate as an allowed call runs (`ToolGate::runPlaced`): no rule or person decides it
+  (`ToolDecision::PlacedByProgram`), its grant is narrowed to the tool's needs, its result is cut as any call's, and a
+  result from outside exposes the conversation. So a tool's or a result's origin decides what a placed note causes, by
+  the same path as a call the model made. A placed call of a tool not offered, or with arguments its parameters refuse,
+  is the program's error, refused before the message joins. Each family renders the shape already, since it is the
+  one a model's own call takes.
 - **Not here:** a mark per passage, and what an application derives into a lasting record, which carries the mark by
   the application's own store (`Apps/AssistantInterface.md` 8). A label does not stop a model from following what it
   read; what it can make happen is held by this check, which the model cannot talk its way past.

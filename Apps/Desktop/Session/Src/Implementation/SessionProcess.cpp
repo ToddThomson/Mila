@@ -29,7 +29,9 @@ import Desktop.SearchKeyFile;
 import Desktop.SearchKeyStore;
 import Desktop.Settings;
 import Desktop.SettingsFile;
+import Desktop.StoreFile;
 import Desktop.TaskPlan;
+import Desktop.Understanding;
 import Desktop.WebSearch;
 import Mila;
 
@@ -179,6 +181,17 @@ namespace Mila::Desktop
             {
                 return moveToProject( arguments );
             }, Mila::Agents::ResultOrigin::Application );
+
+        // A note is written in Mila's own words about the store; the notes read say per call where they came from (5.6).
+        registerTool( std::string( kNoteUnderstandingName ), {}, [this]( const std::string& arguments, const Mila::Agents::ToolGrant&, std::stop_token )
+            {
+                return noteUnderstanding( arguments );
+            }, Mila::Agents::ResultOrigin::Application );
+
+        registerTool( std::string( kReadProjectNotesName ), {}, [this]( const std::string&, const Mila::Agents::ToolGrant&, std::stop_token )
+            {
+                return readProjectNotes();
+            }, Mila::Agents::ResultOrigin::Outside );
 
         // A key kept in search.json before the credential store held it moves there once, and the file goes. Refused,
         // the file stays and its key is still used, so the person's key is never lost.
@@ -471,6 +484,10 @@ namespace Mila::Desktop
         {
             undoProject( request );
         }
+        else if ( type == "note.decide" )
+        {
+            decideNote( request );
+        }
         else if ( type == "activity.open" )
         {
             const nlohmann::json before = request.value( "before", nlohmann::json( nullptr ) );
@@ -632,13 +649,19 @@ namespace Mila::Desktop
 
         std::optional<Mila::Agents::Response> responded;
 
+        // A new chat in a project is given the project's note after its first message, as data (5.6).
+        const std::vector<ToolCall> placed = placedCalls();
+        placing_notes_ = !placed.empty();
+
         try
         {
-            responded = agent.respond( text,
+            responded = agent.respond( text, placed,
                 [&]( const AgentEvent& event ) { onAgentEvent( event, timer, stop ); }, stop );
+            placing_notes_ = false;
         }
         catch ( const DeviceOutOfMemoryError& )
         {
+            placing_notes_ = false;
             // The agent left the conversation as it was and the model loaded, so the message stored on send is
             // taken back out -- with the conversation, when it was its first -- and the person can send it again.
             memory_holder_.idle();
@@ -661,6 +684,11 @@ namespace Mila::Desktop
                 "was not added to the conversation; send it again once that application is done.", "turn" );
 
             work_ = Work::None;
+
+            if ( std::exchange( tools_changed_in_call_, false ) )
+            {
+                offerTools();
+            }
             busy_ = false;
             sendState();
 
@@ -683,6 +711,12 @@ namespace Mila::Desktop
             { "answer", turn_.answer }, { "message", conversation_messages_.size() } } );
 
         work_ = Work::None;
+
+        // A call stopped before its result came in still changed what the chat is offered.
+        if ( std::exchange( tools_changed_in_call_, false ) )
+        {
+            offerTools();
+        }
 
         recordTurn();
         busy_ = false;
@@ -848,6 +882,13 @@ namespace Mila::Desktop
         // An offer is never an approval: the person answers it, in words or in the window, after the reply. A move is
         // offered or done and said in a chat that has not read from outside, and asked every time in one that has (5.6).
         if ( question.name == kProposeProjectName || ( question.name == kMoveToProjectName && question.exposure.empty() ) )
+        {
+            return ToolAnswer::Once;
+        }
+
+        // A note runs in every chat, waiting for the person when this one has read from outside; reading the project's
+        // note changes nothing (5.6).
+        if ( question.name == kNoteUnderstandingName || question.name == kReadProjectNotesName )
         {
             return ToolAnswer::Once;
         }
@@ -1081,6 +1122,25 @@ namespace Mila::Desktop
             stored[ "model" ] = model_.name();
             stored[ "step" ] = plan_.currentStep();
         }
+
+        // The call is over and the gate holds none of its tools now, so a change it asked for can replace them.
+        if ( std::exchange( tools_changed_in_call_, false ) )
+        {
+            offerTools();
+        }
+    }
+
+    void SessionProcess::offerToolsWhenSafe()
+    {
+        // A call running is one of the gate's tools: replacing them under it would destroy the function being run.
+        if ( work_ == Work::Turn )
+        {
+            tools_changed_in_call_ = true;
+
+            return;
+        }
+
+        offerTools();
     }
 
     std::string SessionProcess::announceCall( std::string_view name, std::string_view arguments )
@@ -1344,6 +1404,7 @@ namespace Mila::Desktop
         conversation_project_ = project.has_value() ? project->value( "id", std::string{} ) : std::string{};
         conversation_messages_ = conversation->value( "messages", nlohmann::json::array() );
         conversation_links_ = conversation->value( "links_opened", nlohmann::json::array() );
+        offerTools();
 
         // A chat's call ids are its own, since an offer is answered by its call's id: numbering goes on past the highest
         // this chat holds, which an earlier run of the session may have given.
@@ -1400,6 +1461,7 @@ namespace Mila::Desktop
         }
 
         forgetEverywhere( id );
+        clearNotesFrom( id );
 
         if ( id == conversation_id_ )
         {
@@ -1407,6 +1469,7 @@ namespace Mila::Desktop
             sendState();
         }
 
+        sendProjects();
         sendConversations();
         sendActivity( {} );
     }
@@ -1519,7 +1582,7 @@ namespace Mila::Desktop
         }
 
         // The file tools are offered from the next round, now that there is a folder for them to work in (5.5).
-        offerTools();
+        offerToolsWhenSafe();
         sendState();
 
         if ( conversation_folder_access_ == Mila::Agents::FolderAccess::ReadWrite )
@@ -1689,6 +1752,12 @@ namespace Mila::Desktop
                 continue;
             }
 
+            // A project's note is a project's, so a chat in none is offered neither (phase 7's decisions).
+            if ( ( described.name == kNoteUnderstandingName || described.name == kReadProjectNotesName ) && conversation_project_.empty() )
+            {
+                continue;
+            }
+
             offered.insert( described.name );
 
             Mila::Agents::Tool tool{
@@ -1705,8 +1774,259 @@ namespace Mila::Desktop
             offering.withTool( std::move( tool ) );
         }
 
-        offering.withSystemPrompt( prompt_.systemPromptFor( offered ) );
+        offering.withSystemPrompt( systemPrompt( offered ) );
         applyTemplateVariables();
+    }
+
+    std::vector<ToolCall> SessionProcess::placedCalls() const
+    {
+        if ( conversation_project_.empty() || conversationHasUserTurn()
+            || session().gate().find( kReadProjectNotesName ) == nullptr )
+        {
+            return {};
+        }
+
+        if ( !projects_.understanding( conversation_project_ ).value( "current", nlohmann::json( nullptr ) ).is_object() )
+        {
+            return {};
+        }
+
+        return { ToolCall{ std::string( kReadProjectNotesName ), "{}" } };
+    }
+
+    Mila::Agents::ToolResult SessionProcess::readProjectNotes()
+    {
+        const std::optional<nlohmann::json> project = projectOf( conversation_project_ );
+
+        if ( !project.has_value() )
+        {
+            return Mila::Agents::ToolResult( "This chat is in no project, so there are no notes to read.",
+                Mila::Agents::ResultOrigin::Application );
+        }
+
+        const std::string name = project->value( "name", std::string{} );
+        const nlohmann::json current = projects_.understanding( conversation_project_ ).value( "current", nlohmann::json( nullptr ) );
+
+        // The app's call has no question before it, so it is announced here, as the model's calls are when asked.
+        if ( announced_call_id_.empty() )
+        {
+            announceCall( kReadProjectNotesName, "{}" );
+        }
+
+        nlohmann::json& stored = storedCall( announced_call_id_ );
+
+        if ( std::exchange( placing_notes_, false ) )
+        {
+            stored[ "placed" ] = true;
+        }
+
+        if ( !current.is_object() )
+        {
+            stored[ "given" ] = nullptr;
+
+            return Mila::Agents::ToolResult( std::format( "The project \"{}\" has no notes yet.", name ),
+                Mila::Agents::ResultOrigin::Application );
+        }
+
+        // What a note written here rests on, so deleting any chat it was drawn from clears that note too (8).
+        stored[ "given" ] = { { "id", current.value( "id", std::string{} ) },
+            { "derived_from", current.value( "derived_from", nlohmann::json::array() ) } };
+
+        const nlohmann::json source = current.value( "source", nlohmann::json::object() );
+        const nlohmann::json reference = source.is_object() ? source.value( "ref", nlohmann::json::object() ) : nlohmann::json::object();
+        const std::string from = reference.is_object() ? reference.value( "conversation", std::string{} ) : std::string{};
+        const std::optional<nlohmann::json> written_in = from.empty() ? std::nullopt : store_.load( from );
+
+        // A note drawn from a chat that had read from outside may not direct Mila, accepted or not (5.6).
+        return Mila::Agents::ToolResult(
+            notesText( current, name, written_in.has_value() ? written_in->value( "title", std::string{} ) : std::string{} ),
+            current.value( "exposed", true ) ? Mila::Agents::ResultOrigin::Outside : Mila::Agents::ResultOrigin::Application );
+    }
+
+    std::string SessionProcess::noteUnderstanding( const std::string& arguments )
+    {
+        const std::optional<nlohmann::json> project = projectOf( conversation_project_ );
+
+        if ( !project.has_value() )
+        {
+            return "This chat is in no project, so there is nothing to note.";
+        }
+
+        // A note replaces the project's whole, so a chat that never read the current one would drop what it holds: it
+        // reads it first (phase 7's decisions, Todd, 2026-11-21).
+        const nlohmann::json current = projects_.understanding( conversation_project_ ).value( "current", nlohmann::json( nullptr ) );
+
+        if ( current.is_object() && !noteGivenIn( conversation_messages_, turn_calls_, current.value( "id", std::string{} ) ) )
+        {
+            return "Not noted: this chat has not read the project's current notes. Call read_project_notes, then write the "
+                "whole note again, keeping what still holds.";
+        }
+
+        const std::string call_id = announced_call_id_;
+        const nlohmann::json written = noteFromArguments( arguments, newStoreIdentifier( "note" ), conversation_id_, call_id,
+            givenDerivedFrom( conversation_messages_, turn_calls_ ), !session().exposure().empty(), model_.name(), timestamp() );
+
+        if ( !written.contains( "note" ) )
+        {
+            return written[ "result" ].get<std::string>();
+        }
+
+        const std::string note_id = written[ "note" ][ "id" ].get<std::string>();
+        nlohmann::json understanding = projects_.understanding( conversation_project_ );
+        const std::string where = admitNote( understanding, written[ "note" ] );
+
+        try
+        {
+            projects_.saveUnderstanding( conversation_project_, understanding );
+        }
+        catch ( const std::exception& failure )
+        {
+            return std::format( "Not noted: the note could not be kept ({}).", failure.what() );
+        }
+
+        recordEvent( { { "kind", where == "waiting" ? "understanding.waiting" : "understanding.noted" }, { "who", "mila" },
+            { "project", conversation_project_ }, { "conversation", conversation_id_ }, { "name", project->value( "name", std::string{} ) } } );
+
+        if ( !call_id.empty() )
+        {
+            storedCall( call_id )[ "note" ] = { { "id", note_id }, { "state", where } };
+        }
+
+        sendProjects();
+
+        if ( where == "waiting" )
+        {
+            return std::format( "Noted. This chat has read from outside, so the note waits for the user to accept it on the "
+                "project {} before new chats there are given it.", project->value( "name", std::string{} ) );
+        }
+
+        return std::format( "Noted for the project {}; new chats in it are given this note.", project->value( "name", std::string{} ) );
+    }
+
+    void SessionProcess::decideNote( const nlohmann::json& request )
+    {
+        const std::string id = request.value( "project", std::string{} );
+        const std::optional<nlohmann::json> project = projectOf( id );
+
+        if ( !project.has_value() )
+        {
+            sendError( "That project is no longer stored.", nullptr );
+
+            return;
+        }
+
+        const bool accept = request.value( "decision", std::string{} ) == "accept";
+        nlohmann::json understanding = projects_.understanding( id );
+
+        if ( !decideWaiting( understanding, request.value( "id", std::string{} ), accept, timestamp() ) )
+        {
+            sendError( "That note is no longer waiting.", nullptr );
+            sendProjects();
+
+            return;
+        }
+
+        projects_.saveUnderstanding( id, understanding );
+        recordEvent( { { "kind", accept ? "understanding.accepted" : "understanding.declined" }, { "project", id },
+            { "name", project->value( "name", std::string{} ) } } );
+
+        sendProjects();
+        sendActivity( {} );
+    }
+
+    void SessionProcess::changeUnderstanding( const std::string& project_id, const nlohmann::json& value )
+    {
+        const std::optional<nlohmann::json> project = projectOf( project_id );
+        nlohmann::json understanding = projects_.understanding( project_id );
+
+        if ( value.is_null() )
+        {
+            if ( !understanding[ "current" ].is_object() )
+            {
+                return;
+            }
+
+            understanding[ "current" ] = nullptr;
+            projects_.saveUnderstanding( project_id, understanding );
+            recordEvent( { { "kind", "understanding.cleared" }, { "project", project_id },
+                { "name", project->value( "name", std::string{} ) } } );
+
+            return;
+        }
+
+        std::variant<nlohmann::json, std::string> edited = editedNote( understanding[ "current" ], value, newStoreIdentifier( "note" ), timestamp() );
+
+        if ( std::holds_alternative<std::string>( edited ) )
+        {
+            sendError( std::get<std::string>( edited ), nullptr );
+
+            return;
+        }
+
+        understanding[ "current" ] = std::move( std::get<nlohmann::json>( edited ) );
+        projects_.saveUnderstanding( project_id, understanding );
+        recordEvent( { { "kind", "understanding.edited" }, { "project", project_id },
+            { "name", project->value( "name", std::string{} ) } } );
+    }
+
+    void SessionProcess::clearNotesFrom( const std::string& conversation_id )
+    {
+        for ( const nlohmann::json& project : projects_.list() )
+        {
+            const std::string id = project.value( "id", std::string{} );
+            nlohmann::json understanding = projects_.understanding( id );
+
+            if ( clearDerivedFrom( understanding, conversation_id ).empty() )
+            {
+                continue;
+            }
+
+            try
+            {
+                projects_.saveUnderstanding( id, understanding );
+            }
+            catch ( const std::exception& failure )
+            {
+                sendError( std::format( "A note drawn from the deleted chat could not be cleared: {}", failure.what() ), nullptr );
+
+                continue;
+            }
+
+            // The person deleted what it was drawn from, so the clearing is theirs.
+            recordEvent( { { "kind", "understanding.cleared" }, { "project", id }, { "name", project.value( "name", std::string{} ) },
+                { "because", "chat.deleted" } } );
+        }
+    }
+
+    std::string SessionProcess::systemPrompt( const std::set<std::string, std::less<>>& offered ) const
+    {
+        std::string prompt = prompt_.systemPromptFor( offered );
+        const std::optional<nlohmann::json> project = projectOf( conversation_project_ );
+
+        if ( !project.has_value() )
+        {
+            return prompt;
+        }
+
+        // Only the person's own words go here, and last: the project's name and purpose, which they wrote or accepted, and
+        // their instructions. Mila's notes reach a chat as a result, never as the prompt (5.6).
+        const std::string purpose = trimmed( project->value( "purpose", std::string{} ) );
+        const std::string instructions = trimmed( project->value( "instructions", std::string{} ) );
+
+        prompt += std::format( "\n\nThis chat is in the user's project \"{}\"", project->value( "name", std::string{} ) );
+        prompt += purpose.empty() ? std::string( "." ) : std::format( ": {}", purpose );
+
+        if ( !purpose.empty() && std::string_view( ".!?" ).find( purpose.back() ) == std::string_view::npos )
+        {
+            prompt += '.';
+        }
+
+        if ( !instructions.empty() )
+        {
+            prompt += std::format( " The user's instructions for it:\n{}", instructions );
+        }
+
+        return prompt;
     }
 
     DeploymentRequest SessionProcess::requestFor( std::optional<WeightQuantization> quantization ) const
@@ -2786,6 +3106,11 @@ namespace Mila::Desktop
         {
             nlohmann::json item = project;
             item[ "undo" ] = undoable( project, projects );
+
+            // What Mila understands, and a note waiting for the person, which the project's page shows in full (5.6).
+            const nlohmann::json understanding = projects_.understanding( project.value( "id", std::string{} ) );
+            item[ "understanding" ] = understanding.value( "current", nlohmann::json( nullptr ) );
+            item[ "waiting" ] = understanding.value( "waiting", nlohmann::json( nullptr ) );
             items.push_back( std::move( item ) );
         }
 
@@ -2864,6 +3189,9 @@ namespace Mila::Desktop
 
         startNewConversation();
         conversation_project_ = project.has_value() ? project->value( "id", std::string{} ) : std::string{};
+
+        // The project's instructions and its note's tools, which a chat in no project is not offered.
+        offerTools();
         sendState();
     }
 
@@ -2964,6 +3292,15 @@ namespace Mila::Desktop
             ( *project )[ "instructions" ] = request[ "instructions" ].is_string() ? request[ "instructions" ].get<std::string>() : std::string{};
             events.push_back( { { "kind", "project.instructions" }, { "name", project->value( "name", std::string{} ) } } );
         }
+        else if ( request.contains( "understanding" ) )
+        {
+            // The note is its own file and its own events; the project's record is not changed by it.
+            changeUnderstanding( id, request[ "understanding" ] );
+            sendProjects();
+            sendActivity( {} );
+
+            return;
+        }
         else if ( request.contains( "folders" ) )
         {
             const std::optional<nlohmann::json> folders = projectFolders( request[ "folders" ] );
@@ -3017,6 +3354,20 @@ namespace Mila::Desktop
         {
             event[ "project" ] = id;
             recordEvent( std::move( event ) );
+        }
+
+        // The open chat reads the project's name, purpose and instructions as they now stand from its next response; its
+        // tools and what the person allowed for it stay.
+        if ( conversation_project_ == id && ( request.contains( "instructions" ) || request.contains( "name" ) || request.contains( "purpose" ) ) )
+        {
+            std::set<std::string, std::less<>> offered;
+
+            for ( const Mila::Agents::Tool& tool : session().tools() )
+            {
+                offered.insert( tool.name );
+            }
+
+            session().withSystemPrompt( systemPrompt( offered ) );
         }
 
         // The open chat loses a folder it held through the project once the project lets it go, and is narrowed with
@@ -3076,6 +3427,7 @@ namespace Mila::Desktop
             {
                 store_.remove( chat );
                 forgetEverywhere( chat );
+                clearNotesFrom( chat );
             }
             else if ( std::optional<nlohmann::json> stored = store_.load( chat ) )
             {
@@ -3156,6 +3508,10 @@ namespace Mila::Desktop
         {
             conversation_project_ = project;
             conversation_folder_from_project_ = false;
+
+            // The project's instructions from the chat's next round, and no note: the chat has its own context (phase
+            // 7's decisions).
+            offerToolsWhenSafe();
         }
 
         nlohmann::json event = { { "kind", "chat.moved" }, { "conversation", id }, { "name", stored->value( "title", std::string{} ) },

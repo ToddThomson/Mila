@@ -91,7 +91,7 @@ namespace Mila::Tests::Apps::Desktop
 
         const PromptFile prompt = PromptFile::load( shippedPrompts() / "general.json" );
 
-        EXPECT_EQ( prompt.tools.size(), 16u );
+        EXPECT_EQ( prompt.tools.size(), 18u );
 
         for ( const PromptTool& tool : prompt.tools )
         {
@@ -149,6 +149,18 @@ namespace Mila::Tests::Apps::Desktop
         EXPECT_NE( proposing.find( "call propose_project" ), std::string::npos );
         EXPECT_NE( proposing.find( "call move_to_project" ), std::string::npos );
         EXPECT_EQ( with_workspace.find( "propose_project" ), std::string::npos );
+
+        // A project's note is named only in a chat in a project, which alone is offered its tools (phase 7).
+        EXPECT_EQ( proposing.find( "note_understanding" ), std::string::npos );
+        EXPECT_EQ( proposing.find( "read_project_notes" ), std::string::npos );
+
+        workspace.insert( { "note_understanding", "read_project_notes" } );
+
+        const std::string in_project = prompt.systemPromptFor( workspace );
+
+        EXPECT_NE( in_project.find( "calling note_understanding" ), std::string::npos );
+        EXPECT_NE( in_project.find( "read_project_notes" ), std::string::npos );
+        EXPECT_NE( in_project.find( "not the user's words" ), std::string::npos );
     }
 
     TEST_F( PromptFileTest, APassageIsKeptByTheToolItNamesAndLeftOutByTheOneItStandsInFor )

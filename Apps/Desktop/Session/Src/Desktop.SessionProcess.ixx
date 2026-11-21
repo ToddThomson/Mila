@@ -153,6 +153,14 @@ namespace Mila::Desktop
         /// then done and said (AssistantInterface.md 6, question A).
         static constexpr std::string_view kMoveToProjectName = "move_to_project";
 
+        /// The app's own tool that rewrites what Mila understands of the chat's project, offered only in a chat in a
+        /// project (AssistantInterface.md 6 and phase 7's decisions).
+        static constexpr std::string_view kNoteUnderstandingName = "note_understanding";
+
+        /// The app's own tool that reads the project's current note: placed after the first message of a new chat in a
+        /// project that has one, and offered to the model in every chat in a project (5.6).
+        static constexpr std::string_view kReadProjectNotesName = "read_project_notes";
+
         /// What a request the licence holds back is told; the page asks for the licence before it sends one.
         static constexpr std::string_view kLicenseFirst = "Accept Mila's licence first. It is shown when Mila starts.";
 
@@ -383,6 +391,37 @@ namespace Mila::Desktop
         /// Whether a stored project can still be undone (Desktop.Offers' projectUndoable).
         bool undoable( const nlohmann::json& project, const std::vector<nlohmann::json>& projects ) const;
 
+        // ---- What Mila understands (AssistantInterface.md 4.5, 5.6 and phase 7) -------------
+
+        /**
+         * @brief note_understanding's work: the note written into the chat's project, current or, from a chat that has
+         *        read from outside, waiting for the person; and what the model is told.
+         *
+         * It rests on this chat and on whatever the notes this chat was given rested on.
+         */
+        std::string noteUnderstanding( const std::string& arguments );
+
+        /**
+         * @brief read_project_notes' work: the project's current note as data, from outside when it was drawn from a chat
+         *        that had read from outside, so a chat given it is exposed by the gate as any call's result exposes it.
+         */
+        Mila::Agents::ToolResult readProjectNotes();
+
+        /// The calls placed after the first message of a new chat in a project with a current note: read_project_notes.
+        std::vector<ToolCall> placedCalls() const;
+
+        /// `note.decide`: the person accepts or declines the note waiting on a project.
+        void decideNote( const nlohmann::json& request );
+
+        /// `project.update` with `understanding`: the person's edit of the current note, or null to clear it.
+        void changeUnderstanding( const std::string& project_id, const nlohmann::json& value );
+
+        /// A deleted chat takes every project's note that rests on it (AssistantInterface.md 8, *Deleting*).
+        void clearNotesFrom( const std::string& conversation_id );
+
+        /// The system prompt for the tools offered, with the open chat's project instructions at its end.
+        std::string systemPrompt( const std::set<std::string, std::less<>>& offered ) const;
+
         /// The stored project, or nothing for an empty id or one that names none.
         std::optional<nlohmann::json> projectOf( const std::string& id ) const;
 
@@ -483,6 +522,10 @@ namespace Mila::Desktop
          * tool that works in a folder while the chat holds none: it is offered once the chat is given one.
          */
         void offerTools();
+
+        /// offerTools now, or, from inside a call, once its result is in: the gate is running one of the tools it would
+        /// replace.
+        void offerToolsWhenSafe();
 
         // ---- Models -----------------------------------------------------------------------
 
@@ -807,5 +850,11 @@ namespace Mila::Desktop
         TurnRecord turn_;
         nlohmann::json turn_calls_ = nlohmann::json::array();
         std::string announced_call_id_;
+
+        // Set while the turn's placed call has yet to run, so its stored record says the app made it.
+        bool placing_notes_{ false };
+
+        // Set by a call that changed what the chat is offered, applied once its result is in (offerToolsWhenSafe).
+        bool tools_changed_in_call_{ false };
     };
 }

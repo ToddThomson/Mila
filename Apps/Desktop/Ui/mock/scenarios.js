@@ -11,6 +11,7 @@ import { projectsWorkspace } from './scenario-projects.js';
 import { madeWorkspace } from './scenario-made.js';
 import { goingSomewhere } from './scenario-going-somewhere.js';
 import { milaProposes } from './scenario-mila-proposes.js';
+import { whatMilaUnderstands } from './scenario-understanding.js';
 
 export const scenarios = [
     streamedReply,
@@ -25,7 +26,8 @@ export const scenarios = [
     projectsWorkspace,
     madeWorkspace,
     goingSomewhere,
-    milaProposes
+    milaProposes,
+    whatMilaUnderstands
 ];
 
 export function findScenario( number )

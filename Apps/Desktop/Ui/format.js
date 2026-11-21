@@ -391,6 +391,14 @@ export function projectEventText( recorded, to, from )
         case 'suggestion.made': return to !== null ? 'Suggested moving a chat into ' + to : 'Suggested a project: ' + ( recorded.name ?? '' );
         case 'suggestion.declined': return to !== null ? 'Kept a chat out of ' + to : 'Declined the project ' + ( recorded.name ?? '' );
         case 'project.undone': return 'Undid the project ' + ( recorded.name ?? '' );
+        case 'understanding.noted': return 'Noted what Mila understands of ' + project;
+        case 'understanding.waiting': return 'Wrote a note on ' + project + ' that waits for you';
+        case 'understanding.accepted': return 'Accepted the note waiting on ' + project;
+        case 'understanding.declined': return 'Declined the note waiting on ' + project;
+        case 'understanding.edited': return 'Changed what Mila understands of ' + project;
+        case 'understanding.cleared': return recorded.because === 'chat.deleted'
+            ? 'Cleared the note on ' + project + ', since a chat it was drawn from was deleted'
+            : 'Cleared what Mila understands of ' + project;
         default: return 'Changed a project';
     }
 }

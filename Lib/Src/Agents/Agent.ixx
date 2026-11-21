@@ -194,6 +194,22 @@ namespace Mila::Agents
         Response respond( std::string_view message, const EventSink& on_event = {}, std::stop_token stop = {} );
 
         /**
+         * @brief Answer one message after calls the program places itself, such as reading notes it keeps for the
+         *        conversation, so that what they return reaches the model as results rather than as the person's words.
+         *
+         * Each placed call follows the message as a turn of its own, as though the model had made it, and runs through
+         * the gate with no rule or person deciding (`ToolDecision::PlacedByProgram`): its grant narrowed to the tool's
+         * needs, its result cut as any call's, and a result from outside exposing the conversation. Each is reported as
+         * a ToolCalled event before the first round. A compaction the response needs happens before they are placed.
+         * Otherwise as respond.
+         *
+         * @throws std::invalid_argument for a placed call of a tool not offered, or with arguments its parameters
+         *         refuse, before the message joins.
+         */
+        Response respond( std::string_view message, std::span<const Conversation::ToolCall> placed,
+            const EventSink& on_event = {}, std::stop_token stop = {} );
+
+        /**
          * @brief Compact the conversation now, whatever the trigger, under the session's policy. Between responses.
          *
          * @param on_event Compaction's events; may be empty.
@@ -251,7 +267,8 @@ namespace Mila::Agents
         void setTemplateVariables( std::map<std::string, std::string> variables );
 
         /// The response respond gives, without its guarantee for a response that throws.
-        Response respondToMessage( std::string_view message, const EventSink& on_event, std::stop_token stop );
+        Response respondToMessage( std::string_view message, std::span<const Conversation::ToolCall> placed,
+            const EventSink& on_event, std::stop_token stop );
 
         /// Each variable the session asks for is checked alone, so one the template refuses takes no other with it.
         void dropUnacceptedTemplateVariables();
@@ -387,12 +404,14 @@ namespace Mila::Agents
          *
          * The time the person takes to answer is not the response's: the clock is paused while they are asked.
          *
+         * A call the program placed runs with no one deciding (ToolGate::runPlaced).
+         *
          * @return False when the response was stopped, or ran out of time, before the call ran or while it ran: its
          *         result says so, nothing reports it, and the response ends.
          */
         template<typename TEmit>
         bool answerCall( const Conversation::ToolCall& call, const TEmit& emit, std::stop_token halted, ResponseClock& clock,
-            CompactionRun& compaction );
+            CompactionRun& compaction, bool placed = false );
 
         /// A call of the last round a response may run, which is answered without running it.
         template<typename TEmit>

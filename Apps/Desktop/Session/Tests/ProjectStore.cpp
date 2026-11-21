@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <stdexcept>
 #include <string>
 #include <system_error>
 
@@ -49,6 +50,29 @@ namespace Mila::Tests::Apps::Desktop
 
             std::filesystem::path folder_;
         };
+    }
+
+    TEST_F( ProjectStoreTest, AProjectsUnderstandingIsKeptBesideItAndGoesWithIt )
+    {
+        const ProjectStore store( folder_ );
+        const std::string id = store.newIdentifier();
+
+        EXPECT_TRUE( store.understanding( id )[ "current" ].is_null() ) << "a project not stored has an understanding";
+        EXPECT_THROW( store.saveUnderstanding( id, { { "v", 1 } } ), std::runtime_error ) << "a note brought a project back";
+
+        store.save( project( id, "Garden", "2026-11-21T10:00:00.000Z" ) );
+
+        EXPECT_TRUE( store.understanding( id )[ "current" ].is_null() );
+        EXPECT_TRUE( store.understanding( id )[ "waiting" ].is_null() );
+
+        const nlohmann::json kept = { { "v", 1 }, { "current", { { "id", "note-1" }, { "summary", "Tomatoes." } } }, { "waiting", nullptr } };
+        store.saveUnderstanding( id, kept );
+
+        EXPECT_EQ( store.understanding( id ), kept );
+        EXPECT_TRUE( std::filesystem::exists( folder_ / id / "understanding.json" ) );
+
+        ASSERT_TRUE( store.remove( id ) );
+        EXPECT_TRUE( store.understanding( id )[ "current" ].is_null() );
     }
 
     TEST_F( ProjectStoreTest, WhatIsSavedIsListedMostRecentlyChangedFirst )

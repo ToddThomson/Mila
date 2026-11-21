@@ -1628,6 +1628,35 @@ textarea.project-edit { display: block; width: 100%; resize: vertical; }
 
 .project-confirm { margin-top: 16px; border-color: var(--error-rule); background: var(--error-soft); }
 
+/* The summary (4.5): What Mila understands beside Next, two columns on a wide window and one on a narrow one. */
+.project-summary-columns { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 14px; }
+
+@media (max-width: 760px) {
+  .project-summary-columns { grid-template-columns: minmax(0, 1fr); }
+}
+
+.summary-panel { padding: 14px 16px; border: 1px solid var(--rule); border-radius: 10px; }
+
+.summary-panel .button { margin-top: 10px; }
+
+.project-instructions { margin-top: 14px; }
+
+.summary-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+
+.summary-title { flex: 1; margin: 0; font-size: 14px; font-weight: 600; }
+
+.note-summary, .note-next, .project-instructions-text { margin: 0 0 8px; overflow-wrap: anywhere; white-space: pre-wrap; }
+
+.note-questions { margin: 4px 0 8px; padding-left: 20px; }
+
+.note-questions li { overflow-wrap: anywhere; }
+
+.note-label { display: block; margin-top: 8px; color: var(--muted); font-size: 13px; }
+
+.note-editor input.project-edit { width: 100%; }
+
+.note-waiting { margin-bottom: 14px; }
+
 .figure.still { cursor: default; }
 
 .folder-access {

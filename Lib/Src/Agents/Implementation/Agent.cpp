@@ -260,12 +260,24 @@ namespace Mila::Agents
 
     Response Agent::respond( std::string_view message, const EventSink& on_event, std::stop_token stop )
     {
+        return respond( message, std::span<const Conversation::ToolCall>{}, on_event, stop );
+    }
+
+    Response Agent::respond( std::string_view message, std::span<const Conversation::ToolCall> placed,
+        const EventSink& on_event, std::stop_token stop )
+    {
+        // Refused before anything joins or runs, so no placed call runs ahead of one that cannot.
+        for ( const auto& call : placed )
+        {
+            session_.gate().checkPlaced( call.name, call.arguments );
+        }
+
         const auto conversation = session_.conversation();
         std::vector<Conversation::Turn> before( conversation.begin(), conversation.end() );
 
         try
         {
-            return respondToMessage( message, on_event, stop );
+            return respondToMessage( message, placed, on_event, stop );
         }
         catch ( ... )
         {
@@ -276,7 +288,8 @@ namespace Mila::Agents
         }
     }
 
-    Response Agent::respondToMessage( std::string_view message, const EventSink& on_event, std::stop_token stop )
+    Response Agent::respondToMessage( std::string_view message, std::span<const Conversation::ToolCall> placed,
+        const EventSink& on_event, std::stop_token stop )
     {
         const auto emit = [&]( const AgentEvent& event )
             {
@@ -338,6 +351,32 @@ namespace Mila::Agents
             response.status = GenerateStatus::ContextOverflow;
 
             return response;
+        }
+
+        if ( !placed.empty() )
+        {
+            // One call a turn, since Llama's template renders no more than one in a reply.
+            for ( const auto& call : placed )
+            {
+                history.push_back( { Conversation::Role::Assistant, {}, { call } } );
+
+                if ( !answerCall( call, emit, halted, clock, compaction, true ) )
+                {
+                    response.status = GenerateStatus::ClientCancelled;
+                    response.time_limit_reached = clock.expired();
+
+                    return response;
+                }
+            }
+
+            next = nextRound();
+
+            if ( !fitsContext( tokens ) )
+            {
+                response.status = GenerateStatus::ContextOverflow;
+
+                return response;
+            }
         }
 
         GenerateParams params;
@@ -1234,7 +1273,7 @@ namespace Mila::Agents
     }
 
     template<typename TEmit>
-    bool Agent::answerCall( const Conversation::ToolCall& call, const TEmit& emit, std::stop_token halted, ResponseClock& clock, CompactionRun& compaction )
+    bool Agent::answerCall( const Conversation::ToolCall& call, const TEmit& emit, std::stop_token halted, ResponseClock& clock, CompactionRun& compaction, bool placed )
     {
         Session::Asker ask;
 
@@ -1250,7 +1289,9 @@ namespace Mila::Agents
                 };
         }
 
-        ToolOutcome outcome = session_.gate().answer( call.name, call.arguments, ask, halted, session_.limits() );
+        ToolOutcome outcome = placed
+            ? session_.gate().runPlaced( call.name, call.arguments, halted, session_.limits() )
+            : session_.gate().answer( call.name, call.arguments, ask, halted, session_.limits() );
 
         if ( outcome.stopped )
         {

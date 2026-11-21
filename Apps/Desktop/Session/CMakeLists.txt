@@ -37,6 +37,7 @@ PUBLIC
         "Src/Tools/Desktop.RecordSearch.ixx"
         "Src/Tools/Desktop.Offers.ixx"
         "Src/Tools/Desktop.OfferAnswer.ixx"
+        "Src/Tools/Desktop.Understanding.ixx"
         "Src/Settings/Desktop.SearchKeyFile.ixx"
         "Src/Tools/Desktop.WebSearch.ixx"
 )
@@ -55,6 +56,7 @@ target_sources( mila-session PRIVATE
     "Src/Tools/Implementation/RecordSearch.cpp"
     "Src/Tools/Implementation/Offers.cpp"
     "Src/Tools/Implementation/OfferAnswer.cpp"
+    "Src/Tools/Implementation/Understanding.cpp"
 )
 
 # Desktop.ProgramSetup has two candidate files and exactly one is compiled, as Agents.MxcProgramContainer does:

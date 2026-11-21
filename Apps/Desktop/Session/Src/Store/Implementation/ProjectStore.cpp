@@ -16,6 +16,12 @@ namespace Mila::Desktop
     {
         constexpr std::string_view kRecordName = "project.json";
         constexpr std::string_view kHistoryName = "history.jsonl";
+        constexpr std::string_view kUnderstandingName = "understanding.json";
+
+        nlohmann::json noUnderstanding()
+        {
+            return { { "v", 1 }, { "current", nullptr }, { "waiting", nullptr } };
+        }
     }
 
     ProjectStore::ProjectStore( std::filesystem::path directory )
@@ -112,6 +118,42 @@ namespace Mila::Desktop
         }
 
         return EventLog( folderOf( id ) / kHistoryName );
+    }
+
+    nlohmann::json ProjectStore::understanding( const std::string& id ) const
+    {
+        if ( !load( id ).has_value() )
+        {
+            return noUnderstanding();
+        }
+
+        std::optional<nlohmann::json> stored = readStoreObject( folderOf( id ) / kUnderstandingName );
+
+        if ( !stored.has_value() )
+        {
+            return noUnderstanding();
+        }
+
+        for ( const char* where : { "current", "waiting" } )
+        {
+            if ( !stored->contains( where ) || !( *stored )[ where ].is_object() )
+            {
+                ( *stored )[ where ] = nullptr;
+            }
+        }
+
+        return *stored;
+    }
+
+    void ProjectStore::saveUnderstanding( const std::string& id, const nlohmann::json& understanding ) const
+    {
+        // A project deleted meanwhile is not brought back by its note.
+        if ( !load( id ).has_value() )
+        {
+            throw std::runtime_error( std::format( "'{}' names no stored project", id ) );
+        }
+
+        writeStoreFile( folderOf( id ) / kUnderstandingName, understanding.dump( 2 ) + "\n" );
     }
 
     std::filesystem::path ProjectStore::folderOf( const std::string& id ) const

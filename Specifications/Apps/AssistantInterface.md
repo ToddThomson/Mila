@@ -1,7 +1,7 @@
 # Mila Assistant Interface
 
 **Status:** design, round 3 (2026-11-18), phases 1 to 3 built (`0.21.0-dev+147`, `+149`, `+150`), T1 (`+155`), T2
-(`+156`, `+157`), 4 (`+158`), 8 (`+159`), 5 (`+160`) and 6 (`+161`). Round 1, 2026-11-16,
+(`+156`, `+157`), 4 (`+158`), 8 (`+159`), 5 (`+160`), 6 (`+161`) and 7 (`+162`). Round 1, 2026-11-16,
 set out projects, processes and creations around a home screen and a sidebar of conversations. Round 2
 is the layout Todd reached through a working prototype the same afternoon, iterated with him on the Mac: a sidebar,
 a workspace overview, projects that open on their summary, chats that need no project, and Mila as a bar at the foot
@@ -67,6 +67,28 @@ back where they were and its folders untouched, and *keep it separate* as the ne
 whose chats are all in a declined suggestion is refused in code; the sidebar's *New project* raises the bar to tell Mila
 what the project is for, and the sheet moves to *All projects*; suggestions made, declined and undone are events; and
 both tools are measured on Gemma 4 12B Q4_0 before they are offered by default.
+
+**Phase 7's decisions** (Todd, 2026-11-21, "Please continue", taking Claude's lean on each): a project's note is kept in
+its `understanding.json`, not on the call that wrote it, since it outlives that chat and the person edits it; each note
+is a record whose `derived_from` is the chat that wrote it and whatever the note that chat was given rested on, so
+deleting any of them clears it, and moving a chat out does not (8); a project holds at most one waiting note, a newer one
+from an exposed chat replacing it and one from a chat not exposed becoming current beside it; the person edits or clears
+the note in place, and an edit keeps the mark of what it was drawn from; the note reaches a new chat after the person's
+first message as a call the app places, for which `Mila::Agents` gains a way to respond with a program's own calls after
+the message, their results taking the gate's one path for what a result exposes (`../ToolCalling.md` 3.3), each family's
+prompt rendered both ways first; the person's instructions end the system prompt and notes never go there, and a chat
+moved into a project is given the instructions from its next turn and no note; `note_understanding` is offered only in a
+chat in a project; its lengths are limited and a note over them refused back to the model, the limits starting at about
+1,200 characters of summary, five questions and one sentence of *Next*, and set from the measurement; the action beside
+*Next* comes from the app's own records, never the model's words; a waiting note is under *Needs you*, counted in
+*Waiting on you*, and answered by *Accept* and *Decline* on the project's page; the summary shows *What Mila understands*
+beside *Next* and the project's *Instructions*, edited in place, and the placed call is one quiet line in the transcript;
+and `note_understanding` is measured on Gemma 4 12B Q4_0 before it is offered by default. After the real runs and the
+measurement (Todd, 2026-11-21, "Yes to 1 and 2"): a note is refused from a chat that has not read the project's current
+note, and told to read it first, since a note replaces the project's whole and a chat never given it dropped what it
+held; a note the person edits takes a new id, so a chat that read it before must read it again; and every chat in a
+project has the project's name and purpose at the end of its system prompt, its instructions after them, since a chat
+in a project with no instructions asked which project it was in.
 
 The prototype is beside this document, `AssistantInterface.prototype.html`: one page, example work, and replies
 canned by keyword, since nothing runs a model behind it. It is the reference for how a screen looks and moves; this
@@ -325,6 +347,15 @@ contents is not built. *All chats* has the menu's *Move to…* too, listing each
 *As built at phase 8:* *Made* counts the files its chats wrote and the replies kept in them, and opens a section of
 them between *Chats* and *History*, the most recent first: each a file's name, or how a kept reply begins, with its chat,
 *Changed on disk since* or *No longer on disk* where that is so, and when; each opens its drawer.
+
+*As built at phase 7:* *Summary* follows the figures: a note waiting for the person first, in full, with the chat it
+was written in and when, under *Waiting for you* with *Accept* and *Decline*; then *What Mila understands* (the
+paragraph, *Open questions*, and where the note came from, *edited by you* once the person changed it), with *Edit* and
+*Clear*, beside *Next* (Mila's sentence, and the one action from the app's records when one of the project's chats has
+a plan stopped or a reply cut short); then *Instructions*, the person's own, written in place. With nothing noted, each
+says *Nothing noted yet*. On the overview a waiting note is a card under *Needs you*, *A note waiting to be accepted*,
+with *Review the note*, which opens the project; its project is *Waiting on you*. The column beside the contents is
+still not built.
 
 ### 4.6 All chats
 
@@ -743,7 +774,10 @@ macOS kept conversations in Linux's place until phase 4; no released Mila wrote 
 
 **A project's instructions are stored from phase 4 and not shown or given to a chat until phase 7,** which brings the
 project's understanding into its chats in the same change, so the cost of what a chat is given at its start is measured
-once for both.
+once for both. *Built at phase 7:* each chat in a project ends its system prompt with *This chat is in the user's
+project "Garden": What grows where in the back garden.*, and, where the project has them, *The user's instructions for
+it:* and the instructions; the project's current note is `understanding.json`'s, given after a new chat's first message
+through `read_project_notes` (section 10).
 
 **Every lasting thing Mila derives is a record of one shape** (*proposed*, the vision's section 6), so `find_records`, the
 drawers and deletion read one form:
@@ -957,6 +991,26 @@ holds the project's folder as the project has it then.
   optional `name`; `project.undo` (`id`). `turn.tool_decision` does not gain `arguments` (phase 6's decisions).
 - **Call ids are a chat's own:** a chat opened again numbers its calls on from the highest it holds, since an offer is
   answered by its call's id and an earlier run of the session numbered from 1.
+
+**Built at phase 7:**
+
+- **Stored:** `Projects/<id>/understanding.json` holds `v`, `current` and `waiting`, each a note or null. A note is
+  section 8's record: `id`, `kind` `understanding`, `made`, `source` ({`kind` `model`, `ref` {`conversation`, `call`},
+  `when`, `author` null or `person` once edited, `model`}), `may_direct` false, `may_leave` `ask`, `derived_from`
+  ([{`conversation`}]: the chat that wrote it and what the note it was given rested on), `exposed`, `summary`,
+  `questions` ([text]), `next`, and `edited` or `accepted` where so. A `note_understanding` call carries `note` ({`id`,
+  `state` `current` or `waiting`}); a `read_project_notes` call carries `given` ({`id`, `derived_from`}, or null when
+  there was no note) and `placed` true when the app made it. Events gain `understanding.noted` and
+  `understanding.waiting` (by Mila), `understanding.accepted`, `understanding.declined`, `understanding.edited` and
+  `understanding.cleared`, the last with `because` `chat.deleted` when a chat it rested on was deleted. A
+  `note_understanding` call in a chat whose stored calls were never given the current note's id is refused, its result
+  telling the model to call `read_project_notes` first; a note the person edits takes a new id.
+- **Session to page:** `projects.list` items gain `understanding` and `waiting`. The page reads a waiting note from them,
+  under *Needs you* and in *Waiting on you*, as it reads everything else from the lists.
+- **Page to session:** `project.update` takes `understanding` ({`summary`, `questions`, `next`}, or null to clear);
+  `note.decide` (`project`, `id`, `decision`).
+- **Library:** `Agent::respond( message, placed )` and `ToolGate::runPlaced`, `ToolDecision::PlacedByProgram`
+  (`../ToolCalling.md` 3.3).
 
 ## 11. Questions
 
@@ -1186,10 +1240,47 @@ The rest, in the proposed order:
   worktops itself. There too the second chat for Garden drew no move but a wander through `find_records`, `open_place`
   twice and a page it was refused, and after offering the carrots chat's move Mila said it had *added* it, before the
   person's *yes* moved it: the app's records were right and Mila's words ahead of them. Linux (WSL, CPU-only): the session's
-  tests, 102 with the key store's skipped, and the page's. **Not done:** the measurement before both are offered by
-  default; every model's final run; the window on the real session.
+  tests, 102 with the key store's skipped, and the page's. **Not done:** every model's final run; the window on the real
+  session. *Measured 2026-11-21* on Gemma 4 12B **Q4_0** on the Mac, with the `0.21.0-dev+161` session (33 questions
+  twice, each in a new chat deleted after it, 1,846 s of replies): talk-only questions 30 of 32 with no call (both misses
+  `find_records` on *How should I organise my notes about the garden?*, as at phase 5); a project asked for, offered 8 of
+  8; chats that are one piece of work gathered 4 of 6 (both misses the worktops question, which found the earlier chat
+  and opened it, offering nothing); a chat said to belong in a project offered into it 6 of 8 (both misses *This is for
+  the calculator project*, which searched and opened places and moved nothing); and no project or move offered for a
+  single question near the subjects 12 of 12.
 - **Phase 7. What Mila understands.** `note_understanding`, waiting notes, the project's summary and *Next* (4.5), given
-  to each chat as section 5.6 says.
+  to each chat as section 5.6 says. *Built 2026-11-21 (`0.21.0-dev+162`)*, as phase 7's decisions and sections 4.5, 8 and
+  10 record: in the library, `Agent::respond( message, placed )` and `ToolGate::runPlaced` (`../ToolCalling.md` 3.3); in
+  the session, `Desktop.Understanding`, the project's `understanding.json`, `note_understanding` and
+  `read_project_notes` offered in a chat in a project, the person's instructions ending its system prompt, the note
+  placed after a new chat's first message, `note.decide`, the person's edit and clearing, and a note cleared with a chat
+  it rests on; on the page, the project's *Summary* and the waiting note under *Needs you*. Found and fixed in the same
+  change: a call that changed what the chat is offered (`request_folder`, and now a move into a project) replaced the
+  gate's tools while the gate was running one of them; the tools are now replaced once the call's result is in. Checked
+  on Windows: the session's tests, 113, 10 new; the page's, 155, 6 new; the library's agent, gate and session tests, 137
+  with Llama 3.1 8B's two skipped (its package predates `architecture_version`, `../../Issues/Untriaged.md`), among
+  them a placed call answered from on Gemma 4 12B FP4 and Qwen 3.8 27B FP4; mock scenario 20 in the window over the
+  mock at 1280x800, 900 and 860 px in light and dark, clean; and the real session over stdio on Gemma 4 12B FP4 in a
+  seeded workspace: a new chat in Garden given its note and following its instructions, a decision there noted resting
+  on that chat and the one the note came from, the next new chat answering from the new note, Calculator, whose only
+  note waited, giving its new chat none, a chat in no project offered neither tool, and in Garden's chat that had read a
+  page the note written as waiting and given to no new chat. There, once, Mila said it had noted the pond without
+  calling, and a note written in a chat never given the current one replaced it whole; after the change that refuses
+  such a note, the same chat's first note was refused, Mila read the notes and wrote the pond in beside the tomatoes and
+  the greenhouse, and the Calculator chat, told its project, read the project's notes itself. macOS: the session's tests, 112
+  with the key store's skipped, the gate's 51, the page's 155, and the same stdio run on Gemma 4 12B **Q4_0**, every
+  turn's store right: there, Mila read the notes itself in the chat that had read a page, and its waiting note kept
+  what the current one held. Linux (WSL, CPU-only): the same tests. **Not done:** every model's final run; the window
+  on the real session. *Measured 2026-11-21* on Gemma 4 12B **Q4_0** on the Mac (28 questions twice, each in a new chat
+  deleted after it and every note written back before the next, 774 s of replies): a question answered only by the
+  project's note, answered from it 12 of 12; a decision told to Mila, noted 15 of 16 (the miss, *make percent a key that
+  divides by 100*, asked for a folder and searched until stopped), each note keeping what still held and none over a
+  limit; a question in passing in a project, no note written 16 of 16; a chat in no project, neither tool called 4 of 4.
+  The cost of a note: Garden's, near the limits, made a new chat's first prompt 2,307 tokens against 1,955 for its twin
+  with none, about 350 tokens; Calculator's, of three sentences, about 150. On the M1 Pro the first round's prefill was
+  then 3.7 s and 2.0 s, against 0.3 s with no note, the system prompt and tools being reused from the chat before in
+  each case; a first round that could reuse nothing, after a chat in no project, took 18 s. The measurement ran before
+  the refusal and the project's line in the system prompt were added; their checks are the tests and the real run.
 - **Phase 9. Plans and runs.** A plan kept as a project's process, the plan drawer, *Run again* (section 7).
 - **Phase 10. Findings.** Section 9. Links are not in it.
 - **Phase 11. Work while you are elsewhere** (the vision's step 10). Questions 8 and 9, when a library task and more than

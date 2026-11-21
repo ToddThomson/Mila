@@ -43,12 +43,16 @@ namespace Mila::Agents
 
         /// The response reached its limit of rounds, so it did not run.
         NotRun,
+
+        /// The program placed the call after the person's message itself, so no rule or person decided it.
+        PlacedByProgram,
     };
 
     /// Whether the decision ran the call.
     export constexpr bool isAllowed( ToolDecision decision ) noexcept
     {
         return decision == ToolDecision::AllowedByRule || decision == ToolDecision::AllowedByPerson
-            || decision == ToolDecision::AllowedByPersonForConversation || decision == ToolDecision::AllowedForConversation;
+            || decision == ToolDecision::AllowedByPersonForConversation || decision == ToolDecision::AllowedForConversation
+            || decision == ToolDecision::PlacedByProgram;
     }
 }

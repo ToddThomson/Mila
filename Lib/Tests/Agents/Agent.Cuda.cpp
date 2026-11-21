@@ -2247,6 +2247,100 @@ namespace Mila::Tests::AI
         }
     }
 
+    /// Every family: a call the program places after the message reaches the model as a result it answers from.
+    TEST( AgentCuda, EveryFamilyAnswersFromACallTheProgramPlacedAfterTheMessage )
+    {
+        std::string ran;
+
+        // One model of each family, released before the next is planned.
+        for ( const auto& installed : { firstInstalled( { "gemma-4-12b-it-fp4", "gemma-4-12b-it-q4_0" } ),
+            firstInstalled( { "Llama-3.1-8B-Instruct-fp4", "Llama-3.1-8B-Instruct-fp8" } ),
+            firstInstalled( { "Llama-3.2-3B-Instruct-bf16", "Llama-3.2-3B-Instruct-fp4" } ),
+            firstInstalled( { "Qwen3.8-27B-fp4", "Qwen3.8-27B-cb2-3", "Qwen3.8-27B-fp4-cb3" } ) } )
+        {
+            if ( whyNotRunnable( installed ).has_value() )
+            {
+                continue;
+            }
+
+            int asked = 0;
+
+            auto agent = Agent::create( *installed, *requestThatFits( *installed ), Session{}
+                .withTool( Tool{ "read_notes", "Read the notes kept for this conversation.", R"({"type":"object","properties":{}})",
+                    []( std::string_view, const ToolGrant&, std::stop_token )
+                    {
+                        return ToolResult( "Note kept for this project: the code word is HELIOTROPE.", ResultOrigin::Application );
+                    } } )
+                .onAsk( [&asked]( const ToolQuestion& )
+                    {
+                        ++asked;
+
+                        return ToolAnswer::Deny;
+                    } ) );
+
+            agent.model().model().seedSampler( 7 );
+
+            std::vector<AgentEvent::Kind> kinds;
+            std::optional<ToolDecision> decision;
+            bool exposes = true;
+
+            const std::vector<Conversation::ToolCall> placed{ { "read_notes", "{}" } };
+            const Response response = agent.respond( "What is the code word? Answer with the word alone.", placed,
+                [&]( const AgentEvent& event )
+                {
+                    kinds.push_back( event.kind );
+
+                    if ( event.kind == AgentEvent::Kind::ToolCalled && !decision )
+                    {
+                        decision = event.decision;
+                        exposes = event.exposes;
+                    }
+                } );
+
+            EXPECT_EQ( response.status, GenerateStatus::Success ) << *installed;
+            EXPECT_TRUE( saysTheCodeWord( response.text ) ) << *installed << ": " << response.text;
+            EXPECT_EQ( asked, 0 ) << *installed;
+
+            ASSERT_FALSE( kinds.empty() ) << *installed;
+            EXPECT_EQ( kinds.front(), AgentEvent::Kind::ToolCalled ) << *installed << ": the placed call was not reported first";
+            EXPECT_EQ( decision, ToolDecision::PlacedByProgram ) << *installed;
+            EXPECT_FALSE( exposes ) << *installed << ": a result in the program's own words exposed the conversation";
+            EXPECT_FALSE( agent.session().gate().isExposed() ) << *installed;
+
+            const auto conversation = agent.session().conversation();
+
+            ASSERT_GE( conversation.size(), 4u ) << *installed;
+            EXPECT_EQ( conversation[ 0 ].role, Conversation::Role::User ) << *installed;
+            EXPECT_EQ( conversation[ 1 ].role, Conversation::Role::Assistant ) << *installed;
+            ASSERT_EQ( conversation[ 1 ].tool_calls.size(), 1u ) << *installed;
+            EXPECT_EQ( conversation[ 1 ].tool_calls.front().name, "read_notes" ) << *installed;
+            EXPECT_EQ( conversation[ 2 ].role, Conversation::Role::Tool ) << *installed;
+            EXPECT_EQ( conversation.back().role, Conversation::Role::Assistant ) << *installed;
+            ran += ( ran.empty() ? "" : ", " ) + *installed;
+        }
+
+        if ( ran.empty() )
+        {
+            GTEST_SKIP() << "no model of any family can run here";
+        }
+
+        RecordProperty( "models", ran );
+    }
+
+    TEST_F( AgentOnGemmaCuda, APlacedCallOfAToolNotOfferedIsRefusedBeforeTheMessageJoins )
+    {
+        const std::vector<Conversation::ToolCall> placed{ { "read_notes", "{}" } };
+
+        EXPECT_THROW( (void)agent_->respond( "Hello.", placed ), std::invalid_argument );
+        EXPECT_TRUE( agent_->session().conversation().empty() );
+
+        const std::vector<Conversation::ToolCall> wrong{ { "get_weather", "{}" } };
+
+        EXPECT_THROW( (void)agent_->respond( "Hello.", wrong ), std::invalid_argument ) << "arguments the tool refuses";
+        EXPECT_TRUE( agent_->session().conversation().empty() );
+        EXPECT_TRUE( arguments_seen_.empty() );
+    }
+
     TEST( AgentCuda, QwenClearsReasoningAloneWhenThatIsEnough )
     {
         const auto name = firstInstalled( { "Qwen3.8-27B-fp4", "Qwen3.8-27B-fp4-cb3" } );

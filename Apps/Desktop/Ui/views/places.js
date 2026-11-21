@@ -203,6 +203,42 @@ export function createPlacesView( scroller, root, actions )
 
         if ( action === 'project-delete-cancel' )
             changeLocal( { confirmingProject: null } );
+
+        onUnderstandingClick( action, target );
+    }
+
+    /** What the project's summary does (4.5, 5.6): the person edits or clears the note, accepts or declines one waiting. */
+    function onUnderstandingClick( action, target )
+    {
+        const state = actions.getState();
+        const projectId = target.dataset.project ?? state.projectId;
+
+        if ( action === 'project-instructions' )
+            changeLocal( { editing: 'instructions' } );
+
+        if ( action === 'understanding-edit' )
+            changeLocal( { editing: 'understanding' } );
+
+        if ( action === 'understanding-cancel' )
+            changeLocal( { editing: null } );
+
+        if ( action === 'understanding-save' )
+        {
+            const fields = {};
+
+            for ( const field of root.querySelectorAll( '.note-field' ) )
+                fields[ field.dataset.field ] = field.dataset.field === 'questions'
+                    ? field.value.split( '\n' ).map( ( line ) => line.trim() ).filter( ( line ) => line.length > 0 ) : field.value.trim();
+
+            actions.send( { type: 'project.update', id: projectId, understanding: fields } );
+            changeLocal( { editing: null } );
+        }
+
+        if ( action === 'understanding-clear' )
+            actions.send( { type: 'project.update', id: projectId, understanding: null } );
+
+        if ( action === 'note-accept' || action === 'note-decline' )
+            actions.send( { type: 'note.decide', project: projectId, id: target.dataset.note, decision: action === 'note-accept' ? 'accept' : 'decline' } );
     }
 
     /** A project's folders changed whole, as `project.update` takes them. */
@@ -254,6 +290,9 @@ export function createPlacesView( scroller, root, actions )
 
         if ( project !== undefined && kind === 'purpose' && value !== ( project.purpose ?? '' ) )
             actions.send( { type: 'project.update', id: project.id, purpose: value } );
+
+        if ( project !== undefined && kind === 'instructions' && value !== ( project.instructions ?? '' ) )
+            actions.send( { type: 'project.update', id: project.id, instructions: value } );
 
         redraw();
     }
@@ -349,6 +388,23 @@ export function createPlacesView( scroller, root, actions )
         return notice;
     }
 
+    /** A note waiting for the person (5.6): it opens the project, where the note is shown in full to accept or decline. */
+    function noteNotice( row )
+    {
+        const notice = element( 'div', 'notice-card waiting' );
+        const actionsRow = element( 'div', 'notice-actions' );
+        const open = button( 'button', 'Review the note', 'open-project' );
+
+        open.dataset.project = row.project.id;
+        actionsRow.append( open );
+        notice.append( element( 'div', 'notice-kind', 'Needs you · ' + row.project.name ),
+            element( 'div', 'notice-title', 'A note waiting to be accepted' ),
+            element( 'div', 'notice-text', 'Mila wrote it in a chat that read from outside. New chats are given it once you accept it.' ),
+            actionsRow );
+
+        return notice;
+    }
+
     /** What Mila noticed (4.3): a file it wrote changed on disk since; it opens where the file came from. */
     function changedNotice( row )
     {
@@ -425,7 +481,8 @@ export function createPlacesView( scroller, root, actions )
     {
         const glance = element( 'div', 'glance' );
         const waiting = overview.waiting;
-        const toWaiting = waiting.length === 0 ? { action: null, data: {} } : { action: 'show-section', data: { section: 'needs-you' } };
+        const anything = waiting.length + overview.notes.length > 0;
+        const toWaiting = anything ? { action: 'show-section', data: { section: 'needs-you' } } : { action: null, data: {} };
 
         if ( overview.projects.length === 0 )
         {
@@ -458,18 +515,20 @@ export function createPlacesView( scroller, root, actions )
     {
         const overview = workspaceOverview( state );
         const waiting = overview.waiting;
+        const needed = waiting.length + overview.notes.length;
 
         const atGlance = section( 'At a glance', null, null );
         atGlance.append( glanceOf( overview ) );
         root.append( head( longDate( now ), 'Your Workspace' ), atGlance );
 
-        if ( waiting.length > 0 || overview.suggested.length > 0 || overview.noticed.length > 0 )
+        if ( needed > 0 || overview.suggested.length > 0 || overview.noticed.length > 0 )
         {
-            const title = waiting.length > 0 ? 'Needs you' : overview.suggested.length > 0 ? 'Mila suggests' : 'Mila noticed';
+            const title = needed > 0 ? 'Needs you' : overview.suggested.length > 0 ? 'Mila suggests' : 'Mila noticed';
             const needs = section( title, 'needs-you', null );
             const notices = element( 'div', 'notices' );
 
-            notices.append( ...waiting.map( noticeFor ), ...overview.suggested.map( suggestionNotice ), ...overview.noticed.map( noticeFor ) );
+            notices.append( ...waiting.map( noticeFor ), ...overview.notes.map( noteNotice ), ...overview.suggested.map( suggestionNotice ),
+                ...overview.noticed.map( noticeFor ) );
             needs.append( notices );
             root.append( needs );
         }

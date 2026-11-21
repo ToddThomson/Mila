@@ -242,6 +242,66 @@ namespace Mila::Agents
             return outcome;
         }
 
+        /**
+         * @brief Run a call the program placed itself, as `answer` runs one allowed: with the grant narrowed to the
+         *        tool's needs, and exposing the conversation when its result comes from outside.
+         *
+         * No rule or person decides it, since the program, not the model, chose to make it.
+         *
+         * @throws std::invalid_argument for a tool not offered or arguments its parameters refuse, which is the
+         *         program's error rather than the model's.
+         */
+        [[nodiscard]] ToolOutcome runPlaced( std::string_view name, std::string_view arguments, std::stop_token halted,
+            const AgentLimits& limits = {} )
+        {
+            checkPlaced( name, arguments );
+
+            ToolOutcome outcome;
+            outcome.decision = ToolDecision::PlacedByProgram;
+
+            if ( halted.stop_requested() )
+            {
+                outcome.stopped = true;
+
+                return outcome;
+            }
+
+            const Tool& tool = *find( name );
+
+            outcome.result_tokens = tool.result_tokens ? tool.result_tokens : limits.result_tokens;
+            const ResultOrigin origin = run( tool, arguments, grant_.narrowedTo( tool.needs ), halted,
+                tool.time ? tool.time : limits.tool_time, outcome );
+
+            if ( outcome.ran && !outcome.stopped && !outcome.timed_out && origin == ResultOrigin::Outside )
+            {
+                outcome.exposes = true;
+                exposure_.push_back( ExposureSource{ tool.name, std::string( arguments ), std::chrono::system_clock::now() } );
+            }
+
+            return outcome;
+        }
+
+        /**
+         * @brief Refuse a call the program would place that could not run.
+         *
+         * @throws std::invalid_argument for a tool not offered or arguments its parameters refuse.
+         */
+        void checkPlaced( std::string_view name, std::string_view arguments ) const
+        {
+            const auto tool = std::ranges::find( tools_, name, &Tool::name );
+
+            if ( tool == tools_.end() )
+            {
+                throw std::invalid_argument( std::format( "a placed call names '{}', which is not offered", name ) );
+            }
+
+            if ( const auto why = schemas_[ static_cast<std::size_t>( tool - tools_.begin() ) ].check( arguments ) )
+            {
+                throw std::invalid_argument( std::format(
+                    "a placed call of '{}' has arguments its parameters refuse: {}", name, *why ) );
+            }
+        }
+
     private:
 
         ToolDecision decide( std::string_view name, std::string_view arguments, const Asker& ask )

@@ -1175,6 +1175,40 @@ export function changedOnDisk( state )
     return rows;
 }
 
+/**
+ * The notes waiting for the person (5.6): each written in a chat that had read from outside, and given to no new chat
+ * until accepted on its project's page. They wait on the person, so their project is waiting on them.
+ */
+export function waitingNotes( state )
+{
+    const rows = state.projects
+        .filter( ( project ) => project.waiting !== null && typeof project.waiting === 'object' )
+        .map( ( project ) => ( { kind: 'note', project, note: project.waiting } ) );
+    const when = ( row ) => row.note.made ?? '';
+
+    return rows.sort( ( left, right ) => ( when( left ) < when( right ) ? 1 : when( left ) > when( right ) ? -1 : 0 ) );
+}
+
+/**
+ * The one action beside a project's *Next* (4.5), from the app's own records, never the note's words: answering a plan
+ * stopped in one of its chats, or finishing a reply cut short there; null when nothing waits.
+ */
+export function projectNextAction( state, projectId )
+{
+    const row = needsYou( state ).find( ( candidate ) => candidate.item.project === projectId );
+
+    if ( row === undefined )
+        return null;
+
+    if ( row.kind === 'plan' )
+        return { label: 'Answer and continue', action: 'open-conversation', identifier: row.item.id };
+
+    if ( row.item.finish === 'length' )
+        return { label: 'Ask Mila to finish', action: 'finish-reply', identifier: row.item.id };
+
+    return { label: 'Open the chat', action: 'open-conversation', identifier: row.item.id };
+}
+
 /** A chat's offers, as the session keeps them on its calls. */
 function offersOf( item )
 {
@@ -1243,6 +1277,7 @@ export function workspaceOverview( state )
         looseCount: loose.length,
         newest: chats.length > 0 ? chats[ 0 ] : null,
         waiting: needsYou( state ),
+        notes: waitingNotes( state ),
         noticed: changedOnDisk( state ),
         suggested: suggestions( state ),
         projects,
@@ -1317,13 +1352,15 @@ export function projectEvents( state, projectId )
 }
 
 /**
- * A project's state (4.1), from its chats' records: waiting on the person when one of them needs them (4.3), active
- * while a reply is being written in one, quiet otherwise.
+ * A project's state (4.1), from its chats' records: waiting on the person when one of them needs them (4.3) or a note
+ * waits for them (5.6), active while a reply is being written in one, quiet otherwise.
  */
 export function projectState( state, projectId )
 {
     const chats = projectChats( state, projectId );
-    const waiting = needsYou( state ).some( ( row ) => row.item.project === projectId );
+    const project = state.projects.find( ( candidate ) => candidate.id === projectId );
+    const noteWaits = project !== undefined && project.waiting !== null && typeof project.waiting === 'object';
+    const waiting = noteWaits || needsYou( state ).some( ( row ) => row.item.project === projectId );
 
     if ( waiting )
         return 'waiting';

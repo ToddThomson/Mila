@@ -61,6 +61,10 @@ export function createMockSession( options )
         nextProjectNumber = seeded.projects.length + 1;
     }
 
+    // A scenario of what Mila understands (phase 7) gives some projects their notes.
+    if ( typeof scenario.seedNotes === 'function' )
+        scenario.seedNotes( projects, startTime );
+
     // A scenario of what Mila made (phase 8) gives the seeded chats' writes their records, and the files their text.
     const files = scenario.made === true ? seedMade( seeds, startTime ) : {};
 
@@ -236,7 +240,8 @@ export function createMockSession( options )
         {
             const { changed, ...shown } = project;
 
-            return { ...shown, folders: project.folders.map( ( folder ) => ( { ...folder } ) ), undo: undoable( project ) };
+            return { ...shown, folders: project.folders.map( ( folder ) => ( { ...folder } ) ), undo: undoable( project ),
+                understanding: project.understanding ?? null, waiting: project.waiting ?? null };
         } );
 
         items.sort( ( left, right ) => ( left.updated < right.updated ? 1 : -1 ) );
@@ -443,6 +448,10 @@ export function createMockSession( options )
         record( message );
         emit( message );
 
+        // A note_understanding call the scenario scripts is kept on the chat's project, as the session keeps it.
+        if ( step.note !== undefined )
+            noteInProject( step.note );
+
         if ( message.type === 'turn.end' )
         {
             finishTurn( message );
@@ -451,6 +460,113 @@ export function createMockSession( options )
         }
 
         scheduleNextStep();
+    }
+
+    /** As the session's: a note from a chat that read from outside waits for the person; any other is current (5.6). */
+    function noteInProject( note )
+    {
+        const project = session.project === null ? undefined : projects.get( session.project );
+
+        if ( project === undefined )
+            return;
+
+        const made = { ...note, made: new Date( options.now() ).toISOString() };
+
+        if ( made.exposed === true )
+            project.waiting = made;
+        else
+            project.understanding = made;
+
+        recordEvent( { kind: made.exposed === true ? 'understanding.waiting' : 'understanding.noted', who: 'mila', project: project.id,
+            conversation: session.conversationId, name: project.name } );
+        emitProjects();
+        emitActivity();
+    }
+
+    /** `note.decide`: the note waiting on a project, accepted keeping its mark, or declined. */
+    function decideNote( request )
+    {
+        const project = projects.get( request.project );
+
+        if ( project === undefined || project.waiting === undefined || project.waiting === null || project.waiting.id !== request.id )
+        {
+            emitError( 'That note is no longer waiting.', null );
+            emitProjects();
+
+            return;
+        }
+
+        const accept = request.decision === 'accept';
+
+        if ( accept )
+            project.understanding = { ...project.waiting, accepted: new Date( options.now() ).toISOString() };
+
+        project.waiting = null;
+        recordEvent( { kind: accept ? 'understanding.accepted' : 'understanding.declined', project: project.id, name: project.name } );
+        emitProjects();
+        emitActivity();
+    }
+
+    /** `project.update` with `understanding`: the person's edit, keeping the mark and what it rests on, or null to clear it. */
+    function changeUnderstanding( project, value )
+    {
+        const current = project.understanding ?? null;
+
+        if ( value === null )
+        {
+            if ( current === null )
+                return;
+
+            project.understanding = null;
+            recordEvent( { kind: 'understanding.cleared', project: project.id, name: project.name } );
+        }
+        else
+        {
+            if ( current === null )
+                return;
+
+            const summary = typeof value.summary === 'string' ? value.summary.trim() : current.summary;
+
+            if ( summary.length === 0 )
+            {
+                emitError( 'The note was not changed: a note needs a summary.', null );
+
+                return;
+            }
+
+            // As the session's: an edited note has an id of its own, so a chat that read it before must read it again.
+            project.understanding = {
+                ...current,
+                id: 'note-edited-' + options.now(),
+                summary,
+                questions: Array.isArray( value.questions ) ? value.questions.map( String ).filter( ( line ) => line.trim().length > 0 ) : current.questions,
+                next: typeof value.next === 'string' ? value.next.trim() : current.next,
+                edited: new Date( options.now() ).toISOString(),
+                source: { ...current.source, author: 'person' }
+            };
+            recordEvent( { kind: 'understanding.edited', project: project.id, name: project.name } );
+        }
+
+        emitProjects();
+        emitActivity();
+    }
+
+    /** As the session's: a deleted chat takes every note that rests on it (AssistantInterface.md 8). */
+    function clearNotesFrom( conversationId )
+    {
+        for ( const project of projects.values() )
+        {
+            for ( const where of [ 'understanding', 'waiting' ] )
+            {
+                const note = project[ where ] ?? null;
+
+                if ( note !== null && Array.isArray( note.derived_from ) && note.derived_from.some( ( source ) => source.conversation === conversationId ) )
+                {
+                    project[ where ] = null;
+                    recordEvent( { kind: 'understanding.cleared', project: project.id, name: project.name, because: 'chat.deleted' } );
+                }
+            }
+        }
     }
 
     /**
@@ -1115,6 +1231,18 @@ export function createMockSession( options )
             project.purpose = String( request.purpose ).trim();
             recordEvent( { kind: 'project.purpose', project: project.id, name: project.name } );
         }
+        else if ( Object.hasOwn( request, 'instructions' ) )
+        {
+            project.instructions = typeof request.instructions === 'string' ? request.instructions : '';
+            recordEvent( { kind: 'project.instructions', project: project.id, name: project.name } );
+        }
+        else if ( Object.hasOwn( request, 'understanding' ) )
+        {
+            // The note is its own file and its own events, as the session keeps it; the project's record is unchanged.
+            changeUnderstanding( project, request.understanding );
+
+            return;
+        }
         else if ( Object.hasOwn( request, 'folders' ) && Array.isArray( request.folders ) )
         {
             changeProjectFolders( project, request.folders );
@@ -1277,10 +1405,12 @@ export function createMockSession( options )
             return;
 
         forgetEverywhere( request.id );
+        clearNotesFrom( request.id );
 
         if ( session.conversationId === request.id )
             newConversation();
 
+        emitProjects();
         emitConversations();
         emitActivity();
     }
@@ -1670,6 +1800,9 @@ export function createMockSession( options )
 
             case 'project.undo':
                 return undoProject( request );
+
+            case 'note.decide':
+                return decideNote( request );
 
             case 'project.delete':
                 return deleteProject( request );

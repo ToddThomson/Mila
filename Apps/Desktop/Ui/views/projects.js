@@ -2,7 +2,7 @@
 // The places view owns the pane, its clicks and the rows' menus; this draws what a project's places show.
 
 import { element, button, iconButton } from '../dom.js';
-import { matchingProjects, projectFilters, projectSummaries, currentProject, madeInProject } from '../state.js';
+import { matchingProjects, projectFilters, projectSummaries, currentProject, madeInProject, projectNextAction } from '../state.js';
 import { whenLabel, folderName, activityText, dayLabel, clockLabel, plainLine } from '../format.js';
 import { head, section, figure, stateDot, stateWords, pulseStrip, countsLine } from './place-parts.js';
 
@@ -210,7 +210,170 @@ function folderRow( project, folder )
     return row;
 }
 
-/** A project (4.5): its head, its figures, its folders, its chats and its history. */
+/** Where a note came from: the chat it was written in, by its title as it is now, and when; and whether it was edited. */
+function noteSource( state, note, now )
+{
+    const chatId = note.source?.ref?.conversation ?? null;
+    const chat = state.conversations.find( ( item ) => item.id === chatId );
+    const parts = [ chat === undefined ? 'From a chat no longer stored' : 'From “' + chat.title + '”', whenLabel( note.made, now ) ];
+
+    if ( typeof note.edited === 'string' )
+        parts.push( 'edited by you' );
+
+    return parts.join( ' · ' );
+}
+
+function noteQuestions( note )
+{
+    const questions = Array.isArray( note.questions ) ? note.questions : [];
+
+    if ( questions.length === 0 )
+        return null;
+
+    const list = element( 'ul', 'note-questions' );
+    list.append( ...questions.map( ( question ) => element( 'li', null, question ) ) );
+
+    return list;
+}
+
+/** The person's own edit of the note: its summary, its questions one a line, and its next step. */
+function noteEditor( note )
+{
+    const form = element( 'div', 'note-editor' );
+    const summary = element( 'textarea', 'project-edit note-field' );
+    const questions = element( 'textarea', 'project-edit note-field' );
+    const next = element( 'input', 'project-edit note-field' );
+    const choices = element( 'div', 'notice-actions' );
+
+    summary.value = note?.summary ?? '';
+    summary.rows = 4;
+    summary.dataset.field = 'summary';
+    summary.setAttribute( 'aria-label', 'What Mila understands' );
+    questions.value = Array.isArray( note?.questions ) ? note.questions.join( '\n' ) : '';
+    questions.rows = 3;
+    questions.dataset.field = 'questions';
+    questions.setAttribute( 'aria-label', 'Open questions, one a line' );
+    next.value = note?.next ?? '';
+    next.dataset.field = 'next';
+    next.setAttribute( 'aria-label', 'Next' );
+    choices.append( button( 'button primary', 'Save', 'understanding-save' ), button( 'button quiet', 'Cancel', 'understanding-cancel' ) );
+    form.append( summary, element( 'label', 'note-label', 'Open questions' ), questions,
+        element( 'label', 'note-label', 'Next' ), next, choices );
+
+    return form;
+}
+
+/**
+ * The summary (4.5): *What Mila understands* beside *Next*, the one action beside it from the app's records; a note
+ * waiting for the person in full, with where it came from (5.6); and the person's instructions for the project's chats.
+ */
+function summaryOf( state, local, project, now )
+{
+    const holder = section( 'Summary', 'project-summary', null );
+    const note = project.understanding ?? null;
+    const waiting = project.waiting ?? null;
+
+    if ( waiting !== null )
+    {
+        const card = element( 'div', 'notice-card waiting note-waiting' );
+        const choices = element( 'div', 'notice-actions' );
+        const accept = button( 'button primary', 'Accept', 'note-accept' );
+        const decline = button( 'button quiet', 'Decline', 'note-decline' );
+
+        for ( const choice of [ accept, decline ] )
+        {
+            choice.dataset.project = project.id;
+            choice.dataset.note = waiting.id;
+        }
+
+        choices.append( accept, decline );
+        card.append( element( 'div', 'notice-kind', 'Waiting for you' ),
+            element( 'div', 'notice-title', 'A note written in a chat that read from outside' ),
+            element( 'p', 'note-summary', waiting.summary ?? '' ) );
+
+        const questions = noteQuestions( waiting );
+
+        if ( questions !== null )
+            card.append( questions );
+
+        if ( waiting.next )
+            card.append( element( 'p', 'note-next', 'Next: ' + waiting.next ) );
+
+        card.append( element( 'div', 'notice-text', noteSource( state, waiting, now ) ), choices );
+        holder.append( card );
+    }
+
+    const columns = element( 'div', 'project-summary-columns' );
+    const understood = element( 'div', 'summary-panel' );
+    const next = element( 'div', 'summary-panel' );
+    const understoodHead = element( 'div', 'summary-head' );
+
+    understoodHead.append( element( 'h3', 'summary-title', 'What Mila understands' ) );
+
+    if ( note !== null && local.editing !== 'understanding' )
+    {
+        const edit = button( 'link', 'Edit', 'understanding-edit' );
+        const remove = button( 'link', 'Clear', 'understanding-clear' );
+
+        remove.dataset.project = project.id;
+        understoodHead.append( edit, remove );
+    }
+
+    understood.append( understoodHead );
+
+    if ( local.editing === 'understanding' && note !== null )
+        understood.append( noteEditor( note ) );
+    else if ( note === null )
+        understood.append( element( 'p', 'empty', 'Nothing noted yet.' ) );
+    else
+    {
+        understood.append( element( 'p', 'note-summary', note.summary ?? '' ) );
+
+        const questions = noteQuestions( note );
+
+        if ( questions !== null )
+            understood.append( element( 'div', 'note-label', 'Open questions' ), questions );
+
+        understood.append( element( 'div', 'row-sub', noteSource( state, note, now ) ) );
+    }
+
+    next.append( element( 'h3', 'summary-title', 'Next' ) );
+    next.append( element( 'p', note?.next ? 'note-next' : 'empty', note?.next ? note.next : 'Nothing noted yet.' ) );
+
+    const action = projectNextAction( state, project.id );
+
+    if ( action !== null )
+    {
+        const act = button( 'button', action.label, action.action );
+        act.dataset.identifier = action.identifier;
+        next.append( act );
+    }
+
+    columns.append( understood, next );
+    holder.append( columns );
+
+    const instructionsHead = element( 'div', 'summary-head' );
+    const instructions = element( 'div', 'summary-panel project-instructions' );
+
+    instructionsHead.append( element( 'h3', 'summary-title', 'Instructions' ) );
+
+    if ( local.editing !== 'instructions' )
+        instructionsHead.append( button( 'link', project.instructions ? 'Edit' : 'Write instructions', 'project-instructions' ) );
+
+    instructions.append( instructionsHead );
+
+    if ( local.editing === 'instructions' )
+        instructions.append( editor( 'instructions', project.instructions ?? '', 'Instructions for Mila in this project', true ) );
+    else
+        instructions.append( element( 'p', project.instructions ? 'project-instructions-text' : 'empty',
+            project.instructions ? project.instructions : 'None yet.' ) );
+
+    holder.append( instructions );
+
+    return holder;
+}
+
+/** A project (4.5): its head, its figures, its summary, its folders, its chats and its history. */
 export function renderProject( root, state, local, now, managedRow )
 {
     const project = currentProject( state );
@@ -259,7 +422,7 @@ export function renderProject( root, state, local, now, managedRow )
 
     const atGlance = section( 'At a glance', null, null );
     atGlance.append( glance );
-    root.append( atGlance );
+    root.append( atGlance, summaryOf( state, local, project, now ) );
 
     const addFolder = button( 'link', 'Add a folder', 'project-add-folder' );
     addFolder.dataset.project = project.id;

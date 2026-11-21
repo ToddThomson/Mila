@@ -697,6 +697,72 @@ namespace Mila::Tests::AI
     }
 
     // ================================================================
+    // Placed by the program (ToolCalling.md 3.3, AssistantInterface.md 5.6)
+    // ================================================================
+
+    TEST_F( ToolGateTest, ACallTheProgramPlacesRunsWithNoOneAskedAndNoRuleDeciding )
+    {
+        gate_.setRules( ToolRules{}.add( { "*", ToolPermission::Deny } ) );
+
+        const ToolOutcome outcome = gate_.runPlaced( "delete_file", kArguments, {} );
+
+        EXPECT_EQ( outcome.decision, ToolDecision::PlacedByProgram );
+        EXPECT_TRUE( isAllowed( outcome.decision ) );
+        EXPECT_TRUE( outcome.ran );
+        EXPECT_EQ( outcome.result, "deleted" );
+        EXPECT_EQ( ran_.size(), 1u );
+        EXPECT_TRUE( asked_.empty() );
+    }
+
+    TEST_F( ToolGateTest, APlacedResultFromOutsideExposesTheConversationAndOneInTheProgramsWordsDoesNot )
+    {
+        bool from_outside = false;
+
+        Tool notes{ "read_notes", "Read the notes.", R"({"type":"object","properties":{}})",
+            [&from_outside]( std::string_view, const ToolGrant&, std::stop_token )
+            {
+                return from_outside ? ToolResult( "a note drawn from a page", ResultOrigin::Outside )
+                    : ToolResult( "a note in the program's words", ResultOrigin::Application );
+            } };
+
+        gate_.add( std::move( notes ) );
+
+        EXPECT_FALSE( gate_.runPlaced( "read_notes", "{}", {} ).exposes );
+        EXPECT_FALSE( gate_.isExposed() ) << "a placed result in the program's own words exposed the conversation";
+
+        from_outside = true;
+        const ToolOutcome outside = gate_.runPlaced( "read_notes", "{}", {} );
+
+        EXPECT_TRUE( outside.exposes );
+        ASSERT_EQ( gate_.exposure().size(), 1u );
+        EXPECT_EQ( gate_.exposure().front().tool, "read_notes" );
+
+        gate_.setRules( ToolRules{}.add( { "*", ToolPermission::Allow } ) );
+        EXPECT_EQ( answer( {} ).decision, ToolDecision::NoOneToAsk ) << "a write after the placed result was not asked";
+    }
+
+    TEST_F( ToolGateTest, APlacedCallThatCannotRunIsTheProgramsErrorAndRunsNothing )
+    {
+        EXPECT_THROW( (void)gate_.runPlaced( "read_page", "{}", {} ), std::invalid_argument ) << "a tool not offered";
+        EXPECT_THROW( gate_.checkPlaced( "delete_file", R"({"summary":"no path"})" ), std::invalid_argument );
+        EXPECT_THROW( (void)gate_.runPlaced( "delete_file", R"({"summary":"no path"})", {} ), std::invalid_argument );
+        EXPECT_NO_THROW( gate_.checkPlaced( "delete_file", kArguments ) );
+        EXPECT_TRUE( ran_.empty() );
+    }
+
+    TEST_F( ToolGateTest, APlacedCallInAStoppedReplyDoesNotRun )
+    {
+        std::stop_source stop;
+        stop.request_stop();
+
+        const ToolOutcome outcome = gate_.runPlaced( "delete_file", kArguments, stop.get_token() );
+
+        EXPECT_TRUE( outcome.stopped );
+        EXPECT_FALSE( outcome.ran );
+        EXPECT_TRUE( ran_.empty() );
+    }
+
+    // ================================================================
     // Registration
     // ================================================================
 
