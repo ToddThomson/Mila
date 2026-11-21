@@ -372,8 +372,8 @@ static void bind_distribution( py::module_& m )
 
     py::class_<Mila::Bindings::ModelStoreHandle>( m, "ModelStore" )
         .def( py::init<const std::string&>(), py::arg( "root" ) = std::string{},
-            "Open the local store. An empty root takes MILA_CACHE_DIR, then the platform "
-            "user cache -- the same store Chat and the Mila Inference Server use." )
+            "Open the local store. An empty root takes MILA_CACHE_DIR, then the Store folder in your "
+            "Mila folder -- the same store Chat and the Mila Inference Server use." )
         .def_property_readonly( "root",
             []( const Mila::Bindings::ModelStoreHandle& self ) { return self.root(); } )
         .def( "list", &Mila::Bindings::ModelStoreHandle::list,

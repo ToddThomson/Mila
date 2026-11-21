@@ -35,7 +35,7 @@ is a statement about where the work is, not a tag that needs retiring.
 | `ci` | Workflows, gates, runners, release mechanics. |
 | `docs` | Doxygen, README, specs, the website, model cards. |
 | `agents` | `Lib/Src/Agents/` — the agent and tool calling (`ToolCalling.md`). Was `ai` until 2026-11-01, then `agents` until 2026-11-02. |
-| `apps` | `Apps/Chat/`, `Apps/Desktop/`, `Apps/Server/` and `Lib/Store/`. Was `adaptors` until 2026-10-11. |
+| `apps` | `Apps/Chat/`, `Apps/Assistant/`, `Apps/Server/` and `Lib/Store/`. Was `adaptors` until 2026-10-11. |
 | `binding` | The Python projection. |
 | `perf` | Throughput, bandwidth, memory residency. |
 | `observability` | View and Observe. |

@@ -586,7 +586,7 @@ there.
    it. Options: the handle's plan is optional, null for an adopted model; `adopt` takes the network unbuilt, with a
    request and the facts the planner reads, and builds what it plans; or `adopt` takes the plan the developer
    made. `adopt` and H6 wait on this, and both moved to `Vnext.md` (Todd, 2026-10-25): v0.21.0 finishes the
-   Mila Desktop, which opens only installed models.
+   Mila Assistant, which opens only installed models.
 5. **The Python projection of descent.** `mila.Agent` projects the contract; how far `model()` reaches from
    Python -- the `LanguageModel` surface, or also observation -- is `PythonBinding.md`'s to decide with
    `Mila::Agents`'s spec.

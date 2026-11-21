@@ -289,16 +289,16 @@ Windows only.
 | The gate is the one path to a tool, and each question shows every argument (`../ToolCalling.md` 3.3) | In place, and the base for section 8 |
 | Tool network connections go through the grant's checked transport, to public addresses only | A place to hold the promise; it checks the address, not what is being sent |
 | Only `update_step` runs by rule, and other calls that can run are asked about | Protects today, does not scale |
-| The person can answer *allow for this conversation* for every tool except `run_command` and `request_folder` (`Desktop.SessionProcess.ixx`, `askAboutCall`) | Conflicts with "that specific thing" for `read_web_page` and `web_search` |
-| `web_search` can be allowed for a conversation, though `../MilaDesktop.md` 3.7 and `../Apps/AssistantInterface.md` 5.5 say every search is asked | **A defect today,** filed in `../../Issues/Untriaged.md` |
+| The person can answer *allow for this conversation* for every tool except `run_command` and `request_folder` (`Assistant.SessionProcess.ixx`, `askAboutCall`) | Conflicts with "that specific thing" for `read_web_page` and `web_search` |
+| `web_search` can be allowed for a conversation, though `../MilaAssistant.md` 3.7 and `../Apps/AssistantInterface.md` 5.5 say every search is asked | **A defect today,** filed in `../../Issues/Untriaged.md` |
 | A link the model wrote opens on one click, with its address visible only on hover | **The most serious gap found:** private text could leave in the address |
-| A folder given to a chat can be read and changed at once (`Desktop.SessionProcess.ixx`, `grantChat`) | Short of a source starting read-only (section 7) |
+| A folder given to a chat can be read and changed at once (`Assistant.SessionProcess.ixx`, `grantChat`) | Short of a source starting read-only (section 7) |
 | An approved page read may follow redirects to hosts not shown, and may use `http` | Short of "that specific thing" |
 | Listing published models contacts HuggingFace unasked, with any HuggingFace token found on the computer | No conversation data, but unapproved and tied to the person's account |
 | The window performs proxy discovery, though its page uses no network | Measured on Windows; no URL request was made |
 | A command with the network can send anything to any public address | Its approval cannot show what will be sent |
-| The web search key is plain text in `search.json` until the credential store holds it (`../MilaDesktop.md` 3.7) | Must move |
-| Conversations are one JSON file each, and `Apps/Desktop` has no encryption code | Must change before Personal Context |
+| The web search key is plain text in `search.json` until the credential store holds it (`../MilaAssistant.md` 3.7) | Must move |
+| Conversations are one JSON file each, and `Apps/Assistant` has no encryption code | Must change before Personal Context |
 | `mila-session` is confined by nothing at the operating system's level | Filed; matters more as Mila holds more |
 | Nothing outlives a conversation but the conversation | Personal Context does not exist yet |
 | One conversation runs at a time, and no work runs with the window closed | Foundations are missing |
@@ -401,7 +401,7 @@ Todd's. Claude's recommendation is that v0.21.0 takes the small corrections (ste
 ## 15. Relationship to other specs
 
 - `../Direction.md` -- the library's trait, layering and release arc. Its 1.3 now points here for the product.
-- `../Apps/AssistantInterface.md`, `../Apps/AssistantOnboarding.md`, `../MilaDesktop.md` -- how today's Assistant works.
+- `../Apps/AssistantInterface.md`, `../Apps/AssistantOnboarding.md`, `../MilaAssistant.md` -- how today's Assistant works.
   Their designs are the first stage of this vision. The first two hold their unbuilt work to it (round 3 and round 4).
 - `../ToolCalling.md` -- the gate and grant that section 8 builds on.
 - `../Agents/AgentTasks.md`, `../Agents/Compaction.md` -- long work and the labels it must keep.

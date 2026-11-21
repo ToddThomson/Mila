@@ -96,7 +96,7 @@ document decides what is built. Where the two disagree, this document is right a
 
 How a person works with Mila Assistant: what they see when it opens, where their work lives, how they move through it
 by talking to Mila, and how what Mila did to make something stays in view. It replaces the sidebar, home screen and
-activities and their cards of `../MilaDesktop.md` 3.1, 3.3 and 3.4 as its phases are built, and keeps the rest of that document:
+activities and their cards of `../MilaAssistant.md` 3.1, 3.3 and 3.4 as its phases are built, and keeps the rest of that document:
 the conversation's transcript (3.5), the limits (3.6), Settings (3.7), the session and its schema (4, 6).
 
 ---
@@ -126,7 +126,7 @@ Every chat starts with every tool, and what a tool may reach is asked for the fi
 
 **Not model-centric** (Todd, 2026-11-16, decided). The person does not much care about the model. It is there and
 observable, never the subject of a screen: the workspace and its projects are what the person cares about. This
-carries `../MilaDesktop.md` 1's "the person chooses the work; Mila chooses the intelligence" into the layout: the model
+carries `../MilaAssistant.md` 1's "the person chooses the work; Mila chooses the intelligence" into the layout: the model
 is a quiet fact at the foot of the sidebar.
 
 **The workspace is the top level; projects are its containers; a chat needs neither** (Todd, 2026-11-16). A chat is the
@@ -158,17 +158,17 @@ Seven rules follow, and every section below is held to them:
 - **The shell of section 4 is built on today's conversations** (phase 2, `0.21.0-dev+149`): the sidebar without
   projects, the path bar, the workspace overview as a workspace of chats, *All chats*, a chat with the pane to itself,
   Activity, Search, narrow windows, and the Mila bar with its rising conversation. Every view is drawn from each
-  conversation's summary in `conversations.list` (`Desktop.ConversationSummary`; `workspaceOverview`,
+  conversation's summary in `conversations.list` (`Assistant.ConversationSummary`; `workspaceOverview`,
   `matchingChats`, `searchResults` and `activityDays` in `state.js`). Clicking takes the person everywhere; asking
   does not yet.
 - **Every chat is general purpose** (phase 3, `0.21.0-dev+150`; section 5.5): one prompt, every tool whose work can
   be done on this computer, the network for reading and searching, and no folder until Mila asks for one with
   `request_folder` and the person chooses it in the window's picker. A conversation stored with an activity opens as
   a chat, its folder in its grant.
-- **The store** is one JSON file per conversation in `%LOCALAPPDATA%\Mila\Conversations` on Windows
-  (`Desktop.ConversationStore.ixx`): its messages, each tool call with its arguments, decision and result, the history
+- **The store** is one JSON file per conversation in `%LOCALAPPDATA%\Mila\Assistant\Conversations` on Windows
+  (`Assistant.ConversationStore.ixx`): its messages, each tool call with its arguments, decision and result, the history
   the model read, and its folder and plan; one stored before phase 3 also carries an activity, which is not read.
-- **A chat has a plan when Mila proposes one** (`Desktop.TaskPlan.ixx`): `propose_plan`, approved by the person, and
+- **A chat has a plan when Mila proposes one** (`Assistant.TaskPlan.ixx`): `propose_plan`, approved by the person, and
   `update_step`, allowed by rule.
 - **Projects gather chats** (phase 4, `0.21.0-dev+158`): each a record with a name, a purpose, folders and its history,
   in the workspace's own folder beside the conversations; a chat names its project by one field. A project's folder is
@@ -184,7 +184,7 @@ Seven rules follow, and every section below is held to them:
 - **Nothing else outlives a conversation**: no instructions or findings shared between chats yet.
 - **The library's task** (`../Agents/AgentTasks.md`, agreed 2026-11-03, not built) gives an agent a task carried
   across responses, a plan, a versioned trace of every step, and a task folder holding them.
-- **The session holds one conversation's state at a time** (one stream, `../MilaDesktop.md` 4, *Streams*).
+- **The session holds one conversation's state at a time** (one stream, `../MilaAssistant.md` 4, *Streams*).
 - **Against rules 6 and 7, today:** a person can allow `read_web_page` and `web_search` for a whole chat; a link in a
   reply opens on one click with its address shown only on hover; a folder given to a chat is read-write at once; nothing
   records where a chat's content came from; and no view lists what Mila may reach or what left the computer
@@ -269,7 +269,7 @@ Always the same places, with where the person is marked among them.
   without asking. *As built at phase 6:* the sidebar's *New project* begins a chat in no project from the bar, which
   says *Tell Mila what the project is for* until something is sent; *New project* on *All projects* opens the sheet.
 - **Recent chats**: the four most recent, in any project or none; the open one marked.
-- **At the foot**: *Settings* (Command+, or Ctrl+,), the window of `../MilaDesktop.md` 3.7; the model, its name and
+- **At the foot**: *Settings* (Command+, or Ctrl+,), the window of `../MilaAssistant.md` 3.7; the model, its name and
   *Model*, which opens what Mila chose (the model, chosen for this computer, the context, thinking, the share of the
   open chat's context); and the person: initials, name, *Workspace owner*, and a menu of Settings, Mila's licence,
   About Mila Assistant and Quit.
@@ -279,7 +279,7 @@ loads, installs or restores, a turning ring and what it is doing take its place.
 name of whoever is signed in to the computer, which the window sends (`about`, section 10). *About Mila Assistant*,
 in the menu above *Quit Mila*, opens a dialog with Mila's mark, the version and *Licences*: Mila's, then each the app
 carries -- Electron, Chromium, and the session's by NOTICE.md's names (`nlohmann/json`, `CUDA`) -- each opening its
-text in the dialog with *Back*, except Chromium's, which opens in the browser (`../MilaDesktop.md` 4, `licence.open`;
+text in the dialog with *Back*, except Chromium's, which opens in the browser (`../MilaAssistant.md` 4, `licence.open`;
 as built 2026-11-17, +153).
 
 ### 4.2 The bar
@@ -365,7 +365,7 @@ projects, and one row each with its project, or *No project*, the start of Mila'
 ### 4.7 A chat
 
 A chat opened from anywhere has the pane to itself: *Chat*, its title, where it is (*In Kyoto in November*, or *Not in a
-project*) and when, then the conversation in a reading column, the transcript of `../MilaDesktop.md` 3.5. The Mila bar
+project*) and when, then the conversation in a reading column, the transcript of `../MilaAssistant.md` 3.5. The Mila bar
 below becomes its reply box (*Reply to Mila*). A chat begun in the risen conversation (section 5) opens whole from that
 conversation's expand control.
 
@@ -404,7 +404,7 @@ Over the pane, from the right, closed by Esc or outside it:
   when one of them exposed the chat (5.6), and every write. A kept reply shows its text and what Mila read up to it.
   *Keep* is under each stored reply in a transcript, and *Kept* pressed again lets it go.
 - **A plan**: its goal, its steps and their state, its runs and how each ended, *Continue this run* and *Run again*.
-- **Settings**, until the app's Settings window takes the place (`../MilaDesktop.md` 3.7).
+- **Settings**, until the app's Settings window takes the place (`../MilaAssistant.md` 3.7).
 
 ### 4.10 Narrow windows
 
@@ -476,9 +476,9 @@ before they are on by default, and on every model in a final run (`ToolCalling.m
 over-calling, 2026-10-25, may make its default differ). `find_records` is also measured on what it is for: found, cited
 correctly, and honest when nothing matches.
 
-**As built at phase 5** (`0.21.0-dev+160`), by the decisions at the head of this document: `Desktop.Places` matches the
-words and says what a place shows, and `Desktop.RecordSearch` searches the stored chats; both are the session's, in
-`Apps/Desktop/Session/Src/Tools/`. A view is named by its own word (`workspace`, `projects`, `chats`, `activity`,
+**As built at phase 5** (`0.21.0-dev+160`), by the decisions at the head of this document: `Assistant.Places` matches the
+words and says what a place shows, and `Assistant.RecordSearch` searches the stored chats; both are the session's, in
+`Apps/Assistant/Session/Src/Tools/`. A view is named by its own word (`workspace`, `projects`, `chats`, `activity`,
 `reach`); a project or chat by its exact name, or else by each word left once *the*, *my*, *project* and *chat* are
 dropped being the start of a word in its name. A list's result gives names and whether each waits on the person, the
 chat asking never counting as waiting; in an exposed chat it gives only how many, so no list of the person's names
@@ -551,7 +551,7 @@ Mila's suggestion keeps its card with *Make the project* and *Not now* (question
 ### 5.5 A general-purpose chat
 
 Decided by Todd, 2026-11-16 (question B): no activity cards. A chat is not started as a kind of work; it is work, and
-what it needs is asked for when it first needs it. This replaces the activities of `../MilaDesktop.md` 3.1, which
+what it needs is asked for when it first needs it. This replaces the activities of `../MilaAssistant.md` 3.1, which
 decided a conversation's tools, their grant, its system prompt and its limits when it began.
 
 **Every chat is offered every tool the app has**: the file tools (`list_folder`, `read_file`, `find_files`,
@@ -579,9 +579,9 @@ with:
 A grant widened in a chat is that chat's: the next chat begins without it unless both are in a project that holds it.
 Being in a project never widens what a tool may reach beyond the project's folders.
 
-**One system prompt** in place of the activities' seven (`Apps/Desktop/Prompts`): what Mila is, how it uses its tools,
+**One system prompt** in place of the activities' seven (`Apps/Assistant/Prompts`): what Mila is, how it uses its tools,
 when it asks for a folder, when it proposes a plan or a project, and how it moves the person through the workspace. The
-limits of a reply are the person's caps (`../MilaDesktop.md` 3.6), one set for every chat.
+limits of a reply are the person's caps (`../MilaAssistant.md` 3.6), one set for every chat.
 
 **The cost, measured before it ships:** every tool's definition is in every chat's prompt, prefilled once per chat and
 then kept by the cache; and a model offered tools it does not need may call them. Both are measured against today's
@@ -604,9 +604,9 @@ in 6, until the prompt said *a question that one page or one tool call answers n
 Not yet measured: `request_folder`'s own pull on questions needing no files, and every model's final run; until then
 every model is offered the same.
 
-**As built at phase 3** (`0.21.0-dev+150`): `Apps/Desktop/Prompts/general.json` is the one prompt, its system prompt
+**As built at phase 3** (`0.21.0-dev+150`): `Apps/Assistant/Prompts/general.json` is the one prompt, its system prompt
 written as passages, each kept only while the tool it names is offered and one only while web search is not
-(`Desktop.PromptFile`, `Desktop.PromptPart`), since a prompt naming a tool not offered draws calls of it. A chat holds
+(`Assistant.PromptFile`, `Assistant.PromptPart`), since a prompt naming a tool not offered draws calls of it. A chat holds
 one folder: `request_folder` asked again in a chat that has one is answered with it, unasked. A file tool called in a
 chat with no folder is not asked about, since its grant reaches nothing: it fails, and Mila asks for a folder, as it did
 on the PC with Q4_0 (it listed the folder, read the README and answered). The plan's `update_step` runs by rule; every
@@ -743,7 +743,7 @@ the person something (`ask_person`) is a *Needs you* card.
 
 ## 8. The store
 
-The session owns it, as it owns conversations today (`../MilaDesktop.md` 6.3), so every window sees the same work:
+The session owns it, as it owns conversations today (`../MilaAssistant.md` 6.3), so every window sees the same work:
 
 ```
 Mila/
@@ -766,11 +766,17 @@ so nothing on disk moves on Windows or Linux:
 
 | Platform | The workspace folder | Its folders |
 |---|---|---|
-| Windows | `%LOCALAPPDATA%\Mila` | `Conversations`, `Projects` |
-| macOS | `~/Library/Application Support/Mila` | `Conversations`, `Projects` |
-| Linux | `$XDG_DATA_HOME/mila`, else `~/.local/share/mila` | `conversations`, `projects` |
+| Windows | `%LOCALAPPDATA%\Mila\Assistant` | `Conversations`, `Projects` |
+| macOS | `~/Library/Application Support/Mila/Assistant` | `Conversations`, `Projects` |
+| Linux | `$XDG_DATA_HOME/mila/assistant`, else `~/.local/share/mila/assistant` | `conversations`, `projects` |
 
-macOS kept conversations in Linux's place until phase 4; no released Mila wrote there, so nothing is moved from it.
+**Each Mila program keeps its own area of the person's Mila folder** (Todd, 2026-11-21: "Mila/Assistant and Mila/Server
+can be the dirs ... Rather than Mila-*", then "use Mila/Store"): the workspace is the `Assistant` area, the window's
+Electron data is `Assistant/Window` (MilaAssistant.md 6.2), the model store is `Store` (ModelDistribution.md), and
+Chat's settings are its `Chat` area (ChatConfiguration.md 7). The folder and an area's name come from the library,
+`resolveMilaFolder()` and `resolveMilaArea()`; Linux names areas in lower case. Until then the workspace was the Mila
+folder itself, beside the store's folders on Windows. macOS kept conversations in Linux's place until phase 4; no
+released Mila wrote in either place, so nothing is moved from them.
 
 **A project's instructions are stored from phase 4 and not shown or given to a chat until phase 7,** which brings the
 project's understanding into its chats in the same change, so the cost of what a chat is given at its start is measured
@@ -794,11 +800,11 @@ drawers and deletion read one form:
 
 **One layer owns the files.** Conversations and everything above are read and written through one store module in the
 app, and nothing else opens these files. It deals in whole records and never puts content in a file's or folder's name,
-so encrypting them changes one place. *Checked at T2 (`0.21.0-dev+156`):* conversations are `Desktop.ConversationStore`'s
+so encrypting them changes one place. *Checked at T2 (`0.21.0-dev+156`):* conversations are `Assistant.ConversationStore`'s
 alone, which loads and saves whole records and names a file by its id only; `Projects/` and `activity.jsonl` join it when
 phase 4 makes them. `settings.json` holds no conversation content and stays the settings file's. Each conversation now
 keeps `exposure`, what it read from outside (5.6), and each stored call `exposes`. The search key is in the operating
-system's credential store on Windows, macOS and Linux (`../MilaDesktop.md` 3.7).
+system's credential store on Windows, macOS and Linux (`../MilaAssistant.md` 3.7).
 
 **Encrypting what is at rest** (*proposed*, Claude, 2026-11-19; the vision's step 5; nothing built). What it protects
 against: another account on the computer, a disk or backup read without the person's sign-in, and a sync client or
@@ -856,15 +862,15 @@ field is built until real use asks for one, and then it points at its evidence a
 
 ## 10. Schema
 
-Additions to `../MilaDesktop.md` 4, all new types or new fields, so `"v"` stays 1.
+Additions to `../MilaAssistant.md` 4, all new types or new fields, so `"v"` stays 1.
 
 **Built at phase 1:** `conversations.list` items carry `progress` (`{steps, finished, current}`, or null), `finish` (the
 last reply's end, or null) and `wrote` (`[{path, tool}]`, the files written, once each, most recent last, at most 20),
-read from the stored conversation by `Desktop.ConversationSummary`.
+read from the stored conversation by `Assistant.ConversationSummary`.
 
 **Built at phase 2:** `conversations.list` items carry `created` (when the conversation was made) and `reply_start` (the
 start of the last reply, on one line, never cut inside a character, or null). The window sends the page `about`
-(`user_name`, `version`) when the page is ready (`../MilaDesktop.md` 4.1).
+(`user_name`, `version`) when the page is ready (`../MilaAssistant.md` 4.1).
 
 **Session to page:**
 
@@ -970,7 +976,7 @@ holds the project's folder as the project has it then.
   and `kept` (a time) once the person keeps it.
 - **Session to page:** `conversations.list` items' `wrote` entries gain `time` (the last write's) and `disk` (`"same"`,
   `"changed"`, `"missing"`, or null), and items gain `kept` ([{`message`, `time`, `start`}]). `turn.end` gains `message`.
-  `creation.loaded` is `creation`, `content`, `content_kind` and `disk`, as `../MilaDesktop.md` 4.1 lists them.
+  `creation.loaded` is `creation`, `content`, `content_kind` and `disk`, as `../MilaAssistant.md` 4.1 lists them.
 - **Page to session:** `creation.open` names a creation by `conversation_id` and `path`, or `conversation_id` and
   `message`, not by an `id`, since a creation has no record of its own; `creation.keep` takes `conversation_id`,
   `message` and `keep`, the reply being a stored message rather than a turn the session still holds.
@@ -1026,7 +1032,7 @@ A. **May Mila file a chat into a project by itself?** The prototype puts a new c
 B. **No activity cards.** *Decided (Todd, 2026-11-16): "the Mila assistant no longer has cards. It is general purpose
    and works with the user to just do work. The idea is that projects take on structure as they evolve. This is option
    1 then."* Every chat is offered every tool, and each grant is asked for when the work first needs it (section 5.5).
-   Not chosen: Mila choosing a chat's tools from its first message, which `../MilaDesktop.md` 3.1 had rejected as "a
+   Not chosen: Mila choosing a chat's tools from its first message, which `../MilaAssistant.md` 3.1 had rejected as "a
    model call before the first token, or a guess".
 
 C. **More than one workspace.** *Decided (Todd, 2026-11-16): "For now: there is only 1 workspace for the user."* The
@@ -1091,7 +1097,7 @@ order after phase 3 is **T1, T2, 4, 8, 5, 6, 7, 9, 10, 11**. Each of T1 and T2 i
    workspace of chats, *All chats* (4.6), a chat with the pane to itself (4.7), *Activity* (4.8) from what the store can
    say today (chats started, files written, plans approved and stopped), Search (4.11), narrow windows (4.10), and the
    Mila bar with its rising conversation (5.1). Clicking takes the person everywhere; asking does not yet. Replaces
-   `../MilaDesktop.md` 3.3 and 3.4. Built (`0.21.0-dev+148`, `+149`). The activity cards went here rather than at phase
+   `../MilaAssistant.md` 3.3 and 3.4. Built (`0.21.0-dev+148`, `+149`). The activity cards went here rather than at phase
    3 (Todd, 2026-11-16: "The cards are gone"): until phase 3 the bar starts *Ask & Explore*, and a conversation stored
    in another activity opens with its tools and folder. Checked: page tests 91/91, window tests 5/5, session tests
    31/31 (`x64-claude-verify`, every target built); the mock at 1280x800, 900 and 860 px in light and dark, with no
@@ -1100,7 +1106,7 @@ order after phase 3 is **T1, T2, 4, 8, 5, 6, 7, 9, 10, 11**. Each of T1 and T2 i
    over the overview, lowered, Activity, and the chat opened whole. Not yet: Todd's look on the Mac.
 3. **General-purpose chats.** Section 5.5: every tool in every chat, `request_folder`, the merged rules, one system
    prompt, stored conversations opened as general chats. The measurement of 5.5 comes first, and decides each model's
-   default. Replaces `../MilaDesktop.md` 3.1. Built (`0.21.0-dev+150`) after 5.5's measurement on Gemma 4 12B Q4_0.
+   default. Replaces `../MilaAssistant.md` 3.1. Built (`0.21.0-dev+150`) after 5.5's measurement on Gemma 4 12B Q4_0.
    Checked: session tests 35/35, page tests 92/92 (mock scenario 14, Mila asks for a folder), window tests 5/5, every
    target built in `x64-claude-verify`; scenario 14 over the mock at 1280 and 900 px in light and dark; the real session
    over stdio on Q4_0 in a scratch store: a chat asked about a project, Mila asked for a folder, was given one, listed
@@ -1155,12 +1161,12 @@ The rest, in the proposed order:
 - **Phase 4. Projects** (the vision's step 8). The store's `Projects/`, its records and its events; the sidebar's
   projects; *All projects* (4.4); a project's head, glance and chats (4.5); *New project*; moving a chat by its menu; the
   overview's projects; a project's folders as sources (section 10); deletion as section 8 says. Built in this order:
-  (a) `Desktop.SessionProcess` and `Desktop.ConversationStore` keep their bodies in `Implementation/`, by CLAUDE.md's
+  (a) `Assistant.SessionProcess` and `Assistant.ConversationStore` keep their bodies in `Implementation/`, by CLAUDE.md's
   rule for a plain class, moved unchanged and checked before anything else changes; (b) the workspace folder (section
   8); (c) the project store, `history.jsonl` and `activity.jsonl`, and section 10's messages; (d) the page; (e) mock
   scenarios, then the real session. *Built 2026-11-19 (`0.21.0-dev+158`)*, as sections 4.1, 4.5, 8 and 10 record: the
-  store layer is `Desktop.StoreFile` (whole-file writes and records a line), `Desktop.WorkspaceFolder`,
-  `Desktop.ConversationStore`, `Desktop.ProjectStore` and `Desktop.EventLog`, in `Apps/Desktop/Session/Src/Store/`; the
+  store layer is `Assistant.StoreFile` (whole-file writes and records a line), `Assistant.WorkspaceFolder`,
+  `Assistant.ConversationStore`, `Assistant.ProjectStore` and `Assistant.EventLog`, in `Apps/Assistant/Session/Src/Store/`; the
   page's projects are `views/projects.js` and `views/new-project.js` over `state.js`; mock scenario 16 is a workspace
   with three projects. Checked on Windows: the session's tests (55, the store's 15 new), the page's 122 and the window's
   9, every target built in `x64-claude-verify`; the session over stdio with no model (a project made, a chat moved in, a
@@ -1176,10 +1182,10 @@ The rest, in the proposed order:
   not unlock (no display in WSL, SSH on the Mac). **Not done:** the window on the real session; Q4_0 on the PC (it has FP4 only); the prototype.
 - **Phase 8. Made and where it came from.** The creations index, digests, the *Made* drawer (4.9), *Keep* under a reply.
   First because it uses the records and asks nothing new of a model. *Built 2026-11-19 (`0.21.0-dev+159`)*, as sections
-  4.3, 4.5, 4.8, 4.9, 8 and 10 record: `Desktop.Creations` reads a chat's creations from its calls and compares a file
+  4.3, 4.5, 4.8, 4.9, 8 and 10 record: `Assistant.Creations` reads a chat's creations from its calls and compares a file
   with the disk; the page's drawer is `views/made.js`; mock scenario 17 is scenario 16's workspace with files written in
   a plan's step, one changed since, and a reply kept. Checked on Windows: the session's tests (64, the 9 new ones
-  `Desktop.Creations`'), the page's 130, the session and its tests built in `x64-claude-verify` (the window's code is
+  `Assistant.Creations`'), the page's 130, the session and its tests built in `x64-claude-verify` (the window's code is
   unchanged); scenario 17 in the window over the mock at 1280x800, 900 and 860 px in light and dark, with every check
   passing, nothing scrolling sideways and no network request; and the real session over stdio on Gemma 4 12B FP4 in a scratch workspace: a chat
   in a project read `notes.txt` and wrote `summary.md`; the list said it was the same on disk at its write's time; its
@@ -1222,7 +1228,7 @@ The rest, in the proposed order:
   12B, and every target built.
 - **Phase 6. Mila proposes.** `propose_project`, `move_to_project` by question A, the overview's card and the
   answered-in-words offers (5.3, 5.4), undo. *Built 2026-11-21 (`0.21.0-dev+161`)*, as phase 6's decisions, sections 4.1,
-  4.3, 6 and 10 record: `Desktop.Offers` and `Desktop.OfferAnswer` in the session, an offer kept on its call, the
+  4.3, 6 and 10 record: `Assistant.Offers` and `Assistant.OfferAnswer` in the session, an offer kept on its call, the
   person's next message read by app code, `suggestion.decide` and `project.undo`; the page's card, the offer under its
   call, the app's line and the sidebar's *New project* asking Mila; no change to the library. Checked on Windows: the
   session's tests, 103, 18 new; the page's, 149, 10 new; mock scenario 19 in the window over the mock at 1280x800, 900
@@ -1251,7 +1257,7 @@ The rest, in the proposed order:
 - **Phase 7. What Mila understands.** `note_understanding`, waiting notes, the project's summary and *Next* (4.5), given
   to each chat as section 5.6 says. *Built 2026-11-21 (`0.21.0-dev+162`)*, as phase 7's decisions and sections 4.5, 8 and
   10 record: in the library, `Agent::respond( message, placed )` and `ToolGate::runPlaced` (`../ToolCalling.md` 3.3); in
-  the session, `Desktop.Understanding`, the project's `understanding.json`, `note_understanding` and
+  the session, `Assistant.Understanding`, the project's `understanding.json`, `note_understanding` and
   `read_project_notes` offered in a chat in a project, the person's instructions ending its system prompt, the note
   placed after a new chat's first message, `note.decide`, the person's edit and clearing, and a note cleared with a chat
   it rests on; on the page, the project's *Summary* and the waiting note under *Needs you*. Found and fixed in the same
@@ -1291,7 +1297,7 @@ design of its own.
 
 ## 13. Relationship to other specs
 
-- **`../MilaDesktop.md`** keeps the transcript, the limits, Settings, the session and its schema; its 3.3 and 3.4 are
+- **`../MilaAssistant.md`** keeps the transcript, the limits, Settings, the session and its schema; its 3.3 and 3.4 are
   replaced at phase 2, its 3.1 at phase 3, and its section 4 gains section 10's messages in the change that builds
   each.
 - **`AssistantOnboarding.md`**: the setup ends on the overview, and its section 4.2 is this design's rule on contacting

@@ -1742,7 +1742,7 @@ namespace Mila::ChatApp
         void clearHistory()
         {
             // Ends the tools allowed for the conversation with it: conversation.new, conversation.open and model.load
-            // (MilaDesktop.md 4.5).
+            // (MilaAssistant.md 4.5).
             session().newConversation();
         }
 

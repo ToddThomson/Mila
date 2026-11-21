@@ -73,7 +73,7 @@ option(MILA_ENABLE_TESTING "Enable Mila Library tests." ${PROJECT_IS_TOP_LEVEL})
 option(MILA_ENABLE_PYTHON_BINDINGS "Build the MilaPy pybind11 extension module." ${PROJECT_IS_TOP_LEVEL})
 option(MILA_ENABLE_PROFILING "Enable Mila Library profiling." ${PROJECT_IS_TOP_LEVEL})
 option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." ${PROJECT_IS_TOP_LEVEL})
-option(MILA_ENABLE_APPS "Build the Mila Desktops (mila-chat, mila-store)." ${PROJECT_IS_TOP_LEVEL})
+option(MILA_ENABLE_APPS "Build the Mila apps (mila-chat, mila-store)." ${PROJECT_IS_TOP_LEVEL})
 # Developer tooling: tokenize, ExportArtifact, the measurement tools. None of it ships -- the
 # wheel excludes it and an embedding consumer just wants the library -- so this follows the same
 # rule as the extras above rather than the bare PROJECT_IS_TOP_LEVEL it used to carry, which
@@ -383,12 +383,12 @@ mila_link_cxx_runtime_statically()
 add_subdirectory( Lib )
 
 # The apps Mila ships to the people who run it (see MilaProductFamily.md): Mila Chat, a human at a prompt, and Mila
-# Desktop, whose session process is built here. Both run models on Mila::Agents, on whichever GPU backend the build has:
+# Assistant, whose session process is built here. Both run models on Mila::Agents, on whichever GPU backend the build has:
 # the agent chooses the device and its precision (ModelHandle.md 10.7). Gated on MILA_ENABLE_APPS so a consumer
 # embedding Mila builds neither. mila-app packages the session with the window and page, which are Node.
 if( MILA_ENABLE_APPS AND ( MILA_HAS_CUDA OR MILA_HAS_METAL ) )
     add_subdirectory( Apps/Chat )
-    add_subdirectory( Apps/Desktop )
+    add_subdirectory( Apps/Assistant )
 elseif( MILA_ENABLE_APPS )
     message( STATUS "No GPU backend (CUDA or Metal) - skipping mila-chat and mila-session" )
 endif()
@@ -406,7 +406,7 @@ file( WRITE "${CMAKE_CURRENT_SOURCE_DIR}/Apps/Server/VERSION" "${MILA_PEP440_VER
 # them, and they follow MILA_ENABLE_TESTING, not MILA_ENABLE_APPS, so that build need not build the apps.
 if( MILA_ENABLE_TESTING )
     add_subdirectory( Apps/Chat/Tests )
-    add_subdirectory( Apps/Desktop/Session/Tests )
+    add_subdirectory( Apps/Assistant/Session/Tests )
 endif()
 
 if( PROJECT_IS_TOP_LEVEL AND MILA_ENABLE_COMMIT_CHECKS )

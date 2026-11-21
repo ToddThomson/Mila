@@ -1032,7 +1032,7 @@ Gemma 4's drafter is not part of this: v0.21.0 ships it in each package, on by d
 `agents`
 
 In v0.21.0 a tool runs in the application's process, held by the grant it works through (`ToolCalling.md` 3.4),
-and one kind of tool runs a program through the grant's container: Mila Desktop's shell, an experiment off by
+and one kind of tool runs a program through the grant's container: Mila Assistant's shell, an experiment off by
 default (`BACKLOG.md`, `ContainedPrograms.md`, Todd 2026-10-27). What waits: other people's MCP servers started as
 processes, and tools an agent writes, through the same container (`ContainedPrograms.md` phase 4); and the
 container off Windows -- MXC's bubblewrap backend accepts and refuses on Linux as its Windows one does
@@ -1075,7 +1075,7 @@ The finding is an absence; nothing selects features yet (the entry under Deploym
 
 An agent works only while `respond()` runs, and a reply with no call ends that, whether the model finished, gave up or
 asked a question. Nothing holds a goal across responses, spends a budget across them, sees a loop or keeps a record, and
-Mila Desktop's plan is private to it. The library owns the answer (Todd, 2026-11-03): a task, its budget and policy, a
+Mila Assistant's plan is private to it. The library owns the answer (Todd, 2026-11-03): a task, its budget and policy, a
 versioned trace and a task folder, with `agent.run( task )` on top of `respond()`. The design is agreed; it comes after
 v0.22.0, and only compaction's seam for it is in v0.21.0.
 
@@ -1312,7 +1312,7 @@ in. `adopt` was to take it, and its shape waits on one question: what `plan()` i
 load. The planner needs the package's weights metadata and trained maximum, which a composed network lacks, and a
 network handed over already built has been priced against nothing. Options and the finding are in
 `ModelHandle.md` 10.4; gate H6 (a test composes a small `LanguageModel`, adopts it with no registration, and
-generates through the handle). Moved out of v0.21.0 by Todd, 2026-10-25, so that release finishes Mila Desktop,
+generates through the handle). Moved out of v0.21.0 by Todd, 2026-10-25, so that release finishes Mila Assistant,
 which opens only installed models; the two ROADMAP criteria and the `Mila::Agents` object's gate clause that promised
 it went with it.
 
@@ -1324,7 +1324,7 @@ it went with it.
 
 **Leaning, not a design (Todd, 2026-11-07); the work is secondary and waits.** The library is the authority of its own
 statistics. Today it keeps none: `LanguageModel::generate` returns only a `GenerateStatus`, and each consumer times
-itself from the token callback (Chat's `RoundTimer`, Desktop's session, `mila-metal-model-timing`). That rests on
+itself from the token callback (Chat's `RoundTimer`, Mila Assistant's session, `mila-metal-model-timing`). That rests on
 `722fb7d1` (2026-07-01, `0.20.0-alpha.6+79`), which deleted `GenerationStatistics` on the premise that callback
 timestamps reconstruct the model's time. They do not: the callback runs inside the decode loop, so a consumer's
 per-token work is counted as model time and also delays the next step, and a consumer can never see GPU time. Found
@@ -1341,7 +1341,7 @@ The leanings:
 - **Chat shows throughput only when the user asks.** `/stats` stays as the way to ask, in plain terms (how fast the
   reply came, the time to its first word), read from the library; nothing is printed after each reply. The
   diagnostic detail (gaps, stalls, percentiles, rounds) goes to `-p`'s JSON output and the log, not to the command.
-- Desktop follows the same split: the window shows only what is asked for, the protocol carries the detail.
+- Mila Assistant follows the same split: the window shows only what is asked for, the protocol carries the detail.
 
 Open: whether the agent (`Mila::Agents`) adds per-round totals over its tool calls, or passes the model's through.
 

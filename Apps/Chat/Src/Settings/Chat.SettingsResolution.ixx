@@ -24,40 +24,41 @@ namespace Mila::ChatApp
     using Mila::Deployment::AllowedDevices;
 
     /**
-     * @brief Where this user's own configuration lives, mirroring resolveStoreRoot().
+     * @brief Where this user's own configuration lives: Chat's area of a Mila folder (ChatConfiguration.md 7).
      *
-     * %APPDATA% and not %LOCALAPPDATA%: settings are small and personal and should roam, while the
-     * store correctly stays in Local because model blobs are large and machine-specific. A different
-     * variable, deliberately. macOS takes the Linux path for symmetry -- Apple's own convention is
-     * ~/Library/Application Support, worth revisiting only if a Metal backend ever makes macOS a real
-     * target.
-     *
-     * Here rather than beside resolveStoreRoot() in the library, which is what
-     * ChatConfiguration.md section 7 pictures: this resolves CHAT's configuration, and the library has
-     * none of its own to place. The moment a second adaptor wants the same convention is the moment it
-     * moves, and that is a library decision rather than this one.
+     * `%APPDATA%\Mila\Chat` on Windows, not the Local Mila folder the store is in: settings are small and personal
+     * and roam, while model blobs are large and machine-specific. `~/Library/Application Support/Mila/Chat` on
+     * macOS, the person's Mila folder itself; `$XDG_CONFIG_HOME/mila/chat`, else `~/.config/mila/chat`, on Linux.
      *
      * Empty when no variable answers, which callers read as "this platform has no config root" rather
      * than falling back to a directory that is nobody's idea of one.
      */
     export std::filesystem::path resolveConfigRoot()
     {
+        using Mila::Distribution::milaArea;
         using Mila::Distribution::readEnvironmentVariable;
 
+#if defined( _WIN32 )
         if ( const auto app_data = readEnvironmentVariable( "APPDATA" ) )
         {
-            return std::filesystem::path( *app_data ) / "Mila";
+            return milaArea( std::filesystem::path( *app_data ) / "Mila", "Chat" );
         }
-
+#elif defined( __APPLE__ )
+        if ( readEnvironmentVariable( "HOME" ) )
+        {
+            return Mila::Distribution::resolveMilaArea( "Chat" );
+        }
+#else
         if ( const auto xdg_config = readEnvironmentVariable( "XDG_CONFIG_HOME" ) )
         {
-            return std::filesystem::path( *xdg_config ) / "mila";
+            return milaArea( std::filesystem::path( *xdg_config ) / "mila", "Chat" );
         }
 
         if ( const auto home = readEnvironmentVariable( "HOME" ) )
         {
-            return std::filesystem::path( *home ) / ".config" / "mila";
+            return milaArea( std::filesystem::path( *home ) / ".config" / "mila", "Chat" );
         }
+#endif
 
         return {};
     }
@@ -361,7 +362,7 @@ namespace Mila::ChatApp
         {
             // A relative path resolves against the directory of the FILE that set the key -- the rule
             // tsconfig, Cargo and every include-path system settles on, and the only one that survives
-            // the config root moving to %APPDATA%. A path typed on the command line is the exception:
+            // the config root moving. A path typed on the command line is the exception:
             // the user typed it against the working directory and tab-completed there.
             const bool from_file = origin && !origin->file.empty();
 

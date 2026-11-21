@@ -182,4 +182,4 @@ Numbered for the rounds. Each answer is Claude's, provisional.
 - The thresholds themselves (`ModelEval.md` 10, decision 2) and the measurements (`ModelEval.md`, `ContextProfile.md`).
 - Compaction (`Agents/Compaction.md`), which reads the same depth.
 - The card's layout (`ModelEval.md` 8).
-- Choosing a model per conversation or per activity in an application (`MilaDesktop.md` 3.2).
+- Choosing a model per conversation or per activity in an application (`MilaAssistant.md` 3.2).

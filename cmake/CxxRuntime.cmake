@@ -1,6 +1,6 @@
 # On macOS, every program and module Mila links carries LLVM's C++ runtime inside itself. Mila needs LLVM's own
 # Clang and libc++ there (Apple's toolchain ships no `std` module source), and macOS has no copy of that libc++, so a
-# program linked to it dynamically starts only on a Mac where the toolchain is installed (MilaDesktop.md 9.4).
+# program linked to it dynamically starts only on a Mac where the toolchain is installed (MilaAssistant.md 9.4).
 
 # Finds `archive` for the compiler in use: where the compiler itself looks, else in `subdirectory` of the library
 # folder beside it, which is where Homebrew's LLVM keeps libc++ (lib/c++) and libunwind (lib/unwind).

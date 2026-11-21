@@ -8,13 +8,14 @@ store**, which is a separate location — see below.
 ## The store, and why it is usually elsewhere
 
 The store is what `/model list`, `/model install` and every `from_store` load read. Its root resolves in this
-order (`Mila/Src/Distribution/ModelStore.ixx`):
+order (`Lib/Src/Distribution/Store/ModelStore.ixx`):
 
 1. `MILA_CACHE_DIR`, if set
-2. `%LOCALAPPDATA%\Mila` (Windows)
-3. `$XDG_CACHE_HOME/mila`, then `$HOME/.cache/mila` (Linux)
+2. `%LOCALAPPDATA%\Mila\Store` (Windows)
+3. `~/Library/Application Support/Mila/Store` (macOS)
+4. `$XDG_DATA_HOME/mila/store`, then `$HOME/.local/share/mila/store` (Linux)
 
-So on a normal Windows or Linux machine the store is **outside the repository**. The one place it
+So on a normal machine the store is **outside the repository**. The one place it
 lands here is the container: the image sets `MILA_CACHE_DIR=/mila/Data/Models/Store`, which sits on
 the repo bind mount, so a model installed from either side is the same store and survives
 `run --rm`.

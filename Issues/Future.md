@@ -23,7 +23,7 @@ generates 53.7 / 50.4 / 48.1 tokens a second at depth 0 / 8K / 32K against llama
 `GqaDecodeAttention.md` section 6, and the merge needs a persistent counter in the op's state. The depth-0 cell also
 carries the output-head difference (FP8 in Mila's package, Q6_K in the GGUF).
 
-## Mila Desktop is not in the Microsoft Store or Apple's
+## Mila Assistant is not in the Microsoft Store or Apple's
 
 `apps` · `distribution` · `ci`
 
@@ -43,7 +43,7 @@ reports, nothing tried:
   says individual onboarding is paused. A listing also needs a privacy policy, an age rating and the GPU requirement
   stated (`Untriaged.md`, unsigned download).
 - **Apple.** Todd has a developer account (2026-11-14), and the first Mac testers get a notarized Developer ID disk
-  image (`MilaDesktop.md` section 9, item 4). The Mac App Store, and TestFlight with it, needs the App Sandbox, which
+  image (`MilaAssistant.md` section 9, item 4). The Mac App Store, and TestFlight with it, needs the App Sandbox, which
   moves the model store into the app's container and needs a grant for each folder the agent works in.
 
 ## Qwen 3 — the dense members
@@ -638,8 +638,8 @@ fraction, and the no-fit case.
 
 **A container user has nowhere to put settings.** `session.json` ships inside the image layer, so
 changing `temperature` means mounting a file over it, and `--config` assumes a file you can already
-write. Related: `chat-state.json` sits in the store root, which `resolveStoreRoot()` puts in a
-*cache* directory on Linux. Two shapes weighed — beside the store, or `MILA_CONFIG_DIR` — and they
+write. Related: `chat-state.json` sits in the store root, which `resolveStoreRoot()` put in a
+*cache* directory on Linux until `0.21.0-dev+163` (now the Mila folder's `store`). Two shapes weighed — beside the store, or `MILA_CONFIG_DIR` — and they
 settle together, because `context_length: auto` wants the same home.
 
 ## A non-interactive `chat` must name its model
@@ -751,7 +751,7 @@ ROCm and Metal; `DeviceType::Rocm` / `::Metal` are reserved and unimplemented.
 
 Metal, 2026-09-29: aspirational, gated on hardware -- Todd is trying to get an Apple M1, for a Metal backend running
 Llama. As of 2026-10-20 an M1-or-later loaner is expected at the end of October or early November, and macOS is also
-wanted for Chat's desktop window (`MilaDesktop.md` section 9). What exists is scaffolding --
+wanted for Chat's desktop window (`MilaAssistant.md` section 9). What exists is scaffolding --
 `Compute/Devices/Metal/` has a device, memory resource, execution context and plugin, and no ops. The order that
 follows from the tree: Mila has never been built on ARM (the next entry), so a CPU-only build on the M1 comes first,
 and with `Vnext.md` "Llama 3.2 runs on the CPU backend" it already runs Llama there; then the Llama op set in Metal,
@@ -908,7 +908,7 @@ window is an HTML page in an Electron client of that process -- one presentation
 (Todd, 2026-10-20). Phase 1, the page and the Electron window against a mock session, is to be built by a cloud
 session. Open: the names, and which release takes phases 2 to 4.
 
-`Specifications/MilaDesktop.md`
+`Specifications/Apps/MilaAssistant.md`
 
 ## Qwen 3.8 27B FP4 at 64K would need part of its cache in host memory
 

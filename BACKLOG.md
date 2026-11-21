@@ -347,7 +347,7 @@ are not carried. Answered by `cargo tree` on the build of Mila's own that `Conta
 the PC nor WSL has a Rust toolchain, and a lock file read by hand lists every target's crates. Before any build reaches
 a tester, since handing one out is distributing it. No success criterion names it; admitted by Todd, 2026-11-17.
 
-`NOTICE.md` · `Apps/Desktop/Session/CMakeLists.txt` (`mila_session_licence`) · `Specifications/ContainedPrograms.md` 4.10
+`NOTICE.md` · `Apps/Assistant/Session/CMakeLists.txt` (`mila_session_licence`) · `Specifications/ContainedPrograms.md` 4.10
 
 #### What a model can do is inferred from its family name, not read from its manifest
 
@@ -450,18 +450,18 @@ and the `.mila` folder.
 
 `Specifications/ToolCalling.md` section 5
 
-#### Mila Desktop runs only against a mock
+#### Mila Assistant runs only against a mock
 
 `in progress` · `apps`
 
-`MilaDesktop.md` phases 3 and 4: the session process that speaks section 4 over stdio on a real model, then the
+`MilaAssistant.md` phases 3 and 4: the session process that speaks section 4 over stdio on a real model, then the
 window starting it in place of the mock, with tool calls through `Mila::Agents`. Gate: a script driving the session
 process runs the equivalents of scenarios 1 to 8 and 11 on a real model; the window runs the theme's task on
 every published model that calls tools. The session process is built (`mila-session`) and its gate passes
 on Llama, Gemma and Qwen, with a real install and removal. The window starts it in place of the mock and runs
 scenarios 1 to 11 on Llama, Gemma and a real install; tool calls through `Mila::Agents` and the theme's task remain.
 
-`Specifications/MilaDesktop.md` sections 6.1, 8
+`Specifications/Apps/MilaAssistant.md` sections 6.1, 8
 
 #### Tool calling has never been driven end to end on Llama
 
@@ -734,14 +734,14 @@ without it (`Metal/MetalBackend.md` section 4.6). Metal in this release is what 
 Mac's working set, where the model runs and macOS swaps the rest of the Mac out (`MetalFirstModel.md` section 5).
 `Specifications/Metal/MetalBackend.md` section 9.
 
-#### Mila Desktop for the Mac is neither signed nor notarized, so a person who downloads it cannot open it
+#### Mila Assistant for the Mac is neither signed nor notarized, so a person who downloads it cannot open it
 
 `in progress` · `apps` · `distribution`
 
-Chat and Mila Desktop build and run on a Mac, and the window packages for one (`Apps/Desktop/Window/package.json`,
+Chat and Mila Assistant build and run on a Mac, and the window packages for one (`Apps/Assistant/Window/package.json`,
 `build:mac`, an arm64 app signed ad hoc, which Gatekeeper refuses once it has been downloaded). A Mac app a person downloads is
 signed and notarized under Todd's Apple developer account, as a Developer ID disk image (`build:mac:signed`,
-`Specifications/MilaDesktop.md` section 9, item 4); the build is written and has not yet run with the certificate. The staged session stands alone:
+`Specifications/Apps/MilaAssistant.md` section 9, item 4); the build is written and has not yet run with the certificate. The staged session stands alone:
 it carries LLVM's C++ runtime inside itself and reaches the network through macOS's own transports, with no libcurl
 (`Specifications/HttpClient.md` section 9; `otool -L`, 2026-11-14). It reads web pages through the grant's network,
 and the files of a folder the person gives it through the grant's file checks, both tested on the Mac. Labelled experimental where

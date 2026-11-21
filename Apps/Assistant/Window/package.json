@@ -1,0 +1,96 @@
+{
+  "name": "mila-assistant",
+  "productName": "Mila Assistant",
+  "version": "0.21.0",
+  "description": "Mila, an assistant that runs local LLMs on your own GPU",
+  "author": "Todd Thomson",
+  "license": "MIT",
+  "repository": "https://github.com/ToddThomson/Mila",
+  "private": true,
+  "type": "module",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "prebuild:windows": "node -e \"['session/mila-session.exe', 'session/vcruntime140.dll', 'session/Licences'].every(require('node:fs').existsSync) || (console.error('No session, or one staged without its licence texts, to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1))\"",
+    "build:windows": "electron-builder --win --x64 --publish never",
+    "postbuild:windows": "node packaging/check-licences.mjs windows",
+    "prebuild:linux": "node -e \"['session/mila-session', 'session/Licences'].every(require('node:fs').existsSync) || (console.error('No session, or one staged without its licence texts, to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1))\"",
+    "build:linux": "electron-builder --linux dir --publish never",
+    "postbuild:linux": "node packaging/check-licences.mjs linux",
+    "prebuild:mac": "node -e \"['session/mila-session', 'session/Licences'].every(require('node:fs').existsSync) || (console.error('No session, or one staged without its licence texts, to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1))\"",
+    "build:mac": "electron-builder --mac dir --arm64 --publish never",
+    "postbuild:mac": "node packaging/check-licences.mjs mac",
+    "prebuild:mac:signed": "node -e \"const env = process.env; ['session/mila-session', 'session/Licences'].every(require('node:fs').existsSync) || (console.error('No session, or one staged without its licence texts, to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1)); env.APPLE_KEYCHAIN_PROFILE || (env.APPLE_API_KEY && env.APPLE_API_KEY_ID && env.APPLE_API_ISSUER) || (env.APPLE_ID && env.APPLE_APP_SPECIFIC_PASSWORD && env.APPLE_TEAM_ID) || (console.error('No notarization credentials: set APPLE_KEYCHAIN_PROFILE to a profile stored with xcrun notarytool store-credentials.'), process.exit(1))\"",
+    "build:mac:signed": "electron-builder --mac --arm64 --publish never --config mac-signed.config.mjs",
+    "postbuild:mac:signed": "node packaging/check-licences.mjs mac && spctl --assess --type execute -vv \"dist/mac-arm64/Mila Assistant.app\" && xcrun stapler validate \"dist/mac-arm64/Mila Assistant.app\""
+  },
+  "devDependencies": {
+    "electron": "44.9.3",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "me.toddt.mila",
+    "productName": "Mila Assistant",
+    "executableName": "Mila",
+    "directories": {
+      "output": "dist",
+      "buildResources": "icons"
+    },
+    "files": [
+      "src/**/*",
+      "icons/icon.png",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../Ui",
+        "to": "Ui",
+        "filter": [
+          "**/*",
+          "!tests/**",
+          "!mock/**"
+        ]
+      },
+      {
+        "from": "session",
+        "to": "Session"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "artifactName": "Mila-Assistant-Setup-${version}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "dir"
+      ]
+    },
+    "mac": {
+      "extraResources": [
+        {
+          "from": "node_modules/electron/dist/LICENSE",
+          "to": "LICENSE.electron.txt"
+        },
+        {
+          "from": "node_modules/electron/dist/LICENSES.chromium.html",
+          "to": "LICENSES.chromium.html"
+        }
+      ],
+      "target": [
+        "dir"
+      ],
+      "identity": "-",
+      "hardenedRuntime": false
+    }
+  }
+}

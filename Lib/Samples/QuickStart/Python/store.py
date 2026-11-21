@@ -94,7 +94,7 @@ def main():
     parser.add_argument("--locate", metavar="NAME",
         help="Show one model in full instead of the listing.")
     parser.add_argument("--root", default="",
-        help="Store directory. Default: MILA_CACHE_DIR, then the platform user cache.")
+        help="Store directory. Default: MILA_CACHE_DIR, then the Store folder in your Mila folder.")
     args = parser.parse_args()
 
     common.configure_console()

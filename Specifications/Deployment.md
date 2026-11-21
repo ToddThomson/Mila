@@ -664,12 +664,12 @@ new dimension of the planner, not beside it. *The allowed devices are built (12.
 
     - **The planner makes the decision** (Todd). An application states how the machine is used, as an input of the
       request, and holds no budget of its own: **desktop**, the machine is the user's and shared with their work
-      (Chat, Mila Desktop), or **dedicated**, the machine is the model's (MIS by default). The names are not decided.
+      (Chat, Mila Assistant), or **dedicated**, the machine is the model's (MIS by default). The names are not decided.
       The input is every backend's: a CUDA card that drives the display is shared in the same sense.
     - **Desktop, proposed.** The budget is the memory macOS can hand over without writing anything (free, speculative,
-      purgeable, perhaps clean file cache), less Mila's own memory outside the GPU (the process; in Mila Desktop the
+      purgeable, perhaps clean file cache), less Mila's own memory outside the GPU (the process; in Mila Assistant the
       window and the session), less a headroom for the user's work. The objective is what the use needs, not the most
-      that fits: a context floor in the request, the agentic bar's 64K being the candidate for Mila Desktop's agent and
+      that fits: a context floor in the request, the agentic bar's 64K being the candidate for Mila Assistant's agent and
       Chat's floor open. Without a cache that grows, every position planned is wired for as long as the model is used.
       When the floor does not fit, trades in an order still to be set (proposed: the drafter off, then a smaller chunk,
       then a refusal that names the memory); the weight format stays the caller's (decision 1). Between turns the
@@ -692,7 +692,7 @@ new dimension of the planner, not beside it. *The allowed devices are built (12.
         the fastest path measured (W3b: eight threads read every page, about 1 s for 7.5 GiB when compressed), within
         the second or few Todd allows.
       - **What releases the lock:** the application leaving the foreground, the screens sleeping, the user's session
-        going inactive, the Mac going to sleep, and a backstop after the last use: **30 minutes in Mila Desktop, 5
+        going inactive, the Mac going to sleep, and a backstop after the last use: **30 minutes in Mila Assistant, 5
         minutes in Chat.** macOS tells the application (AppKit `NSApplicationDidBecomeActiveNotification`,
         `...DidResignActiveNotification`, `NSWorkspaceScreensDidSleepNotification`,
         `NSWorkspaceSessionDidResignActiveNotification`, `NSWorkspaceWillSleepNotification`; Electron's
@@ -708,8 +708,8 @@ new dimension of the planner, not beside it. *The allowed devices are built (12.
         changed while running, not a memory resource of its own: the device's allocation map holds every buffer Mila
         has, so the hold is an operation over it (`Metal/MetalBackend.md` 5, *Binding by pointer*, W2). Locking
         7.47 GiB takes 0.25 s and releasing it 0.12 s (W3d). The applications own the timers: Chat locks for a turn
-        and after a load, and lets go five minutes after; Mila Desktop's window sends `app.active` and
-        `app.background` (`MilaDesktop.md` 4.2.1), and the session locks while active and lets go in the background
+        and after a load, and lets go five minutes after; Mila Assistant's window sends `app.active` and
+        `app.background` (`MilaAssistant.md` 4.2.1), and the session locks while active and lets go in the background
         or thirty minutes after the last turn. MIS sets nothing yet: the Python binding has no Metal path, and on CUDA
         every hold is the same. It takes `LockedAndRequested` from its load once it runs on a Mac.
       - **In both modes** Mila does not stop on the GPU's out-of-memory error (`DeviceOutOfMemoryError`): the turn

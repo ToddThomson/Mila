@@ -22,7 +22,7 @@ their computer is chosen. The suggestion is the planner's answer, never the app'
   library answers that.
 - What the person can do instead of the suggestion, and what happens when there is no suggestion to make.
 
-It does not decide the screens for a store that has models but none loaded; those are built (`MilaDesktop.md`
+It does not decide the screens for a store that has models but none loaded; those are built (`MilaAssistant.md`
 3.4, `+141`) and are the fallback this design replaces only on a first run.
 
 ## 2. Where it stood before round 2
@@ -31,7 +31,7 @@ It does not decide the screens for a store that has models but none loaded; thos
 start*, the reason it asks, and *Choose a model to install*, which opened Settings at *Models* and fetched the
 published list. That was the catch for an empty store, not onboarding: it named no model.
 
-**The published list.** `publishedModels()` (`Apps/Desktop/Session/Src/Desktop.Models.ixx`) listed the
+**The published list.** `publishedModels()` (`Apps/Assistant/Session/Src/Assistant.Models.ixx`) listed the
 publisher's repositories and fetched each one's manifest, keeping only its size and its weight format. The manifest
 carries more (`Lib/Src/Distribution/Packaging/ModelManifest.ixx`): the architecture and its version, the minimum
 Mila version, the licence, the publisher's sampling, every file with its bytes and digest, and `ModelCapabilities` --
@@ -46,7 +46,7 @@ a package on disk: nothing planned a model before it was installed. Since `+138`
 memory other applications hold (`Deployment.md` 12.10).
 
 **The session.** An install into a session with nothing resident loads the model it installed
-(`Desktop.SessionProcess.ixx`, `installModel`), so a first install already ends with a model loaded.
+(`Assistant.SessionProcess.ixx`, `installModel`), so a first install already ends with a model loaded.
 
 ## 3. Rules it stands on
 
@@ -92,7 +92,7 @@ to 6, which are its model pane.
    *None of the models published for Mila runs on this computer*, why for the first model the planner ranked, and
    *See every model*.
 
-The page is `Apps/Desktop/Ui/views/transcript.js` (`renderFirstRun`), its state `state.js` (`firstRunStep`,
+The page is `Apps/Assistant/Ui/views/transcript.js` (`renderFirstRun`), its state `state.js` (`firstRunStep`,
 `suggestedModel`), its words `format.js` (`modelAbilities`, `suggestionFacts`). The mock plays it as scenario 8 and,
 with the publisher unreachable, 12.
 
@@ -157,7 +157,7 @@ The page tells the window (`setup.showing`), which builds the menu.
 **What is accepted, and who keeps it.** The session decides, not the page:
 
 - The licence text ships in the package beside the session, the same `License.md` the repository carries
-  (`Desktop.MilaLicense`; the build copies it, the `mila-session` install component carries it). A package
+  (`Assistant.MilaLicense`; the build copies it, the `mila-session` install component carries it). A package
   without it, or with an empty one, starts and says the licence is missing; nothing can be accepted.
 - The session records an acceptance in its own settings, `settings.json`'s `license`: the text's SHA-256 digest and
   the time, in UTC. A package whose licence text has a different digest asks again at the next launch, and an
@@ -165,7 +165,7 @@ The page tells the window (`setup.showing`), which builds the menu.
 - Until the licence is accepted the session refuses `model.install`, `model.load` and a turn, and does not open the
   remembered model, so a front end other than this page meets the same refusal. The page learns where the person
   stands from the session's `license` event, the reply to `ready`, and accepts by the digest of the text it showed
-  (`license.accept`), so an acceptance is always of the text that was read (`MilaDesktop.md` 4).
+  (`license.accept`), so an acceptance is always of the text that was read (`MilaAssistant.md` 4).
 
 **Two licences.** Mila's own, accepted once, here. Each model's (Gemma's terms, Llama's community licence) at its
 install, question 16.
@@ -230,7 +230,7 @@ The library pieces, all in `Lib/Src`:
   server that ignores the range is stopped at the first byte past the part rather than buffered.
   `IModelHub::fetchFilePart` reads one, and `HuggingFaceHub` implements it.
 - **`Distribution::PublishedModel`**: one repository and its manifest, `list( hub, owner )` (what
-  `Desktop.Models.ixx` did by hand), `downloadBytes()`, and `weightsHeader( hub, store )` -- two small reads, the
+  `Assistant.Models.ixx` did by hand), `downloadBytes()`, and `weightsHeader( hub, store )` -- two small reads, the
   length and the header, written to `<store>/headers/sha256-<weights digest>.header` and read from there after.
   A republished model's digest changes, so it is read again.
 - **`ModelHandle::check( PublishedModel )` and `ModelHandle::planFor( PublishedModel, request, hub, store )`**:
@@ -325,7 +325,7 @@ to be (2026-11-15):
 
 ## 8. Not in this design
 
-- Choosing a model per conversation after the first run (`MilaDesktop.md` 3.2's library query, a proposal for
+- Choosing a model per conversation after the first run (`MilaAssistant.md` 3.2's library query, a proposal for
   `Mila::Agents`).
-- The screens for a store with models and none loaded (`MilaDesktop.md` 3.4).
+- The screens for a store with models and none loaded (`MilaAssistant.md` 3.4).
 - The renaming of the app and its folder to Mila Assistant.

@@ -413,6 +413,7 @@ export import Serialization.WeightsReader;
 // ============================================================================
 export import Distribution.Sha256;
 export import Distribution.Environment;
+export import Distribution.MilaFolder;
 export import Distribution.ModelCoordinate;
 export import Distribution.ModelFile;
 export import Distribution.ModelCapabilities;

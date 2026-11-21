@@ -229,7 +229,7 @@ this leg never was.
 
 ```bash
 cd out/build/linux-clang-debug
-./Lib/Tests/MilaTests && ./Lib/Tests/AgentsHtmlTextTests && ./Apps/Chat/Tests/ChatRichTextTests && ./Apps/Desktop/Session/Tests/DesktopSessionTests
+./Lib/Tests/MilaTests && ./Lib/Tests/AgentsHtmlTextTests && ./Apps/Chat/Tests/ChatRichTextTests && ./Apps/Assistant/Session/Tests/AssistantSessionTests
 ```
 
 Running them all is what makes that equivalent to `ctest`: `MilaTests` alone reports a lower number

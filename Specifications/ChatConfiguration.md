@@ -579,15 +579,15 @@ already solved.
 
 | Platform | Path |
 |---|---|
-| Windows | `%APPDATA%\Mila\chat.json` |
-| Linux | `$XDG_CONFIG_HOME/mila/chat.json`, else `~/.config/mila/chat.json` |
-| macOS | `~/.config/mila/chat.json` |
+| Windows | `%APPDATA%\Mila\Chat\chat.json` |
+| Linux | `$XDG_CONFIG_HOME/mila/chat/chat.json`, else `~/.config/mila/chat/chat.json` |
+| macOS | `~/Library/Application Support/Mila/Chat/chat.json` |
 
-`%APPDATA%` and not `%LOCALAPPDATA%`: settings are small and personal and should roam, while
-the store correctly stays in Local because model blobs are large and machine-specific.
-Different variable, deliberately. macOS takes the Linux path for symmetry — Apple's own
-convention is `~/Library/Application Support`, worth revisiting only if a Metal backend ever
-makes macOS a real target.
+Chat's area of a Mila folder, as each Mila program keeps its own (Todd, 2026-11-21,
+`Apps/AssistantInterface.md` 8). `%APPDATA%` and not `%LOCALAPPDATA%`: settings are small and
+personal and should roam, while the store stays in Local because model blobs are large and
+machine-specific. macOS has one place for both, the person's Mila folder. Until `0.21.0-dev+163`
+the file was at the top of `%APPDATA%\Mila` and `~/.config/mila`, the Mac's included.
 
 ---
 

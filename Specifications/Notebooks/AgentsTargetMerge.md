@@ -86,11 +86,11 @@ The merge in the working tree, with the `Mila.Agents` aggregate deleted and its 
 |---|---|
 | `x64-claude-verify`, all targets, MSVC | Builds, 0 warnings, 377 s |
 | `MilaTests` with MXC's library | 2435 pass, 12 skip, 7 fail: the 4 of `BACKLOG.md` and the 3 Llama date failures of `Untriaged.md` |
-| `AgentsHtmlTextTests`, `ChatRichTextTests`, `DesktopSessionTests` | 10, 33 and 14 pass |
+| `AgentsHtmlTextTests`, `ChatRichTextTests`, `AssistantSessionTests` | 10, 33 and 14 pass |
 | `check_layers.py` against three deliberate breaks: `Dnn` importing `Agents`, `Distribution` importing `Dnn`, an unlisted folder | All three fail it; the tree as it stands passes |
 | CUDA off, MSVC, `x64-debug-cpu-only`: library and every test target | Builds, 0 warnings. `MilaTests` 1279 pass, 15 skip, the same 3 date failures; the other three binaries pass |
 | CUDA off, `mila-store` | Fails, and fails the same on a clean `+114`: `Untriaged.md` |
 | FetchContent consumer of the working tree | Builds, 202 s |
 | Clang 22, five architectures: library, `mila-chat`, `MilaTests`, the two standalone test binaries | Builds, 603 s. No warning from agents code or its tests. Agents tests that need no model 71 pass, `AgentsHtmlTextTests` 10, `ChatRichTextTests` 33 |
 
-**Not run:** `x64-profile` (RelWithDebInfo sections), a second GPU, a wheel's packaging, the Docker images, the Mila Desktop drives.
+**Not run:** `x64-profile` (RelWithDebInfo sections), a second GPU, a wheel's packaging, the Docker images, the Mila Assistant drives.

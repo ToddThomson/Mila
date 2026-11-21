@@ -43,7 +43,7 @@ program in ten lines of C++, and one call from there to the kernel.** Section 5 
 2026-10-10, so that finished models need not wait for the API, and *The Desktop Agent* then brought the model handle
 and the agent with its tool loop back. Much of v0.22.0 was therefore already here, so this release ships it (Todd,
 2026-11-02): *A Developer Can Start*, below, adds what the claim still lacks. Mila is one library with one install,
-whose models API and agents API a program reaches as `Mila::Dnn` and `Mila::Agents`. Chat and Mila Desktop are built
+whose models API and agents API a program reaches as `Mila::Dnn` and `Mila::Agents`. Chat and Mila Assistant are built
 on the agents API. The inference server stays as it is in this release, on the binding's sessions; what it gains here
 is what survives its rebuild -- a published server, correct replies, and defaults read from the model. Choosing a
 deployment's features, use cases and that rebuild are v0.22.0's (**Future**, below).
@@ -225,13 +225,13 @@ user from install to a running model.
 
 ### The Desktop Agent
 
-*The models this release finishes call tools, and Mila Desktop, lets you put them to work on your own
+*The models this release finishes call tools, and Mila Assistant, lets you put them to work on your own
 files and the web, each call under your rules and kept to the folder you choose -- built from the library alone,
 so a developer's program can do the same.*
 
 Family parity gave this release models that call tools: Gemma 4 and Qwen 3.8 are driven through tool calls today,
 and Llama never has been, which this theme closes. The only harnesses that exercise them are other people's, over
-the inference server, and Mila's own Chat runs one stub tool. Mila Desktop's window was built in October against
+the inference server, and Mila's own Chat runs one stub tool. Mila Assistant's window was built in October against
 a mock; this theme puts it on a real model and makes it an agent harness: the model reads and edits files in a
 folder the person chooses and reads web pages, and every call is allowed, asked or refused by the person's rules.
 
@@ -243,27 +243,27 @@ let one loop drive every family, and `Mila::Agents` itself, whose tool loop appe
 cache instead of reading the conversation again. On it: tools that declare what they touch, permissions every call
 passes, with the app's hook for asking the person, and a grant through which a tool opens files and makes
 connections, which holds it to the folder and to public addresses. The models API has no tools. The agents API
-provides the file and web tools both apps offer, written through grants, and Chat offers them as Mila Desktop does: a person names a folder or
+provides the file and web tools both apps offer, written through grants, and Chat offers them as Mila Assistant does: a person names a folder or
 allows the web, and is asked before each call and shown what it can reach. And an agent holds a session -- what the program
 gave it and the conversation -- apart from its model, so a program changes model or context without losing either;
-Mila Desktop and Chat each build on the library alone for that, with no family-specific code of their own (`Direction.md` 4.3, Todd, 2026-10-27). One program-running tool comes in as an
+Mila Assistant and Chat each build on the library alone for that, with no family-specific code of their own (`Direction.md` 4.3, Todd, 2026-10-27). One program-running tool comes in as an
 experiment, off by default: the grant runs a program in Microsoft's execution container, held to the folder, the
-network as granted and a desktop of its own, and Mila Desktop's Build & Code gains a shell through it
+network as granted and a desktop of its own, and Mila Assistant's Build & Code gains a shell through it
 (`ContainedPrograms.md`, Todd, 2026-10-27). MCP and other people's tool servers come later, through the same
 container. The grant's checks hold on Windows and on a Mac, each tested on both (*Mila on Apple Silicon*, Todd,
 2026-11-15); on Linux a tool runs only once its checks are tested there.
 
-**Success criteria:** on Windows, Mila Desktop runs every model this release publishes that calls tools through a
+**Success criteria:** on Windows, Mila Assistant runs every model this release publishes that calls tools through a
 task that reads files in the chosen folder, edits one, and reads a web page, each call allowed or asked by the
 person's rules and shown in the conversation; a denied call reaches the model as declined and the reply continues;
 a tool working through its grant cannot read or write outside the chosen folder by any name that leads there, and
 reaches no private or local address by name, by literal address or through a redirect, shown by a test per kind of
-name and address that is refused; Mila Desktop and Chat run every tool call through `Mila::Agents`,
+name and address that is refused; Mila Assistant and Chat run every tool call through `Mila::Agents`,
 and neither runs a call itself nor holds a model's tool grammar; the console Chat asks before a tool runs, as the
 window does, and edits a file in a folder the person named and reads a web page through the same tools the window
 offers; a program built against the library alone registers a tool and runs it under `Mila::Agents`'s permissions
 on Gemma, Llama and Qwen by changing only the model's name, `plan()` and `model()` reaching the objects that ran;
-the agents API is in the Mila library, built on the rest of it, and nothing else in the library imports it; a program changes its model, or its context, and keeps its tools, rules, grant and conversation; Mila Desktop and
+the agents API is in the Mila library, built on the rest of it, and nothing else in the library imports it; a program changes its model, or its context, and keeps its tools, rules, grant and conversation; Mila Assistant and
 Chat each build on `Mila::Agents` alone, neither linking the other's code, and neither holds code that knows which family
 a model belongs to; no dispatch site in `Mila::Agents` carries a
 per-family branch; and across a multi-turn tool session, prefill tokens per turn equal the tokens the turn added,
@@ -350,11 +350,11 @@ Mila was CUDA and the CPU until November 2026, when a development Mac arrived an
 (`Specifications/Metal/MetalBackend.md`). It is the first test of the claim the type axes were built on: a second GPU
 vendor as a new partition of operations, with the components unchanged. On the M1 Pro Llama 3.2 3B already matches
 HuggingFace in FP16, the M1's precision, and decodes at 0.83 of llama.cpp after 4096 tokens. This theme carries that to
-the models this release publishes and to the things a person installs, all of them marked experimental: Mila Desktop
+the models this release publishes and to the things a person installs, all of them marked experimental: Mila Assistant
 as a Mac app, signed and notarized, Mila for Python as a wheel for Apple silicon, and Chat and the model store built from
 source as on every other platform (Todd, 2026-11-05). Published packages do not change; Metal reads the ones CUDA
 reads. A 16 GB Mac holds less than a 16 GB card, since the GPU shares that memory with the Mac, so not every published
-model fits one. A Mac is a platform at parity with Windows (Todd, 2026-11-15): Mila Desktop on a Mac reads web pages
+model fits one. A Mac is a platform at parity with Windows (Todd, 2026-11-15): Mila Assistant on a Mac reads web pages
 through the grant's network and works in the folder a person names through its file tools, the grant's checks tested
 there as on Windows. Metal in this release is what the development Mac, an M1 Pro with
 16 GB, can build and test: Llama and Gemma 4 12B. Qwen 3.8 on a Mac, the Gemma 26B-A4B and decode replay are
@@ -364,7 +364,7 @@ v0.22.0's (Todd, 2026-11-09).
 before anything else does.
 
 **Success criteria:** on an M1 Pro with 16 GB and macOS 27, every Llama and Gemma model this release publishes that the
-planner admits there passes its family's HuggingFace gate on Metal, in its published format; Mila Desktop installs on that Mac from a
+planner admits there passes its family's HuggingFace gate on Metal, in its published format; Mila Assistant installs on that Mac from a
 signed, notarized download and runs one of those models in a conversation, its file and web tools held to the
 grant as on Windows; `pip install mila-llm` on that Mac opens a
 session on one and generates; Chat and `mila-store` build there from source with the documented toolchain and run one;

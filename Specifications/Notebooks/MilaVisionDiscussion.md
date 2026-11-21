@@ -492,7 +492,7 @@ At `0.21.0-dev+153`, 2026-11-18. Read, not run.
 rule runs unasked if its tool is in `allowed_for_conversation_`; otherwise the application is asked. `ForConversation`
 adds the tool by name, so the answer covers every later call of that tool, whatever its arguments.
 
-**The Assistant's rules.** `Apps/Desktop/Session/Src/Desktop.SessionProcess.ixx`, `useChat`: the only rule added allows
+**The Assistant's rules.** `Apps/Assistant/Session/Src/Assistant.SessionProcess.ixx`, `useChat`: the only rule added allows
 `update_step`. `askAboutCall`:
 
 - `request_folder` in a chat that already has a folder returns *once*, unasked.
@@ -501,22 +501,22 @@ adds the tool by name, so the answer covers every later call of that tool, whate
   `allow_conversation` and `deny`.
 
 **A defect found.** `web_search` is therefore offered *allow for this conversation*, after which later searches run
-unasked. `MilaDesktop.md` 3.7 says "every search is asked about with its words shown, since they leave the machine", and
+unasked. `MilaAssistant.md` 3.7 says "every search is asked about with its words shown, since they leave the machine", and
 `AssistantInterface.md` 5.5 says "a search is asked every time". Filed in `Issues/Untriaged.md`. No test names it. Found
 by reading and not reproduced by running the app.
 
-**The tools offered.** `Apps/Desktop/Prompts/general.json`: `propose_plan`, `update_step`, `read_web_page`, `web_search`,
+**The tools offered.** `Apps/Assistant/Prompts/general.json`: `propose_plan`, `update_step`, `read_web_page`, `web_search`,
 `request_folder`, `list_folder`, `read_file`, `find_files`, `search_text`, `write_file`, `edit_file`, `run_command`.
 
 **The network.** `Lib/Src/Agents/Grants/ToolGrant.ixx`: a grant with the network holds a checked transport that accepts
 public addresses. It checks where a connection goes and has no view of what is being sent.
 
-**Other outward paths seen, not a complete list.** `Apps/Desktop/Window/src/main.js`, `openLink`: an allowed link goes to
-the person's browser through `shell.openExternal`. `Desktop.WebSearch.ixx` sends the query and key to Tavily. Model
+**Other outward paths seen, not a complete list.** `Apps/Assistant/Window/src/main.js`, `openLink`: an allowed link goes to
+the person's browser through `shell.openExternal`. `Assistant.WebSearch.ixx` sends the query and key to Tavily. Model
 installs reach the hub. `run_command` has the network only when a call asks. Vision step 1 is the full inventory.
 
-**At rest.** `MilaDesktop.md` 3.7: the search key is plain text in `search.json` until the credential store holds it.
-A search of `Apps/Desktop` for `safeStorage`, DPAPI, `CryptProtect`, Keychain, libsecret and "encrypt" found only the
+**At rest.** `MilaAssistant.md` 3.7: the search key is plain text in `search.json` until the credential store holds it.
+A search of `Apps/Assistant` for `safeStorage`, DPAPI, `CryptProtect`, Keychain, libsecret and "encrypt" found only the
 Mac signing configuration and packaging, so conversations are not encrypted.
 
 **Confinement.** `Issues/Untriaged.md`: nothing at the operating system's level confines `mila-session`.
@@ -592,9 +592,9 @@ All 2026-11-18.
 2026-11-18, `0.21.0-dev+153` with the vision's documents in the working tree. Todd approved the step ("Yes"). No product
 code was changed.
 
-**How it was done.** Every use of the network was traced by reading `Apps/Desktop/Session/Src`, `Apps/Desktop/Window/src`,
-`Apps/Desktop/Ui`, `Lib/Src/Networking`, `Lib/Src/Distribution/Hub` and `Lib/Src/Agents`. The window was also run once on
-Windows: Electron 44.9.3 from `Apps/Desktop/Window`, mock scenario 1, no model and no clicks, for 120 s with Chromium's
+**How it was done.** Every use of the network was traced by reading `Apps/Assistant/Session/Src`, `Apps/Assistant/Window/src`,
+`Apps/Assistant/Ui`, `Lib/Src/Networking`, `Lib/Src/Distribution/Hub` and `Lib/Src/Agents`. The window was also run once on
+Windows: Electron 44.9.3 from `Apps/Assistant/Window`, mock scenario 1, no model and no clicks, for 120 s with Chromium's
 network log (`--log-net-log`, `IncludeSensitive`). Its user data and temporary files were under `D:\Claude\egress`, where
 the log and `read_netlog.py` are kept.
 
@@ -641,7 +641,7 @@ Whether WPAD runs depends on the computer's proxy setting, so another machine ma
   `fetch` outside the mock's development panel, which is not packaged.
 - **The window:** navigation and new windows are refused, spellcheck is off, permissions are limited to writing the
   clipboard, and it starts no auto-updater and no crash reporter. Packaging uses `--publish never`.
-- **The session:** no telemetry. Its only network code is `Desktop.WebSearch.ixx`, the model hub through `Desktop.Models.ixx`,
+- **The session:** no telemetry. Its only network code is `Assistant.WebSearch.ixx`, the model hub through `Assistant.Models.ixx`,
   and the tools given a grant. `ready` lists installed models only, offline.
 - **Conversations, settings and the licence record** are written locally and are not sent. The login name in `about` goes
   to the page only.

@@ -56,7 +56,7 @@ Gemma's length did not grow between the two depths; Qwen's varied too much run t
 
 ## Carrying on from a summary
 
-Measured 2026-11-03 once the mechanism was built (`real_run.py`). Mila Desktop's session in Build & Code over a copy of
+Measured 2026-11-03 once the mechanism was built (`real_run.py`). Mila Assistant's session in Build & Code over a copy of
 `Lib/Src/Agents`, context 16,384, `summary_tokens` 6,000, thinking off for the summary. The first message states a rule
 (begin every reply with "Maintainer:") and a fact (a review date); later messages ask for reads and short explanations, and
 the last asks for the date and the first function discussed, with nothing read.
@@ -109,7 +109,7 @@ One run each.
 ## Replaying the dead end
 
 Measured 2026-11-03 and 04 (`replay.py`, `replay.jsonl`). The saved Qwen conversation through the server, context 24,576 so no
-budget cut anything, thinking off, Mila Desktop's Build & Code prompt and six tools, a token count within 36 of the real one at
+budget cut anything, thinking off, Mila Assistant's Build & Code prompt and six tools, a token count within 36 of the real one at
 15,383. Asked for at most 8,192. A named length is "Keep it under 2,000 words" unless the arm says. A cut at 4,096 is read from the token counts.
 
 | Arm | The state | Tools offered | Length named | Runs | Called a tool | Finished, tokens | Under 4,096 |
@@ -135,7 +135,7 @@ Those 4 lost everything since it, and kept the rule and the date. Each compactio
 pushed the summary toward its budget. Asking for a rewrite did not stop it (arms I and J). Whether Gemma does this was not looked at.
 
 - **The unanswered message was not the cause.** Calls were commoner with it out, in five runs each.
-- **Tools were called only under this prompt.** None of 26 above called one, with no Mila Desktop system prompt. That the prompt is
+- **Tools were called only under this prompt.** None of 26 above called one, with no Mila Assistant system prompt. That the prompt is
   why is a guess, not tested.
 - **Naming a length is what fit the budget:** 22 of 23 under 4,096 with one, 5 of 8 without, though models run over what is asked.
 - **Not measured:** whether a summary that copies this much loses what matters over many compactions, and the last resort, which
@@ -154,7 +154,7 @@ under 2,400 words. A test failing on its budget raised the question, and the len
 | Four short turns, on, four runs, 1,200 words | 1,080 to 5,042 | 1,448 to 4,586 |
 
 Thinking on varies too much to budget for, with or without a length, and on a table of records it mostly goes over the table again.
-Chat and Mila Desktop turn it off for a summary.
+Chat and Mila Assistant turn it off for a summary.
 
 ## Outside
 

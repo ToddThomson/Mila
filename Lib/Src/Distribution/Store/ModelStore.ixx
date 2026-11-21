@@ -21,6 +21,7 @@ export import Distribution.CleanOptions;
 import nlohmann.json;
 import Distribution.Sha256;
 import Distribution.Environment;
+import Distribution.MilaFolder;
 import Distribution.ModelManifest;
 import Distribution.ModelPackage;
 
@@ -29,8 +30,9 @@ namespace Mila::Distribution
     /**
      * @brief Resolve the store root, first match wins.
      *
-     * MILA_CACHE_DIR, then the platform user cache. An explicit override exists because a
-     * multi-gigabyte store often does not belong on the same volume as the user profile.
+     * MILA_CACHE_DIR, then the `Store` area of the person's Mila folder (`resolveMilaArea`). An explicit
+     * override exists because a multi-gigabyte store often does not belong on the same volume as the user
+     * profile.
      *
      * The root holds models/, blobs/ and tmp/, so it does NOT end in "models" -- appending it
      * here as well as in recordPath() is what produced the `Mila\models\models` tree.
@@ -42,22 +44,7 @@ namespace Mila::Distribution
             return std::filesystem::path( *explicit_root );
         }
 
-        if ( const auto local_app_data = readEnvironmentVariable( "LOCALAPPDATA" ) )
-        {
-            return std::filesystem::path( *local_app_data ) / "Mila";
-        }
-
-        if ( const auto xdg_cache = readEnvironmentVariable( "XDG_CACHE_HOME" ) )
-        {
-            return std::filesystem::path( *xdg_cache ) / "mila";
-        }
-
-        if ( const auto home = readEnvironmentVariable( "HOME" ) )
-        {
-            return std::filesystem::path( *home ) / ".cache" / "mila";
-        }
-
-        return std::filesystem::temp_directory_path() / "mila";
+        return resolveMilaArea( "Store" );
     }
 
     /**

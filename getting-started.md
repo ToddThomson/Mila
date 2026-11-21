@@ -297,7 +297,7 @@ are ungated — no account, no access request, no token. From the chat harness:
 
 Published today: `gemma-4-12b-it-fp4` (~6.8 GB), `Llama-3.2-3B-Instruct-fp4`,
 `Llama-3.1-8B-Instruct-fp4`, and `Qwen3.8-27B-fp4`. The download lands in the local
-store — `MILA_CACHE_DIR`, else the platform user cache — which Chat, the inference server and
+store — `MILA_CACHE_DIR`, else the `Store` folder in your Mila folder — which Chat, the inference server and
 the Python binding all share, so a model installed once is loadable by all of them.
 
 The same thing from Python, with no C++ build involved:

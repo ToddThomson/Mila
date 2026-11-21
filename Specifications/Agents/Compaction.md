@@ -13,7 +13,7 @@ that set its trigger are not yet measured (section 8). Carries `BACKLOG.md`, *A 
 
 Read from `Lib/Src/Agents/Agent.ixx` on 2026-11-03, and still what happens with no policy set:
 
-- **A message that does not fit** returns `ContextOverflow` and is dropped; rounds is 0, and Chat and Mila Desktop tell
+- **A message that does not fit** returns `ContextOverflow` and is dropped; rounds is 0, and Chat and Mila Assistant tell
   the person to start again or choose a longer context.
 - **A result that does not fit** is cut to what fits, or refused (`addResult`).
 - **A round that reaches the limit** ends the response. Its reply stays in the conversation, so the next message usually
@@ -24,7 +24,7 @@ Nothing shortens the conversation. An agent's session may also be changed by the
 
 ## 2. The shape
 
-Off unless the program asks (decision 4). Chat and Mila Desktop ask.
+Off unless the program asks (decision 4). Chat and Mila Assistant ask.
 
 ```cpp
 session.withCompaction( {
@@ -159,7 +159,7 @@ reasoning is not quite nothing.
 ### 5.3 Tools on the summary prompt
 
 Each template declares its tools at the head of the prompt: in the system content on Qwen and Gemma (`formatPrompt`),
-and on Llama in the system header in the form Chat and Mila Desktop use, or in the first user turn by its default.
+and on Llama in the system header in the form Chat and Mila Assistant use, or in the first user turn by its default.
 **A summary prompt with no tools therefore differs from the state almost at once: a prefill of the whole conversation,
 at its deepest,** and then the prompt after compaction prefills the system prompt and tools again.
 
@@ -168,8 +168,8 @@ Gemma 4 12B Q4_0 3.2 s with the tools and 14.5 s without; Qwen 3.8 27B FP4 9.3 s
 the latest reply, its results and the instruction.
 
 Keeping them has its own risk: the model may call one. A call is not run, and the instruction says not to. None of 26
-summaries offered tools called one, on two models with a repository session's tools and no system prompt of Mila Desktop's;
-8 of 32 did on Qwen under Mila Desktop's own prompt and tools, replaying a real conversation. With no tools offered, 0 of 7 did
+summaries offered tools called one, on two models with a repository session's tools and no system prompt of Mila Assistant's;
+8 of 32 did on Qwen under Mila Assistant's own prompt and tools, replaying a real conversation. With no tools offered, 0 of 7 did
 (`Notebooks/CompactionSummaries.md`). So a call costs one short attempt and then the re-read this section prices, which is why
 the tools stay for the first attempt and go for the second.
 
@@ -193,12 +193,12 @@ consumer. The trace (`AgentTasks.md` 6.1) keeps these events later.
 tokens the round's prompt holds, which the agent has already counted for the round's budget; `Agent::contextTokens()`
 counts the conversation as it stands, system prompt and tools included, with no new message, at the cost of a tokenizer
 pass over it; and `Agent::compactionThreshold()` is the prompt length at which the session's policy compacts here, empty
-with no policy. Mila Desktop's header ring is built on the three (`../MilaDesktop.md` 3.5).
+with no policy. Mila Assistant's header ring is built on the three (`../MilaAssistant.md` 3.5).
 
 ## 7. The apps
 
-**Mila Desktop** stores `messages`, what the page shows, apart from `turns`, what the model reads
-(`Desktop.SessionProcess.ixx` `saveConversation`). So the person's view survives untouched, a reopened conversation
+**Mila Assistant** stores `messages`, what the page shows, apart from `turns`, what the model reads
+(`Assistant.SessionProcess.ixx` `saveConversation`). So the person's view survives untouched, a reopened conversation
 continues compacted, and the window needs only a line for the two events. It keeps no replaced turns in this change:
 retrieving them is `Future.md` *Compacted turns stay retrievable*.
 
@@ -232,7 +232,7 @@ Llama's single result included; a trigger not reached leaves the prompt byte-equ
 
 Each behaviour above gets a mutant, as the agent's tests have had.
 
-**Real runs** (`Notebooks/CompactionSummaries.md`): Mila Desktop's session over real source, at a 16K context, with a rule and
+**Real runs** (`Notebooks/CompactionSummaries.md`): Mila Assistant's session over real source, at a 16K context, with a rule and
 a fact stated once in the first message. Gemma carried both across six compactions, once the instruction was changed for a
 loss the earlier wording caused. Qwen carried both across three on the earlier wording, and on the next dead-ended after six;
 that replay is what decisions 9 to 12 come from. As built, Qwen reached the end of the same session: seven compactions, the rule and
@@ -260,11 +260,11 @@ the code was read.
 5. **A summary counts against the response's time, and not its reply tokens.**
 6. **A truncated summary is a failure, and a failure ends the automatic attempts for that response.**
 
-7. **The policy may set template variables for the summary alone, and Chat and Mila Desktop turn thinking off with it, where
+7. **The policy may set template variables for the summary alone, and Chat and Mila Assistant turn thinking off with it, where
    the template has the switch** (Todd, 2026-11-03, after the measurement). On Qwen it costs a read from zero (the switch is at the prompt's head), 25 s more
    at 32K, against minutes saved and summaries that finish. What it does to a summary's quality is unmeasured, here and
    elsewhere: the mechanism's test on carrying on from a summary answers that. The library's default stays the session's own.
-8. **Chat and Mila Desktop start with `summary_tokens` at 6,000** (Todd, 2026-11-03), above the longest thinking-off summary seen (4,581), from a small
+8. **Chat and Mila Assistant start with `summary_tokens` at 6,000** (Todd, 2026-11-03), above the longest thinking-off summary seen (4,581), from a small
    sample, and revisited with the mechanism's runs. It is an application's number, not the library's, so it hardens nothing.
 
 Decided 2026-11-04 from a replay of the Qwen session that dead-ended, on Todd's direction to measure each proposed fix or

@@ -27,10 +27,10 @@ build/
 **/*.pyc
 TestResults/
 
-# Mila Desktop's installed packages and packaged output: the image builds no window.
+# Mila Assistant's installed packages and packaged output: the image builds no window.
 **/node_modules/
-Apps/Desktop/Window/dist/
-Apps/Desktop/Window/session/
+Apps/Assistant/Window/dist/
+Apps/Assistant/Window/session/
 
 # Version control and CI metadata
 .git/

@@ -96,7 +96,7 @@ is touched.
   `:534`), "VRAM" (`Chat.ConsoleFrontEnd.ixx:1346`, `:1705-1710`), "this GPU" in each refusal
   (`Chat.Session.ixx:1608-1624`). A Mac has unified memory, so "VRAM" is untrue there.
 
-**Mila Desktop's session.** The device is an `int` sent as CUDA (`Desktop.SessionProcess.ixx:1162`,
+**Mila Assistant's session.** The device is an `int` sent as CUDA (`Assistant.SessionProcess.ixx:1162`,
 `main.cpp:116`, `:151`): **wrong**. Its package copies CUDA's libraries beside the session
 (`Session/CMakeLists.txt:67-84`): **correct** for the Windows package, and a Mac package carries its own list.
 
@@ -134,7 +134,7 @@ the binding.
 
 - `Direction.md` 1.2, "it goes deep on NVIDIA rather than wide", and the layer diagram's bottom row, "CUDA / CPU":
   stale.
-- `MilaDesktop.md`, "macOS once a Metal backend exists" (6.1) and "once a Metal backend exists" (section 9, decision 6): stale; one exists.
+- `MilaAssistant.md`, "macOS once a Metal backend exists" (6.1) and "once a Metal backend exists" (section 9, decision 6): stale; one exists.
 
 ## 9. What the decisions cover, and what they leave
 
@@ -233,4 +233,4 @@ script read the exit status of a filter, and now reads the build log.
 Recommended when it is taken up: build with whatever backends the build has, `mila.Agent` on the handle as the Mac
 path, the per-family sessions left CUDA-only as they retire. It holds up `ROADMAP.md` *Mila on Apple Silicon*'s
 criterion that `pip install mila-llm` on the Mac opens a session and generates, and whether that session means
-`mila.Agent`'s is to be settled then. Chat and Mila Desktop on the Mac do not wait on it.
+`mila.Agent`'s is to be settled then. Chat and Mila Assistant on the Mac do not wait on it.

@@ -1,0 +1,812 @@
+# Mila Assistant
+
+Mila Assistant (`Apps/Assistant/`): an agent a person puts to work, organised around the work they
+came to do rather than around models (section 3). It runs over the same session as Chat's console. The
+session runs as its own C++ process; the window is a client of it, in whatever language suits the window. The
+console stays first-class on every platform. Named `ChatDesktop.md` until 2026-10-26, and `MilaDesktop.md`, at the top of `Specifications/`, until the app was
+renamed Mila Assistant on 2026-11-21.
+
+**Status:** draft, 2026-10-20. Phase 1 (the page and the Electron window, against a mock session) is
+built; phase 2 (the session split, section 7) and phase 3 (the session process, section 6.1) are built,
+2026-10-24, and the window runs over the real session (phase 4, section 8). The app's name and audience are
+decided (section 9, 2026-10-24); its direction, activities over models, on 2026-10-26 (section 9.7). The
+layout of section 3 is that direction; the page as built is still the conversation-and-models layout it
+replaces (phase 6, section 8). Open decisions are in section 9.
+
+---
+
+## 1. What this is
+
+Chat is a session and a console front end over it: `ChatSession` (`Chat.Session.ixx`) holds the model
+resolution, the deployment request and the model as a `Mila::Agents::Agent`, which runs the turn, its tool calls and
+the channel routing (`+98`), and the console
+(`Chat.ConsoleFrontEnd.ixx`) draws its events through `ConsoleRenderer` and reads `std::cin` (section 7). A
+window is a second front end over that same session. It exists because the things a person now does with a local model are window-shaped:
+
+- **Media.** An image or an audio clip attached by drag-and-drop, shown in the transcript, and refused by
+  name for a model that has no such modality (`Gemma4Modality.md` 5.7). A terminal can take a path; it
+  cannot show the picture back.
+- **Conversations.** A sidebar of past conversations, reopened where they were left. Chat has no
+  conversation store today: every session starts empty.
+- **The showcase for end users.** Mila is the brand; the assistant app is called Mila and is where a person
+  who runs local models sees what Mila can do -- an agent with tool calling, with the conversation as its
+  face. The library's audience is the developer; the app's is the person running it (Todd, 2026-10-24,
+  section 9). Everything the app shows a person is end-user prose (CLAUDE.md, *End-User Prose*).
+
+**The person chooses the work; Mila chooses the intelligence** (Todd, 2026-10-26). The app is not a place to
+configure and run models -- a catalogue of models, each with its sampling, context and quantization knobs, is
+the layout of LM Studio and its peers, and Mila's case against them is the quality of the agent, not the breadth
+of the catalogue. A person starts from what they want done; the model, its deployment and the agent's limits
+are Mila's choice, made from what Mila has measured, visible on request and capped where the person wants a
+boundary. The comparison is cuBLASLt's: the caller states the operation and its constraints, the library picks
+the implementation. Every element on the main path earns its place by helping the person get the work done,
+showing what Mila is doing, or setting a boundary that matters.
+
+**An app adds no capability to the library** (CLAUDE.md). The window shows what the library and the
+session already do. Video, which no Mila model takes, has no place in it. Nor does an activity whose tools or
+agent behaviour the library and the app do not yet have: a card is shown when its work can be done (section 3).
+
+## 2. Architecture
+
+```
+  +----------------------+     +---------------------------------------------+
+  |  Console front end   |     |  Window: Electron (section 6.2)             |
+  |  ConsoleRenderer,    |     |  page Ui/  <-- bridge -->  window process   |
+  |  stdin               |     +----------------------+----------------------+
+  +----------+-----------+                            |  JSON lines on stdio
+             |                                        |  (section 4)
+             |                 +----------------------+----------------------+
+             |                 |  Session process: the JSON-lines front end  |
+             |                 +----------------------+----------------------+
+             |  events out / requests in               |
+             +--------------------+--------------------+
+                                  |
+                   +--------------+---------------+
+                   |  Chat session                |
+                   |  (Chat.Session.ixx)          |
+                   +--------------+---------------+
+                                  |
+                                Mila
+```
+
+- **The line is presentation versus session.** It is the line v0.22.0 draws when Chat is rebuilt on
+  `Mila::Agents` ("Chat keeps terminal rendering and the approval gate", `Vnext.md`): what is beneath it moves
+  then, and no front end does.
+- **The session is its own process; the window is a client** (Todd, 2026-10-20). The C++ never draws a
+  window: the session process is the same small program on every platform Chat builds on, and the window
+  can be written in JavaScript, .NET, Python, Rust or anything else that can start a process and read
+  its output. A fault in either does not take down the other, so a window crash does not unload the model.
+  Mila's window is Electron (section 6.2); other clients are welcome on the same schema.
+- **Formatting is presentation.** The session emits channel-routed *raw* text; routing a reply to its
+  channels is the session's, through the template's reader in the library (`Conversation::ReplyReader`). The
+  console front end
+  keeps `IncrementalRichFormatter` and `RichText` (markdown and LaTeX to terminal Unicode, word wrap); the
+  window renders markdown itself, in the page. Each front end keeps its own streamed-equals-buffered
+  check.
+- **The page is HTML, CSS and JavaScript.** All layout, rendering and interaction live in `Ui/`; the
+  window process only hosts it, starts the session process, and relays messages.
+- **The session runs on the library directly; not through the inference server.** The server's wire is
+  the OpenAI and Anthropic APIs, stateless per request, and has no model install, load or remove, no
+  progress, no context rebuild and no session settings; giving it those would make it an app back end,
+  which it is not. It would also put a Python runtime and a local port in an end-user install. The two
+  are servers with two jobs: the inference server is the industry wire for other tools, the session
+  process is Mila's own stateful protocol for Mila's own front ends.
+- **"In process" is unchanged.** `Direction.md`'s in-process property is about a developer harnessing
+  Mila, which stays the library and its bindings. The tool loop and the KV splice still run inside the
+  session process; only presentation crosses the process boundary.
+- **The window never reaches the library.** It speaks only the schema in section 4, so a third copy of
+  the family-specific code is never written. The session process links Chat's today, and with it Chat's
+  family-specific types; that goes in v0.21.0 (`BACKLOG.md` *The Desktop Agent*, `Direction.md` 4.3).
+
+## 3. Layout
+
+A sidebar on the left; on the right, the start of new work, or the work under way. Organised around the work,
+not models (section 1; decided 2026-10-26, section 9.7).
+
+### 3.1 Activities
+
+Replaced by general-purpose chats at `Apps/AssistantInterface.md` phase 3 (`0.21.0-dev+150`; Todd, 2026-11-16, no
+activity cards): every chat has one prompt and every tool its work can be done with here, and asks for a folder when
+its work first needs one (that document's 5.5). A conversation stored with an activity opens as a chat, its folder in
+its grant. The four activities, their cards and what each offered are in the history of this file before that change.
+
+### 3.2 The model is Mila's choice
+
+What a chat needs -- a model whose manifest carries `agentic` (`ModelDistribution.md`), the context it works in, a modality -- is the
+library's vocabulary; which installed model meets it on this card, deployed how, is a question the library answers,
+not the app (the no-new-capability rule). That query does not exist yet: it would rank the installed models on
+what Mila has measured, never on a family name (BACKLOG, "What a model can do is inferred from its family name"),
+and plan each on the device (`Deployment.md`). Its nearest anchor is v0.22.0's use case (`ROADMAP.md`, *Mila::Agents*:
+"a named selection of features over the same request", its defaults from measurement), which deploys one model for
+a use case; choosing which installed model serves it goes one step past that narrative. It is a proposal for
+`Mila::Agents`, not agreed. Until it exists, the app uses the model the session loads, as today.
+
+What has been measured today is one judgement, agentic or not, plus whether a model fits the card; on a 16 GB card
+every chat would choose the same model. That is expected: what differs between pieces of work is what the agent
+is given, not who runs it.
+
+**First run.** A fresh store has no model (CLAUDE.md), so the home screen with nothing installed recommends one
+model for this card -- the planner's suggestion from the published list, a measured agentic model first -- with one
+*Install* and its progress, not a catalogue. The design is `Apps/AssistantOnboarding.md`.
+
+### 3.3 Sidebar
+
+Replaced by the sidebar of `Apps/AssistantInterface.md` 4.1 at its phase 2 (`0.21.0-dev+149`). What the old one did is
+there: a chat is renamed or deleted from its menu in *All chats* (4.6), delete asks first; Ctrl+N (Command+N on a Mac)
+begins a new conversation in the Mila bar; *Settings* is at the sidebar's foot. A wide window's sidebar no longer
+collapses to a rail; below 900 px it slides over the pane from the path bar's menu button (4.10).
+
+### 3.4 Home screen
+
+Replaced at `Apps/AssistantInterface.md`'s phase 2 (`0.21.0-dev+149`) by its workspace overview (4.3) and the Mila
+bar (5.1), which starts *Ask & Explore*. What stays from the home screen is the screen asking for a model, which takes
+the overview's place while none is loaded:
+
+- While a model loads, the start's included, the overview is already shown and the sidebar's model row says it is
+  loading.
+- With models installed and none loaded or loading: *Choose a model to start*, each installed model with *Load*, the
+  refusal's text above them when a load was refused, and *Install another model*, which opens Settings at *Models*
+  and fetches the published list. With none installed, the first-run setup (`Apps/AssistantOnboarding.md` 4.1), or
+  after it *Install a model to start*, the reason it asks, and *Choose a model to install*, the same way (`+141`).
+  Each screen asks one thing: under its heading is why it asks, and while it shows the Mila bar is hidden (Todd,
+  2026-11-13). Before a conversation has begun, a load or install refused is said there and in Settings, not as the
+  conversation's first entry.
+
+### 3.5 Main pane
+
+- *Header:* since `Apps/AssistantInterface.md`'s phase 2 (`0.21.0-dev+149`), the path bar of its 4.2, and above the
+  transcript the chat's head (4.7). What the header said of the model is the sidebar's model row (its 4.1): the
+  model by its display name, with no model loaded *No model loaded*, and while the app has a status (4.1 `progress`)
+  a ring and the status in its place. With a model resident the row ends in a ring that fills with the share of the
+  context the open chat takes, turning the error colour past nine tenths (Todd, 2026-11-14); a click opens what Mila
+  chose -- what is used, the context window and whether Mila chose it, where compaction starts, what is left,
+  thinking -- and *Manage models…*, which opens Settings at *Models*. Read-only there; a change is made under the
+  limits (below) or in Settings.
+- *Transcript:*
+  - User turns, right-aligned, with their attachments as thumbnails (image) or a small player (audio).
+  - Assistant turns, full width. The reasoning channel is a collapsed block above the answer ("Thought
+    for 412 tokens"), expandable, streamed live when open. Tool calls are compact cards in order of
+    occurrence: the tool's name and summary, the result expandable. A call waiting for the person's
+    approval is open, shows its arguments in full and "Waiting for you", and offers *Allow once*, *Allow in
+    this conversation* and *Deny*; a declined call says "Declined".
+  - Markdown rendered: headings, emphasis, lists, tables, links, inline code, fenced code with a
+    language label and a copy button. Math is shown as its source in phase 1 (section 9).
+  - Below each finished reply: copy, and a quiet stats line on hover (prefill ms, tok/s, tokens, rounds).
+    A reply that ended on the token cap or the context bound says so in the reply, not only in stats.
+- *Log drawer:* at detail `all` only, a collapsed "Log" bar above the composer, with the count of lines; opened,
+  the session's `log` lines in monospace, newest at the bottom. A Get Things Done plan's checklist sits there too.
+- *Composer:* the Mila bar (`Apps/AssistantInterface.md` 5.1) at the foot of every screen, Mila's mark beside a
+  multi-line box (Enter sends, Shift+Enter is a newline), an attach button, drop anywhere on the pane to attach,
+  attachments as removable chips above the box. In a chat it says *Reply to Mila*. While a reply is generating,
+  *Send* becomes *Stop* and the bar says *Esc stops the reply*. Attach is disabled with a tooltip naming why for a
+  model without that modality.
+
+### 3.6 Limits
+
+The person's caps on what Mila chose, in a small panel from the header. Every one defaults to Mila's choice, and a
+cap is a hard bound, not a preference: a reply that meets one stops and says so, with what it had done.
+
+- *Ask before* -- which of the chat's tools run without asking: the rules of `ToolCalling.md` 3.3, the
+  defaults shown. Being allowed to proceed never widens what a tool may reach; that is its grant.
+- *Time* and *length* of a reply -- `AgentLimits` (`+98`).
+- *Effort* -- only where the model's template has levels, from its default; a model without them shows none,
+  since no layer invents a reasoning mode a model's template does not have.
+
+There is no cap on agents in parallel: `Mila::Agents` runs one.
+
+### 3.7 Settings
+
+Off the main path, for the person who wants them: one window over the whole of Mila's, models included (Todd,
+2026-11-13, `+140`).
+
+**The window:** opened from the sidebar's foot or the person's menu, by Ctrl+, (Command+, on a Mac) at the area last
+shown, and by the model's *Manage models…* at *Models*; Esc or its close button closes it, and Esc in a search with words
+in it clears them first. On the left a search and the areas -- *Models*, *Responses* (thinking, effort, context),
+*Sampling* (temperature, top_k, top_p, presence_penalty, seed), *Web search*, *Build & Code* (run commands),
+*Display* (detail) -- and on the right one area's settings, or every setting the search names, grouped by area. A
+window under 700 px wide gives Settings all of it, the areas in a row above. Every setting is declared once, in
+`Ui/views/settings-table.js`: its area, label, note, the words a search finds it by, what it needs (the session, or
+a loaded model) and its control. A setting the loaded model does not have (thinking, effort) is left out; with no
+model, the model's settings are listed without controls, with the way to *Models*.
+
+**Web search** (in Settings, 2026-10-26): the person's own Tavily key, pasted once and shown only as set, with
+*Remove key*. The session keeps it in the operating system's credential store for the person's account
+(`Assistant.SearchKeyStore`, `0.21.0-dev+156`): Windows Credential Manager, the macOS login keychain, and on Linux the
+desktop's Secret Service keyring through libsecret. With no keyring running on Linux a key cannot be kept, and saving one
+says so. A key a session before then kept in `search.json` beside the conversations folder moves there at the next
+start and the file is deleted; if the store refuses it, the file stays and its key is still used. The key is sent only
+to Tavily, in a basic search (one credit) of at most
+ten results (`Assistant.WebSearch.ixx`). With a key, Research & Analyze and Get Things Done are offered `web_search`,
+and every search is asked about with its words shown, since they leave the machine; without one, the tool is not
+offered. Tavily's search is a POST, which Mila's HTTP transport sends since that day (`HttpClient.md` 4.1). Not yet
+read: Tavily's terms on keeping results, which a saved conversation does.
+
+**The session's settings:** sampling (temperature, top_k, top_p, presence_penalty, each with *model default*),
+thinking on/off, context (a number or *auto*), detail (off, thoughts, all), seed. Each reflects `session.state`;
+changing one sends `settings.set`. The defaults are the publisher's (CLAUDE.md, *Measurement*), so a person who
+never opens Settings runs the model as it was measured. The limits' defaults for new conversations (3.6) become an
+area of their own when the limits exist. Effort is offered in the model's own levels, as its template names
+them (Qwen 3.8: xhigh, medium, low), and starts at the template's default. The session keeps each change, and the
+model last loaded, in `settings.json` beside the conversations folder, in `%LOCALAPPDATA%\Mila\Assistant` on Windows
+(`Assistant.SettingsFile.ixx`, since `+105`; the Mila folder itself until `+163`);
+Chat's configuration files are Chat's alone. A setting the file holds that cannot be read is said once and left at
+its default; the rest still apply.
+
+**Models** (Settings' first area, which absorbed the models view at `+140`): installed models with size and
+quantization, *Load* (with the quantization choice for unquantized weights: none, fp8, fp4, q4_0), *Remove* (asks
+first); *Available to install* from the published list, *Install* with progress. A load or install that is refused
+shows the refusal's own text at the top of the area until the next load, install or remove. Once the selection of 3.2 exists, *Load* here is an override of Mila's choice, and says so.
+
+**The schema** (section 4) carries the chat's folder: `session.state`, `conversations.list`, `conversation.loaded`
+and the stored conversation keep it. The folder is chosen in the window's own picker (`folder.choose`), never typed,
+when Mila asks for one (`Apps/AssistantInterface.md` 5.5).
+
+**Look:** light and dark follow the system. The palette and type follow the website
+(`Web/layouts/_default/baseof.html`), quieter. No animation beyond one turning ring wherever Mila is at work,
+always leading its words -- "Reading" before a reply's first token and after a call's result, "Thinking" and its
+count, the model row's status -- and an install's progress bar in Settings; the narrow window's sidebar slides in. Streaming text carries no ring (Todd, 2026-11-13).
+
+## 4. Message schema
+
+JSON objects, one per message, both directions. Every message carries `"v": 1` and `"type"`. Unknown
+types are ignored by both sides, and logged. Strings are UTF-8. Ids are strings chosen by the side that
+creates the thing (the session for turns and conversations, the page for attachments).
+
+**This schema is a contract** once a client in another language targets it: a change that an existing
+client would misread steps `"v"`.
+
+**Streams.** A session process holds one loaded model and one or more streams over it -- a stream being
+one conversation's state on that model. Every `turn.*` message, in both directions, carries a `stream_id`;
+`session.state` lists the streams. Mila Assistant's window uses one stream. The field is there from `"v": 1` so
+that a process running several streams over one set of weights is not a version step.
+
+**Transport.** Between the window process and the session process: one JSON message per line (newline
+delimited; JSON escapes any newline inside a string), requests on the session process's standard input
+and events on its standard output, both UTF-8. Standard error carries the session's and the library's
+log records -- the library writes its records to `std::cout`, so the session process points `std::cout`
+at standard error and writes the protocol to the real standard output, as `mila-chat -p` already does
+for its answer (`Chat::runOnce`). End of input ends the session process. Between the page and the
+window process, the window's own bridge (section 6.2).
+
+The window relays every message unchanged in both directions, except those it handles itself:
+`link.open`, `folder.choose`, `licence.open`, `app.quit`, `setup.showing`, and resolving a dropped file to a path (section 6.4); and it
+sends the page one of its own, `about`, when the page says `ready`.
+
+### 4.1 Session to page
+
+| type | fields | meaning |
+|---|---|---|
+| `session.state` | `model` (name or null), `loading` (the model a load is opening, while it does, or null: the header names it at once), `no_model_reason` (string or null), `context_length`, `context_automatic`, `context_used` (the tokens the conversation takes, system prompt and tools included: counted by the agent between turns, said by each round's start within one; null with no model resident), `compacts_at` (the prompt length at which the session's compaction policy compacts, or null), `thinking_capable`, `thinking` (`"off"`, `"on"` or the effort in effect), `effort` (the effort in effect, one of `effort_levels`, or null), `effort_levels` (the model's template's own effort values, in its order, or null where it has none), `detail` (`"off"`, `"thoughts"`, `"all"`), `sampling` ({`temperature`, `top_k`, `top_p`, `presence_penalty`}, each `{value, is_model_default}`), `modalities` (subset of `["image","audio"]`), `folder` (the folder the chat's grant holds, or null), `folder_from_project` (bool: the chat holds the folder because its project does), `project` (the open chat's project's id, or null), `plan` (the chat's approved plan, [{`text`, `status`: `"pending"`, `"in_progress"`, `"done"` or `"skipped"`}], or null), `web_search` (bool: a search key is set; the key itself is never sent), `run_commands` (bool: the setting), `run_commands_problem` (why commands cannot run here, or null), `program_folders` (the folders commands may read, empty while they are off), `busy` (bool), `license_accepted` (bool: the person accepted the licence the package carries), `streams` ([{`stream_id`, `parent_stream_id` (or null), `conversation_id`, `busy`}]) | The whole session state. Sent after every change, never as a delta. |
+| `license` | `text` (the licence the package carries beside the session, `License.md`, or null when it cannot be read), `sha256` (its digest, or null), `accepted` (bool), `problem` (why it cannot be read, or null) | Reply to `ready`, before `session.state`, and to `license.accept`. Until `accepted` the session refuses `model.install`, `model.load` and `turn.send` with `error`, and does not open the remembered model; an acceptance is kept in the settings by the text's digest, so a package carrying another text asks again (`Apps/AssistantOnboarding.md` 4.1). |
+| `models.list` | `installed` ([{`name`, `display_name`, `size_bytes`, `quantization`, `family`}]), `published` ([{`name`, `display_name`, `size_bytes`, `quantization`, `installed`, `license`, `agentic`, `thinking`, `tools`, `modalities`, `fits`, `agentic_here`, `context_length`, `why_not`}] or null when not fetched), `suggested` (a published `name`, or null) | Reply to `models.refresh`, and after install or remove. Each published model is planned on this computer for the request a load sends -- against the whole card when a model is resident, as a listing is (`Deployment.md` 12.5) -- and the list is the library's ranking, `suggested` its first that fits and takes turns (`Apps/AssistantOnboarding.md` 5). `display_name` is the manifest's name for a person to read ("Gemma 4 12B"), empty when it declares none; the page shows `name` then. |
+| `progress` | `task` (`"load"`, `"install"`, `"rebuild"`, `"restore"`), `label`, `done`, `total` (both null when unknown) | A long task's progress; a final one has `done == total`. `"restore"` is the model's memory coming back from the compressor or swap as Mila is used again, in bytes; a waiting turn's `turn.begin` follows it. The header shows the task in progress beside the model, a ring and its `label`, with no bar: a restore lasts seconds and its total is an estimate (Todd, 2026-11-13). |
+| `turn.begin` | `turn_id`, `conversation_id` | A reply starts. |
+| `turn.text` | `turn_id`, `round`, `channel` (`"thought"` or `"answer"`), `text`, `tokens` (a thought's only: the round's tokens so far) | Raw text to append to that channel; a thought's label counts `tokens` while it is written (Todd, 2026-11-13). Gemma streams many; Llama and Qwen send one per round when it is complete. The page must render both. |
+| `turn.thought_break` | `turn_id`, `round` | The reasoning channel resumed after a tool call; start a new thought block. |
+| `turn.tool_call` | `turn_id`, `round`, `call_id`, `name`, `summary`, `arguments` (JSON string) | The model called a tool. |
+| `turn.tool_approval` | `turn_id`, `call_id`, `choices` (subset of `["allow_once", "allow_conversation", "deny"]`, in that order; that of a tool using the network, a command's included, is `["allow_once", "deny"]`), `changes_folder` (`Apps/AssistantInterface.md` 10), `folders` (`request_folder`'s only: the chat's project's folders to choose among, [{`path`, `access`}], empty in none), `places` (`open_place`'s only, in a chat that has read from outside when several places fit: [{`view`, `id`, `name`}] to choose among), `reaches` ({`folders`: [{`path`, `access`: `"read"` or `"read_write"`}], `program_folders`: [path], `network`: bool, `runs_programs`: bool}) | The call named by `call_id`, already sent as `turn.tool_call`, waits for the person's decision (section 4.5). `reaches` is what the call would reach if allowed, from its grant as narrowed to the tool; a command's `network` is true only when the call asks for it. A `decision` not among `choices` is ignored. |
+| `turn.tool_result` | `turn_id`, `call_id`, `result`, `is_error` | The tool's result, fed back to the model. |
+| `turn.went` | `turn_id`, `call_id` (the `open_place` call), `place` ({`view`: `"workspace"`, `"projects"`, `"chats"`, `"activity"`, `"reach"`, `"project"` or `"chat"`, `id`: the project's or chat's, else null}), `text` (*Opened Calculator app*) | Mila took the pane somewhere (`Apps/AssistantInterface.md` 5.2), before the call's result. The page goes there as a click would; a chat other than the one replying opens once the reply ends. The stored call keeps `went` ({`place`, `text`}). |
+| `turn.offer` | `turn_id`, `call_id` (the `propose_project` or `move_to_project` call), `offer` ({`kind`: `"project"` or `"move"`, `state`, `name`, `purpose`, `chats` [{`id`, `title`}] for a project, `project` for a move or once made, `in_window`, `said` for a move made and said, `time`}) | Mila offered a project or a move, or made and said a move (`Apps/AssistantInterface.md` 6), before the call's result. The stored call keeps `offer`, whose `state` is `open`, `undecided`, `accepted`, `declined`, `undone`, `replaced` or `lapsed`. |
+| `turn.answered` | `turn_id`, `call_id` (the call whose offer was answered), `offer` (as it now stands), `text` (the app's line: *Made the project Garden and moved this chat into it.*) | The person's message answered an offer (5.4), between `turn.begin` and a `turn.end` with an empty `answer`: no model wrote a reply. The chat keeps the message and the line, stored with `app: true`. |
+| `turn.round_end` | `turn_id`, `round`, `prefill_ms`, `tokens_per_second`, `tokens`, `thought_tokens` (those of `tokens` the reasoning channel took; 0 when it did not open), `finish` (`turn.end`'s values, or `"tool_call"` for a round that ended in one) | One generate call ended. `thought_tokens` labels the round's thought block ("Thought for 412 tokens"), which the page cannot count from text. |
+| `turn.end` | `turn_id`, `finish` (`"stop"`, `"length"`, `"context"`, `"cancelled"`, `"error"`), `answer` (the parsed final answer), `message` (the index the reply is stored at among the conversation's messages) | The reply ended. `answer` is what the conversation keeps; `message` is how the page keeps the reply (`creation.keep`). |
+| `conversations.list` | `items` ([{`id`, `title`, `created` (ISO 8601), `updated` (ISO 8601), `model`, `folder`, `folder_from_project`, `project`, `progress`, `finish`, `wrote`, `reply_start`, `sent`, `kept`, `offers` (each offer on the chat's calls, with its `message` and `call_id`)}]) | After any change to the store. A conversation's stored activity is not read. `progress`, `finish`, `wrote`, `reply_start` and `kept` are what the workspace's places read (`Apps/AssistantInterface.md` 10). `project` is null for a chat in none. Each `wrote` entry is `{path, tool, time, disk}`, `disk` being `"same"`, `"changed"` or `"missing"` as the file compares with the disk when the list is sent, or null for a write stored before phase 8. |
+| `projects.list` | `items` (each project's record: `v`, `id`, `name`, `purpose`, `instructions`, `folders` [{`path`, `access`}], `created`, `updated`, `suggested` for one made from Mila's offer, `undo`, whether it can still be undone, `understanding`, the current note or null, and `waiting`, the note waiting for the person or null, each a note's record: `id`, `kind`, `made`, `source`, `derived_from`, `exposed`, `summary`, `questions`, `next`, and `edited` or `accepted` where so), the most recently changed first | Reply to `ready`, and after any change to a project, its note, or where a chat is (`Apps/AssistantInterface.md` 10). |
+| `project.made` | `id` | After `project.new`'s `projects.list`: the project made, which the page opens. |
+| `activity.list` | `items` (the workspace's and every project's events, newest first, at most 200: {`time`, `who`, `kind`} and any of `project`, `from`, `conversation`, `name`, `path`, `access`), `before` (the time to page back from, or null) | Reply to `ready` and `activity.open`, and after any change that records an event (`Apps/AssistantInterface.md` 10). |
+| `conversation.loaded` | `id`, `title`, `model`, `folder`, `project`, `messages` (section 4.3) | The conversation now in the main pane. |
+| `creation.loaded` | `creation` (a file: `kind` `"file"`, `conversation_id`, `title`, `project`, `path`, `location`, `made`, `writes` [{`call_id`, `tool`, `time`, `model`, `step`, `sha256`}]; a reply kept: `kind` `"reply"`, `conversation_id`, `title`, `project`, `message`, `kept`, `model`, `text`; both `read_before`, `read_before_total`, `exposed`), `content` (a text file's text, or null), `content_kind` (`"markdown"`, `"text"` or null), `disk` (as `wrote`'s) | The answer to `creation.open`: the *Made* drawer (`Apps/AssistantInterface.md` 4.9). A creation no longer stored is `error`. |
+| `attachment.accepted` | `attachment_id`, `kind`, `name`, `size_bytes` | The session has read and decoded the file. |
+| `attachment.refused` | `attachment_id`, `reason` | Not found, not decodable, too large, or no such modality on this model. |
+| `info` | `text`, `during` (`"load"`, `"install"`, or absent) | A sentence the console would print with `printInfo`. Shown as a quiet line in the transcript; one said during a load or install is not shown in a conversation that has not begun, which keeps its screen. |
+| `error` | `text`, `during` (`"load"`, `"turn"`, `"install"`, `"models"`, `"settings"`, `"conversation"`, `"license"`, or null) | Shown where it happened, never as a modal. `"models"` is the publisher's list not read, said on the screens that asked for it; `"license"` an acceptance refused, said on the licence's pane. |
+| `folder.chosen` | `path` (or null when the person cancelled) | From the window, not the session: the answer to `folder.choose`. |
+| `about` | `user_name` (the login name of the person signed in to this computer, or empty), `version` (the app's), `licences` (each third-party licence the app carries, as `{ id, name }`: Electron, Chromium, then the session's by name) | From the window, not the session, on `ready`: the person at the sidebar's foot, and the version and licences in *About Mila Assistant* (`Apps/AssistantInterface.md` 4.1). The page is told no path. With no window, as in a browser, the mock's transport sends it. |
+| `licence.text` | `id`, `text` (or null), `problem` (why it cannot be shown, or null) | From the window, not the session: the answer to `licence.open` for a licence whose text the page shows. |
+| `log` | `level`, `text` | Only at detail `all`; shown in a collapsible log drawer. |
+
+### 4.2 Page to session
+
+| type | fields | meaning |
+|---|---|---|
+| `ready` | -- | The page has loaded; the session replies with `license`, `session.state`, `projects.list`, `conversations.list`, `activity.list` and `models.list`. |
+| `license.accept` | `sha256` (the digest of the text the person read, from `license`) | The person accepted the licence. One naming another text is refused with `error` (`during: "license"`). The reply is `license` and `session.state`, and the remembered model then opens. |
+| `turn.send` | `text`, `attachment_ids` | A user turn. Refused with `error` while `busy`. |
+| `turn.stop` | -- | Stop the reply in flight; it ends with `finish: "cancelled"`. A call waiting for approval is not run. |
+| `turn.tool_decision` | `turn_id`, `call_id`, `decision` (one of the approval's `choices`), `folder` (for `request_folder` allowed: the path the window's picker gave), `place` (for `open_place` allowed: one of the approval's `places`, by `view` and `id`) | The person's answer to a `turn.tool_approval`. One for a call not waiting is ignored, and so is one allowing `request_folder` that names no folder. |
+| `conversation.new` | `project` (optional: a stored project's id) | Clear the session's history and start a new chat, with no folder (`Apps/AssistantInterface.md` 5.5), or in that project, holding its folder when it has one (10). An `activity` or `folder` an older page sends is not read. |
+| `conversation.move` | `id`, `project` (an id, or null for none) | Move a stored chat by its one field; it keeps the folder it holds. |
+| `project.new` | `name`, `purpose` (may be empty), `conversation_ids` (optional: chats to move in) | Refused with `error` for an empty name. The reply is `projects.list`, `conversations.list`, `session.state`, `activity.list`, then `project.made`. |
+| `project.update` | `id`, one of `name`, `purpose`, `instructions`, `folders` ([{`path`, `access`: `"read"` or `"read_write"`}], whole), `understanding` ({`summary`, `questions` [text], `next`}, any of them, or null to clear the note) | One change per message. Folders that are not folders on this computer are refused with `error`, and so is a note over its limits or with no summary. The open chat in the project reads changed instructions from its next response. |
+| `note.decide` | `project`, `id` (the waiting note's), `decision` (`"accept"` or `"decline"`) | The person's answer to a note waiting on a project (`Apps/AssistantInterface.md` 5.6): accepted, it is current and keeps its mark. One no longer waiting is `error`. The reply is `projects.list` and `activity.list`. |
+| `project.delete` | `id`, `conversations` (`"keep"`, the default, or `"delete"`) | Kept chats go to no project; no folder of the person's is touched; events forget the project's name (`Apps/AssistantInterface.md` 8). |
+| `activity.open` | `before` (an event's time, or null) | The events before that time, as `activity.list`. |
+| `suggestion.decide` | `conversation_id`, `call_id`, `decision` (`"accept"` or `"decline"`), `name` (optional: as the person edited it) | A project offer answered on the overview's card, or in the transcript of a chat that has read from outside (`Apps/AssistantInterface.md` 6). One already answered is `error`. The reply is `projects.list`, `conversations.list`, `session.state` and `activity.list`. |
+| `project.undo` | `id` | A project made from an offer goes while `undo` is true, its chats back in no project and its folders untouched; otherwise `error`. |
+| `folder.choose` | -- | Handled by the window, which shows the system's folder picker and answers `folder.chosen`. |
+| `licence.open` | `id` (one `about` gave) | Handled by the window: Chromium's opens in the system browser, being a web page of hundreds of projects, and every other's text comes back as `licence.text`. An id the window did not give opens nothing. |
+| `conversation.open` | `id` | Replace the session's history with that conversation's. |
+| `creation.open` | `conversation_id`, and `path` (a file the chat wrote, as its call named it) or `message` (a kept reply's index) | Answered with `creation.loaded`. Only files a stored call wrote are read, by the location the call recorded. |
+| `creation.keep` | `conversation_id`, `message`, `keep` (bool, true when absent) | Keep a reply as made, or let it go; it stays with its chat, and no file is written. The reply is `conversations.list`. A message that is not a reply is ignored. |
+| `conversation.rename` | `id`, `title` | |
+| `conversation.delete` | `id` | |
+| `models.refresh` | `online` (bool) | |
+| `model.load` | `name`, `quantization` (`"none"`, `"fp8"`, `"fp4"`, `"q4_0"` or null) | Clears the history, as `/model load` does. |
+| `model.install` | `name` | |
+| `model.remove` | `name` | |
+| `settings.set` | one of: `context` (n or `"auto"`), `thinking` (bool), `effort` (one of `effort_levels`), `detail`, `sampling` ({`key`, `value` or `"model"`}), `seed`, `search_key` (the person's Tavily key, or null to remove it), `run_commands` (bool; on, from the next Build & Code conversation; off, at once) | One change per message; the reply is `session.state`, or `error` with `during: "settings"`. |
+| `attachment.add` | `attachment_id`, `kind`, `name`, `path` | The file on this machine; the session reads it (section 6.4). |
+| `attachment.remove` | `attachment_id` | |
+| `link.open` | `url` | Handled by the window, which opens it in the system browser, sent once the person has confirmed the sheet showing the whole address (`Apps/AssistantInterface.md` 5.7). The page never navigates. |
+| `app.quit` | -- | Handled by the window, which quits: the licence's pane's *Quit*. |
+| `setup.showing` | `showing` (bool) | Handled by the window: while the first-run setup shows, a packaged Mac's menu bar is the application menu and Edit only (`Apps/AssistantOnboarding.md` 4.1). |
+
+### 4.2.1 Window to session
+
+| type | fields | meaning |
+|---|---|---|
+| `app.active` | -- | Mila became the application in use (macOS's `did-become-active`). The session locks the model's memory, and lets it go 30 minutes after the last turn if nothing else does (`Deployment.md` 12.10). |
+| `app.background` | -- | Mila is no longer in use: another application came to the front (`did-resign-active`), the screen locked, the user's session went inactive, or the Mac is going to sleep. The session lets the model's memory go; a reply under way completes. |
+
+### 4.3 Conversation messages
+
+`[{ "role": "user" | "assistant" | "tool", "content": string, "thought": string | null,
+"tool_calls": [{ "call_id", "name", "summary", "arguments", "decision", "result", "is_error" }] | null, "attachments": [{ "kind", "name" }] | null,
+"stats": { "prefill_ms", "tokens_per_second", "tokens", "rounds", "finish" } | null }]`
+
+The same shape is the stored conversation (section 6.3). An attachment's bytes are not stored in phase 1;
+a reopened conversation shows the attachment's name only. A call keeps what its card showed live, so a
+reopened card reads the same: the `summary` of its `turn.tool_call`, the person's `decision` (null when the
+call was not asked about), and the `result` and `is_error` of its `turn.tool_result`. A call the person
+stopped before it ran has a `result` of null and is shown as not run. (Phase 4: the real session stored
+none of these, and a reopened card showed the tool's name twice, lost "Declined", and dropped a stopped call.)
+
+### 4.4 Commands
+
+Every console command has its message: `/clear` is `conversation.new`, `/model load` is `model.load`,
+`/context`, `/thinking`, `/effort`, `/set`, `/verbose` and `/seed` are `settings.set`, `/stats` is the stats
+line, `/model list` is `models.refresh`. The composer does not parse slash commands.
+
+### 4.5 Approving a tool call
+
+The session asks; the page only presents. Who decides is `Mila::Agents`'s permissions (`ToolCalling.md` 3.3), whose
+hook for asking the person these messages carry; until the session is built on them, its own rules decide, and a
+tool the person has not allowed is asked about.
+
+- After `turn.tool_call`, the session sends `turn.tool_approval` and the reply waits; `busy` stays true.
+- `allow_once` runs this call. `allow_conversation`, never offered for a tool using the network, runs it, and later calls of the same tool in this
+  conversation run without asking; `conversation.new`, `conversation.open` and `model.load` end that.
+- `deny` does not run the call. The session sends `turn.tool_result` with `is_error: true` and a result saying
+  the person declined, which is what the model reads, and the reply continues.
+- `turn.stop` while a call waits ends the reply as `cancelled` with no result for the call.
+- A stored conversation keeps the declined call's result text, as for any call.
+
+## 5. The page (`Apps/Assistant/Ui/`)
+
+- **Plain HTML, CSS and JavaScript modules. No build step, no framework, no network.** The page loads
+  only its own files: a `Content-Security-Policy` of `default-src 'self'; img-src 'self' blob:` in
+  `index.html`, no CDN, no web fonts fetched. `blob:` is the attachment previews of section 6.4, object
+  URLs over files the user picked; `media-src` gains it when audio has a preview. It ships as files
+  inside the window's package.
+- **The markdown renderer is hand-written** for the subset in section 3, in phase 1. A vendored library
+  would need its licence read at its source and a `NOTICE.md` entry, as Chat's image decoder does
+  (`Gemma4Modality.md` 8, decision 3), which is a decision for a local change, not phase 1.
+- **The page's text is end-user prose** (CLAUDE.md, *End-User Prose*): no term that exists only inside
+  Mila -- not "session process", "stream", "schema", "channel" or "front end" -- in anything the page
+  shows. "Thinking", "context window", "model", "install" are the reader's words, as the console already
+  uses them (`Chat.ConsoleFrontEnd.ixx`, `printHelp`).
+- **Code follows CLAUDE.md's naming rule** in JavaScript too: no abbreviations in identifiers
+  (`message`, not `msg`; `conversation`, not `conv`).
+- **Realistic content in the mock:** the weather tool's definition is
+  `Apps/Chat/Prompts/tools-weather.json`, and the console shows a tool call through
+  `ConsoleRenderer::printToolCall` (`Chat.Renderer.ixx`), which is what `summary` carries.
+- **Model text is untrusted.** It never reaches `innerHTML` unescaped: raw HTML in a reply renders as
+  text, links are `link.open`, images in markdown are not fetched.
+- **One transport interface** (`transport.js`): `send( message )`, `onMessage( handler )`, and
+  `pathForFile( file )`, which resolves a dropped or picked `File` to its path on disk, or to null where
+  the window cannot. Two implementations in phase 1: Electron's bridge (section 6.2), exposed by its
+  preload script as `window.mila`, and a mock, chosen when `window.mila` is absent. Nothing outside
+  `transport.js` names Electron. The page targets Chromium only: the window is Electron everywhere.
+- **State is reduced from messages**, in a module with no DOM access (`state.js`: `reduce( state,
+  message ) -> state`), so the page's behaviour is testable without a browser.
+- **The mock** (`mock/`) plays scripted scenarios over the schema with realistic timing, and answers
+  requests as the session would. It is one implementation used two ways, so it has no DOM access: the
+  page's mock transport calls it directly in a browser, and a Node wrapper serves it on stdio as a mock
+  session process speaking JSON lines (section 4, *Transport*), which the window starts in place of the
+  real one (section 6.2). Scenarios, each selectable from a dev-only menu (`?scenario=` in the URL, or
+  the mock session's `--scenario` argument):
+  1. Gemma reply streamed: thinking, a `get_weather` tool call the rules allow and its result, more
+     thinking, an answer with a table and a code block.
+  2. Llama reply buffered: one `turn.text` per round, at the end.
+  3. A reply stopped by the user mid-stream.
+  4. A reply ending on `length`, and one on `context`.
+  5. No model loaded, then a load with progress, then a load refused with the refusal's text.
+  6. An image attached to a model with the modality, and refused on one without.
+  7. Seven conversations over two weeks, among them a plan stopped partway, files written and a reply cut short,
+     which the workspace's overview, *All chats* and Activity show; open, rename, delete.
+  8. A first run, nothing installed: the welcome, the licence accepted, the published list planned for this
+     computer, the suggestion installed with its progress and loaded, the conclusion, a remove.
+  9. Detail `all`: log lines in the drawer.
+  10. A reply of 20,000 tokens, to see that appending stays smooth.
+  11. A tool call that asks first (section 4.5): allowed, the reply continues with the result; denied, the
+      model says it could not check and answers without it. A second message in the same conversation
+      after *Allow in this conversation* runs the call without asking.
+  12. Scenario 8 with the publisher unreachable: the first run says so and offers *Try again*.
+  13. Models installed and the licence not yet accepted: the welcome and the licence, then the remembered model
+      opens.
+  14. Mila asks for a folder (`Apps/AssistantInterface.md` 5.5): chosen, the reply goes on in it; declined, without
+      files.
+  15. A page that tries to direct Mila (`Apps/AssistantInterface.md` 5.6): the page is read with the person's leave,
+      and the search it asks for is asked once or not at all, saying what the chat has read and that the person did
+      not write those words.
+  16. A workspace with projects (`Apps/AssistantInterface.md` phase 4): three projects holding some of the chats, and
+      scenario 14's turn, whose folder question in a project of two folders offers both.
+  17. What Mila made (`Apps/AssistantInterface.md` phase 8): scenario 16 with a chat's files written in a plan's step,
+      one changed on disk since, and a reply kept, each opening the *Made* drawer.
+  18. Going somewhere by asking (`Apps/AssistantInterface.md` phase 5): scenario 16's workspace, where *Open the
+      calculator project* opens it and *show my projects* opens them through `open_place`, and a question about what an
+      earlier chat said is answered through `find_records`, naming the chat.
+  19. Mila proposes a project (`Apps/AssistantInterface.md` phase 6): scenario 16's workspace, where loading CSV files
+      into DuckDB draws an offer of a project gathering that chat and the comparison of SQLite and DuckDB; *yes* makes
+      it with no reply, *not now* declines it, anything else leaves it on the overview's card, and *this belongs with
+      the calculator* offers the move.
+  20. What Mila understands (`Apps/AssistantInterface.md` phase 7): scenario 16's workspace, Kyoto in November with a
+      note and Calculator app with one and another waiting, from a chat that read a page, under *Needs you* until it is
+      accepted or declined on the project's page; a first message in a new chat in Kyoto is given its note by the app's
+      own call, and Mila notes what the turn changed at its end.
+- **Tests:** `node --test` over `state.js`, the markdown renderer and the mock's scenario scripts. No
+  committed test dependency beyond Node itself. The visual checks of phase 1's gate may use whatever
+  headless browser the building session has, with nothing of it committed.
+
+## 6. The session process and the window
+
+### 6.1 The session process (phase 3, local)
+
+A C++23 program in `Apps/Assistant/Session/`, linking the Mila library and nothing of Chat's (since `+105`),
+built wherever the library builds -- Windows and Linux today, macOS once a Metal backend exists
+(`Future.md`, "Compute backends beyond CUDA") -- as a front end over the phase 2 interface: it reads
+section 4.2's requests from standard input and writes section 4.1's events to standard output (section 4,
+*Transport*). One loaded model per process, and one stream for the window (section 4, *Streams*).
+Generation runs off the thread that reads requests, so
+`turn.stop` is read while a reply is streaming. It never draws, and it is testable headless: a script
+writing request lines and reading event lines is a complete client.
+
+It stays thin: a layer over `Mila::Agents` -- one agent at a time over one `Mila::Agents::Session` (`Direction.md` 4.3) --
+that translates between the schema and the agent (Todd, 2026-10-20; built `+105`). What it keeps of its own is the
+app's: its settings, its prompt and tools, the words it says, and the round measurements, which are
+diagnostics and so the consumer's. Anything the session process would have to grow to serve a client belongs in
+`Mila::Agents` instead.
+
+**As built (2026-10-24; onto `Mila::Agents` alone `+105`).** `mila-session` (`mila-assistant-session` until 2026-10-26,
+section 9.1) (`Assistant.SessionProcess.ixx`, `Assistant.ConversationStore.ixx`):
+
+- **Settings of its own** (3.7), in `settings.json` beside the conversations folder, which the Settings view writes
+  through `settings.set`. Its flags are `--model`, `--context-length` and `--device`, each standing over the kept
+  settings for the run, plus `--workspace <dir>` for the store of 6.3 (`--conversations <dir>`, its `Conversations`
+  folder, until `Apps/AssistantInterface.md` phase 4), which defaults to the `Assistant` area of the person's Mila folder,
+  `%LOCALAPPDATA%\Mila\Assistant` (`~/Library/Application Support/Mila/Assistant` on macOS,
+  `$XDG_DATA_HOME/mila/assistant` on Linux; AssistantInterface.md 8; the Mila folder itself from `+105` to `+162`), with
+  `settings.json` at its top (`search.json` until `+156`, 3.7). The model store is the folder's `Store`, beside it. A
+  model named by `--model` that will not open ends the run (exit 4); the one the settings remember is said in the
+  page's no-model state instead.
+- **Changing model** checks the name with `Agent::check` before the resident model is released, so a name that will
+  not open leaves it working; one that does not fit the card is found only after the release, and the model it
+  replaced is then loaded again (`Assistant.ResidentAgent.ixx`). A change of model clears the conversation; a change of
+  context keeps it, refused below what the conversation already takes. The automatic context has no ceiling of the
+  app's: the planner caps it at the model's trained maximum (`Notebooks/SessionInventory.md` decision 1).
+- **Activities** (3.1, 2026-10-26; replaced by one chat at `Apps/AssistantInterface.md` phase 3). A conversation was Ask & Explore, with the `ask` prompt and no tools, at the
+  limits of a chat (four rounds; a reply runs to the context, as no publisher's card sets a length -- Todd,
+  2026-11-13), or Build & Code, with the `files` prompt beside the
+  program -- the activities' prompts are in `Apps/Assistant/Prompts`, read by `Assistant.PromptFile.ixx`, naming each tool Mila::Agents provides and describing each of the app's own -- and the file tools over the conversation's
+  folder (`Agents.FileTools`): `list_folder`, `read_file`, `find_files`, `search_text`, `write_file` and
+  `edit_file`, paths relative to the folder; or Research & Analyze, with the `research` prompt and `read_web_page`
+  (`Agents.WebPageReader`): a page fetched over Mila's own HTTP transport, following at most five redirects and
+  only to http and https, cut at 4 MiB, and read as text (`Agents.HtmlText`, its own test target) in parts of
+  40,000 characters. The model stays resident across the change: the session gives the agent
+  the activity's prompt and tools (`Session::withSystemPrompt`, over `Session::withoutTools`), and its grant
+  (`Session::withGrant`, `ToolCalling.md` 3.4): none for Ask & Explore, the folder read-write for Build & Code,
+  the network for Research & Analyze, both for Get Things Done. Every file tool opens through its call's grant, so
+  a path, link or junction leading outside the folder is refused; the page reader and web search fetch through it,
+  so they reach public addresses only. The session sets no rule for the file tools yet, so every call asks. Run on
+  Gemma 4 12B Q4_0 over stdio and in the window: it listed the
+  folder, read a file, fixed a bug with one exact edit, and answered a declined write as declined; in Research &
+  Analyze it read a Wikipedia article and answered from it, and read a missing page's 404 as one.
+- **Two threads.** The one that started the process does all session work, model loads included; a second
+  reads requests. It answers `turn.stop`, `turn.tool_decision`, `app.active` and `app.background` itself, since the session's thread is inside the
+  reply they are about, and refuses a `turn.send` while a turn is queued or running, so the refusal does not
+  wait for it. Every other request is queued and answered in order. End of input stops a reply in flight and
+  ends the process.
+- **A tool call is announced when the session answers it**: `turn.tool_call` arrives after the round's
+  `turn.round_end`, then `turn.tool_approval` when it asks; a tool allowed for the conversation sends
+  `turn.tool_call` and `turn.tool_result` together. Call ids are the process's own; the library's `ToolCall` has
+  none.
+- **`thought_tokens`** is the round's reasoning text encoded again (`RoundStats::reasoning_tokens`), which can
+  differ from what was sampled by a token or two; Llama, whose reply Chat parses itself, reports 0.
+- **Every attachment is refused, by name.** No model this build runs takes an image or audio yet
+  (`isSupportedModality`), so `session.state` lists no modality and `attachment.add` answers
+  `attachment.refused`.
+- **The stored conversation also keeps `turns`**, the history as the model read it (6.3), so a reopened
+  conversation is prefilled exactly rather than rebuilt from what the page shows.
+
+Gate, measured 2026-10-24 on the RTX 5060 Ti (`D:\Claude\phase3\gate.py`, scratch stores; every line on
+standard output checked to be one `"v": 1` message): Llama 3.2 3B FP4 for scenarios 2, 4, 5 and 8 and a Llama
+tool call; Gemma 4 26B-A4B Q4_0 for 1, 3, 6, 7 and 11 on the streamed reasoning path; Qwen 3.8 27B FP4 for a
+tool call with reasoning through the template. Scenario 8 installed `gpt2-small`, the smallest published model,
+into an empty store (196 progress messages, every one bytes of a total), and removed it with every file
+reclaimed. It is a base model, so the load that follows an install into an empty session was refused as an
+error of the install, and no published model can show that load succeeding until the Llama packages are
+republished (BACKLOG, "A model installed under v0.20 stops loading").
+
+### 6.2 The window (phase 1, against the mock session)
+
+Starts the session process, hosts the page, and relays messages between them (section 4). Its rules
+for any client that hosts the page: the page gets no file-system or process access beyond the bridge's three calls
+(`send`, `onMessage`, `pathForFile`); every message from the page is checked to come from the page's
+own origin; developer tools and the default context menu are off in release builds; links go to the
+system browser.
+
+**The window is Electron** (Todd, 2026-10-20: one presentation layer), in `Apps/Assistant/Window/`:
+one window application for Windows, macOS and Linux. Its main process spawns the session process with
+Node's child-process API and relays lines; a preload script exposes the bridge as `window.mila`, with
+context isolation on and Node integration off in the page. One engine (Chromium) everywhere.
+
+**Its program is `Mila`** (`Mila.exe` on Windows; Todd, 2026-11-21), in a product named Mila Assistant, and it keeps
+Electron's own data in the `Assistant/Window` area of the person's Mila folder (`window-folder.js`, beside the
+workspace, AssistantInterface.md 8), set before Electron is ready so the product's name never decides the folder.
+
+- **The page's address is `mila://app/`** (`mila://chat/` until `+105`), a standard, secure scheme the window registers and serves
+  from the page's own folder, nothing outside it (`Window/src/page-protocol.js`). That address is the
+  origin every message from the page is checked against, and the `'self'` of section 5's policy.
+- **The icon is the Mila mark**, the website's (`Web/static/mila-mark.svg`), rendered to
+  `Window/icons/icon.png` (512 px) and `icon.ico`; the brand's mark is the app's.
+
+- **Costs, accepted:** Electron ships a new major about every eight weeks and supports the latest three,
+  so keeping the window's Chromium current is ours; a Node and npm toolchain beside the C++ build, for
+  the window only; about a hundred megabytes of Chromium in the package.
+- **On macOS** it has the platform's window pieces: vibrancy (including a `sidebar` material),
+  repositioned traffic-light buttons for a frameless window, sheets for modal dialogs, rubber-band
+  scrolling (Electron's `BrowserWindow` documentation).
+- **To confirm from Electron's documentation before the window is written:** how a dropped `File` becomes
+  a path (`webUtils.getPathForFile`).
+- **Which session it starts:** the session the package carries (`resources/Session/`), or in development the
+  copy staged for packaging (`Window/session/`); `MILA_SESSION` names another program, and `--scenario <n>`
+  runs the mock session (section 5) instead. It answers `folder.choose` with the system's folder picker, and the
+  page's `ready` with `about`: the login name from Node's `os.userInfo()` and the app's version. The mock stays for development and is not packaged, so a packaged
+  build has no `--scenario` (2026-10-26).
+- **The package:** Electron and the packager pinned to exact versions in `package.json`, with the lock
+  file committed; `node_modules/` and build output ignored by a `.gitignore` inside the folder. The
+  product name is "Mila" (application id `me.toddt.mila`, section 9). electron-builder documents building
+  Windows targets on Linux through Wine, or its `electronuserland/builder:wine` Docker image; the window
+  has no native Node dependency, which is the case it names as needing a Windows machine. Signing is
+  distribution's (section 9).
+
+### 6.3 Conversation store
+
+The session process owns it, so every window gets it equally: one JSON file per conversation (section
+4.3 plus `id`, `title`, `model`, `folder`, `plan`, `created`, `updated`, and `turns`, the history as the
+model read it) in the app's folder, Mila, under the
+user's local application data, never in the model store's folders (6.1). An id is used as a file name only when it is made of
+the characters the store gives ids, so an id from the page cannot reach outside the folder. The title is the first user message, cut at a word under 60 characters. Opening a
+conversation replaces the session's history and takes its folder; its next turn prefills it whole. A conversation
+whose folder no longer exists, or that cannot be granted on this computer, opens without it and says so (`info`). One
+stored before `0.21.0-dev+150` may carry an `activity`, which is not read.
+
+### 6.4 Attachments
+
+The page never decodes a file. It previews it with an object URL, asks the bridge for its path, and sends
+`attachment.add` with the path; the session reads and decodes it as the console's `/image` and `/audio`
+do (`Gemma4Modality.md` 5.7: PNG and JPEG; WAV mixed to mono and resampled to 16 kHz). Paths, not bytes,
+because the window and the session are on one machine and the session decodes anyway. Where the bridge
+returns no path -- a picture dragged out of a web page, which is not a file on disk -- the page refuses
+it as not saved on this computer. The attach button needs no fallback: a file the window's picker
+returns always has a path, so the bridge stays at its three calls. The preview's object URL stays in
+the page and is never sent. In the mock, an attachment is accepted or refused by the scenario.
+
+## 7. The session split (phase 2, local)
+
+`ChatSession` (`Chat.Session.ixx`) holds the model and the settings, and never draws or reads input; since
+`+98` the model is a `Mila::Agents::Agent`, which holds the conversation and runs the turn and its calls, and the
+session words the agent's events as its own. **Events** go out through `SessionEvents` (`Chat.SessionEvents.ixx`), section
+4.1 as C++ calls: `info`, `error`, `log`, a load's start and end, an install's progress (phase 3; the console
+draws the line the catalogue used to write itself), a turn's start, each round's start and end
+with its measurements, text by channel, a thought break and close, a tool call opening, the approval of
+section 4.5 (`approveToolCall`, which the reply waits on), the answered call, and the turn's end with its
+whole display. **Requests** are the session's methods, section 4.2 as calls: `respond`, `stop` (from any
+thread), `newConversation`, `loadModel`, `installModel`, `removeModel`, the context and settings setters,
+`seed`. A front end reads state from the session rather than being told it. Both are shaped as
+`Mila::Agents` will need them -- a streamed reply by channel, tool calls and their approval, rounds, the
+conversation it holds -- so that v0.22.0 moves this code into Mila::Agents rather than redesigning it (Todd,
+2026-10-24).
+
+- **The split follows presentation.** Routing a reply to its channels is the session's: which channel text
+  belongs to is a fact about the reply, read by the template's reader in the library (`+94`; Chat's Gemma-only
+  token router is deleted), and the session emits raw text. The console
+  keeps the incremental rich-text formatter, the renderer, the stream validator, the spinner, the slash
+  commands with their usage lines, and every table.
+- **Sentences.** Those about work the session does -- a load, a reload, an install, a context that does
+  not fit -- are the session's `info` and `error`; the console words its own commands. Some of the
+  session's named console commands ("/model <name> loads it again"); phase 3 reworded them, so a remedy is
+  said in words ("an automatic context picks the longest that fits") and each front end keeps its own
+  commands, the console's in `/help`. A refusal at the shell (`RefusalAudience::Shell`) still names its
+  `mila-store` command. A failed load, install or remove is the session's `error`, not its `info`, so the
+  page shows a refusal where it happened.
+- **The session was a library target of its own, `MilaChatSession`,** which `mila-chat` and the session
+  process linked. Dissolved (2026-10-27, Todd): an agent is a model and a session in `Mila::Agents`
+  (`Direction.md` 4.3), and each application keeps only its own layer over it. Since `+105` the session
+  process reads settings of its own, which the Settings view writes, rather than Chat's files; its prompts live
+  in `Apps/Assistant/Prompts`; and it offers only its own tools, Chat's canned weather tool gone. Since
+  `+108` Chat's session is part of `mila-chat` itself, with no family code (`Notebooks/SessionInventory.md`
+  sections 5 and 6).
+- **`turn.stop` is `ChatSession::stop()`,** on a stop source made fresh for each turn; the library ends a
+  generate with `GenerateStatus::ClientCancelled` on it. A tool call not yet run is not run. Ctrl+C during
+  a reply calls it -- the console installs its SIGINT handler for the turn only, so Ctrl+C at the prompt
+  still ends the process -- and the reply ends with "Reply stopped."
+- **The console allows every call** (`approveToolCall` returns allow-once) until BACKLOG "No Chat asks
+  before a tool runs" gives it the prompt line of `ToolBroker.md` section 5.
+
+Gate, measured 2026-10-24: a piped 24-line session -- every command class, a tool call with reasoning
+hidden and shown, detail all -- on Llama 3.2 3B and 3.1 8B (FP4, packaged afresh: the published packages
+are refused, BACKLOG "A model installed under v0.20 stops loading"), Gemma 4 12B FP4, Gemma 4 26B-A4B Q4_0
+(the streamed-reasoning path, which the 12B package does not declare) and Qwen 3.8 27B FP4; greedy, context
+8192. Standard output and error are byte-for-byte equal to the build before the split once the spinner's
+frames and the log timestamps are removed, and a mutant in the streamed thought break was caught. One-shot
+`-p`, plain and JSON, is equal (prefill time excluded). The stream validator printed nothing. Ctrl+C
+stopped a reply and the next turn answered, on Gemma, Qwen and Llama.
+
+Two defects were found and fixed with it. `/context` ended the process on Qwen before any turn and on
+Llama after any reply, because the floor rendered the history as a prompt; it now measures the history
+with the next turn's user message. And a streamed word still being written when a tool call or a notice
+interrupted the reply printed after the trace line; the renderer now writes it first.
+
+## 8. Phases
+
+1. **The page and the window, against the mock session** (cloud session; Todd, 2026-10-20), given in two
+   steps, each reviewed before the next is sent. Both touch only Mila Assistant's folder (`Apps/Assistant/`, `Apps/Assistant/` from 2026-10-24 until `+105`) and, for a
+   schema change, this document, which is changed first; both leave the schema in section 4 as it is
+   otherwise.
+   - **1a, the page** (`Ui/`). Done when every scenario in section 5 renders as section 3 describes, at
+     1280x800 and at 900 px wide, in light and dark, in a browser over the in-page mock; the `node --test`
+     suite passes; and the page makes no network request (checked in the browser's network log). The
+     layout and scenario 1 come first, shown as screenshots, before the rest is built.
+   - **1b, the window** (`Window/`, and the mock session's Node wrapper). Done when the mock session
+     answers over stdio under `node --test`; the Electron window starts it and runs the same scenarios; a
+     link opens in the system browser, a dropped file arrives as a path, and developer tools are off in a
+     packaged build; and a Windows build exists -- an installer if the build environment allows, otherwise
+     an unpacked app folder, otherwise one documented command that produces it on Windows.
+2. **The session split** (local). Section 7.
+3. **The session process** (local). Section 6.1. Done when a script driving it over stdio runs the
+   equivalents of section 5's scenarios 1 to 8 on a real model, and the console's gate in section 7 still
+   holds.
+4. **The real session in the window** (local). The window starts the session process in place of the
+   mock; the page and window from phase 1 are unchanged except where the real session showed the schema
+   wrong, and this document is amended in the same change.
+   *Run 2026-10-24* (RTX 5060 Ti; the Electron window over `mila-assistant-session` through
+   `MILA_DESKTOP_SESSION`, driven over the DevTools protocol, scratch stores): Llama 3.2 3B FP4 for scenarios
+   2, 3, 4, 6 (Attach disabled, with its reason) and 7 and a call that asks; Gemma 4 12B Q4_0 for 5, 1, 3 and
+   11 on the streamed reasoning path, with Allow once, Deny and Allow in this conversation; 10 as 18,264
+   streamed tokens in one reply (the multiplication tables to 40 x 40), with no frame over 17 ms and no long
+   task; 8 as `gpt2-small` into an empty store, with progress, its refused load reported as an error of the
+   install, and its removal reclaiming every file; 9 as the load's two `log` lines (the model and its memory)
+   in the drawer at detail `all`. The schema was wrong in one place: a stored call (4.3). The page lacked two
+   things section 3 describes, built in the same change: the log drawer, and a refused install shown in the
+   Models view (it had been drawn in the transcript beneath the view, out of sight).
+5. **Distribution.** Section 9.
+6. **Activities** (local). Section 3: the home screen with *Ask & Explore* and its box, the sidebar's activity,
+   the header's detail, the limits panel, Settings and the models view moved off the main path, and the
+   first-run recommendation. Each further card arrives in the change that gives it its tools: *Build & Code*
+   with the file tools, *Research & Analyze* with web reading. The selection of 3.2 is its own `Mila::Agents`
+   change, proposed first.
+
+## 9. Open decisions
+
+1. **Names -- the app's decided 2026-10-24 (Todd: "Mila is the showcase app").** The window is called
+   Mila, the complete agent harness it is becoming, with the conversation as its face; a windowed program
+   is not typed, so it carries no `mila-` command name, and is installed and shown in the Start menu and
+   the Dock. It is its own app, `Apps/Assistant/`, beside Chat's console in `Apps/Chat/`. The session
+   process's name, *decided 2026-10-26 (Todd):* `mila-session`, a program of the app's own rather
+   than a mode of `mila-chat` (section 6.1). The name implies a local session; one reached over a network
+   would be another program, such as `mila-network-session`.
+2. **Positioning -- decided 2026-10-24 (Todd), reversing 2026-10-20.** "Mila is the brand name. [The
+   desktop app] IS the showcase agentic application for end users. Mila C++23 library is the dev target
+   audience." The 2026-10-20 decision -- the window built for developers deciding whether to build on
+   Mila -- is withdrawn. The console stays a first-class Chat, for the developer; the app adds no
+   capability of its own (agent logic and tool calling live in `Mila::Agents`, `ToolCalling.md`; the app's tools
+   are its own code).
+3. **Which release -- decided 2026-10-24 (Todd).** Phases 2 to 4 ship in v0.21.0, with tool calling, and the
+   release moves two weeks to 2026-12-04 for them. Tool calling was designed through a tool broker
+   (`ToolBroker.md`); on 2026-10-25 it became `Mila::Agents`'s own (`ToolCalling.md`).
+4. **Distribution.** An installer, code signing (an unsigned download is warned on by SmartScreen on
+   Windows; macOS needs a Developer ID and notarization) and updates. An end user installs no toolkit, so
+   the app carries the CUDA runtime its session needs, under NVIDIA's redistribution terms, and states the
+   GPU it needs before the download (`Untriaged.md`, 2026-10-24). *Decided 2026-10-26 (Todd):* the
+   installer carries them, as Ollama's Windows package does -- no separate download and no download on first
+   run. The build copies the CUDA libraries the session loads from the build machine's toolkit to beside the
+   session program: at CUDA 13.4 `cublasLt64_13.dll` (about 470 MiB) and `curand64_10.dll` (about 57 MiB), the
+   runtime itself linked statically (`dumpbin /dependents`, 2026-10-26). Both are in the 13.4 EULA's
+   Attachment A, on its conditions: the app adds substantial function, only the app uses them, and its terms
+   match NVIDIA's. *Decided 2026-10-26 (Todd):* the Visual C++ runtime ships app-local, beside the session, from
+   the toolset's own redistributable folder. VS 2026's Distributable Code list covers everything under
+   `VC\redist` for every edition, so the terms allow either way. Microsoft's redistributable installer needs
+   an administrator and a registry version check, which a per-user installer does not have; and a machine whose
+   installed runtime is older than the toolset's would not start the session. The cost is that Windows Update
+   does not service an app-local runtime, so a runtime fix reaches users in Mila's next release.
+   *As built 2026-10-26:* the session's `mila-session` install component (`Assistant/Session/CMakeLists.txt`)
+   stages the program, its prompts and the libraries it imports -- found by reading its imports
+   (`install(RUNTIME_DEPENDENCY_SET)`), so a toolkit that renames them needs no edit -- and the Visual C++
+   runtime (`InstallRequiredSystemLibraries`, which needs a CMake that knows the VS 2026 toolset: Visual
+   Studio's 4.3 does, 4.0 does not and is warned on) into `Window/session/`, which the package carries as
+   `resources/Session/`; the window's build refuses to run without the program and the runtime.
+   *Built 2026-10-27 (Todd: "I do things in vs2026 not the command line"):* the `mila-app` CMake target
+   (`Assistant/CMakeLists.txt`) builds the session, stages it afresh and runs the window's build, so the installer
+   and `Mila.exe` come from one target in Visual Studio. It is outside ALL, and needs `npm` found at configure.
+   *Built 2026-10-31 (`ContainedPrograms.md` phase 3):* with `MILA_ENABLE_MXC` on and `MILA_MXC_LIBRARY` naming
+   MXC v1.0.1's `mxc_ffi.dll` (about 6 MB, MIT), the component carries it beside the session with MXC's licence as
+   `MXC-LICENSE.md`; the session loads it from there only when *Run commands* is on. Moved to MXC v1.1.0's
+   (about 8 MB) on 2026-11-17; what ships is an unrouted build of Mila's own (`ContainedPrograms.md` 4.10).
+   *Built 2026-11-17 (0.21.0-dev+152):* the component carries every third-party licence text in `Licences/` beside
+   the session, each named in `NOTICE.md` *What Mila Assistant carries*; the install fails without one and the
+   window's packaging refuses a session staged without the folder. *Changed 2026-11-17 (+153):* each text is in
+   `Licences/<name>/` under its own file name, `<name>` being NOTICE.md's (`Licences/nlohmann/json/LICENSE.MIT`,
+   `Licences/MXC/LICENSE.md`), so the window shows the folder's path as the name. electron-builder keeps Electron's
+   and Chromium's licences at the app's root on Windows and Linux but deletes them from a Mac app; the Mac package puts
+   them back in its `Resources` (`package.json` `mac.extraResources`, carried into `mac-signed.config.mjs`), and every
+   platform's build fails afterwards unless the app carries both and the session's (`packaging/check-licences.mjs`).
+   *Decided 2026-11-14 (Todd):* the Mac's first testers get a Developer ID build, signed, notarized and handed out as
+   a disk image, not TestFlight. TestFlight takes only a Mac App Store build, and the store's App Sandbox would move
+   the model store into the app's container, need the inherit entitlement on `mila-session` and a security-scoped
+   grant for every folder the agent works in -- work that belongs with a decision to sell through the store.
+   *Decided 2026-11-14 (Todd):* the app ID is `me.toddt.mila`, kept as it is; a person's own settings are tied to it.
+   *Built 2026-11-14:* `npm run build:mac:signed` on the Mac (`Window/mac-signed.config.mjs`) takes the package's
+   build configuration and signs with the Developer ID Application certificate in the keychain, under the hardened
+   runtime, with JIT the one entitlement (`Window/entitlements/`), notarizes, staples and builds the disk image;
+   it refuses to start without the session or notarization credentials (a `notarytool` keychain profile,
+   `APPLE_KEYCHAIN_PROFILE`), since electron-builder 26 otherwise skips notarization with a warning, and ends by
+   asking Gatekeeper to assess the app. `build:mac` stays the ad hoc folder for development.
+   *Decided 2026-11-14 (Todd):* nothing the session loads comes from a developer's toolchain. LLVM's C++ runtime is
+   linked into the program (`cmake/CxxRuntime.cmake`, `Metal/MetalBackend.md` Phase 8), loaded hidden so a Python
+   extension exports none of it; a Mac build directory configured before then needs `CMAKE_EXE_LINKER_FLAGS` unset
+   once, since the preset's old dynamic flags stay in its cache. OpenSSL goes with libcurl on a Mac, for a transport on
+   Apple's URLSession: Mila's rule is TLS from the operating system, macOS has no OpenSSL an app may link, curl
+   dropped Secure Transport in 2025, and Homebrew's OpenSSL trusts Homebrew's certificate file rather than the
+   Keychain. *Built 2026-11-14:* Apple's URL loading for downloads and Network.framework for a grant's checked
+   network (`HttpClient.md` section 9); a Mac build loads nothing from outside macOS.
+5. **Math.** Shown as source in phase 1; a vendored math renderer later, or never.
+6. **When macOS.** macOS is wanted (Todd, 2026-10-20). The page and the Electron window run there as they
+   are; the session process reaches it once a Metal backend exists.
+7. **Activities over models -- direction decided 2026-10-26 (Todd).** The app starts from the work, through four
+   activity cards and one box, with the model, its deployment and the agent's limits chosen by Mila from what it
+   has measured, and the person's overrides as caps (section 3). It replaces the layout this document had until
+   then: a model picker in the header, the models view on the sidebar, and sampling on the main path. Within it:
+   - *Decided with it:* the activity is the app's, and maps to needs the library ranks models by (3.2); a card
+     is shown only once its work can be done (3.1); nothing guesses the activity from the text typed; there is
+     no cap on parallel agents.
+   - *Open:* the selection query of 3.2 (a `Mila::Agents` proposal); whether a conversation may change its
+     activity, at the cost of a prefill; what *Get Things Done* needs of `Mila::Agents` beyond the loop it has.
+   - *Considered and declined:* the model-catalogue layout of LM Studio and its peers, for the reason in
+     section 1; inferring the activity from the first message.
+   - *Reversed 2026-10-26 (Todd):* *Get Things Done* waiting for `Mila::Agents` to run a task. It is shown now in the
+     app's form (3.1): a plan the model proposes and the person approves, marked as the model works. With it, each
+     activity has its own limits: Ask & Explore keeps Chat's four rounds and a reply of `max_new_tokens`, numbers no
+     measurement set; the others run with none, bounded by the context and the person's Stop, until the limits of
+     3.6 let the person set caps.
+**Decided 2026-10-20 (Todd).** The page is HTML, so one page serves every platform. The session is its
+own process and the window a client of it, so the window's language is free. The window is Electron, so
+there is one presentation layer. Considered and declined:
+
+- **WinUI 3** -- native controls, the Fluent look and no web view process. Windows-only, so nothing in it
+  carries to macOS; its cross-platform routes (Uno, MAUI) are .NET, which would put the window on a .NET
+  binding rather than on the session; and its XAML compiler is driven by MSBuild, where a CMake build has
+  been reported missing the generated headers and Clang is unsupported (Windows App SDK issue 1156,
+  open).
+- **A native shell per platform, written here** -- Win32 over WebView2, `WKWebView` on macOS; no
+  third-party dependency, and the system keeps each engine current. Declined for one presentation layer:
+  it is one shell per platform and two engines to test the page in, and on Windows a dropped file's path
+  depends on `postMessageWithAdditionalObjects`, whose documentation is not consistent on which objects
+  it carries.
+- **webview/webview** (an MIT C/C++ library over WebView2, WebKit and WebKitGTK) -- no third-party
+  dependency for the window shell (Todd).
+- **The session inside the window's process** -- the first draft of this document. It tied the window to
+  C++ and to one native shell per platform, and let a fault in either side take down the other.
+- **Electron with the session as a Node native addon** -- an addon is rebuilt against each Electron
+  major's ABI, through C++23 modules and CUDA; the child process needs neither.

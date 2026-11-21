@@ -119,7 +119,7 @@ whose walk passes a bound is refused, saying why (decision 7).
   whole before every run (decision 7). An outside name removed is not named, so the files withheld
   from the last run are read again before each run with those the watcher named.
 - **Its load, measured 2026-10-31:** with a 64 KB buffer nothing was lost writing 20,000 files in under a second,
-  installing Mila Desktop's npm packages, or rebuilding every Mila target with the whole repository watched
+  installing Mila Assistant's npm packages, or rebuilding every Mila target with the whole repository watched
   (18,123 events in 350 s); a 4 KB buffer overflowed 19 times in that build. So a walk after the first is rare.
 - **The bound** (Todd, 2026-10-31): no count of files. A walk, the first or one after an overflow,
   is part of the run and counts against the call's own time; a walk that does not finish within it refuses the run,
@@ -177,7 +177,7 @@ and system variables -- whatever a person keeps there, a token included. The lis
 - Then the application's own variables (`ProgramFolders`, 4.6), refused at the grant when one is a name above.
 
 The project is the first folder granted to write; a grant with none refuses to run a program. Measured: with
-these and Mila Desktop's variables, `git status` and `git commit`, a CMake + Ninja + `cl` build, `npm run build`
+these and Mila Assistant's variables, `git status` and `git commit`, a CMake + Ninja + `cl` build, `npm run build`
 and `dotnet build` finish (`MxcConformance.md` 7.1).
 
 ### 4.8 Time, stop and output
@@ -202,7 +202,7 @@ grant reads what the person keeps under `HKCU`, which no grant gives. It is a kn
 ### 4.10 The library behind it
 
 - **`mxc_ffi.dll` is loaded at run time** from the application's folder, never linked, so a build without it still
-  runs and a machine without it offers no program-running tool. Mila Desktop's installer carries the file
+  runs and a machine without it offers no program-running tool. Mila Assistant's installer carries the file
   (MIT, about 8 MB at v1.1.0) beside `mila-session`. **Moved to v1.1.0 on 2026-11-17:** the eleven functions Mila
   calls and the error detail it mirrors are unchanged from v1.0.1 (the FFI crate's source at both tags compared);
   v1.1.0 adds `mxc_spawn_extended_json`, `mxc_register_runtime_directory` and two state-aware calls, none used.
@@ -240,7 +240,7 @@ grant reads what the person keeps under `HKCU`, which no grant gives. It is a kn
 
 ## 5. The first tool: running a command in Build & Code
 
-- **`run_command`**, Mila Desktop's own, not one of the tools Mila::Agents provides (`ToolCalling.md` 5): arguments `command`, an optional time, and an optional
+- **`run_command`**, Mila Assistant's own, not one of the tools Mila::Agents provides (`ToolCalling.md` 5): arguments `command`, an optional time, and an optional
   `network`, false unless the model sets it; needs: reads and writes files, runs programs, uses the network. The
   conversation's grant holds the network, and the tool narrows it away for every call that does not ask for it, so
   a call never reaches more than its grant (4.1). With the network, a command reaches public addresses only (4.5).
@@ -252,7 +252,7 @@ grant reads what the person keeps under `HKCU`, which no grant gives. It is a kn
   model's text changes the command line and errors come back as text, with execution policy bypassed for that
   process alone so `npm.ps1` runs. `cmd`'s `dir` is refused in a granted folder (phase 1), so the prompt names
   PowerShell's own commands.
-- **What Mila Desktop gives a command** (`Desktop.ProgramSetup`, found once when the setting is turned on): the
+- **What Mila Assistant gives a command** (`Assistant.ProgramSetup`, found once when the setting is turned on): the
   folders of Git, CMake, Ninja, Node and .NET on the person's `PATH`; Visual Studio's x64 setup, run once on the host,
   for `INCLUDE`, `LIB`, `LIBPATH`, the folders they name and the folders under Visual Studio and the Windows SDK it adds
   to `PATH`; `NODE_OPTIONS=--preserve-symlinks --preserve-symlinks-main`, since Node resolves a script's real path
@@ -289,8 +289,8 @@ One type each, under `Lib/Src/Agents/` unless named:
 | `Agents.SecondNameWatch` | the walk and watcher of 4.3 for one granted folder: the files with a name elsewhere |
 | `Agents.ToolNeeds`, `Agents.ToolGrant` | changed: `runs_programs`; `runProgram`, the program folders and the container |
 | `Networking.PublicAddress` | changed: `nonPublicRanges()`, the deny list of 4.5 drawn from its own table (moved from `Agents`, `Network/Network.md` 4.2) |
-| `Apps/Desktop/Session/Src/Tools/Desktop.CommandTool.ixx` | `run_command` |
-| `Apps/Desktop/Session/Src/Tools/Desktop.ProgramSetup.ixx` | the build tools' folders and variables of section 5 |
+| `Apps/Assistant/Session/Src/Tools/Assistant.CommandTool.ixx` | `run_command` |
+| `Apps/Assistant/Session/Src/Tools/Assistant.ProgramSetup.ixx` | the build tools' folders and variables of section 5 |
 
 ## 8. Phases
 
@@ -324,7 +324,7 @@ One type each, under `Lib/Src/Agents/` unless named:
 All six decided 2026-10-27 (Todd, "Agreed to 1..6"), each as recommended:
 
 1. **v0.21.0's scope.** `ROADMAP.md` *The Desktop Agent* carries the criterion: *with the experimental setting on,
-   on Windows 11 26H2, Mila Desktop runs a command in the chosen folder, asked first, and every phase 2 check
+   on Windows 11 26H2, Mila Assistant runs a command in the chosen folder, asked first, and every phase 2 check
    refuses its access beside the same access inside allowed*; `BACKLOG.md` carries the item. The item's date is the
    release's, so it drains to `Vnext.md` if it does not land, and the criterion with it. Widened to macOS 15 or
    later by decision 12.
@@ -391,7 +391,7 @@ later"):
   here (2026-10-27).
 - **`ToolBroker.md` 6.3** and **`Notebooks/LocalToolService.md` 10.4** first named MXC; `Vnext.md`'s sandbox entry
   holds what phase 4 leaves.
-- **`MilaDesktop.md`** 3.1 (Build & Code's tools) and 9.4 (what the installer carries) changed in phase 3.
+- **`MilaAssistant.md`** 3.1 (Build & Code's tools) and 9.4 (what the installer carries) changed in phase 3.
 - **`Notebooks/MxcConformance.md`** holds the measurements this design rests on.
 
 ## 11. macOS (proposed 2026-11-17, unmeasured)
@@ -459,7 +459,7 @@ command has no network, which is a gap against Windows to close in v0.21.0, not 
   measured as `TEMP` was on Windows (`MxcConformance.md` 7.1).
 - The shell is `/bin/zsh`, present on every supported macOS, given the command as a script the tool writes through
   its grant to `.mila/command.sh`, as PowerShell is given `.mila\command.ps1`.
-- `Desktop.ProgramSetup` gains macOS's candidate: Git, CMake, Ninja, Node and .NET where the person's `PATH` finds
+- `Assistant.ProgramSetup` gains macOS's candidate: Git, CMake, Ninja, Node and .NET where the person's `PATH` finds
   them (Homebrew's prefix included), and Xcode's tools through MXC's developer-directory grant.
 
 ### 11.6 What has no counterpart

@@ -535,7 +535,7 @@ namespace Mila::StoreApp
                 "  mila-store usage [--clean]        show disk use; --clean frees interrupted downloads\n"
                 "  mila-store --version              show the version\n"
                 "\n"
-                "The store is MILA_CACHE_DIR when set, and the per-user cache otherwise.\n"
+                "The store is MILA_CACHE_DIR when set, and the Store folder in your Mila folder otherwise.\n"
                 "Run a model with mila-chat, or serve it with mila-server.\n";
         }
 

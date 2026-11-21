@@ -268,7 +268,7 @@ Lib/Bindings/DotNet/
 
 A C17 implementation of all of `mila.h` with no Mila behind it, built by its own small `CMakeLists.txt`
 into `MilaNative` -- the same name, so the C# library loads it unchanged. It is what phase 1a is built and
-tested against, as Chat's desktop window was built against its mock session (`MilaDesktop.md` 5).
+tested against, as Chat's desktop window was built against its mock session (`MilaAssistant.md` 5).
 
 - **A fixed store** of two models, `mock-gemma-it` (family `gemma`) and `mock-llama-it` (family `llama`),
   and one name that is installed but incomplete, `mock-incomplete`, which refuses to load.

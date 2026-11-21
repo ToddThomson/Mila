@@ -10,7 +10,7 @@ that "adaptor" is a GoF pattern name fitting MIS and not Chat: the axis was soun
 not, and it goes at v0.21.0 rather than being renamed inside v0.20. It went on 2026-10-11: the
 gate is `MILA_ENABLE_APPS`, and the paths below were updated with it (`Notebooks/MilaCommandLineReview.md` section 4.1);
 since 2026-11-02 (Todd) the repository's top holds `Lib/`, the one Mila library with `mila-store`, and `Apps/`, with
-Mila Chat, Mila Desktop and Mila Server in `Apps/Chat`, `Apps/Desktop` and `Apps/Server`. The text that uses the word stands as written.
+Mila Chat, Mila Assistant and Mila Server in `Apps/Chat`, `Apps/Assistant` and `Apps/Server`. The text that uses the word stands as written.
 **Component:** whole-project positioning (`Lib/Src`, `Apps/Server`, `Apps/Chat`, future agent)
 
 ## Definition

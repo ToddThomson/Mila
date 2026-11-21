@@ -221,6 +221,25 @@ namespace Mila::Tests::Distribution
         EXPECT_NE( root.filename().string(), "models" );
     }
 
+    TEST( ModelStore, DefaultRootIsTheStoreAreaOfTheMilaFolder )
+    {
+        if ( readEnvironmentVariable( "MILA_CACHE_DIR" ) )
+        {
+            GTEST_SKIP() << "MILA_CACHE_DIR names the store";
+        }
+
+        EXPECT_EQ( resolveStoreRoot(), resolveMilaFolder() / milaArea( {}, "Store" ) );
+    }
+
+    TEST( ModelStore, AnAreaIsNamedAsThePlatformNamesItsFolders )
+    {
+#if defined( _WIN32 ) || defined( __APPLE__ )
+        EXPECT_EQ( milaArea( "root", "Assistant" ), std::filesystem::path( "root" ) / "Assistant" );
+#else
+        EXPECT_EQ( milaArea( "root", "Assistant" ), std::filesystem::path( "root" ) / "assistant" );
+#endif
+    }
+
     // ================================================================
     // Fetch, verify, publish
     // ================================================================

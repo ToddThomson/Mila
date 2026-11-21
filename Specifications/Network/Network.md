@@ -17,7 +17,7 @@ The HTTP client was written for the model store, so it was put under `Distributi
 - **The web page tool** (`Agents/ProvidedTools/WebPageReader.ixx`) reads pages through a tool grant's transport.
 - **The grant itself** (`Agents/Grants/ToolGrant.ixx`) makes the checked transport (`makeCheckedHttpTransport`),
   and the address classification it checks with (`Agents/Grants/PublicAddress.ixx`) lives in `Agents`.
-- **Mila Assistant's web search** (`Apps/Desktop/Session/Src/Tools/Desktop.WebSearch.ixx`) posts to a search
+- **Mila Assistant's web search** (`Apps/Assistant/Session/Src/Tools/Assistant.WebSearch.ixx`) posts to a search
   service through the same transport.
 
 So `Agents` imports `Distribution` to reach the network, and an application names `Mila::Distribution::HttpFetch`
@@ -163,7 +163,7 @@ Each phase is its own change.
    changes behaviour: every transport, test and message does what it did. Tests move to `Lib/Tests/Networking/`
    (`HttpClient.Cpu.cpp`, `HttpReplyReader.Cpu.cpp`, `PublicAddress.cpp`); `ToolGrant.Network.cpp` stays with the
    grant, as do `WebPageReader.cpp` and `ModelHub.Cpu.cpp`. The specs that name the old modules (`HttpClient.md`,
-   `ModelDistribution.md`, `ToolCalling.md`, `MilaDesktop.md`, `Metal/MetalBackend.md`, the index row in
+   `ModelDistribution.md`, `ToolCalling.md`, `MilaAssistant.md`, `Metal/MetalBackend.md`, the index row in
    `Specifications/README.md`) are updated in the same change, and this section records phase 1 as built.
    *Done when:* every target builds on the PC and the Mac, the full suite passes on both, `check_layers.py`
    passes with section 3's table, and a search finds no `Distribution.Http`, `Mila::Distribution::Http`,
@@ -183,7 +183,7 @@ Each phase is its own change.
    - `NullHttpTransport` is no longer exported: only its own file names it.
    - `Agents.MxcProgramContainer` also imported the address module, for `nonPublicRanges()`; it imports
      `Networking.PublicAddress` now. `ContainedPrograms.md` 7 is updated with it.
-   - `ToolCalling.md`, `MilaDesktop.md` and `Metal/MetalBackend.md` name no moved module, so nothing changed in
+   - `ToolCalling.md`, `MilaAssistant.md` and `Metal/MetalBackend.md` name no moved module, so nothing changed in
      them.
 
    *Done-when met* at `0.21.0-dev+144`: every target builds on the PC (`x64-claude-verify`) and the Mac

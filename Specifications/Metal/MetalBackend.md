@@ -637,7 +637,7 @@ development Mac (M1 Pro, 16 GB, macOS 27.2.1); probes and logs in `D:\Claude\met
   buffer as the process's own memory. `ledger_tag_graphics_footprint_compressed` read the buffers' 5.23 alone, and
   `mincore` over the buffers' contents flagged the same 5.23 GiB `MINCORE_PAGED_OUT`; a page never written is flagged
   neither in memory nor paged out. Reading every page on eight threads brought the 5.3 GiB back in 0.64 s (compressible
-  data; Gemma 4 12B's took 2 to 4 s in Mila Desktop). So `MetalDevice::getPagedOutBytes` counts `MINCORE_PAGED_OUT`
+  data; Gemma 4 12B's took 2 to 4 s in Mila Assistant). So `MetalDevice::getPagedOutBytes` counts `MINCORE_PAGED_OUT`
   pages over the allocation map: the device's own buffers, exactly.
 - **W4. Apple promises neither residency nor a free figure.** `requestResidency` does "as much preparatory work as it
   can, with the system's current conditions" (Apple, `MTLResidencySet`); `recommendedMaxWorkingSetSize` is "an
@@ -734,7 +734,7 @@ trait or a finding. A build with CUDA off compiles and passes; running on Metal 
 - `Issues/Future.md` *Remove FP16*: FP16 stays for Metal. Whether CUDA's FP16 rows still go is that entry's own question,
   now separate from this.
 - `Quantization.md`'s out-of-scope line and `CLAUDE.md`'s "FP16 is not used" say so, in this change.
-- `MilaDesktop.md` and `ChatConfiguration.md` both wait on this backend for macOS; Phase 8 reaches them.
+- `MilaAssistant.md` and `ChatConfiguration.md` both wait on this backend for macOS; Phase 8 reaches them.
 
 ## 9. Phases
 
@@ -876,7 +876,7 @@ what the development Mac builds and tests (Todd, 2026-11-09).
 
 ### Phase 8 -- Apps and distribution
 
-Chat, Mila Desktop's session process and the server on macOS; how a Mac user installs Mila; what the model cards may claim.
+Chat, Mila Assistant's session process and the server on macOS; how a Mac user installs Mila; what the model cards may claim.
 Planned when Phase 6 is done. An app adds no capability to the library. Since 2026-11-14 every program Mila links on a
 Mac carries LLVM's libc++, libc++abi and libunwind inside itself (`cmake/CxxRuntime.cmake`): Apple's toolchain ships no
 `std` module source and its Clang is 21, so the system's libc++ is not one Mila can build against. The linker warns that

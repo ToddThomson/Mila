@@ -70,4 +70,4 @@ and of what it carries beside them:
 The session's install refuses to run without each of those texts, and the window's packaging refuses a session staged
 without them, and a package without Electron's and Chromium's. The window lists every one under *Licences* in *About
 Mila Assistant*, with Mila's own. `check_pins.py --verify-notice` holds both tables to the texts the session's install names
-(`Apps/Desktop/Session/CMakeLists.txt`, `mila_session_licence`).
+(`Apps/Assistant/Session/CMakeLists.txt`, `mila_session_licence`).

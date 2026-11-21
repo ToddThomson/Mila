@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' blob:">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Mila Assistant</title>
+<link rel="icon" href="mila-mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="sidebar" id="sidebar" aria-label="Mila"></aside>
+  <div class="scrim" data-action="close-overlay"></div>
+  <main class="main" id="main">
+    <header class="bar" id="header"></header>
+    <div class="pane-scroll" id="pane-scroll">
+      <div class="pane" id="pane"></div>
+    </div>
+    <div class="transcript-scroll" id="transcript-scroll">
+      <div class="chat-head" id="chat-head"></div>
+      <div class="transcript" id="transcript"></div>
+    </div>
+    <div class="dock-fade" aria-hidden="true"></div>
+    <div class="dock" id="dock">
+      <section class="conversation" id="conversation" aria-label="Conversation with Mila">
+        <div class="conversation-head" id="conversation-head"></div>
+      </section>
+      <section class="plan-panel" id="plan" aria-label="Plan" hidden></section>
+      <section class="log-drawer" id="log-drawer" aria-label="Log" hidden></section>
+      <div class="composer-area" id="composer-area"></div>
+    </div>
+  </main>
+  <dialog class="settings-window" id="settings" aria-label="Settings"></dialog>
+  <dialog class="search-window" id="search" aria-label="Search"></dialog>
+  <dialog class="license-window" id="license-window" aria-label="Mila’s licence"></dialog>
+  <dialog class="license-window about-window" id="about-window" aria-label="About Mila Assistant"></dialog>
+  <dialog class="license-window link-window" id="link-window" aria-label="Before this link opens"></dialog>
+  <dialog class="license-window project-window" id="project-window" aria-label="New project"></dialog>
+  <dialog class="made-drawer" id="made-drawer" aria-label="Made"></dialog>
+</div>
+</body>
+</html>

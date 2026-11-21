@@ -298,8 +298,13 @@ One store holds every managed model, whatever its origin.
 Root resolution, first match wins:
 
 1. `MILA_CACHE_DIR` if set
-2. `%LOCALAPPDATA%\Mila` on Windows
-3. `$XDG_CACHE_HOME/mila`, else `~/.cache/mila`
+2. the `Store` area of the person's Mila folder (`resolveMilaArea`): `%LOCALAPPDATA%\Mila\Store` on Windows,
+   `~/Library/Application Support/Mila/Store` on macOS, `$XDG_DATA_HOME/mila/store`, else
+   `~/.local/share/mila/store`, on Linux
+
+Each Mila program keeps its own area of that folder (Todd, 2026-11-21, `Apps/AssistantInterface.md` 8). Until then the
+store was the Mila folder itself on Windows and `$XDG_CACHE_HOME/mila`, else `~/.cache/mila`, elsewhere, macOS
+included; installed models are not a cache a person may clear.
 
 **The root holds `models/`; it is not itself `models/`.** Appending the segment in both places is
 what produced a `Mila\models\models` tree.

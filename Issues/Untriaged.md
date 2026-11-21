@@ -10,9 +10,15 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Models a person installed with v0.20 are not found by 0.21, since the store moved and nothing moves it
+
+`Lib/Src/Distribution/Store/ModelStore.ixx` (`resolveStoreRoot`); `Apps/Chat/Src/Settings/Chat.SettingsResolution.ixx` (`resolveConfigRoot`); `Specifications/ModelDistribution.md` @ 0.21.0-dev+163
+
+Found 2026-11-21 moving each program into its own area of the Mila folder. The store moved from `%LOCALAPPDATA%\Mila` (and `~/.cache/mila`) to the folder's `Store`, and Chat's `chat.json` from the top of `%APPDATA%\Mila` (and `~/.config/mila`) to its `Chat`; a v0.20 install's models and settings stay where they were. Todd, 2026-11-21: "Move by hand for now" -- no code moves them yet. The proposal on the table was the library moving an old store into `Store` on first use, and Chat the same for `chat.json`.
+
 ## Gemma 4 12B FP4 often sends a file tool's path as `="."`, and some of its calls are not understood at all
 
-`Lib/Src/Models/Gemma` (Gemma's chat protocol, its tool-call reading); `Apps/Desktop/Session` @ 0.21.0-dev+158
+`Lib/Src/Models/Gemma` (Gemma's chat protocol, its tool-call reading); `Apps/Assistant/Session` @ 0.21.0-dev+158
 
 Found 2026-11-19 checking `AssistantInterface.md` phase 8 on the real session. Asked to read `notes.txt` and write
 `summary.md` in a project's folder, the model's calls were stored with arguments `{"path":"=\".\""}` and `{"path":"=\"\""}`,
@@ -23,7 +29,7 @@ seen on the Mac's Q4_0 in one run. Whether the model writes this or the reading 
 
 ## Mila Assistant cannot install a gated model, since it no longer sends a token and has no step to ask for one
 
-`Apps/Desktop/Session/Src/Desktop.Models.ixx` (`installModel`); `Lib/Src/Distribution/Hub/HuggingFaceHub.ixx` (`makeAnonymousModelHub`); `Specifications/Apps/AssistantOnboarding.md` 4.2 @ 0.21.0-dev+154
+`Apps/Assistant/Session/Src/Assistant.Models.ixx` (`installModel`); `Lib/Src/Distribution/Hub/HuggingFaceHub.ixx` (`makeAnonymousModelHub`); `Specifications/Apps/AssistantOnboarding.md` 4.2 @ 0.21.0-dev+154
 
 Found 2026-11-18 building `AssistantInterface.md` phase T1. Listing and installing now send no token. The design has the person told and asked before a token found on the computer is used for a model that needs one; that question is not built, so such a model's install fails with the publisher's refusal.
 
@@ -45,7 +51,7 @@ have no such call, so whether it is worth one platform's design differing is not
 
 ## The terms a person accepts in Mila Assistant are Mila's MIT licence alone, while NVIDIA's and Microsoft's ask more
 
-`Apps/Desktop/Session/Src/Settings/Desktop.MilaLicense.ixx` (what is accepted); `NOTICE.md` *What Mila Assistant carries*; `Specifications/AssistantOnboarding.md` 4.1 @ 0.21.0-dev+151
+`Apps/Assistant/Session/Src/Settings/Assistant.MilaLicense.ixx` (what is accepted); `NOTICE.md` *What Mila Assistant carries*; `Specifications/AssistantOnboarding.md` 4.1 @ 0.21.0-dev+151
 
 Found 2026-11-17 reading the terms of what the Windows installer carries. NVIDIA's CUDA EULA (v13.5, 1.1.2 item 5):
 "The terms under which you distribute your application must be consistent with the terms of this Agreement",
@@ -67,7 +73,7 @@ tests fail instead of skip until 0.21.0-dev+156, whose tests no longer open an e
 
 ## Nothing at the operating system's level confines `mila-session`, so a defect in the grant reaches whatever the person can
 
-`Apps/Desktop/Session/Src/main.cpp`; `Apps/Desktop/Window/src/main.js` (starts the session); `Specifications/MilaDesktop.md` section 9 item 4 (*Decided 2026-11-14*, App Sandbox) @ 0.21.0-dev+151
+`Apps/Assistant/Session/Src/main.cpp`; `Apps/Assistant/Window/src/main.js` (starts the session); `Specifications/Apps/MilaAssistant.md` section 9 item 4 (*Decided 2026-11-14*, App Sandbox) @ 0.21.0-dev+151
 
 Found 2026-11-17 reviewing MXC v1.1.0 with Todd ("Mila has no other way to sandbox tool calls"). Every tool runs in
 `mila-session` as the person, held only by the grant and the question before each call; MXC holds only the programs
@@ -81,7 +87,7 @@ Claude's call (Todd, 2026-11-17, to review later): captured here, not v0.21.0 wo
 
 ## A reply that falls into repeating itself runs for hours in Mila Assistant, with nothing but the person to stop it
 
-`Apps/Desktop/Session/Src/Desktop.SessionProcess.ixx` (`useActivity`, `AgentLimits{}`); `Specifications/MilaDesktop.md` 3.6 and the *Activities* decision ("a reply runs to the context", Todd, 2026-11-13) @ 0.21.0-dev+149
+`Apps/Assistant/Session/Src/Assistant.SessionProcess.ixx` (`useActivity`, `AgentLimits{}`); `Specifications/Apps/MilaAssistant.md` 3.6 and the *Activities* decision ("a reply runs to the context", Todd, 2026-11-13) @ 0.21.0-dev+149
 
 Found 2026-11-17 measuring AssistantInterface.md 5.5 on the Mac (Gemma 4 12B Q4_0, thinking on, the publisher's
 sampling, context 262,144 automatic): with Get Things Done's prompt and tools, "Make me a packing list for a weekend
@@ -105,7 +111,7 @@ round past 4,000 tokens).
 
 ## A model's licence on Mila Assistant's first-run card is a name, with no way to read its text
 
-`Apps/Desktop/Ui/views/transcript.js` (`renderSuggestion`, *Licence:*), `Apps/Desktop/Session/Src/Desktop.Models.ixx` (`publishedModels`, `license`) @ 0.21.0-dev+146
+`Apps/Assistant/Ui/views/transcript.js` (`renderSuggestion`, *Licence:*), `Apps/Assistant/Session/Src/Assistant.Models.ixx` (`publishedModels`, `license`) @ 0.21.0-dev+146
 
 Found 2026-11-15 building the first-run setup (AssistantOnboarding.md 4.1, question 16, which Todd took): the card's
 licence name was to become a link that opens the text, but `models.list` carries the manifest's licence name only,
@@ -114,7 +120,7 @@ is counsel's and Todd's.
 
 ## Mila Assistant's web search has no test, and nothing lets one give it a scripted server
 
-`Apps/Desktop/Session/Src/Tools/Desktop.WebSearch.ixx` (`search`, `kEndpoint`), `Lib/Src/Agents/Grants/ToolGrant.ixx` (`transport()`); an absence -- no test names `WebSearch` @ 0.21.0-dev+145
+`Apps/Assistant/Session/Src/Tools/Assistant.WebSearch.ixx` (`search`, `kEndpoint`), `Lib/Src/Agents/Grants/ToolGrant.ixx` (`transport()`); an absence -- no test names `WebSearch` @ 0.21.0-dev+145
 
 Found 2026-11-15 moving web search onto `HttpClient` (Network.md phase 3): its request, its status wording and the
 new 1 MB cut run untested. `search` reaches the network only through the grant's own checked transport, which
@@ -160,7 +166,7 @@ Found 2026-11-13, same run. `mila-llm/Llama-3.1-8B-Instruct-fp4` and `Llama-3.2-
 
 `Lib/Src/Dnn/Models/Gemma/GemmaModel.ixx` (prompt prefix reuse) @ 0.21.0-dev+138
 
-Found 2026-11-13 in Mila Desktop on the Mac, Gemma 4 12B Q4_0, thinking on: the turn after a 2,048-token reply took 11.3 s to its first token, every other turn 1.17 to 1.36 s (the conversation's stored stats, timed from the round's start). Gemma 4's template leaves a reply's thinking out of the history, so the cached prompt stops matching where that reply began and its answer, about 1,400 tokens, is read again. Not checked: Qwen 3.8's template, which also drops past thinking, and what llama.cpp does with the same conversation. Logs `D:\Claude\mac\desktop138`.
+Found 2026-11-13 in Mila Assistant on the Mac, Gemma 4 12B Q4_0, thinking on: the turn after a 2,048-token reply took 11.3 s to its first token, every other turn 1.17 to 1.36 s (the conversation's stored stats, timed from the round's start). Gemma 4's template leaves a reply's thinking out of the history, so the cached prompt stops matching where that reply began and its answer, about 1,400 tokens, is read again. Not checked: Qwen 3.8's template, which also drops past thinking, and what llama.cpp does with the same conversation. Logs `D:\Claude\mac\desktop138`.
 
 ## Three Gemma 4 26B tests fail on the PC because their BF16 weights file is 32 KB
 
@@ -178,7 +184,7 @@ Found 2026-11-12 measuring residency (`Metal/MetalBackend.md` 5, W3a). Gemma 4 1
 
 `Lib/Src/Dnn/Compute/Devices/Metal/MetalDevice.ixx` (`getMemoryInfo`) @ 0.21.0-dev+135
 
-Found 2026-11-11 timing mila-chat's first reply. Automatic context takes 262,144, the model then holds 12.8 GB, and `getMemoryInfo` offers the planner the whole of `recommendedMaxWorkingSetSize` (12.71 GB) as though nothing else on the Mac needed memory. Metal stops holding idle buffers in place about 2 s after their last use, so between the load and the first prompt the weights become ordinary memory; the first prompt then pins 12.8 GB with almost nothing free, and macOS compresses 2 to 9 GB (part of it the weights) and swaps up to 0.9 GB before it can. First prefill of "Hello": 948 to 8423 ms at 262,144, 652 to 1154 ms at 8192. Since `0.21.0-dev+137` the load leaves no copy of the weights in the file cache (11 s to 1.7 s), and a trial of that read at +135 left this unchanged. Not measured: a prompt after the model has sat idle, and what context the Mac's real free memory would allow. Scripts and logs `D:\Claude\metal\first-prompt`. Measured since, 2026-11-12: idle, other applications, a renewed residency set and coming back after another app (`Metal/MetalBackend.md` 5, W3a and W3b; `D:\Claude\metal\sweep`). At `0.21.0-dev+138`, 2026-11-13, in the packaged Mila Desktop (its settings at `auto`): the plan came to 12,250,639,620 bytes, and the lock while Mila is in front held 11.4 to 11.5 GB of it before macOS refused the rest at the system's lock limit, leaving 0.06 GiB free. Each time Safari was in front macOS compressed 3 to 4 GiB of the let-go model, so each return re-read it. Logs `D:\Claude\mac\desktop138`.
+Found 2026-11-11 timing mila-chat's first reply. Automatic context takes 262,144, the model then holds 12.8 GB, and `getMemoryInfo` offers the planner the whole of `recommendedMaxWorkingSetSize` (12.71 GB) as though nothing else on the Mac needed memory. Metal stops holding idle buffers in place about 2 s after their last use, so between the load and the first prompt the weights become ordinary memory; the first prompt then pins 12.8 GB with almost nothing free, and macOS compresses 2 to 9 GB (part of it the weights) and swaps up to 0.9 GB before it can. First prefill of "Hello": 948 to 8423 ms at 262,144, 652 to 1154 ms at 8192. Since `0.21.0-dev+137` the load leaves no copy of the weights in the file cache (11 s to 1.7 s), and a trial of that read at +135 left this unchanged. Not measured: a prompt after the model has sat idle, and what context the Mac's real free memory would allow. Scripts and logs `D:\Claude\metal\first-prompt`. Measured since, 2026-11-12: idle, other applications, a renewed residency set and coming back after another app (`Metal/MetalBackend.md` 5, W3a and W3b; `D:\Claude\metal\sweep`). At `0.21.0-dev+138`, 2026-11-13, in the packaged Mila Assistant (its settings at `auto`): the plan came to 12,250,639,620 bytes, and the lock while Mila is in front held 11.4 to 11.5 GB of it before macOS refused the rest at the system's lock limit, leaving 0.06 GiB free. Each time Safari was in front macOS compressed 3 to 4 GiB of the let-go model, so each return re-read it. Logs `D:\Claude\mac\desktop138`.
 
 ## Nobody has measured what the first load of a model on a Mac pays to prepare its kernels
 
@@ -272,7 +278,7 @@ Seen building the multi-threadgroup sampler, 2026-11-07: draws at uniforms 0.789
 
 ## A session that fails as it starts hangs silently instead of saying why
 
-`Apps/Desktop/Session/Src/Desktop.SessionProcess.ixx` (`run`, the `reader` jthread) @ 0.21.0-dev+126
+`Apps/Assistant/Session/Src/Assistant.SessionProcess.ixx` (`run`, the `reader` jthread) @ 0.21.0-dev+126
 
 Found running the packaged session on the Mac, 2026-11-07: it found its prompts against the working directory (fixed the same day in `main.cpp`'s `executable_directory`), so `useActivity( "ask" )` threw before the request loop. The exception left `run` while the reader thread was blocked reading standard input, and the `jthread`'s destructor joined it, so the process answered nothing and printed nothing until its input closed; `main`'s "Fatal error" is reached only then. A stack sample shows the main thread in `~jthread` -> `join` and the reader in `getline`. Not Mac-specific: any throw before the loop does this.
 
@@ -395,9 +401,9 @@ Clang 22, a library build: `setParameters` overrides but is not marked `override
 (`-Winconsistent-missing-override`), and instantiating `fill_uniform` and `fill_normal` references the TU-local `cudaMalloc<float>`
 and its `devPtr` and `size` (`-Wreference-tu-local-entity-in-other-tu`). 11 warnings, none from Agents. MSVC gives none of them.
 
-## A pnpm project may not build under Mila Desktop's commands, which tell Node to keep links as named
+## A pnpm project may not build under Mila Assistant's commands, which tell Node to keep links as named
 
-`Apps/Desktop/Session/Src/Tools/Desktop.ProgramSetup.ixx` (`NODE_OPTIONS`) @ 7cf45bdd
+`Apps/Assistant/Session/Src/Tools/Assistant.ProgramSetup.ixx` (`NODE_OPTIONS`) @ 7cf45bdd
 
 Measured 2026-10-31 (`Notebooks/MxcConformance.md` 7.1): in MXC's container Node's resolving of a script's real
 path stats the drive's root, which is refused, so every `node` and `npm` run failed; `--preserve-symlinks
@@ -409,7 +415,7 @@ installing a development certificate; where it lands is not measured.
 
 `Specifications/ContainedPrograms.md` decision 11; an absence -- no allow list by host name @ 7cf45bdd
 
-Todd, 2026-10-31: after phase 3 (network per call), a list of hosts allowed per project in Mila Desktop, and a
+Todd, 2026-10-31: after phase 3 (network per call), a list of hosts allowed per project in Mila Assistant, and a
 question for each new host. MXC's egress rules match address, protocol and port only; names are out of its scope
 (`docs/backends/process-container/networking.md`). Its proxy mode (`runtimeConfig.networkProxy`, "Model 2") sends
 WinHTTP traffic and `HTTP_PROXY`/`HTTPS_PROXY` to a loopback proxy the host runs, and asks for `egress.default: deny`
@@ -432,7 +438,7 @@ everyone first. Todd, 2026-10-27: report after the design spec; Todd files, unde
 
 Also measured 2026-10-27 (`ContainedPrograms.md` phase 1): with no folder granted, a contained process reads much of
 `HKCU` -- `Environment`, `Software`, `Software\Classes` -- and the policy has no registry field. Todd, 2026-10-31
-(`ContainedPrograms.md` decision 8): a known gap for Mila Desktop, and told to Microsoft with the other two.
+(`ContainedPrograms.md` decision 8): a known gap for Mila Assistant, and told to Microsoft with the other two.
 
 ## On NTFS a contained run walks its folders whole before every run
 
@@ -458,24 +464,24 @@ whose files are linked between two of its own folders is refused today.
 
 Seen 2026-10-27: both list their capabilities as `instruct` alone, while the store's `gemma-4-26B-A4B-it-q4_0` and
 the scratch store's `gemma-4-12b-it-q4_0` list `thinking` too. `ModelCapabilities::thinking` is read from the
-record, so `Agent::thinks()` is false for both whatever the template's switch says, and Chat and Mila Desktop show
+record, so `Agent::thinks()` is false for both whatever the template's switch says, and Chat and Mila Assistant show
 no thinking switch for them. Likely packages installed before the manifest carried thinking; not checked against
 what the hub publishes now.
 
 ## In Get Things Done, Gemma 4 12B looks at the folder before it proposes a plan about half the time
 
-`D:\Claude\filetools\drive_tasks.py` (the session drive's "the first call proposes a plan" check); `Apps/Desktop/Prompts/tasks.json` (`Apps/Chat/Prompts/tasks.json` until +105) @ cc07f776
+`D:\Claude\filetools\drive_tasks.py` (the session drive's "the first call proposes a plan" check); `Apps/Assistant/Prompts/tasks.json` (`Apps/Chat/Prompts/tasks.json` until +105) @ cc07f776
 
 Measured 2026-10-27 on Gemma 4 12B Q4_0 at the publisher's sampling: the first call was `list_folder` in 2 of 3 runs
 on `+103`'s session and 3 of 3 on the session change after it, `propose_plan` otherwise; the plan, its steps and the
 edit ran correctly every time. The same model chose both ways on one build, so the check measures the model's choice,
-not the session. On `+105`'s session (Mila Desktop on `Mila::Agents` alone, same prompt and tool schemas byte for byte):
+not the session. On `+105`'s session (Mila Assistant on `Mila::Agents` alone, same prompt and tool schemas byte for byte):
 `list_folder` first in 4 of 6 runs, then a plan carried out correctly; `propose_plan` first in 1; and once no plan
 at all -- three edits, then an answer claiming a README change it never made. Whether the prompt should allow a look first, or the check should, is not decided.
 
-## Nobody has read whether Tavily's terms let Mila Desktop keep search results in a saved conversation
+## Nobody has read whether Tavily's terms let Mila Assistant keep search results in a saved conversation
 
-`Apps/Desktop/Session/Src/Tools/Desktop.WebSearch.ixx`; an absence -- Tavily's terms of service not read @ da647c29
+`Apps/Assistant/Session/Src/Tools/Assistant.WebSearch.ixx`; an absence -- Tavily's terms of service not read @ da647c29
 
 Found 2026-10-26 adding Tavily web search: a saved conversation keeps every tool result, search results included, and
 Tavily's credits page says nothing on keeping or showing results. Brave grants that only on some plans.
@@ -548,19 +554,19 @@ one-type rule, and it holds five types.
 
 an absence -- no file in the repository or in `.internal/` names them @ a8f5360a
 
-Todd, 2026-10-20, while choosing the toolkit for Chat's desktop window (`Specifications/MilaDesktop.md`
+Todd, 2026-10-20, while choosing the toolkit for Chat's desktop window (`Specifications/Apps/MilaAssistant.md`
 section 9): "We do have a future for .NET bindings." Like the Python binding: a projection of the C++ API
 (`Lib/Bindings/`).
 
 Specified 2026-10-21 in `Specifications/DotNetBinding.md`: P/Invoke over a C ABI, experimental until
 v0.22.0 or later (Todd).
 
-## Mila Desktop's download is unsigned, has no updates and does not say it needs an NVIDIA GPU
+## Mila Assistant's download is unsigned, has no updates and does not say it needs an NVIDIA GPU
 
-`Specifications/MilaDesktop.md` section 9.4; an absence -- no signing, no update channel, no stated
+`Specifications/Apps/MilaAssistant.md` section 9.4; an absence -- no signing, no update channel, no stated
 requirement @ c8f71f60
 
-Todd, 2026-10-24: Mila Desktop is the end-user showcase. Since +101 its installer carries the session, the
+Todd, 2026-10-24: Mila Assistant is the end-user showcase. Since +101 its installer carries the session, the
 CUDA libraries it loads and the Visual C++ runtime, so no toolkit is needed. Still missing: the NVIDIA GPU
 requirement stated before the download, code signing (SmartScreen warns on an unsigned one), and updates.
 
@@ -568,18 +574,18 @@ requirement stated before the download, code signing (SmartScreen warns on an un
 
 `%LOCALAPPDATA%\Mila\models\qwen3.8-27b-fp4.json` capabilities; an absence -- no `thinking`, no `tools` @ c8f71f60
 
-Found 2026-10-24 driving Mila Desktop's session process: Todd's installed record declares `instruct` and `agentic`
-only, so Chat and Mila Desktop run Qwen 3.8 27B FP4 with no reasoning switch and no effort levels, and the
+Found 2026-10-24 driving Mila Assistant's session process: Todd's installed record declares `instruct` and `agentic`
+only, so Chat and Mila Assistant run Qwen 3.8 27B FP4 with no reasoning switch and no effort levels, and the
 console's status line has no Thinking clause (the phase 2 baseline shows the same). The fp4-cb3 package built
 with `--thinking --tools` declares both. Not checked: whether the published package's `mila.json` or only this
 install lacks them.
 
-Also Gemma 4 12B FP4 (2026-10-24, Mila Desktop's window): Todd's `gemma-4-12b-it-fp4.json`, installed 2026-10-03,
+Also Gemma 4 12B FP4 (2026-10-24, Mila Assistant's window): Todd's `gemma-4-12b-it-fp4.json`, installed 2026-10-03,
 has no `capabilities` block at all, so the session reports `thinking_capable: false` for a model that thinks.
 
-## A tool call ran in Mila Desktop's window without the person being asked, once
+## A tool call ran in Mila Assistant's window without the person being asked, once
 
-`Apps/Desktop/Session/Src/Desktop.SessionProcess.ixx` `approveToolCall` @ a9087567
+`Apps/Assistant/Session/Src/Assistant.SessionProcess.ixx` `approveToolCall` @ a9087567
 
 2026-10-24, the first scripted window run over the real session (Llama 3.2 3B FP4, tools-weather, scratch
 store): the first turn's `get_weather` call ran and its result was stored, while the script clicked nothing; a
@@ -589,22 +595,22 @@ files were overwritten by the next, so what the page received is not known.
 
 ## A client that sends on `turn.end` is refused as busy
 
-`Apps/Desktop/Session/Src/Desktop.SessionProcess.ixx` `respond` @ a9087567
+`Apps/Assistant/Session/Src/Assistant.SessionProcess.ixx` `respond` @ a9087567
 
 `turn.end` is sent from inside the turn and `busy` clears after it, so a `turn.send` written on reading
 `turn.end` gets "A reply is still being written" (seen 2026-10-24 from a stdio script). The page waits for
-`session.state`, so it does not hit this; `MilaDesktop.md` 4.1 does not say which message a client waits for.
+`session.state`, so it does not hit this; `MilaAssistant.md` 4.1 does not say which message a client waits for.
 
 ## The session sends a thought break when the model is not thinking
 
-`Apps/Desktop/Session/Src/Desktop.SessionProcess.ixx` `thoughtBreak` @ a9087567
+`Apps/Assistant/Session/Src/Assistant.SessionProcess.ixx` `thoughtBreak` @ a9087567
 
 Gemma 4 12B Q4_0 with thinking off, 2026-10-24: `turn.thought_break` after the tool result, with no thought
-text before or after it. `MilaDesktop.md` 4.1 says it means the reasoning resumed. The page shows nothing for it.
+text before or after it. `MilaAssistant.md` 4.1 says it means the reasoning resumed. The page shows nothing for it.
 
-## Mila Desktop's Models view stays open after a load, and offers Load while one runs
+## Mila Assistant's Models view stays open after a load, and offers Load while one runs
 
-`Apps/Desktop/Ui/views/models.js` @ a9087567
+`Apps/Assistant/Ui/views/models.js` @ a9087567
 
 2026-10-24, the window over the real session: choosing Load leaves the person on the Models view once the model
 is loaded, and the row's Load button stays during the load (progress shows above the list).
@@ -634,18 +640,18 @@ checks describe.
 Measured 2026-10-27 (`Specifications/Notebooks/MxcConformance.md`) and designed (`Specifications/ContainedPrograms.md`,
 draft): Todd decided the same day that MXC goes into v0.21.0 as an experiment, off by default.
 
-## No CI job builds Mila Desktop's installer
+## No CI job builds Mila Assistant's installer
 
-`.github/workflows/desktop.yml`; an absence -- the `windows-installer` job removed @ 793bddb5
+`.github/workflows/assistant.yml`; an absence -- the `windows-installer` job removed @ 793bddb5
 
-Removed 2026-10-26 when the installer began carrying the session (`MilaDesktop.md` 9.4): `npm run build:windows`
-refuses to run without `Window/session/` staged from a C++ build, and the app's workflow (`desktop.yml`) has no C++ build. Before
+Removed 2026-10-26 when the installer began carrying the session (`MilaAssistant.md` 9.4): `npm run build:windows`
+refuses to run without `Window/session/` staged from a C++ build, and the app's workflow (`assistant.yml`) has no C++ build. Before
 that the job's upload was an installer that ran only the mock. Nothing builds the installer now but a person
-with a Release build directory (`Apps/Desktop/README.md`, *Staging it for the window*).
+with a Release build directory (`Apps/Assistant/README.md`, *Staging it for the window*).
 
 ## A chat's preview of Mila's last reply can stop mid-word, with nothing to say it was cut
 
-`Apps/Desktop/Session/Src/Implementation/ConversationSummary.cpp` (`flattened`, `kReplyStartBytes`) @ 0.21.0-dev+149
+`Apps/Assistant/Session/Src/Implementation/ConversationSummary.cpp` (`flattened`, `kReplyStartBytes`) @ 0.21.0-dev+149
 
 Found 2026-11-16 checking AssistantInterface.md phase 2 on the real session with Gemma 4 12B: `reply_start` is cut at
 160 bytes, which kept a character whole but ended "... at every step. This a". A wide window shows the whole 160

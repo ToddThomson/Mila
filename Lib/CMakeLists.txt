@@ -1134,6 +1134,7 @@ target_sources(Mila
         TYPE CXX_MODULES FILES
             "Src/Distribution/Sha256.ixx"
             "Src/Distribution/Environment.ixx"
+            "Src/Distribution/MilaFolder.ixx"
             "Src/Distribution/Hub/ModelCoordinate.ixx"
             "Src/Distribution/Packaging/ModelFile.ixx"
             "Src/Distribution/Packaging/ModelCapabilities.ixx"

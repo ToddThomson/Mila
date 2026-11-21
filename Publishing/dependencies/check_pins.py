@@ -33,7 +33,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 ROOT_CMAKE = os.path.join(REPO_ROOT, "CMakeLists.txt")
 TESTS_CMAKE = os.path.join(REPO_ROOT, "Lib", "Tests", "CMakeLists.txt")
 NOTICE = os.path.join(REPO_ROOT, "NOTICE.md")
-SESSION_CMAKE = os.path.join(REPO_ROOT, "Apps", "Desktop", "Session", "CMakeLists.txt")
+SESSION_CMAKE = os.path.join(REPO_ROOT, "Apps", "Assistant", "Session", "CMakeLists.txt")
 
 GITHUB_SLUG = re.compile(r"github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)")
 SESSION_LICENCE = re.compile(r"mila_session_licence\(\s*([^\s)]+)")

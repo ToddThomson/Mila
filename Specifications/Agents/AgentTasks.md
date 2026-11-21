@@ -26,9 +26,9 @@ Read from `Lib/Src/Agents/` on 2026-11-03:
 - **Limits are per response.** `AgentLimits` holds no budget across responses.
 - **The record leaves with the event.** `AgentEvent` is the record of a call, and where it is kept is the
   application's (`ToolCalling.md` decision 5). Nothing is written down by the library.
-- **Mila Desktop has already written part of this for itself.** `Desktop.TaskPlan` holds the steps of Get Things Done,
+- **Mila Assistant has already written part of this for itself.** `Assistant.TaskPlan` holds the steps of Get Things Done,
   and the loop never reads them. Chat and a developer's program cannot reach it, which is the gap `Direction.md` 3.3
-  names. `MilaDesktop.md` leaves open what Get Things Done needs of `Mila::Agents`; this is the answer proposed.
+  names. `MilaAssistant.md` leaves open what Get Things Done needs of `Mila::Agents`; this is the answer proposed.
 
 One thing is already right. A new response re-renders the conversation and the model skips what its KV cache holds:
 `reuse_kv_prefix` is on by default and the agent leaves it on, read in each family's `generate`.
@@ -214,11 +214,11 @@ it cost, since prefill per turn is what `Direction.md` 6.1 measures.
 
 ## 8. The plan moves to the library
 
-`Desktop.TaskPlan` becomes `TaskPlan` in `Mila::Agents`, with its two tools provided as the file and web tools are:
+`Assistant.TaskPlan` becomes `TaskPlan` in `Mila::Agents`, with its two tools provided as the file and web tools are:
 `propose_plan`, asked, and `update_step`, allowed. A program chooses whether to offer them. The plan belongs to the task:
 it is kept through compaction and written in `task.json`.
 
-Its contract stays as Mila Desktop has it, with one addition: `finish_task` with steps still pending goes back to the
+Its contract stays as Mila Assistant has it, with one addition: `finish_task` with steps still pending goes back to the
 model saying which, as a failed check does.
 
 Get Things Done then runs on `run`, and its own plan is deleted. Its person stays present through the asker. The trace
@@ -243,7 +243,7 @@ gives the window nothing new it must show.
 
 All decided 2026-11-03 (Todd; 2 to 7 "Agreed", each as recommended):
 
-1. **The library owns tasks,** since Chat, Mila Desktop and a developer's program would otherwise each write their own
+1. **The library owns tasks,** since Chat, Mila Assistant and a developer's program would otherwise each write their own
    (`Direction.md` 3.3).
 2. **The compaction seam of section 7 is in v0.21.0,** as requirements on the existing item, with no task code in
    v0.21.0.
@@ -280,4 +280,4 @@ Modules, one type each, under `Lib/Src/Agents/Tasks/`: `Agents.Task`, `Agents.Ta
 - **`ToolCalling.md`** owns the gate and the grant, which this uses unchanged, and the call's record, which the trace keeps.
 - **`ContainedPrograms.md`** 5 keeps a command always asked (section 9).
 - **`ContextProfile.md`** gives the reliable depth compaction triggers at.
-- **`MilaDesktop.md`** 3.1 and its open question on Get Things Done change at phase 5.
+- **`MilaAssistant.md`** 3.1 and its open question on Get Things Done change at phase 5.

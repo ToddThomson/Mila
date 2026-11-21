@@ -57,7 +57,7 @@ namespace Mila::Bindings
     export class ModelStoreHandle
     {
     public:
-        /// Empty root takes MILA_CACHE_DIR, then the platform user cache.
+        /// Empty root takes MILA_CACHE_DIR, then the Store area of the Mila folder.
         explicit ModelStoreHandle( const std::string& root = {} );
 
         std::string root() const;

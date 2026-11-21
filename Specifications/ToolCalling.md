@@ -7,7 +7,7 @@ How a model's tool calls run through Mila::Agents: what the library provides and
 three answers, no hook meaning deny, a call of a tool not offered or a tool that throws answered with an error result,
 and a stopped reply running no waiting call. Built at `+98`: section 4's limits per response (`AgentLimits` --
 rounds, time, reply tokens, none set by default), a stop or the time running out asking a running call to stop, and
-a result the context cannot hold cut to what fits and the model told so; Chat and Mila Desktop's session run
+a result the context cannot hold cut to what fits and the model told so; Chat and Mila Assistant's session run
 their calls through the agent and hold no loop of their own. Built at `+99`: section 4's splice -- within a response
 each round continues from the reply as generated and the results as the template frames them
 (`Protocol::continueWithToolResults`), and Qwen continues from the state its last generation left. Built at
@@ -25,9 +25,9 @@ is refit to this one. Open decisions are in section 9.
 
 ## 1. The rule
 
-**The Mila library provides everything a developer needs to build an application like Mila Desktop**
-(`MilaDesktop.md`). An agent's tools are the core of that app, so tool calling is the library's. Leaving it to
-each application would either give Mila Desktop a capability the library lacks (`Direction.md` 3.3) or require a
+**The Mila library provides everything a developer needs to build an application like Mila Assistant**
+(`MilaAssistant.md`). An agent's tools are the core of that app, so tool calling is the library's. Leaving it to
+each application would either give Mila Assistant a capability the library lacks (`Direction.md` 3.3) or require a
 second harness library, which would be Mila under another name.
 
 Two further reasons put it in the library and not in a harness across a wire. A tool result's tokens can be
@@ -418,7 +418,7 @@ operating-system sandbox's own measurement (`Vnext.md`), not to the grant's.
   from the other's code: the six file tools (`FileTools`) and reading a web page (`WebPageReader`), each carrying its
   name, description, schema, summary and needs, each written through its grant. Offering one is the application's
   act: a prompt file names it, and the application gives the folder or network it works through. A tool only one
-  application has stays its own: Mila Desktop's command, plan and web search tools. A tool moves into Mila::Agents when a
+  application has stays its own: Mila Assistant's command, plan and web search tools. A tool moves into Mila::Agents when a
   second application needs it.
 - **Its default rules,** and where the person's rules are kept and how they are edited: a file, a settings page, a
   command.
@@ -479,7 +479,7 @@ system's file and socket calls for the grant; HTTP, TLS and process launching co
 - `Direction.md` 3 and 8 -- the layering and decision 6, which point here.
 - `Direction/MilaVision.md` -- the local promise and what content may cause, both of which this gate and grant must hold.
 - `ModelHandle.md` -- the handle the grammar of section 2 lives on, and its declared capabilities.
-- `MilaDesktop.md` 4.5 -- Mila Desktop's question and answers, which this design's hook presents.
+- `MilaAssistant.md` 4.5 -- Mila Assistant's question and answers, which this design's hook presents.
 - `ToolBroker.md` -- the earlier design; its approval round trip informs section 6, its checks are section 3.4's.
 - `Notebooks/LocalToolService.md` -- the reading behind both: placement, identity, secrets, the round trip
   measured, and prior art.
