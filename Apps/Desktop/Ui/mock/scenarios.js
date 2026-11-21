@@ -10,6 +10,7 @@ import { exposedChat } from './scenario-exposed-chat.js';
 import { projectsWorkspace } from './scenario-projects.js';
 import { madeWorkspace } from './scenario-made.js';
 import { goingSomewhere } from './scenario-going-somewhere.js';
+import { milaProposes } from './scenario-mila-proposes.js';
 
 export const scenarios = [
     streamedReply,
@@ -23,7 +24,8 @@ export const scenarios = [
     exposedChat,
     projectsWorkspace,
     madeWorkspace,
-    goingSomewhere
+    goingSomewhere,
+    milaProposes
 ];
 
 export function findScenario( number )

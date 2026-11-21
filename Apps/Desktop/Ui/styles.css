@@ -1509,6 +1509,40 @@ kbd {
 
 .tool-made { display: block; margin: -2px 12px 8px 37px; font-size: 12.5px; }
 
+/* What Mila offered by a call (AssistantInterface.md 6), under its line. */
+.tool-offer { display: flex; flex-direction: column; gap: 3px; margin: -2px 12px 10px 37px; font-size: 13px; }
+
+.offer-name { font-weight: 600; }
+
+.offer-text, .offer-state { color: var(--muted); }
+
+.offer-text { margin: 0; }
+
+.offer-choices { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+
+.turn.assistant.streaming .offer-choices { display: none; }
+
+/* The app's line where the person's words answered an offer (5.4): said by the app, not written by Mila. */
+.app-line { margin: 0; font-size: 13px; color: var(--muted); }
+
+/* Mila's suggestion on the overview: its name is a field the person may change before making it. */
+.suggestion-name {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-weight: 600;
+}
+
+.suggestion-name:focus { border-color: var(--accent-2); outline: none; }
+
+/* A chat Mila sees as belonging with others (4.3). */
+.row.together { border-left: 2px dashed var(--accent-2); }
+
 .turn.assistant.streaming .tool-made { display: none; }
 
 /* What Mila can reach (AssistantInterface.md 4.12) */

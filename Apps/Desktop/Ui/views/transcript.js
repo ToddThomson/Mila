@@ -6,7 +6,7 @@ import { element, button, iconButton, setIcon, clear, previewOrIcon } from '../d
 import { renderMarkdown } from '../markdown.js';
 import { summarizeTurn, isBusy, emptyScreen, firstRunStep, suggestedModel, setupPane, isKept } from '../state.js';
 import { thoughtLabel, statsLine, finishNotice, readableJson, formatBytes, modelAbilities, fitLine, modelTitle, namedTitle,
-    licenseParagraphs, approvalWords, folderName } from '../format.js';
+    licenseParagraphs, approvalWords, folderName, gatheredLine } from '../format.js';
 
 const stickDistance = 80;
 
@@ -67,6 +67,12 @@ export function createTranscriptView( scroller, container, actions )
 
         if ( action === 'choose-folder' )
             actions.chooseFolder( target.dataset.turn, target.dataset.call );
+
+        if ( action === 'offer-decide' )
+            actions.decideSuggestion( actions.getState().conversationId, target.dataset.call, target.dataset.decision );
+
+        if ( action === 'offer-open-project' )
+            actions.openProject( target.dataset.project );
 
         if ( action === 'load-model' )
         {
@@ -728,7 +734,8 @@ function updateAssistant( record, entry, surface )
     record.notice.hidden = notice === null;
     record.notice.classList.toggle( 'cancelled', entry.finish === 'cancelled' );
 
-    record.footer.hidden = entry.streaming;
+    // The app's line where words answered an offer is no reply to copy or keep.
+    record.footer.hidden = entry.streaming || entry.app === true;
 
     const summary = summarizeTurn( entry );
     record.stats.textContent = statsLine( summary );
@@ -759,6 +766,9 @@ function createBlockRecord( block )
     if ( block.kind === 'tool' )
         return createToolRecord( block );
 
+    if ( block.kind === 'app' )
+        return { element: element( 'p', 'app-line' ) };
+
     const answer = element( 'div', 'answer markdown' );
 
     return { element: answer };
@@ -776,6 +786,13 @@ function updateBlock( built, block, live, expanded )
     if ( block.kind === 'tool' )
     {
         updateTool( built, block, expanded );
+
+        return;
+    }
+
+    if ( block.kind === 'app' )
+    {
+        built.element.textContent = block.text;
 
         return;
     }
@@ -856,16 +873,18 @@ function createToolRecord( block )
 
     const approval = element( 'div', 'tool-approval' );
     const made = button( 'link tool-made', 'Where it came from', 'open-made-file' );
+    const offer = element( 'div', 'tool-offer' );
 
     made.hidden = true;
+    offer.hidden = true;
     toggle.dataset.identifier = block.id;
     setIcon( icon, 'tool' );
     setIcon( chevron, 'chevronRight' );
     toggle.append( icon, summary, name, status, chevron );
     detail.append( argumentsLabel, argumentsBody, resultLabel, resultBody );
-    card.append( toggle, made, detail, approval );
+    card.append( toggle, made, offer, detail, approval );
 
-    return { element: card, toggle, summary, status, detail, argumentsBody, resultBody, approval, made, choices: null };
+    return { element: card, toggle, summary, status, detail, argumentsBody, resultBody, approval, made, offer, offerKey: null, choices: null };
 }
 
 const choiceLabels = {
@@ -928,7 +947,86 @@ function updateTool( built, block, expanded )
     built.argumentsBody.textContent = readableJson( block.arguments );
     built.resultBody.textContent = toolResultText( block );
     updateMadeLink( built, block );
+    updateOffer( built, block );
     updateApproval( built, block );
+}
+
+/** A move Mila offered or made (6), as it stands. */
+function moveLine( offer )
+{
+    switch ( offer.state )
+    {
+        case 'accepted': return 'Moved this chat into ' + offer.name;
+        case 'declined': return 'Kept this chat out of ' + offer.name;
+        case 'undone': return 'Kept this chat separate from ' + offer.name;
+        default: return 'Suggests moving this chat into ' + offer.name;
+    }
+}
+
+/**
+ * What Mila offered by this call (5.4, 6), as the session keeps it: the project and the chats it would gather, or the
+ * project it would move this chat into, and how it was answered. Only an offer made in a chat that has read from outside
+ * carries buttons, since words do not answer it there.
+ */
+function updateOffer( built, block )
+{
+    const offer = block.offer ?? null;
+    const key = JSON.stringify( offer );
+
+    if ( built.offerKey === key )
+        return;
+
+    built.offerKey = key;
+    clear( built.offer );
+    built.offer.hidden = offer === null;
+
+    if ( offer === null )
+        return;
+
+    if ( offer.kind === 'move' )
+    {
+        built.offer.append( element( 'p', 'offer-text', moveLine( offer ) ) );
+
+        return;
+    }
+
+    built.offer.append( element( 'div', 'offer-name', offer.name ) );
+
+    if ( typeof offer.purpose === 'string' && offer.purpose.length > 0 )
+        built.offer.append( element( 'div', 'offer-text', offer.purpose ) );
+
+    // The chat that made the offer is the first it gathers.
+    const here = Array.isArray( offer.chats ) && offer.chats.length > 0 ? offer.chats[ 0 ].id : null;
+
+    built.offer.append( element( 'div', 'offer-text', gatheredLine( offer, here ) ) );
+
+    if ( offer.state === 'accepted' && typeof offer.project === 'string' )
+    {
+        const open = button( 'link', 'Open ' + offer.name, 'offer-open-project' );
+        open.dataset.project = offer.project;
+        built.offer.append( open );
+    }
+
+    if ( offer.state === 'declined' )
+        built.offer.append( element( 'div', 'offer-state', 'Not made' ) );
+
+    if ( offer.state === 'undone' )
+        built.offer.append( element( 'div', 'offer-state', 'Undone' ) );
+
+    if ( offer.in_window === true && ( offer.state === 'open' || offer.state === 'undecided' ) )
+    {
+        const choices = element( 'div', 'offer-choices' );
+
+        for ( const [ label, decision, style ] of [ [ 'Make the project', 'accept', 'chip-button' ], [ 'Not now', 'decline', 'chip-button quiet' ] ] )
+        {
+            const choice = button( style, label, 'offer-decide' );
+            choice.dataset.call = block.callId;
+            choice.dataset.decision = decision;
+            choices.append( choice );
+        }
+
+        built.offer.append( choices );
+    }
 }
 
 /** A file a call wrote opens its drawer (4.9) once the reply is stored, which the turn's own class shows. */

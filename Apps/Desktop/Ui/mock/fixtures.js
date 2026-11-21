@@ -3,6 +3,8 @@
 // 12 GB card, not measurements. Only Gemma declares a display name, as a manifest written before
 // the field leaves it out.
 
+import { offersIn } from './offers.js';
+
 // The licence the session carries beside it (License.md), and a digest standing for its own.
 export const mockLicense = {
     sha256: 'mock-license-sha256',
@@ -128,6 +130,7 @@ function assistantWithCalls( content, calls, replyStats )
  * (Desktop.ConversationSummary): how far its plan came, how its last reply began and ended, and the files its calls
  * wrote.
  */
+/** The session's summary of a stored chat (Desktop.ConversationSummary): its plan, last reply, writes, kept replies and offers. */
 export function summarizeConversation( conversation )
 {
     const messages = Array.isArray( conversation.messages ) ? conversation.messages : [];
@@ -178,10 +181,11 @@ export function summarizeConversation( conversation )
         }
     } );
 
-    return { progress, finish, reply_start: replyStart, wrote, kept };
+    return { progress, finish, reply_start: replyStart, wrote, kept, offers: offersIn( messages ) };
 }
 
-const notReads = [ 'write_file', 'edit_file', 'propose_plan', 'update_step', 'request_folder' ];
+const notReads = [ 'write_file', 'edit_file', 'propose_plan', 'update_step', 'request_folder', 'open_place', 'propose_project',
+    'move_to_project' ];
 
 function readsOf( calls )
 {

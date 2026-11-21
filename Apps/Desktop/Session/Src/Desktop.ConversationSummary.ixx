@@ -14,7 +14,7 @@ namespace Mila::Desktop
     /**
      * @brief A stored conversation's summary, as `conversations.list` carries it beside the conversation's id.
      *
-     * Returns an object of six fields, each read from what the store already holds:
+     * Returns an object of seven fields, each read from what the store already holds:
      * - `progress`: `{steps, finished, current}` for a plan, `current` the step it was at (the step in progress, else
      *   the first pending) or null once every step is done or skipped; null with no plan.
      * - `finish`: how the last reply ended (`turn.end`'s values), or null before any reply.
@@ -29,6 +29,8 @@ namespace Mila::Desktop
      *   for a call stored before calls had one. A call the person declined sent nothing and is left out.
      * - `kept`: `[{message, time, start}]`, each reply the person kept, by its index among the messages, when it was
      *   kept, and how it begins as `reply_start` does.
+     * - `offers`: each offer Mila made on a call (Desktop.Offers' offersIn), with the `message` and `call_id` it is
+     *   kept on, oldest first.
      *
      * Anything the conversation holds in another shape is read as absent, so one malformed call hides nothing else.
      */

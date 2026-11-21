@@ -155,6 +155,32 @@ function newConversation()
 }
 
 /**
+ * The sidebar's *New project* (AssistantInterface.md 4.1): a new chat in no project, begun from the bar, which says what
+ * to tell Mila, who proposes the project.
+ */
+function askForProject()
+{
+    if ( state.place === 'chat' || state.place === 'project' )
+        dispatch( { type: 'place.open', place: 'workspace' } );
+
+    send( { type: 'conversation.new' } );
+    dispatch( { type: 'project.ask' } );
+    changeSurface( { sidebarOverlay: false, settingsOpen: false } );
+    composer.focus();
+}
+
+/** Mila's suggestion of a project answered on a card (6): with the name as the person left it, when they make it. */
+function decideSuggestion( conversationId, callId, decision, name )
+{
+    const request = { type: 'suggestion.decide', conversation_id: conversationId, call_id: callId, decision };
+
+    if ( typeof name === 'string' )
+        request.name = name;
+
+    send( request );
+}
+
+/**
  * What the bar sends (AssistantInterface.md 5.3): a reply in the open chat; elsewhere the next turn of the bar's
  * conversation, or the first of a new chat when the session holds one opened from a list. The attachments waiting
  * in the bar go with the new chat.
@@ -340,6 +366,8 @@ const actions = {
     openConversation,
     newConversation,
     newProject: () => newProjectSheet.open(),
+    askForProject,
+    decideSuggestion,
     chooseProjectFolder,
     sendTurn,
     stopTurn,

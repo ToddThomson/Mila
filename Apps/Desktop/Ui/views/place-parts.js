@@ -32,10 +32,13 @@ export function section( title, identifier, aside )
     return made;
 }
 
-/** A chat as a row: its title, where it is when given, the start of Mila's last reply, and when. */
-export function chatRow( item, now, where )
+/**
+ * A chat as a row: its title, where it is when given, the start of Mila's last reply, and when; marked when Mila sees it
+ * as belonging with others (4.3).
+ */
+export function chatRow( item, now, where, together = false )
 {
-    const row = button( 'row', null, 'open-conversation' );
+    const row = button( together ? 'row together' : 'row', null, 'open-conversation' );
     const main = element( 'span', 'row-main' );
     const preview = plainLine( item.reply_start );
     const sub = preview.length > 0 ? preview : 'No reply yet';

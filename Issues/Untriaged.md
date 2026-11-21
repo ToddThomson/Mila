@@ -97,6 +97,12 @@ was trained in) at automatic context with the one general prompt of AssistantInt
 driving script's ten-minute limit; the conversation stored only the question. The same question on Q4_0, twice, was
 answered correctly. Not known whether FP4 loops more often. Script `D:\Claude\phase3\realfolder\drive.mjs`.
 
+A third time on 2026-11-21 checking AssistantInterface.md phase 6 on the PC (Gemma 4 12B FP4, `0.21.0-dev+160` plus
+phase 6): the round after a `find_records` result ran over seven minutes at 100% GPU and was stopped by hand; the
+script printed only answer text, so what the round wrote is not known, and the chat stored only the question. The same
+turn run again straight after ended in four rounds. Script `D:\Claude\phase6\real.mjs` (now prints progress and stops a
+round past 4,000 tokens).
+
 ## A model's licence on Mila Assistant's first-run card is a name, with no way to read its text
 
 `Apps/Desktop/Ui/views/transcript.js` (`renderSuggestion`, *Licence:*), `Apps/Desktop/Session/Src/Desktop.Models.ixx` (`publishedModels`, `license`) @ 0.21.0-dev+146

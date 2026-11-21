@@ -91,7 +91,7 @@ namespace Mila::Tests::Apps::Desktop
 
         const PromptFile prompt = PromptFile::load( shippedPrompts() / "general.json" );
 
-        EXPECT_EQ( prompt.tools.size(), 14u );
+        EXPECT_EQ( prompt.tools.size(), 16u );
 
         for ( const PromptTool& tool : prompt.tools )
         {
@@ -120,7 +120,7 @@ namespace Mila::Tests::Apps::Desktop
         const std::string on_windows = prompt.systemPromptFor( windows );
 
         for ( const std::string_view absent : { "web_search", "request_folder", "list_folder", "edit_file", "run_command",
-            "open_place", "find_records" } )
+            "open_place", "find_records", "propose_project", "move_to_project" } )
         {
             EXPECT_EQ( on_mac.find( absent ), std::string::npos ) << absent;
         }
@@ -140,6 +140,15 @@ namespace Mila::Tests::Apps::Desktop
 
         EXPECT_NE( with_workspace.find( "call open_place" ), std::string::npos );
         EXPECT_NE( with_workspace.find( "call find_records" ), std::string::npos );
+
+        // Mila proposes structure only where its tools are offered (AssistantInterface.md 6).
+        workspace.insert( { "propose_project", "move_to_project" } );
+
+        const std::string proposing = prompt.systemPromptFor( workspace );
+
+        EXPECT_NE( proposing.find( "call propose_project" ), std::string::npos );
+        EXPECT_NE( proposing.find( "call move_to_project" ), std::string::npos );
+        EXPECT_EQ( with_workspace.find( "propose_project" ), std::string::npos );
     }
 
     TEST_F( PromptFileTest, APassageIsKeptByTheToolItNamesAndLeftOutByTheOneItStandsInFor )

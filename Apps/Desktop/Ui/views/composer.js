@@ -315,7 +315,8 @@ export function createComposerView( root, dropZone, actions )
 
         const project = currentProject( state );
 
-        input.placeholder = loaded ? barPrompt( state.place, project === null ? null : project.name ) : 'Load a model to start a conversation';
+        input.placeholder = loaded ? barPrompt( state.place, project === null ? null : project.name, state.askingForProject )
+            : 'Load a model to start a conversation';
         input.disabled = !loaded;
 
         setIcon( submit, busy ? 'stop' : 'send' );

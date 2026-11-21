@@ -1,7 +1,7 @@
 # Mila Assistant Interface
 
 **Status:** design, round 3 (2026-11-18), phases 1 to 3 built (`0.21.0-dev+147`, `+149`, `+150`), T1 (`+155`), T2
-(`+156`, `+157`), 4 (`+158`), 8 (`+159`) and 5 (`+160`). Round 1, 2026-11-16,
+(`+156`, `+157`), 4 (`+158`), 8 (`+159`), 5 (`+160`) and 6 (`+161`). Round 1, 2026-11-16,
 set out projects, processes and creations around a home screen and a sidebar of conversations. Round 2
 is the layout Todd reached through a working prototype the same afternoon, iterated with him on the Mac: a sidebar,
 a workspace overview, projects that open on their summary, chats that need no project, and Mila as a bar at the foot
@@ -48,6 +48,25 @@ exposed one; `find_records` reads the person's messages and Mila's replies in ev
 result, up to eight matches newest first; a chat's folder is searched by `find_files` and `search_text`, which the
 prompt points to, so `find_records` has no folder search of its own; and both tools are measured on Gemma 4 12B Q4_0
 before they are offered by default.
+
+**Phase 6's decisions** (Todd, 2026-11-21, "Sounds fine. Please continue", taking Claude's lean on each): an offer is
+never a gate approval, so `propose_project` runs, returns that it was offered, and the person's answer reaches the session
+as `suggestion.decide` (with the name as edited) from the card or from words, and the library is not changed (6, 10); it
+gathers the chat it is called in and chats named by title or words, matched as `open_place` matches, and names that match
+nothing are told back to the model, so the app groups nothing itself and a chat is *seen as belonging together* when it
+is in an open suggestion (4.3); an offer lives on the call that made it, in the stored chat, with its state, and the
+overview reads it from there, with no `suggestions.json` (8); the person's next message after an offer is read by app
+code, a bare acceptance or refusal taking or declining it, being stored in the chat with the app's line and starting no
+reply, and anything else closing it undecided, after which it stays on the overview as a card until answered there
+(5.4); in an exposed chat the offer is drawn in the transcript with *Make the project* and *Not now* and words do not
+count, and elsewhere it has no buttons; `move_to_project` moves only the chat it is called in and only a chat in no
+project, is an offer the first time for each project and after the person's first yes for that project runs and is
+said, that yes read from the project's history, and is asked through the gate every time in an exposed chat; a project
+made from a suggestion is undone from the overview until the person next changes it or makes another, its chats going
+back where they were and its folders untouched, and *keep it separate* as the next message undoes a move; a proposal
+whose chats are all in a declined suggestion is refused in code; the sidebar's *New project* raises the bar to tell Mila
+what the project is for, and the sheet moves to *All projects*; suggestions made, declined and undone are events; and
+both tools are measured on Gemma 4 12B Q4_0 before they are offered by default.
 
 The prototype is beside this document, `AssistantInterface.prototype.html`: one page, example work, and replies
 canned by keyword, since nothing runs a model behind it. It is the reference for how a screen looks and moves; this
@@ -137,6 +156,9 @@ Seven rules follow, and every section below is held to them:
   project's *Made* is its chats'.
 - **Mila goes somewhere and finds things when asked** (phase 5, `0.21.0-dev+160`; section 5.2): `open_place` takes the
   pane to a view, a project or a chat, and `find_records` finds what the person's other chats said.
+- **Mila suggests structure, and the person decides** (phase 6, `0.21.0-dev+161`; section 6): `propose_project` offers
+  a project gathering chats and `move_to_project` a move, each kept on its call; the person's next words, or the
+  overview's card, answer it, and a project made from one can be undone.
 - **Nothing else outlives a conversation**: no instructions or findings shared between chats yet.
 - **The library's task** (`../Agents/AgentTasks.md`, agreed 2026-11-03, not built) gives an agent a task carried
   across responses, a plan, a versioned trace of every step, and a task folder holding them.
@@ -222,7 +244,8 @@ Always the same places, with where the person is marked among them.
   holds one stream (phase 11) at most one project is active.
   **Until phase 6** gives Mila `propose_project`, *New project* opens a sheet: a name, a purpose that may be left
   empty, and *Create*, which sends `project.new`. At phase 6 it asks Mila, and the sheet stays as the way to make one
-  without asking.
+  without asking. *As built at phase 6:* the sidebar's *New project* begins a chat in no project from the bar, which
+  says *Tell Mila what the project is for* until something is sent; *New project* on *All projects* opens the sheet.
 - **Recent chats**: the four most recent, in any project or none; the open one marked.
 - **At the foot**: *Settings* (Command+, or Ctrl+,), the window of `../MilaDesktop.md` 3.7; the model, its name and
   *Model*, which opens what Mila chose (the model, chosen for this computer, the context, thinking, the share of the
@@ -262,6 +285,13 @@ What the window opens on. Top to bottom, a section left out when it has nothing:
 
 Not on it, by Todd's trim the same afternoon: the files made (*Recently made*), and any buttons of suggestions beside
 the Mila bar. Phase 1's panels give way to this at phase 2: their data stays, their layout goes.
+
+*As built at phase 6:* Mila's suggestion of a project is a card in the same section, after what needs the person and
+before what Mila noticed, headed *Mila suggests* when nothing needs the person: *Mila suggests a project*, its name in a
+field, what it is for, the chats it gathers by their titles, *Make the project* and *Not now*. It waits on nobody, so it
+is not counted in *Waiting on you*. Made, the card becomes *Made from Mila's suggestion* with *Open* and *Undo* while the
+project can be undone. The chats a waiting suggestion gathers carry a dashed mark in *Chats*. A move offered and left
+unanswered has no card.
 
 *As built at phase 8:* a file changed on disk since Mila last wrote it is a card of its own, *Mila noticed*, after
 what needs the person, with *Where it came from*; the section is headed *Mila noticed* when it holds nothing else. It
@@ -656,7 +686,8 @@ Tools of the app's own, offered in every chat:
 | `note_understanding` | `summary`, `questions`, `next` | Rewrites the project's *What Mila understands*. It runs without asking, and from an exposed chat the new note waits for the person (section 5.6) |
 
 - **The person may edit before accepting** on the overview's card: the name is a field, and *Make the project* sends
-  it as edited. `turn.tool_decision` gains `arguments`, accepted for `propose_project` only.
+  it as edited in `suggestion.decide`. An offer is not a gate approval (phase 6's decisions): `propose_project` runs and
+  returns that it was offered, so the gate is never asked to take changed arguments.
 - **The guidance is in the system prompt**: suggest a project when several chats have become one body of work, once,
   and not again for the same chats if declined; keep the project's understanding current at the end of a turn that
   changed it.
@@ -910,6 +941,23 @@ holds the project's folder as the project has it then.
   `message`, not by an `id`, since a creation has no record of its own; `creation.keep` takes `conversation_id`,
   `message` and `keep`, the reply being a stored message rather than a turn the session still holds.
 
+**Built at phase 6:**
+
+- **Stored:** a `propose_project` or `move_to_project` call carries `offer` ({`kind`, `state`, `name`, `purpose` and
+  `chats` [{`id`, `title`}] for a project, `project`, `in_window`, `said`, `time`, `decided`}). A project made from one
+  carries `suggested` ({`conversation_id`, `call_id`}). A message the app wrote in answer to words carries `app: true`.
+  Events gain `suggestion.made` (by Mila), `suggestion.declined` and `project.undone`; `project.made` from an offer has
+  `suggested: true`, and `chat.moved` has `suggested` `"project"` for a chat gathered into one and `"move"` for a move the
+  person took, which is what lets later moves into that project be done and said.
+- **Session to page:** `turn.offer` (`turn_id`, `call_id`, `offer`), before the call's result; `turn.answered`
+  (`turn_id`, `call_id`, `offer`, `text`) between `turn.begin` and a `turn.end` whose `answer` is empty.
+  `conversations.list` items gain `offers`; `projects.list` items gain `undo`. `workspace.state` is not built: the page
+  reads suggestions from `offers`, as it reads everything else from the lists.
+- **Page to session:** `suggestion.decide` names the offer by `conversation_id` and `call_id`, with `decision` and an
+  optional `name`; `project.undo` (`id`). `turn.tool_decision` does not gain `arguments` (phase 6's decisions).
+- **Call ids are a chat's own:** a chat opened again numbers its calls on from the highest it holds, since an offer is
+  answered by its call's id and an earlier run of the session numbered from 1.
+
 ## 11. Questions
 
 ### All decided. A and D to H: Todd, 2026-11-18, "Proceed with your recommendations", taking each lean below
@@ -1119,7 +1167,27 @@ The rest, in the proposed order:
   with a new test (a refusal by the grant exposes nothing, a tool's own failure still does), the agent tests on Gemma 4
   12B, and every target built.
 - **Phase 6. Mila proposes.** `propose_project`, `move_to_project` by question A, the overview's card and the
-  answered-in-words offers (5.3, 5.4), undo.
+  answered-in-words offers (5.3, 5.4), undo. *Built 2026-11-21 (`0.21.0-dev+161`)*, as phase 6's decisions, sections 4.1,
+  4.3, 6 and 10 record: `Desktop.Offers` and `Desktop.OfferAnswer` in the session, an offer kept on its call, the
+  person's next message read by app code, `suggestion.decide` and `project.undo`; the page's card, the offer under its
+  call, the app's line and the sidebar's *New project* asking Mila; no change to the library. Checked on Windows: the
+  session's tests, 103, 18 new; the page's, 149, 10 new; mock scenario 19 in the window over the mock at 1280x800, 900
+  and 860 px in light and dark, with no console error, nothing scrolling sideways and no network request, which found a
+  card's name typed being lost to the overview's redraw (the name is kept apart from the redraw's state); and the real
+  session over stdio on Gemma 4 12B FP4 in a seeded workspace: the kitchen chats offered as a project and *yes* making
+  it with no reply, a project asked for declined by *Not now*, a chat offered into Garden and *yes* moving it, the
+  offer in a chat that had read a page answered in the window only (*yes* went to Mila, whose `move_to_project` was
+  asked about), and a plain question calling nothing. On FP4 the offer gathered only the quotes chat while Mila's
+  reply said it held the worktops too, and asked to file a second chat into Garden it opened *All projects* instead,
+  so the move made and said ran in the tests only; one run's reply ran over seven minutes after a `find_records`
+  result and was stopped (`../../Issues/Untriaged.md`, the reply that runs to the context). macOS: the session and its
+  tests built, 102 passing and the key store's skipped as before, the page's 149, and the same stdio run on Gemma 4
+  12B **Q4_0** with the same results in the store: the offer gathered all three kitchen chats, searching for the
+  worktops itself. There too the second chat for Garden drew no move but a wander through `find_records`, `open_place`
+  twice and a page it was refused, and after offering the carrots chat's move Mila said it had *added* it, before the
+  person's *yes* moved it: the app's records were right and Mila's words ahead of them. Linux (WSL, CPU-only): the session's
+  tests, 102 with the key store's skipped, and the page's. **Not done:** the measurement before both are offered by
+  default; every model's final run; the window on the real session.
 - **Phase 7. What Mila understands.** `note_understanding`, waiting notes, the project's summary and *Next* (4.5), given
   to each chat as section 5.6 says.
 - **Phase 9. Plans and runs.** A plan kept as a project's process, the plan drawer, *Run again* (section 7).

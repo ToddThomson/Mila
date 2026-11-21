@@ -18,6 +18,8 @@ import Desktop.ExposureRecord;
 import Desktop.MemoryHolder;
 import Desktop.MilaLicense;
 import Desktop.Models;
+import Desktop.OfferAnswer;
+import Desktop.Offers;
 import Desktop.PromptFile;
 import Desktop.ProgramSetup;
 import Desktop.PromptTool;
@@ -165,6 +167,17 @@ namespace Mila::Desktop
         registerTool( std::string( kFindRecordsName ), {}, [this]( const std::string& arguments, const Mila::Agents::ToolGrant&, std::stop_token )
             {
                 return findRecordsIn( arguments );
+            }, Mila::Agents::ResultOrigin::Application );
+
+        // Mila proposes and the person decides (AssistantInterface.md 6): both answer in Mila's own words.
+        registerTool( std::string( kProposeProjectName ), {}, [this]( const std::string& arguments, const Mila::Agents::ToolGrant&, std::stop_token )
+            {
+                return proposeProject( arguments );
+            }, Mila::Agents::ResultOrigin::Application );
+
+        registerTool( std::string( kMoveToProjectName ), {}, [this]( const std::string& arguments, const Mila::Agents::ToolGrant&, std::stop_token )
+            {
+                return moveToProject( arguments );
             }, Mila::Agents::ResultOrigin::Application );
 
         // A key kept in search.json before the credential store held it moves there once, and the file goes. Refused,
@@ -450,6 +463,14 @@ namespace Mila::Desktop
         {
             deleteProject( request );
         }
+        else if ( type == "suggestion.decide" )
+        {
+            decideSuggestion( request );
+        }
+        else if ( type == "project.undo" )
+        {
+            undoProject( request );
+        }
         else if ( type == "activity.open" )
         {
             const nlohmann::json before = request.value( "before", nlohmann::json( nullptr ) );
@@ -528,6 +549,15 @@ namespace Mila::Desktop
         {
             busy_ = false;
             sendError( std::string( kLicenseFirst ), "turn" );
+            sendState();
+
+            return;
+        }
+
+        // An answer to Mila's offer is read here, by app code, and needs no reply (AssistantInterface.md 5.4).
+        if ( answerOffer( text ) )
+        {
+            busy_ = false;
             sendState();
 
             return;
@@ -815,6 +845,13 @@ namespace Mila::Desktop
             return ToolAnswer::Once;
         }
 
+        // An offer is never an approval: the person answers it, in words or in the window, after the reply. A move is
+        // offered or done and said in a chat that has not read from outside, and asked every time in one that has (5.6).
+        if ( question.name == kProposeProjectName || ( question.name == kMoveToProjectName && question.exposure.empty() ) )
+        {
+            return ToolAnswer::Once;
+        }
+
         if ( question.name == kOpenPlaceName )
         {
             places = question.exposure.empty() ? nlohmann::json::array() : placesFor( std::string( question.arguments ) );
@@ -835,7 +872,7 @@ namespace Mila::Desktop
         // call that writes or runs (5.6), as the gate decides.
         const bool exposed_and_acting = !question.exposure.empty() && ( question.needs.writes_files || question.needs.runs_programs );
         const bool every_time = question.needs.uses_network || folder_asked || exposed_and_acting
-            || question.name == kFindRecordsName || !places.empty();
+            || question.name == kFindRecordsName || question.name == kMoveToProjectName || !places.empty();
 
         // A folder starts read-only, so the first call that changes a file also asks to change files there.
         const bool changes_folder = question.needs.writes_files && conversation_folder_
@@ -1307,6 +1344,24 @@ namespace Mila::Desktop
         conversation_project_ = project.has_value() ? project->value( "id", std::string{} ) : std::string{};
         conversation_messages_ = conversation->value( "messages", nlohmann::json::array() );
         conversation_links_ = conversation->value( "links_opened", nlohmann::json::array() );
+
+        // A chat's call ids are its own, since an offer is answered by its call's id: numbering goes on past the highest
+        // this chat holds, which an earlier run of the session may have given.
+        for ( const nlohmann::json& message : conversation_messages_ )
+        {
+            const nlohmann::json calls = message.is_object() ? message.value( "tool_calls", nlohmann::json( nullptr ) ) : nlohmann::json( nullptr );
+
+            for ( const nlohmann::json& call : calls.is_array() ? calls : nlohmann::json::array() )
+            {
+                const std::string id = call.is_object() ? call.value( "call_id", std::string{} ) : std::string{};
+                int number = 0;
+
+                if ( id.starts_with( "call-" ) && std::from_chars( id.data() + 5, id.data() + id.size(), number ).ec == std::errc{} )
+                {
+                    call_number_ = std::max( call_number_, number );
+                }
+            }
+        }
 
         send( "conversation.loaded", { { "id", id }, { "title", conversation_title_ },
             { "model", conversation->value( "model", std::string{} ) },
@@ -2724,10 +2779,14 @@ namespace Mila::Desktop
     void SessionProcess::sendProjects()
     {
         nlohmann::json items = nlohmann::json::array();
+        const std::vector<nlohmann::json> projects = projects_.list();
 
-        for ( nlohmann::json& project : projects_.list() )
+        // Whether a project made from Mila's suggestion can still be undone, which the overview's card offers.
+        for ( const nlohmann::json& project : projects )
         {
-            items.push_back( std::move( project ) );
+            nlohmann::json item = project;
+            item[ "undo" ] = undoable( project, projects );
+            items.push_back( std::move( item ) );
         }
 
         send( "projects.list", { { "items", std::move( items ) } } );
@@ -2819,20 +2878,7 @@ namespace Mila::Desktop
             return;
         }
 
-        const std::string now = timestamp();
-        const std::string id = projects_.newIdentifier();
-
-        projects_.save( {
-            { "v", 1 },
-            { "id", id },
-            { "name", name },
-            { "purpose", trimmed( request.value( "purpose", std::string{} ) ) },
-            { "instructions", "" },
-            { "folders", nlohmann::json::array() },
-            { "created", now },
-            { "updated", now } } );
-
-        recordEvent( { { "kind", "project.made" }, { "project", id }, { "name", name } } );
+        const std::string id = makeProject( name, trimmed( request.value( "purpose", std::string{} ) ), nullptr );
 
         for ( const nlohmann::json& moved : request.value( "conversation_ids", nlohmann::json::array() ) )
         {
@@ -2847,6 +2893,37 @@ namespace Mila::Desktop
         sendState();
         sendActivity( {} );
         send( "project.made", { { "id", id } } );
+    }
+
+    std::string SessionProcess::makeProject( const std::string& name, const std::string& purpose, const nlohmann::json& suggested )
+    {
+        const std::string now = timestamp();
+        const std::string id = projects_.newIdentifier();
+
+        nlohmann::json project = {
+            { "v", 1 },
+            { "id", id },
+            { "name", name },
+            { "purpose", purpose },
+            { "instructions", "" },
+            { "folders", nlohmann::json::array() },
+            { "created", now },
+            { "updated", now } };
+
+        nlohmann::json event = { { "kind", "project.made" }, { "project", id }, { "name", name } };
+
+        // Kept so the project can be undone while nothing has changed it (AssistantInterface.md 6).
+        if ( suggested.is_object() )
+        {
+            project[ "suggested" ] = suggested;
+            event[ "suggested" ] = true;
+            event[ "conversation" ] = suggested.value( "conversation_id", std::string{} );
+        }
+
+        projects_.save( project );
+        recordEvent( std::move( event ) );
+
+        return id;
     }
 
     void SessionProcess::updateProject( const nlohmann::json& request )
@@ -3053,7 +3130,7 @@ namespace Mila::Desktop
         sendActivity( {} );
     }
 
-    void SessionProcess::moveOne( const std::string& id, const std::string& project )
+    void SessionProcess::moveOne( const std::string& id, const std::string& project, const nlohmann::json& details )
     {
         std::optional<nlohmann::json> stored = store_.load( id );
 
@@ -3081,9 +3158,460 @@ namespace Mila::Desktop
             conversation_folder_from_project_ = false;
         }
 
-        recordEvent( { { "kind", "chat.moved" }, { "conversation", id }, { "name", stored->value( "title", std::string{} ) },
+        nlohmann::json event = { { "kind", "chat.moved" }, { "conversation", id }, { "name", stored->value( "title", std::string{} ) },
             { "project", project.empty() ? nlohmann::json( nullptr ) : nlohmann::json( project ) },
-            { "from", from.empty() ? nlohmann::json( nullptr ) : nlohmann::json( from ) } } );
+            { "from", from.empty() ? nlohmann::json( nullptr ) : nlohmann::json( from ) } };
+
+        if ( details.is_object() )
+        {
+            event.update( details );
+        }
+
+        recordEvent( std::move( event ) );
+    }
+
+    // ---- Offers ---------------------------------------------------------------------------
+
+    std::string SessionProcess::proposeProject( const std::string& arguments )
+    {
+        const bool names_allowed = session().exposure().empty();
+        const std::vector<nlohmann::json> projects = projects_.list();
+        const nlohmann::json offered = offerProject( arguments, store_.list(), projects, conversation_id_, names_allowed );
+
+        if ( offered[ "offer" ].is_object() )
+        {
+            recordEvent( { { "kind", "suggestion.made" }, { "who", "mila" }, { "conversation", conversation_id_ },
+                { "name", offered[ "offer" ][ "name" ] } } );
+            keepOffer( offered[ "offer" ] );
+        }
+
+        return offered[ "result" ].get<std::string>();
+    }
+
+    std::string SessionProcess::moveToProject( const std::string& arguments )
+    {
+        const bool names_allowed = session().exposure().empty();
+
+        // Mila never moves a chat the person filed, nor one it filed before.
+        if ( !conversation_project_.empty() )
+        {
+            const std::optional<nlohmann::json> held = projectOf( conversation_project_ );
+
+            return std::format( "This chat is already in the project {}, so it stays there.",
+                held.has_value() ? held->value( "name", std::string{} ) : std::string{} );
+        }
+
+        if ( conversation_id_.empty() )
+        {
+            return "This chat is not stored yet, so it was not moved.";
+        }
+
+        const std::vector<nlohmann::json> projects = projects_.list();
+        const nlohmann::json resolved = projectForMove( arguments, projects, names_allowed );
+
+        if ( !resolved.contains( "project" ) )
+        {
+            return resolved[ "result" ].get<std::string>();
+        }
+
+        const std::string id = resolved[ "project" ][ "id" ].get<std::string>();
+        const std::string name = resolved[ "project" ][ "name" ].get<std::string>();
+
+        // In a chat that has read from outside the person was asked, with the call in view, so allowing it is their yes.
+        // Elsewhere it is done and said once they have said yes to one move into this project (question A).
+        const bool said = !names_allowed || filingAllowed( projects_.history( id ).read() );
+
+        nlohmann::json offer = { { "kind", "move" }, { "state", said ? "accepted" : "open" }, { "project", id },
+            { "name", name }, { "in_window", !names_allowed }, { "said", said } };
+
+        if ( said )
+        {
+            moveOne( conversation_id_, id, names_allowed
+                ? nlohmann::json{ { "who", "mila" } } : nlohmann::json{ { "suggested", "move" } } );
+            offer[ "decided" ] = timestamp();
+        }
+        else
+        {
+            recordEvent( { { "kind", "suggestion.made" }, { "who", "mila" }, { "conversation", conversation_id_ },
+                { "project", id }, { "name", name } } );
+        }
+
+        keepOffer( std::move( offer ) );
+
+        if ( !said )
+        {
+            return std::format( "Offered to move this chat into the project {}. The user answers in their next message; "
+                "do not move it yourself or offer it again. In a sentence, say what you suggested.", name );
+        }
+
+        return names_allowed
+            ? std::format( "Moved this chat into the project {}, and the user was told; they can say keep it separate to "
+                "undo it. In a sentence, say that you moved it.", name )
+            : std::format( "Moved this chat into the project {}, as the user allowed.", name );
+    }
+
+    void SessionProcess::keepOffer( nlohmann::json offer )
+    {
+        offer[ "time" ] = timestamp();
+
+        // One open offer at a time: a later one in the same reply replaces it.
+        for ( nlohmann::json& call : turn_calls_ )
+        {
+            if ( call.contains( "offer" ) && call[ "offer" ].is_object() && call[ "offer" ].value( "state", std::string{} ) == "open" )
+            {
+                call[ "offer" ][ "state" ] = "replaced";
+            }
+        }
+
+        if ( announced_call_id_.empty() )
+        {
+            return;
+        }
+
+        storedCall( announced_call_id_ )[ "offer" ] = offer;
+
+        send( "turn.offer", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "call_id", announced_call_id_ },
+            { "offer", std::move( offer ) } } );
+    }
+
+    bool SessionProcess::answerOffer( const std::string& text )
+    {
+        if ( conversation_id_.empty() )
+        {
+            return false;
+        }
+
+        const nlohmann::json pending = pendingOffer( conversation_messages_ );
+
+        if ( pending.is_null() )
+        {
+            return false;
+        }
+
+        nlohmann::json& call = conversation_messages_[ pending[ "message" ].get<std::size_t>() ][ "tool_calls" ][ pending[ "call" ].get<std::size_t>() ];
+        nlohmann::json& offer = call[ "offer" ];
+        const std::string call_id = call.value( "call_id", std::string{} );
+        const OfferAnswer answer = readOfferAnswer( text );
+        const bool open = offer.value( "state", std::string{} ) == "open";
+        const bool words_count = open && !offer.value( "in_window", false );
+        std::string line;
+
+        if ( words_count && answer == OfferAnswer::Accept )
+        {
+            line = takeOffer( offer, conversation_id_, call_id, offer.value( "name", std::string{} ) );
+        }
+        else if ( words_count && answer == OfferAnswer::Decline )
+        {
+            line = declineOffer( offer, conversation_id_ );
+        }
+        else if ( !open && ( answer == OfferAnswer::KeepSeparate || answer == OfferAnswer::Decline ) )
+        {
+            line = keepSeparate( offer, conversation_id_ );
+        }
+        else
+        {
+            // The next thing said closes the offer either way; a project's waits on the overview's card.
+            if ( open )
+            {
+                offer[ "state" ] = "undecided";
+            }
+
+            return false;
+        }
+
+        const nlohmann::json answered = offer;
+
+        // Kept as the model reads it: the person's words, then the app's line in Mila's place.
+        conversation_messages_.push_back( { { "role", "user" }, { "content", text }, { "thought", nullptr },
+            { "tool_calls", nullptr }, { "attachments", nullptr }, { "stats", nullptr } } );
+        conversation_messages_.push_back( { { "role", "assistant" }, { "content", line }, { "thought", nullptr },
+            { "tool_calls", nullptr }, { "attachments", nullptr }, { "stats", nullptr }, { "app", true } } );
+
+        Turn said;
+        said.role = Role::User;
+        said.content = text;
+        session().turns().push_back( std::move( said ) );
+
+        Turn kept;
+        kept.role = Role::Assistant;
+        kept.content = line;
+        session().turns().push_back( std::move( kept ) );
+
+        turn_id_ = std::format( "turn-{}", ++turn_number_ );
+
+        send( "turn.begin", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "conversation_id", conversation_id_ } } );
+        send( "turn.answered", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "call_id", call_id },
+            { "offer", answered }, { "text", line } } );
+        send( "turn.end", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "finish", "stop" }, { "answer", "" },
+            { "message", conversation_messages_.size() - 1 } } );
+
+        saveConversation();
+        sendProjects();
+        sendConversations();
+        sendActivity( {} );
+
+        return true;
+    }
+
+    void SessionProcess::decideSuggestion( const nlohmann::json& request )
+    {
+        const std::string id = request.value( "conversation_id", std::string{} );
+        const std::string call_id = request.value( "call_id", std::string{} );
+        const std::string decision = request.value( "decision", std::string{} );
+
+        if ( decision != "accept" && decision != "decline" )
+        {
+            return;
+        }
+
+        const bool is_open = !id.empty() && id == conversation_id_;
+        std::optional<nlohmann::json> stored = is_open || id.empty() ? std::nullopt : store_.load( id );
+        nlohmann::json* found = is_open ? offerOnCall( conversation_messages_, call_id )
+            : stored.has_value() && stored->contains( "messages" ) ? offerOnCall( ( *stored )[ "messages" ], call_id ) : nullptr;
+
+        const std::string state = found != nullptr ? found->value( "state", std::string{} ) : std::string{};
+
+        if ( found == nullptr || found->value( "kind", std::string{} ) != "project" || ( state != "open" && state != "undecided" ) )
+        {
+            sendError( "That suggestion has already been answered.", nullptr );
+            sendConversations();
+
+            return;
+        }
+
+        nlohmann::json offer = *found;
+
+        if ( decision == "accept" )
+        {
+            const nlohmann::json edited = request.value( "name", nlohmann::json( nullptr ) );
+            std::string name = trimmed( edited.is_string() ? edited.get<std::string>() : std::string{} );
+
+            if ( name.empty() )
+            {
+                name = offer.value( "name", std::string{} );
+            }
+
+            if ( name.empty() )
+            {
+                sendError( "A project needs a name.", nullptr );
+
+                return;
+            }
+
+            takeOffer( offer, id, call_id, name );
+        }
+        else
+        {
+            declineOffer( offer, id );
+        }
+
+        // The chat's own copy is written last: taking the offer moved it, which its stored file now says.
+        if ( is_open )
+        {
+            if ( nlohmann::json* kept = offerOnCall( conversation_messages_, call_id ) )
+            {
+                *kept = offer;
+            }
+
+            saveConversation();
+        }
+        else
+        {
+            changeStoredOffer( id, call_id, [&offer]( nlohmann::json& kept ) { kept = offer; } );
+        }
+
+        sendProjects();
+        sendConversations();
+        sendState();
+        sendActivity( {} );
+    }
+
+    std::string SessionProcess::takeOffer( nlohmann::json& offer, const std::string& conversation_id, const std::string& call_id,
+        const std::string& name )
+    {
+        offer[ "decided" ] = timestamp();
+
+        if ( offer.value( "kind", std::string{} ) == "move" )
+        {
+            const std::string project = offer.value( "project", std::string{} );
+            const std::optional<nlohmann::json> held = projectOf( project );
+
+            if ( !held.has_value() )
+            {
+                offer[ "state" ] = "lapsed";
+
+                return std::format( "The project {} is no longer there, so this chat stays where it is.", name );
+            }
+
+            moveOne( conversation_id, project, { { "suggested", "move" } } );
+            offer[ "state" ] = "accepted";
+
+            return std::format( "Moved this chat into {}.", held->value( "name", name ) );
+        }
+
+        const std::string made = makeProject( name, offer.value( "purpose", std::string{} ),
+            { { "conversation_id", conversation_id }, { "call_id", call_id } } );
+
+        std::size_t moved = 0;
+        bool asking_moved = false;
+
+        for ( const nlohmann::json& chat : offer.value( "chats", nlohmann::json::array() ) )
+        {
+            const std::string id = chat.value( "id", std::string{} );
+            const std::optional<nlohmann::json> stored = store_.load( id );
+
+            // A chat the person filed or deleted since the offer stays as they left it.
+            if ( !stored.has_value() || stored->value( "project", nlohmann::json( nullptr ) ).is_string() )
+            {
+                continue;
+            }
+
+            moveOne( id, made, { { "suggested", "project" } } );
+            ++moved;
+            asking_moved = asking_moved || id == conversation_id;
+        }
+
+        offer[ "state" ] = "accepted";
+        offer[ "project" ] = made;
+        offer[ "name" ] = name;
+
+        const std::size_t others = moved - ( asking_moved ? 1 : 0 );
+
+        if ( !asking_moved )
+        {
+            return std::format( "Made the project {} and moved {} chat{} into it.", name, moved, moved == 1 ? "" : "s" );
+        }
+
+        return others == 0 ? std::format( "Made the project {} and moved this chat into it.", name )
+            : std::format( "Made the project {} and moved this chat and {} other{} into it.", name, others, others == 1 ? "" : "s" );
+    }
+
+    std::string SessionProcess::declineOffer( nlohmann::json& offer, const std::string& conversation_id )
+    {
+        const std::string name = offer.value( "name", std::string{} );
+        const bool move = offer.value( "kind", std::string{} ) == "move";
+
+        offer[ "state" ] = "declined";
+        offer[ "decided" ] = timestamp();
+
+        nlohmann::json event = { { "kind", "suggestion.declined" }, { "conversation", conversation_id }, { "name", name } };
+
+        if ( move )
+        {
+            event[ "project" ] = offer.value( "project", std::string{} );
+        }
+
+        recordEvent( std::move( event ) );
+
+        return move ? std::format( "Kept this chat out of {}.", name ) : std::format( "Did not make the project {}.", name );
+    }
+
+    std::string SessionProcess::keepSeparate( nlohmann::json& offer, const std::string& conversation_id )
+    {
+        const std::string name = offer.value( "name", std::string{} );
+
+        moveOne( conversation_id, {} );
+        offer[ "state" ] = "undone";
+        offer[ "decided" ] = timestamp();
+
+        return std::format( "Kept this chat separate from {}.", name );
+    }
+
+    void SessionProcess::changeStoredOffer( const std::string& conversation_id, const std::string& call_id,
+        const std::function<void( nlohmann::json& )>& change )
+    {
+        std::optional<nlohmann::json> stored = store_.load( conversation_id );
+
+        if ( !stored.has_value() || !stored->contains( "messages" ) )
+        {
+            return;
+        }
+
+        if ( nlohmann::json* offer = offerOnCall( ( *stored )[ "messages" ], call_id ) )
+        {
+            change( *offer );
+            store_.save( *stored );
+        }
+    }
+
+    void SessionProcess::undoProject( const nlohmann::json& request )
+    {
+        const std::string id = request.value( "id", std::string{} );
+        const std::optional<nlohmann::json> project = projectOf( id );
+
+        if ( !project.has_value() || !undoable( *project, projects_.list() ) )
+        {
+            sendError( "That project can no longer be undone. It can be deleted from its page.", nullptr );
+            sendProjects();
+
+            return;
+        }
+
+        // Its chats go back to no project, where every chat a suggestion gathers came from.
+        for ( const nlohmann::json& item : store_.list() )
+        {
+            if ( item.value( "project", nlohmann::json( nullptr ) ) != id )
+            {
+                continue;
+            }
+
+            if ( std::optional<nlohmann::json> stored = store_.load( item.value( "id", std::string{} ) ) )
+            {
+                ( *stored )[ "project" ] = nullptr;
+                ( *stored )[ "folder_from_project" ] = false;
+                store_.save( *stored );
+            }
+        }
+
+        const nlohmann::json suggested = project->value( "suggested", nlohmann::json::object() );
+        const std::string offered_in = suggested.value( "conversation_id", std::string{} );
+        const std::string call_id = suggested.value( "call_id", std::string{} );
+
+        if ( conversation_project_ == id )
+        {
+            conversation_project_.clear();
+            conversation_folder_from_project_ = false;
+        }
+
+        if ( !offered_in.empty() && offered_in == conversation_id_ )
+        {
+            if ( nlohmann::json* offer = offerOnCall( conversation_messages_, call_id ) )
+            {
+                ( *offer )[ "state" ] = "undone";
+            }
+        }
+        else if ( !offered_in.empty() )
+        {
+            changeStoredOffer( offered_in, call_id, []( nlohmann::json& offer ) { offer[ "state" ] = "undone"; } );
+        }
+
+        if ( !conversation_id_.empty() )
+        {
+            saveConversation();
+        }
+
+        const std::string name = project->value( "name", std::string{} );
+
+        projects_.remove( id );
+        forgetEverywhere( id );
+        recordEvent( { { "kind", "project.undone" }, { "name", name } } );
+
+        sendProjects();
+        sendConversations();
+        sendState();
+        sendActivity( {} );
+    }
+
+    bool SessionProcess::undoable( const nlohmann::json& project, const std::vector<nlohmann::json>& projects ) const
+    {
+        try
+        {
+            return projectUndoable( project, projects_.history( project.value( "id", std::string{} ) ).read(), projects );
+        }
+        catch ( const std::invalid_argument& )
+        {
+            return false;
+        }
     }
 
     std::optional<nlohmann::json> SessionProcess::projectOf( const std::string& id ) const

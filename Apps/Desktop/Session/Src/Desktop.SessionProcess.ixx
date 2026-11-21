@@ -146,6 +146,13 @@ namespace Mila::Desktop
         /// The app's own tool that finds what the person's past chats said (AssistantInterface.md 5.2).
         static constexpr std::string_view kFindRecordsName = "find_records";
 
+        /// The app's own tool that offers a project gathering chats; the person decides (AssistantInterface.md 6).
+        static constexpr std::string_view kProposeProjectName = "propose_project";
+
+        /// The app's own tool that files this chat into a project: offered until the person's first yes for that project,
+        /// then done and said (AssistantInterface.md 6, question A).
+        static constexpr std::string_view kMoveToProjectName = "move_to_project";
+
         /// What a request the licence holds back is told; the page asks for the licence before it sends one.
         static constexpr std::string_view kLicenseFirst = "Accept Mila's licence first. It is shown when Mila starts.";
 
@@ -313,8 +320,68 @@ namespace Mila::Desktop
         /// `conversation.move`: a chat into a project, or into none. It keeps the folder it holds.
         void moveConversation( const nlohmann::json& request );
 
-        /// Move one chat, stored or open, and record it in the histories of the projects it left and joined.
-        void moveOne( const std::string& id, const std::string& project );
+        /// Move one chat, stored or open, and record it in the histories of the projects it left and joined; @p details
+        /// join the event, such as who moved it and whether Mila suggested it.
+        void moveOne( const std::string& id, const std::string& project, const nlohmann::json& details = nlohmann::json::object() );
+
+        /// A new project's record, stored, and its event; @p suggested names the chat and call it was offered on, or is
+        /// null. @return Its id.
+        std::string makeProject( const std::string& name, const std::string& purpose, const nlohmann::json& suggested );
+
+        // ---- Offers (AssistantInterface.md 5.3, 5.4 and 6) ----------------------------------
+
+        /// propose_project's work: the offer, kept on its call and shown in the chat, and what the model is told.
+        std::string proposeProject( const std::string& arguments );
+
+        /// move_to_project's work: this chat offered into a project, or moved and said once the person has said yes to
+        /// one for it; in a chat that has read from outside the person was asked first.
+        std::string moveToProject( const std::string& arguments );
+
+        /// The offer on the call being run: kept on it, an open one this reply made before it replaced, and shown.
+        void keepOffer( nlohmann::json offer );
+
+        /**
+         * @brief The person's message read by app code as an answer to the offer Mila's last reply left (5.4).
+         *
+         * A bare acceptance or refusal takes or declines an open offer made where words may answer it, and *keep it
+         * separate* undoes a move Mila made and said; the message and the app's line are then kept in the chat, and no
+         * reply is written. Anything else closes an open offer undecided.
+         *
+         * @return True when the message answered, so Mila does not reply to it.
+         */
+        bool answerOffer( const std::string& text );
+
+        /// `suggestion.decide`: a project offer answered on the overview's card, or in the transcript of a chat that has
+        /// read from outside, with the name as the person edited it.
+        void decideSuggestion( const nlohmann::json& request );
+
+        /**
+         * @brief Take an offer: the project made and its chats moved in, or the chat moved into the project.
+         *
+         * @param offer Changed in place to say it was accepted.
+         * @param name The project's name as the person left it.
+         * @return The line the chat keeps of it.
+         */
+        std::string takeOffer( nlohmann::json& offer, const std::string& conversation_id, const std::string& call_id,
+            const std::string& name );
+
+        /// Decline an offer, @p offer changed in place, and keep the event. @return The line the chat keeps.
+        std::string declineOffer( nlohmann::json& offer, const std::string& conversation_id );
+
+        /// Undo a move Mila made and said: the chat goes back to no project. @return The line the chat keeps.
+        std::string keepSeparate( nlohmann::json& offer, const std::string& conversation_id );
+
+        /// The offer kept on @p call_id in a stored chat, changed by @p change and stored again, the chat read fresh so a
+        /// move @p change made is kept.
+        void changeStoredOffer( const std::string& conversation_id, const std::string& call_id,
+            const std::function<void( nlohmann::json& )>& change );
+
+        /// `project.undo`: a project made from a suggestion, while nothing has changed it, goes, and its chats return to
+        /// no project; its folders are never touched.
+        void undoProject( const nlohmann::json& request );
+
+        /// Whether a stored project can still be undone (Desktop.Offers' projectUndoable).
+        bool undoable( const nlohmann::json& project, const std::vector<nlohmann::json>& projects ) const;
 
         /// The stored project, or nothing for an empty id or one that names none.
         std::optional<nlohmann::json> projectOf( const std::string& id ) const;

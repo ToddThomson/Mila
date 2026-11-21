@@ -10,6 +10,7 @@ module Desktop.ConversationSummary;
 import std;
 import nlohmann.json;
 import Desktop.Creations;
+import Desktop.Offers;
 
 namespace Mila::Desktop
 {
@@ -358,6 +359,7 @@ namespace Mila::Desktop
 
         return { { "progress", planProgress( plan ) }, { "finish", lastFinish( messages ) },
             { "reply_start", replyStart( messages ) }, { "wrote", filesWritten( messages ) },
-            { "sent", whatWasSent( conversation, messages ) }, { "kept", repliesKept( messages ) } };
+            { "sent", whatWasSent( conversation, messages ) }, { "kept", repliesKept( messages ) },
+            { "offers", offersIn( messages ) } };
     }
 }

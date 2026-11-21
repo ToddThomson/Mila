@@ -53,8 +53,9 @@ export function createSidebarView( root, actions )
         if ( action === 'open-project' )
             actions.openProject( target.dataset.project );
 
+        // Mila is asked for a project here; the sheet that makes one without asking is on All projects (4.1).
         if ( action === 'new-project' )
-            actions.newProject();
+            actions.askForProject();
 
         if ( action === 'open-search' )
             actions.openSearch();

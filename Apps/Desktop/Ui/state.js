@@ -47,7 +47,9 @@ export function createInitialState()
         // A chat Mila opened by asking (5.2), which opens once the reply that opened it ends.
         wentToChat: null,
         // The project the bar's conversation asked Mila to open (5.2), on whose page the bar goes on with it.
-        barWentTo: null
+        barWentTo: null,
+        // The sidebar's *New project* asked Mila for one (4.1), so the bar says what to tell it until something is sent.
+        askingForProject: false
     };
 }
 
@@ -78,7 +80,7 @@ export function reduce( state, message )
             return { ...state, progress: message };
 
         case 'conversations.list':
-            return { ...state, conversations: message.items };
+            return syncOffers( { ...state, conversations: message.items } );
 
         case 'projects.list':
             return reduceProjectsList( state, message );
@@ -117,6 +119,12 @@ export function reduce( state, message )
         case 'turn.went':
             return reduceTurnWent( state, message );
 
+        case 'turn.offer':
+            return updateTurn( state, message.turn_id, ( turn ) => updateToolBlock( turn, message.call_id, { offer: message.offer } ), message );
+
+        case 'turn.answered':
+            return reduceTurnAnswered( state, message );
+
         case 'turn.round_end':
             return updateTurn( state, message.turn_id, reduceRoundEnd, message );
 
@@ -144,17 +152,22 @@ export function reduce( state, message )
             return { ...state, connected: true };
 
         case 'turn.send':
-            return reduceTurnSend( state, message );
+            return { ...reduceTurnSend( state, message ), askingForProject: false };
 
         case 'turn.tool_decision':
             return updateTurn( state, message.turn_id, reduceToolDecision, message );
 
         // Every new conversation is the bar's: it goes on there wherever the person goes, until another is opened.
         case 'conversation.new':
-            return { ...state, conversationId: null, transcript: [], attachments: [], barOwned: true, risen: false, barWentTo: null };
+            return { ...state, conversationId: null, transcript: [], attachments: [], barOwned: true, risen: false, barWentTo: null,
+                askingForProject: false };
 
         case 'conversation.open':
-            return { ...state, place: 'chat', barOwned: false, risen: false, barWentTo: null };
+            return { ...state, place: 'chat', barOwned: false, risen: false, barWentTo: null, askingForProject: false };
+
+        // The page's alone, never sent: the sidebar's *New project* asked Mila for one, in the new chat it began.
+        case 'project.ask':
+            return { ...state, askingForProject: true };
 
         case 'conversation.delete':
             return reduceConversationDelete( state, message );
@@ -178,7 +191,11 @@ export function reduce( state, message )
 
         // The page's alone, never sent: where the person goes, and the conversation risen or lowered over it.
         case 'place.open':
-            return reducePlaceOpen( state, message );
+        {
+            const opened = reducePlaceOpen( state, message );
+
+            return opened.askingForProject ? { ...opened, askingForProject: false } : opened;
+        }
 
         case 'conversation.raise':
             return { ...state, risen: message.risen && state.place !== 'chat' };
@@ -525,7 +542,8 @@ function reduceToolCall( turn, message )
         notInYourWords: null,
         decision: null,
         notRun: false,
-        went: null
+        went: null,
+        offer: null
     };
 
     return { ...turn, blocks: [ ...turn.blocks, block ] };
@@ -585,6 +603,62 @@ function reduceTurnWent( state, message )
         return marked;
 
     return reducePlaceOpen( marked, { type: 'place.open', place: place.view } );
+}
+
+/**
+ * The person's words answered Mila's offer (AssistantInterface.md 5.4): the turn is the app's line, written by no model,
+ * and the call that made the offer says how it was answered.
+ */
+function reduceTurnAnswered( state, message )
+{
+    const line = ( turn ) => ( { ...turn, app: true, blocks: [ ...turn.blocks, { kind: 'app', id: turn.id + ':app', text: message.text } ] } );
+    const answered = updateTurn( state, message.turn_id, line, message );
+
+    return offerInTranscript( answered, message.call_id, message.offer );
+}
+
+/** The offer kept on a call shown in the transcript, changed; the call ids of one chat are its own. */
+function offerInTranscript( state, callId, offer )
+{
+    let changed = false;
+
+    const transcript = state.transcript.map( ( entry ) =>
+    {
+        const block = entry.kind === 'assistant'
+            ? entry.blocks.find( ( candidate ) => candidate.kind === 'tool' && candidate.callId === callId ) : undefined;
+
+        if ( block === undefined || JSON.stringify( block.offer ?? null ) === JSON.stringify( offer ) )
+            return entry;
+
+        changed = true;
+
+        return updateToolBlock( entry, callId, { offer } );
+    } );
+
+    return changed ? { ...state, transcript } : state;
+}
+
+/**
+ * An offer answered elsewhere, on the overview's card or in a chat's window, reaches the open chat's transcript from
+ * the list, where the session keeps every chat's offers.
+ */
+function syncOffers( state )
+{
+    const chat = currentChat( state );
+
+    if ( chat === null || !Array.isArray( chat.offers ) )
+        return state;
+
+    let synced = state;
+
+    for ( const offer of chat.offers )
+    {
+        const { message, call_id: callId, ...kept } = offer;
+
+        synced = offerInTranscript( synced, callId, kept );
+    }
+
+    return synced;
 }
 
 function reduceToolResult( turn, message )
@@ -671,6 +745,13 @@ function reduceConversationLoaded( state, message )
 
 function storedAssistantTurn( identifier, stored )
 {
+    // The app's line where the person's words answered an offer (5.4): no model wrote it.
+    if ( stored.app === true )
+    {
+        return { kind: 'assistant', id: identifier, app: true, blocks: [ { kind: 'app', id: identifier + ':app', text: stored.content } ],
+            rounds: [], summary: null, thoughtBreak: false, streaming: false, finish: 'stop', answer: '' };
+    }
+
     const blocks = [];
 
     if ( stored.thought !== null && stored.thought.length > 0 )
@@ -722,7 +803,8 @@ function storedToolBlock( identifier, call )
         choices: null,
         decision: call.decision,
         notRun: call.result === null,
-        went: call.went ?? null
+        went: call.went ?? null,
+        offer: call.offer ?? null
     };
 }
 
@@ -1093,6 +1175,59 @@ export function changedOnDisk( state )
     return rows;
 }
 
+/** A chat's offers, as the session keeps them on its calls. */
+function offersOf( item )
+{
+    return Array.isArray( item.offers ) ? item.offers : [];
+}
+
+/**
+ * Mila's suggestions of a project (4.3, 6), newest first: each still waiting on the person's answer, and each made
+ * from one that can still be undone.
+ */
+export function suggestions( state )
+{
+    const rows = [];
+
+    for ( const item of chatsNewestFirst( state ) )
+    {
+        for ( const offer of offersOf( item ) )
+        {
+            if ( offer.kind !== 'project' )
+                continue;
+
+            if ( offer.state === 'open' || offer.state === 'undecided' )
+                rows.push( { kind: 'suggestion', item, offer } );
+
+            const made = offer.state === 'accepted' ? state.projects.find( ( project ) => project.id === offer.project ) : undefined;
+
+            if ( made !== undefined && made.undo === true )
+                rows.push( { kind: 'made', item, offer, project: made } );
+        }
+    }
+
+    const when = ( row ) => row.offer.time ?? '';
+
+    return rows.sort( ( left, right ) => ( when( left ) < when( right ) ? 1 : when( left ) > when( right ) ? -1 : 0 ) );
+}
+
+/** The chats Mila sees as belonging together (4.3): those a suggestion still waiting would gather. */
+export function chatsTogether( state )
+{
+    const together = new Set();
+
+    for ( const row of suggestions( state ) )
+    {
+        if ( row.kind !== 'suggestion' )
+            continue;
+
+        for ( const chat of Array.isArray( row.offer.chats ) ? row.offer.chats : [] )
+            together.add( chat.id );
+    }
+
+    return together;
+}
+
 /**
  * The workspace overview (4.3): how many chats there are and the newest, what is waiting on the person, the most
  * recent projects, and the most recent chats in no project.
@@ -1109,6 +1244,7 @@ export function workspaceOverview( state )
         newest: chats.length > 0 ? chats[ 0 ] : null,
         waiting: needsYou( state ),
         noticed: changedOnDisk( state ),
+        suggested: suggestions( state ),
         projects,
         activeCount: projects.filter( ( summary ) => summary.state === 'active' ).length,
         waitingProjects: projects.filter( ( summary ) => summary.state === 'waiting' ),

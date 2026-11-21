@@ -5,6 +5,7 @@
 
 import { describeCreation, findModel, mockLicense, models, seedConversations, seedMade, seedProjects, summarizeConversation, titleFor } from './fixtures.js';
 import { findScenario } from './scenarios.js';
+import { readOfferAnswer, pendingOffer, callWithOffer } from './offers.js';
 
 const streamId = 'stream-1';
 const mockFolder = 'C:\\Users\\you\\Projects\\calc';
@@ -221,9 +222,22 @@ export function createMockSession( options )
         };
     }
 
+    /** As the session's: made from a suggestion, nothing changed in it since, and no project made after it. */
+    function undoable( project )
+    {
+        const later = Array.from( projects.values() ).some( ( other ) => other.id !== project.id && other.created > project.created );
+
+        return project.suggested !== undefined && project.changed !== true && !later;
+    }
+
     function emitProjects()
     {
-        const items = Array.from( projects.values() ).map( ( project ) => ( { ...project, folders: project.folders.map( ( folder ) => ( { ...folder } ) ) } ) );
+        const items = Array.from( projects.values() ).map( ( project ) =>
+        {
+            const { changed, ...shown } = project;
+
+            return { ...shown, folders: project.folders.map( ( folder ) => ( { ...folder } ) ), undo: undoable( project ) };
+        } );
 
         items.sort( ( left, right ) => ( left.updated < right.updated ? 1 : -1 ) );
         emit( { type: 'projects.list', items } );
@@ -357,6 +371,10 @@ export function createMockSession( options )
             return;
         }
 
+        // An answer to Mila's offer is read by app code and needs no reply (AssistantInterface.md 5.4).
+        if ( answerOffer( request.text ) )
+            return;
+
         if ( session.conversationId === null )
         {
             const identifier = 'conversation-' + session.nextConversationNumber;
@@ -366,7 +384,10 @@ export function createMockSession( options )
 
         const turnId = 'turn-' + session.nextTurnNumber;
         const sent = takeAttachments( request.attachment_ids );
-        const context = { attachments: sent, model: session.model };
+        const stored = conversations.get( session.conversationId );
+        const context = { attachments: sent, model: session.model, conversationId: session.conversationId,
+            title: stored === undefined ? titleFor( request.text ) : stored.title, project: session.project, projects, conversations,
+            turnNumber: session.nextTurnNumber };
         session.nextTurnNumber = session.nextTurnNumber + 1;
         session.busy = true;
 
@@ -530,6 +551,22 @@ export function createMockSession( options )
         if ( message.type === 'turn.tool_result' )
             recordToolResult( message );
 
+        // Kept with the call, as the session keeps it, so the chat and the overview read the offer from it (6).
+        if ( message.type === 'turn.offer' )
+        {
+            const call = reply.toolCalls.find( ( candidate ) => candidate.call_id === message.call_id );
+
+            if ( call !== undefined )
+                call.offer = { ...message.offer };
+
+            // A move done and said is done as the call runs.
+            if ( message.offer.kind === 'move' && message.offer.state === 'accepted' )
+                moveOne( session.conversationId, message.offer.project, { who: 'mila' } );
+            else
+                recordEvent( { kind: 'suggestion.made', who: 'mila', conversation: session.conversationId, name: message.offer.name,
+                    ...( message.offer.kind === 'move' ? { project: message.offer.project } : {} ) } );
+        }
+
         // Kept with the call, as the session keeps it, so a chat opened again says where Mila went (5.2).
         if ( message.type === 'turn.went' )
         {
@@ -632,6 +669,230 @@ export function createMockSession( options )
 
         emitState();
         emitConversations();
+        emitProjects();
+        emitActivity();
+    }
+
+    // ---- Offers (AssistantInterface.md 5.4 and 6) ---------------------------------------------
+
+    /** The open chat's messages, as stored, or as they stand when it is not stored yet. */
+    function openMessages()
+    {
+        const stored = session.conversationId === null ? undefined : conversations.get( session.conversationId );
+
+        return stored === undefined ? session.history : stored.messages;
+    }
+
+    /** As the session's answerOffer: a bare answer takes, declines or undoes, and is kept with the app's line. */
+    function answerOffer( text )
+    {
+        if ( session.conversationId === null )
+            return false;
+
+        const call = pendingOffer( session.history );
+
+        if ( call === null )
+            return false;
+
+        const offer = call.offer;
+        const answer = readOfferAnswer( text );
+        const open = offer.state === 'open';
+        const wordsCount = open && offer.in_window !== true;
+        let line = null;
+
+        if ( wordsCount && answer === 'accept' )
+            line = takeOffer( offer, session.conversationId, call.call_id, offer.name );
+        else if ( wordsCount && answer === 'decline' )
+            line = declineOffer( offer, session.conversationId );
+        else if ( !open && ( answer === 'keep_separate' || answer === 'decline' ) )
+            line = keepSeparate( offer, session.conversationId );
+
+        if ( line === null )
+        {
+            if ( open )
+                offer.state = 'undecided';
+
+            return false;
+        }
+
+        const turnId = 'turn-' + session.nextTurnNumber;
+        session.nextTurnNumber = session.nextTurnNumber + 1;
+
+        session.history.push( { role: 'user', content: text, thought: null, tool_calls: null, attachments: null, stats: null } );
+        session.history.push( { role: 'assistant', content: line, thought: null, tool_calls: null, attachments: null, stats: null, app: true } );
+
+        const stored = conversations.get( session.conversationId );
+
+        if ( stored !== undefined )
+        {
+            stored.messages = session.history.slice();
+            stored.updated = new Date( options.now() ).toISOString();
+        }
+
+        emit( { type: 'turn.begin', stream_id: streamId, turn_id: turnId, conversation_id: session.conversationId } );
+        emit( { type: 'turn.answered', stream_id: streamId, turn_id: turnId, call_id: call.call_id, offer: { ...offer }, text: line } );
+        emit( { type: 'turn.end', stream_id: streamId, turn_id: turnId, finish: 'stop', answer: '', message: session.history.length - 1 } );
+        emitWorkspace();
+
+        return true;
+    }
+
+    function takeOffer( offer, conversationId, callId, name )
+    {
+        offer.decided = new Date( options.now() ).toISOString();
+
+        if ( offer.kind === 'move' )
+        {
+            if ( !projects.has( offer.project ) )
+            {
+                offer.state = 'lapsed';
+
+                return 'The project ' + name + ' is no longer there, so this chat stays where it is.';
+            }
+
+            moveOne( conversationId, offer.project, { suggested: 'move' } );
+            offer.state = 'accepted';
+
+            return 'Moved this chat into ' + projects.get( offer.project ).name + '.';
+        }
+
+        const stamp = new Date( options.now() ).toISOString();
+        const identifier = 'project-mock-' + nextProjectNumber;
+        nextProjectNumber = nextProjectNumber + 1;
+
+        projects.set( identifier, { v: 1, id: identifier, name, purpose: offer.purpose ?? '', instructions: '', folders: [], created: stamp,
+            updated: stamp, suggested: { conversation_id: conversationId, call_id: callId } } );
+        recordEvent( { kind: 'project.made', project: identifier, name, suggested: true, conversation: conversationId } );
+
+        let moved = 0;
+        let askingMoved = false;
+
+        for ( const chat of offer.chats ?? [] )
+        {
+            const conversation = conversations.get( chat.id );
+
+            if ( conversation === undefined || typeof conversation.project === 'string' )
+                continue;
+
+            moveOne( chat.id, identifier, { suggested: 'project' } );
+            moved = moved + 1;
+            askingMoved = askingMoved || chat.id === conversationId;
+        }
+
+        offer.state = 'accepted';
+        offer.project = identifier;
+        offer.name = name;
+
+        const others = moved - ( askingMoved ? 1 : 0 );
+
+        if ( !askingMoved )
+            return 'Made the project ' + name + ' and moved ' + moved + ( moved === 1 ? ' chat' : ' chats' ) + ' into it.';
+
+        return others === 0 ? 'Made the project ' + name + ' and moved this chat into it.'
+            : 'Made the project ' + name + ' and moved this chat and ' + others + ( others === 1 ? ' other' : ' others' ) + ' into it.';
+    }
+
+    function declineOffer( offer, conversationId )
+    {
+        offer.state = 'declined';
+        offer.decided = new Date( options.now() ).toISOString();
+        recordEvent( { kind: 'suggestion.declined', conversation: conversationId, name: offer.name,
+            ...( offer.kind === 'move' ? { project: offer.project } : {} ) } );
+
+        return offer.kind === 'move' ? 'Kept this chat out of ' + offer.name + '.' : 'Did not make the project ' + offer.name + '.';
+    }
+
+    function keepSeparate( offer, conversationId )
+    {
+        moveOne( conversationId, null );
+        offer.state = 'undone';
+        offer.decided = new Date( options.now() ).toISOString();
+
+        return 'Kept this chat separate from ' + offer.name + '.';
+    }
+
+    /** `suggestion.decide`: a project offer answered on a card, with the name as the person left it. */
+    function decideSuggestion( request )
+    {
+        const isOpen = request.conversation_id === session.conversationId;
+        const conversation = conversations.get( request.conversation_id );
+        const messages = isOpen ? openMessages() : conversation === undefined ? [] : conversation.messages;
+        const call = callWithOffer( messages, request.call_id );
+        const offer = call === null ? null : call.offer;
+
+        if ( offer === null || offer.kind !== 'project' || ( offer.state !== 'open' && offer.state !== 'undecided' ) )
+        {
+            emitError( 'That suggestion has already been answered.', null );
+            emitConversations();
+
+            return;
+        }
+
+        if ( request.decision === 'accept' )
+        {
+            const edited = typeof request.name === 'string' ? request.name.trim() : '';
+
+            takeOffer( offer, request.conversation_id, request.call_id, edited.length > 0 ? edited : offer.name );
+        }
+        else if ( request.decision === 'decline' )
+        {
+            declineOffer( offer, request.conversation_id );
+        }
+        else
+        {
+            return;
+        }
+
+        // The session's history and the stored chat hold the same call when the chat is open.
+        if ( isOpen )
+        {
+            const held = callWithOffer( session.history, request.call_id );
+
+            if ( held !== null && held !== call )
+                held.offer = { ...offer };
+        }
+
+        emitWorkspace();
+    }
+
+    /** `project.undo`: a project made from a suggestion goes while nothing has changed it; its chats return to none. */
+    function undoProject( request )
+    {
+        const project = projects.get( request.id );
+
+        if ( project === undefined || !undoable( project ) )
+        {
+            emitError( 'That project can no longer be undone. It can be deleted from its page.', null );
+            emitProjects();
+
+            return;
+        }
+
+        for ( const conversation of conversations.values() )
+        {
+            if ( conversation.project === project.id )
+            {
+                conversation.project = null;
+                conversation.folderFromProject = false;
+            }
+        }
+
+        if ( session.project === project.id )
+        {
+            session.project = null;
+            session.folderFromProject = false;
+        }
+
+        const offered = conversations.get( project.suggested.conversation_id );
+        const call = offered === undefined ? null : callWithOffer( offered.messages, project.suggested.call_id );
+
+        if ( call !== null )
+            call.offer.state = 'undone';
+
+        projects.delete( project.id );
+        forgetEverywhere( project.id );
+        recordEvent( { kind: 'project.undone', name: project.name } );
+        emitWorkspace();
     }
 
     // ---- Attachments -------------------------------------------------------------------------
@@ -864,6 +1125,7 @@ export function createMockSession( options )
         }
 
         project.updated = new Date( options.now() ).toISOString();
+        project.changed = true;
         emitWorkspace();
     }
 
@@ -913,7 +1175,7 @@ export function createMockSession( options )
     }
 
     /** One field moves a chat; the move is in the history of each project it left and joined. */
-    function moveOne( identifier, projectId )
+    function moveOne( identifier, projectId, details = {} )
     {
         const conversation = conversations.get( identifier );
         const from = conversation === undefined ? null : conversation.project ?? null;
@@ -930,7 +1192,7 @@ export function createMockSession( options )
             session.folderFromProject = false;
         }
 
-        recordEvent( { kind: 'chat.moved', conversation: identifier, name: conversation.title, project: projectId, from } );
+        recordEvent( { kind: 'chat.moved', conversation: identifier, name: conversation.title, project: projectId, from, ...details } );
     }
 
     function moveConversation( request )
@@ -944,7 +1206,17 @@ export function createMockSession( options )
             return;
         }
 
+        const from = conversations.get( request.id )?.project ?? null;
+
         moveOne( request.id, projectId );
+
+        // A chat the person moved in or out changes the project, which can no longer be undone.
+        for ( const changed of [ projects.get( projectId ), projects.get( from ) ] )
+        {
+            if ( changed !== undefined )
+                changed.changed = true;
+        }
+
         emitWorkspace();
     }
 
@@ -1392,6 +1664,12 @@ export function createMockSession( options )
 
             case 'project.update':
                 return updateProject( request );
+
+            case 'suggestion.decide':
+                return decideSuggestion( request );
+
+            case 'project.undo':
+                return undoProject( request );
 
             case 'project.delete':
                 return deleteProject( request );

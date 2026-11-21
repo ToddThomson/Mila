@@ -218,10 +218,14 @@ export function readableJson( text )
  * What the empty Mila bar says (AssistantInterface.md 5.1): in a chat it is the reply box; elsewhere it takes
  * anything, and the person's chats are a click away.
  */
-export function barPrompt( place, projectName )
+export function barPrompt( place, projectName, askingForProject = false )
 {
     if ( place === 'chat' )
         return 'Reply to Mila';
+
+    // The sidebar's *New project* asks Mila to start one (4.1).
+    if ( askingForProject )
+        return 'Tell Mila what the project is for';
 
     // On a project's page what is asked begins a chat in it (5.3).
     if ( place === 'project' && projectName )
@@ -384,6 +388,9 @@ export function projectEventText( recorded, to, from )
         case 'project.folder_removed': return 'Took the folder ' + folder + ' from ' + project;
         case 'project.deleted': return 'Deleted a project';
         case 'chat.moved': return movedText( recorded, to, from );
+        case 'suggestion.made': return to !== null ? 'Suggested moving a chat into ' + to : 'Suggested a project: ' + ( recorded.name ?? '' );
+        case 'suggestion.declined': return to !== null ? 'Kept a chat out of ' + to : 'Declined the project ' + ( recorded.name ?? '' );
+        case 'project.undone': return 'Undid the project ' + ( recorded.name ?? '' );
         default: return 'Changed a project';
     }
 }
@@ -414,6 +421,23 @@ function shortLine( line, most )
     const space = cut.lastIndexOf( ' ' );
 
     return ( space > most / 2 ? cut.slice( 0, space ) : cut ).replace( /[\s,.;:]+$/, '' ) + '…';
+}
+
+/**
+ * The chats Mila's suggestion of a project gathers (AssistantInterface.md 6), each title in quotes. In the chat that made
+ * the offer, @p here is its id, and it is *this chat*.
+ */
+export function gatheredLine( offer, here = null )
+{
+    const chats = Array.isArray( offer.chats ) ? offer.chats : [];
+    const titled = chats.filter( ( chat ) => chat.id !== here && typeof chat.title === 'string' && chat.title.length > 0 )
+        .map( ( chat ) => '\u201C' + chat.title + '\u201D' );
+    const named = here !== null && chats.some( ( chat ) => chat.id === here ) ? [ 'this chat', ...titled ] : titled;
+
+    if ( named.length === 0 )
+        return 'Gathers its chats';
+
+    return 'Gathers ' + ( named.length === 1 ? named[ 0 ] : named.slice( 0, -1 ).join( ', ' ) + ' and ' + named.at( -1 ) );
 }
 
 /** What an Activity entry says (AssistantInterface.md 4.8). */

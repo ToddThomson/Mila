@@ -30,6 +30,14 @@
       "when": "find_records",
       "text": "When the user asks you to find or recall something from their earlier chats, such as what was said or decided, a bill, a date or a name, call find_records first, with the few words most likely to be in it, before looking anywhere else, and answer from the passages it returns, naming the chat each came from. If nothing is found, say so, and do not guess."
     },
+    {
+      "when": "propose_project",
+      "text": "A project gathers the user's chats about one lasting piece of work, such as a trip, a move, a course or a piece of software. When the user asks for a new project, call propose_project with the name and purpose they gave. When this chat and others of the user's have become such a piece of work, you may suggest a project with propose_project, once: a short name, one sentence of what it is for, and the titles of their other chats about it. The user decides. A single question or a passing subject needs no project, and do not suggest again a project the user declined."
+    },
+    {
+      "when": "move_to_project",
+      "text": "When this chat belongs in one of the user's projects, such as when the user says it does, call move_to_project with the project's name."
+    },
     "A question that one page or one tool call answers needs no plan. When the user asks you to carry out a piece of work of several steps, first propose a plan with propose_plan: the steps, one a line, in order. Do nothing else until the user has approved it; if they decline, ask what to change and propose again. Then work through the steps in order, marking each with update_step as you start it and as you finish it, and check your work as you go. When every step is done, say what you did and what the user should check."
   ],
   "tools": [
@@ -103,6 +111,48 @@
         },
         "required": [
           "words"
+        ]
+      }
+    },
+    {
+      "name": "propose_project",
+      "description": "Suggest a new project that gathers this chat and the user's other chats about the same lasting piece of work. The user decides; nothing is made until they agree.",
+      "summary": "Suggesting a project: {name}",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The project's name, in a few words."
+          },
+          "purpose": {
+            "type": "string",
+            "description": "One sentence saying what the project is for."
+          },
+          "chats": {
+            "type": "string",
+            "description": "The titles of the user's other chats to gather into it, one a line, as find_records or open_place showed them; empty for this chat alone."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "move_to_project",
+      "description": "Move this chat into one of the user's projects. The first time for a project the user is asked; after that the chat is moved and the user is told.",
+      "summary": "Moving this chat to {project}",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "The project's name."
+          }
+        },
+        "required": [
+          "project"
         ]
       }
     },

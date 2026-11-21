@@ -3,8 +3,8 @@
 // transcript's.
 
 import { element, button, iconButton, clear } from '../dom.js';
-import { workspaceOverview, filteredChats, chatFilters, activityDays, activityKinds, reachOverview, projectOfChat } from '../state.js';
-import { attentionLine, activityText, longDate, dayLabel, clockLabel, toolWord, folderName } from '../format.js';
+import { workspaceOverview, filteredChats, chatFilters, activityDays, activityKinds, reachOverview, projectOfChat, chatsTogether } from '../state.js';
+import { attentionLine, activityText, longDate, dayLabel, clockLabel, toolWord, folderName, gatheredLine } from '../format.js';
 import { head, section, chatRow, figure } from './place-parts.js';
 import { renderProjects, renderProject, projectCard } from './projects.js';
 
@@ -25,6 +25,10 @@ export function createPlacesView( scroller, root, actions )
     const search = element( 'input', 'search-input' );
     const projectSearch = element( 'input', 'search-input' );
     const list = element( 'div', 'rows chat-rows' );
+
+    // The names typed into Mila's suggestions before they are made, by chat and call; kept out of `local`, which a
+    // redraw compares, so typing does not redraw the card under the cursor.
+    const suggestionNames = new Map();
     let lastKey = '';
     let lastPlace = null;
 
@@ -119,6 +123,19 @@ export function createPlacesView( scroller, root, actions )
         if ( action === 'chat-filter' )
             changeLocal( { chatFilter: target.dataset.filter } );
 
+        if ( action === 'make-suggested' || action === 'decline-suggested' )
+        {
+            const key = identifier + '\u0000' + target.dataset.call;
+            const typed = suggestionNames.get( key );
+
+            actions.decideSuggestion( identifier, target.dataset.call, action === 'make-suggested' ? 'accept' : 'decline',
+                action === 'make-suggested' && typeof typed === 'string' ? typed : undefined );
+            suggestionNames.delete( key );
+        }
+
+        if ( action === 'undo-project' )
+            actions.send( { type: 'project.undo', id: target.dataset.project } );
+
         if ( action === 'activity-earlier' )
             actions.send( { type: 'activity.open', kind: null, before: actions.getState().eventsBefore } );
 
@@ -199,6 +216,14 @@ export function createPlacesView( scroller, root, actions )
         const folders = Array.isArray( project.folders ) ? project.folders : [];
 
         actions.send( { type: 'project.update', id: projectId, folders: change( folders.map( ( folder ) => ( { ...folder } ) ) ) } );
+    }
+
+    function onInput( event )
+    {
+        const input = event.target.closest( '.suggestion-name' );
+
+        if ( input !== null )
+            suggestionNames.set( input.dataset.key, input.value );
     }
 
     function onChange( event )
@@ -296,6 +321,7 @@ export function createPlacesView( scroller, root, actions )
 
     root.addEventListener( 'click', onClick );
     root.addEventListener( 'change', onChange );
+    root.addEventListener( 'input', onInput );
     root.addEventListener( 'keydown', onKeyDown );
     root.addEventListener( 'focusout', onFocusOut );
     document.addEventListener( 'click', onDocumentClick );
@@ -336,6 +362,57 @@ export function createPlacesView( scroller, root, actions )
         actionsRow.append( act );
         notice.append( element( 'div', 'notice-kind', project === null ? 'Mila noticed' : 'Mila noticed · ' + project.name ),
             element( 'div', 'notice-title', folderName( row.file.path ) ), element( 'div', 'notice-text', attentionLine( row ) ), actionsRow );
+
+        return notice;
+    }
+
+    /**
+     * Mila's suggestion of a project (4.3, 6): its name, which the person may change before making it, what it is for and
+     * the chats it gathers, with *Make the project* and *Not now*. Once made, while nothing has changed it, it can be undone.
+     */
+    function suggestionNotice( row )
+    {
+        const notice = element( 'div', 'notice-card suggestion-card' );
+        const actionsRow = element( 'div', 'notice-actions' );
+        const offer = row.offer;
+
+        if ( row.kind === 'made' )
+        {
+            const open = button( 'button', 'Open', 'open-project' );
+            const undo = button( 'button quiet', 'Undo', 'undo-project' );
+
+            open.dataset.project = row.project.id;
+            undo.dataset.project = row.project.id;
+            actionsRow.append( open, undo );
+            notice.append( element( 'div', 'notice-kind', 'Made from Mila\'s suggestion' ), element( 'div', 'notice-title', row.project.name ),
+                element( 'div', 'notice-text', gatheredLine( offer ).replace( /^Gathers/, 'Gathered' ) ), actionsRow );
+
+            return notice;
+        }
+
+        const key = row.item.id + '\u0000' + offer.call_id;
+        const name = element( 'input', 'suggestion-name' );
+        const make = button( 'button primary', 'Make the project', 'make-suggested' );
+        const later = button( 'button quiet', 'Not now', 'decline-suggested' );
+
+        name.value = suggestionNames.get( key ) ?? offer.name ?? '';
+        name.dataset.key = key;
+        name.autocomplete = 'off';
+        name.setAttribute( 'aria-label', 'Project name' );
+
+        for ( const choice of [ make, later ] )
+        {
+            choice.dataset.identifier = row.item.id;
+            choice.dataset.call = offer.call_id;
+        }
+
+        actionsRow.append( make, later );
+        notice.append( element( 'div', 'notice-kind', 'Mila suggests a project' ), name );
+
+        if ( typeof offer.purpose === 'string' && offer.purpose.length > 0 )
+            notice.append( element( 'div', 'notice-text', offer.purpose ) );
+
+        notice.append( element( 'div', 'notice-text', gatheredLine( offer ) ), actionsRow );
 
         return notice;
     }
@@ -386,12 +463,13 @@ export function createPlacesView( scroller, root, actions )
         atGlance.append( glanceOf( overview ) );
         root.append( head( longDate( now ), 'Your Workspace' ), atGlance );
 
-        if ( waiting.length > 0 || overview.noticed.length > 0 )
+        if ( waiting.length > 0 || overview.suggested.length > 0 || overview.noticed.length > 0 )
         {
-            const needs = section( waiting.length > 0 ? 'Needs you' : 'Mila noticed', 'needs-you', null );
+            const title = waiting.length > 0 ? 'Needs you' : overview.suggested.length > 0 ? 'Mila suggests' : 'Mila noticed';
+            const needs = section( title, 'needs-you', null );
             const notices = element( 'div', 'notices' );
 
-            notices.append( ...waiting.map( noticeFor ), ...overview.noticed.map( noticeFor ) );
+            notices.append( ...waiting.map( noticeFor ), ...overview.suggested.map( suggestionNotice ), ...overview.noticed.map( noticeFor ) );
             needs.append( notices );
             root.append( needs );
         }
@@ -416,10 +494,13 @@ export function createPlacesView( scroller, root, actions )
         const chats = section( 'Chats', 'chats', overview.chatCount > 0 ? all : null );
         const rows = element( 'div', 'rows' );
 
+        // Those Mila sees as belonging together carry a dashed mark (4.3).
+        const together = chatsTogether( state );
+
         if ( overview.chats.length === 0 )
             rows.append( element( 'div', 'empty', overview.chatCount === 0 ? 'No chats yet.' : 'Every chat is in a project.' ) );
         else
-            rows.append( ...overview.chats.map( ( item ) => chatRow( item, now, null ) ) );
+            rows.append( ...overview.chats.map( ( item ) => chatRow( item, now, null, together.has( item.id ) ) ) );
 
         chats.append( rows );
         root.append( chats );
@@ -776,6 +857,8 @@ export function createPlacesView( scroller, root, actions )
 
         // Typing in a search keeps its place; anything else redrawn keeps where the person scrolled to.
         const typing = document.activeElement === search ? search : document.activeElement === projectSearch ? projectSearch : null;
+        const naming = document.activeElement !== null && document.activeElement.classList.contains( 'suggestion-name' )
+            ? { key: document.activeElement.dataset.key, at: document.activeElement.selectionStart } : null;
         const scrolled = place === lastPlace ? scroller.scrollTop : 0;
 
         clear( root );
@@ -798,6 +881,15 @@ export function createPlacesView( scroller, root, actions )
 
         if ( typing !== null )
             typing.focus();
+
+        const renamed = naming === null ? null
+            : [ ...root.querySelectorAll( '.suggestion-name' ) ].find( ( input ) => input.dataset.key === naming.key ) ?? null;
+
+        if ( renamed !== null )
+        {
+            renamed.focus();
+            renamed.setSelectionRange( naming.at, naming.at );
+        }
 
         const editing = root.querySelector( '.project-edit' );
 
