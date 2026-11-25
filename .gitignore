@@ -35,6 +35,11 @@ Data/Evaluation/
 # ExportArtifact --package; the package's copy is the one published, and none is tracked.
 Data/Models/**/mila.json
 
+# A local model hub (MILA_HUB_DIRECTORY) and a test person's Mila folder (LOCALAPPDATA), for testing Mila Assistant's
+# first run without the model hub on HuggingFace or the developer's own store (AssistantOnboarding.md 4.4).
+Data/Hub/
+Data/TestUser/
+
 # Visual Studio scratch directory.
 enc_temp_folder/
 

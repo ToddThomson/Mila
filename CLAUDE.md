@@ -36,7 +36,7 @@ Presets are in `CMakePresets.json`; output is always `out/build/<preset-name>`. 
 
 Browse the tree for what is where. What the tree does not tell you:
 
-- **`Lib/Src/`** is the runtime. `Components/`, `Compute/`, `Models/`, `Quantization/`, `Tensors/`, `Serialization/`. `Models/` and `Components/Transformers/` are split per family (`Gemma`, `Gpt`, `LlaMa`, `Qwen`) — a family owns its model, config and chat protocol together.
+- **`Lib/Src/`** is the library. `Dnn/` holds the models API's core: `Components/`, `Compute/`, `Models/`, `Quantization/`, `Tensors/`, `Serialization/`; beside it are `Agents/`, `Deployment/`, `Distribution/` and `Networking/`. Paths below that start at `Components/`, `Compute/` or `Models/` are under `Lib/Src/Dnn/`. `Models/` and `Components/Transformers/` are split per family (`Gemma`, `Gpt`, `LlaMa`, `Qwen`) — a family owns its model, config and chat protocol together.
 - **Mila is one library with one install.** `Lib/` holds it, and `Mila` the repository and the brand. A program reaches
   the models API as `Mila::Dnn` and `Mila::Deployment`, and the agents API as `Mila::Agents`; "models API" and "agents
   API" are words for the docs, not namespaces (`Direction.md` decision 2, Todd, 2026-11-02).
@@ -64,8 +64,8 @@ Browse the tree for what is where. What the tree does not tell you:
 
 Every component and operation is templated on independent axes:
 
-- **`TDeviceType`** (`DeviceType::Cuda`; `DeviceType::Cpu` is the host, with memory and tensor ops but no compute operations since 2026-10-11) — determines memory resource and kernel dispatch.
-- **`TPrecision`** (`TensorDataType::FP32`, `BF16`, etc.) — activation input and compute type. BF16 is the primary reduced-precision target; FP16 is not used on CUDA, and is the planned Metal precision on chips without native BF16 (`Metal/MetalBackend.md`).
+- **`TDeviceType`** (`DeviceType::Cuda` and `DeviceType::Metal`, the two compute backends; `DeviceType::Cpu` is the host, with memory and tensor ops but no compute operations since 2026-10-11; `DeviceType::Rocm` is a device scaffold with no operations) — determines memory resource and kernel dispatch.
+- **`TPrecision`** (`TensorDataType::FP32`, `BF16`, etc.) — activation input and compute type. BF16 is CUDA's reduced-precision target, and FP16 is not used there. **Metal runs FP16 on every chip**, until a measurement shows which chips have native BF16; there is no FP32 model path on Metal (`Specifications/Metal/MetalBackend.md` 3.2).
 - **`TWeightQuantization`** (on `Linear` only) — compile-time weight quantization policy. Defaults to `NoWeightQuant`. Setting `PerChannelFp8<>`, `PerGroupFp4<128>` or a codebook policy selects the storage format the weights must already carry — no runtime config object.
 
 ### Operation Dispatch — OperationTraits
@@ -78,7 +78,7 @@ using OpType = typename Compute::OperationTraits<
     TDeviceType, TComputePrecision, TWeightQuantization>::type;
 ```
 
-The `OperationTraits` primary template is in `Compute/Operations/OperationTraits.Template.ixx`. Specializations live in `OperationTraits.Cuda.ixx` (`:Cuda` partition) and `OperationTraits.Metal.ixx` (`:Metal`, Llama's operations so far, `Specifications/Metal/MetalBackend.md`). A missing specialization is a **hard compile error**, not a runtime miss. The old `OperationRegistry` string-keyed runtime dispatch is retired (`Mila.ixx`); a few components' doc comments still describe it, and are wrong.
+The `OperationTraits` primary template is in `Compute/Operations/OperationTraits.Template.ixx`. Specializations live in `Devices/Cuda/Operations/OperationTraits.Cuda.ixx` (`:Cuda` partition) and `Devices/Metal/Operations/OperationTraits.Metal.ixx` (`:Metal`), both under `Compute/`. **Metal has every weight and cache format CUDA's components use** (`MetalBackend.md` 1, with its short list of exceptions), and in v0.21.0 it is experimental: Llama and Gemma 4 12B (with its drafter) run whole; Qwen 3.8's operations are built but the whole model is `Issues/Vnext.md`'s, as are the Gemma 26B-A4B and decode replay on Metal. `MetalBackend.md`'s status line is the current word. A missing specialization is a **hard compile error**, not a runtime miss. The old `OperationRegistry` string-keyed runtime dispatch is retired (`Mila.ixx`); a few components' doc comments still describe it, and are wrong.
 
 `Linear` is the canonical reference implementation of the full dispatch pattern.
 
@@ -135,7 +135,7 @@ Every family streams live: each round's reply is read as it arrives by the templ
 
 Source files use `.ixx` for C++23 module interface units and module partitions. The module naming convention mirrors the directory structure (e.g., `Compute.OperationTraits`, `Dnn.Components.Linear`).
 
-Module partition files (such as `:Cuda`) are used to separate backend specializations while keeping a single aggregator module. Example: `OperationTraits.ixx` re-exports `OperationTraits.Template.ixx` + `:Cuda`.
+Module partition files (such as `:Cuda`) are used to separate backend specializations while keeping a single aggregator module. Example: `OperationTraits.ixx` re-exports `OperationTraits.Template.ixx`, `:Cuda` and `:Metal`.
 
 **One module per file, one type per module.** A type other modules must name is exported from its own module file: exactly one class, struct, enum, union or concept per file. A type only its own file uses is not exported. A nested type is part of its owner only when it is never used apart from it — nesting is not a way to keep two separately used types in one file. Internal detail that needs its own impl-only module is a partition (such as `Gemma.Block.Workspace.ixx`), and it follows the same rule. Free functions and constants beside their type do not count, nor does an `export using` alias of a type another module defines. Two types are two `.ixx` files in the same directory, two `FILE_SET` entries, and two `export import` lines in `Mila.ixx`; never a combined file to keep the diff small. Files that predate the rule are tracked in `Issues/Vnext.md`, and **any module a change touches is brought under the rule in that same change**; every new file follows it.
 

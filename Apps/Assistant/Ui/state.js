@@ -22,12 +22,16 @@ export function createInitialState()
         modelsKnown: false,
         publishedModels: null,
         suggestedModel: null,
+        // The onboarding model the session picked for this computer (AssistantOnboarding.md 4.4), once it is listed.
+        onboardingModel: null,
         publishedRequested: false,
         license: null,
         licenseError: null,
         licenseRead: false,
         setupStep: 'welcome',
         setupInstalling: false,
+        // The model an install was asked for, until the session reports on it: its card shows the bar from the press.
+        installAsked: null,
         progress: null,
         restore: null,
         modelsError: null,
@@ -69,6 +73,7 @@ export function reduce( state, message )
                 modelsKnown: true,
                 publishedModels: message.published,
                 suggestedModel: message.suggested ?? null,
+                onboardingModel: message.onboarding ?? null,
                 publishedRequested: false
             };
 
@@ -77,7 +82,7 @@ export function reduce( state, message )
             if ( message.task === 'restore' )
                 return { ...state, restore: message.done < message.total ? message : null };
 
-            return { ...state, progress: message };
+            return { ...state, progress: message, installAsked: null };
 
         case 'conversations.list':
             return syncOffers( { ...state, conversations: message.items } );
@@ -100,6 +105,10 @@ export function reduce( state, message )
 
         case 'turn.begin':
             return reduceTurnBegin( state, message );
+
+        // The interview's chat is open: the setup ends and the workspace opens on it (AssistantOnboarding.md 4.4).
+        case 'interview':
+            return { ...state, place: 'chat', barOwned: false, risen: false, setupStep: 'done' };
 
         case 'turn.text':
             return updateTurn( state, message.turn_id, reduceTurnText, message );
@@ -223,7 +232,15 @@ export function reduce( state, message )
 
         // Accepting moves on to the model at once; a refusal keeps the licence's pane, which then says why.
         case 'license.accept':
-            return { ...state, licenseError: null, setupStep: 'model' };
+            return { ...state, licenseError: null, setupStep: onboardingPathShowing( state ) ? nextStep( state, 'license' ) : 'model' };
+
+        // The person agreed to the download on Getting Mila Ready, and goes on while it runs (AssistantOnboarding.md 4.3).
+        case 'onboarding.download':
+            return { ...state, modelsError: null, setupStep: nextStep( state, 'ready' ) };
+
+        // The end of the panes: a new install waits for Mila if it is not ready, and an update opens the workspace.
+        case 'onboarding.panes_done':
+            return onboardingRunning( state ) ? { ...state, setupStep: 'finished' } : { ...state, setupStep: 'done', place: 'workspace' };
 
         // The page's alone, never sent: moving through the first-run setup (AssistantOnboarding.md 4.1).
         case 'license.read':
@@ -232,15 +249,21 @@ export function reduce( state, message )
         case 'setup.continue':
             return reduceSetupContinue( state );
 
-        case 'setup.back':
-            return reduceSetupBack( state );
-
         case 'setup.done':
             return { ...state, setupStep: 'done', place: 'workspace' };
 
         // An install from the setup's model pane ends on its conclusion once the model is loaded.
         case 'model.install':
-            return { ...state, modelsError: null, setupInstalling: state.setupInstalling || setupPane( state ) === 'model' };
+            return {
+                ...state,
+                modelsError: null,
+                installAsked: message.name,
+                setupInstalling: state.setupInstalling || setupPane( state ) === 'model'
+            };
+
+        // A cancelled install leaves the setup on its model pane, to install it again or skip.
+        case 'model.install_stop':
+            return { ...state, setupInstalling: false, installAsked: null };
 
         case 'model.load':
         case 'model.remove':
@@ -263,7 +286,14 @@ function reduceSessionState( state, message )
     const transcript = modelChanged ? [] : state.transcript;
     const attachments = modelChanged ? [] : state.attachments;
 
-    return { ...state, session: message, conversationId, transcript, attachments };
+    // An install that stopped or failed sends no last progress; the session idle says it is over. Idle after busy ends
+    // one asked for that never reported, as when every file was already in the store.
+    const installEnded = !message.busy && state.progress !== null && state.progress.task === 'install';
+    const progress = installEnded ? null : state.progress;
+    const workEnded = !message.busy && state.session !== null && state.session.busy;
+    const installAsked = workEnded ? null : state.installAsked;
+
+    return { ...state, session: message, conversationId, transcript, attachments, progress, installAsked };
 }
 
 function appendEntry( state, entry )
@@ -295,37 +325,27 @@ function reduceAbout( message )
     return { userName: message.user_name ?? '', version: message.version ?? '', licences };
 }
 
-/** The licence the session carries and whether it is accepted; a text that fits its box needs no scrolling to be read. */
+/**
+ * The licence the session carries and whether it is accepted. Accepted is done (AssistantOnboarding.md 4.1): a setup
+ * that finds it accepted, on an earlier run, begins at the model, with no welcome.
+ */
 function reduceLicense( state, message )
 {
     const license = { text: message.text, sha256: message.sha256, accepted: message.accepted, problem: message.problem };
     const changed = state.license !== null && state.license.sha256 !== message.sha256;
+    const setupStep = message.accepted && state.setupStep === 'welcome' ? 'model' : state.setupStep;
 
-    return { ...state, license, licenseRead: changed ? false : state.licenseRead };
+    return { ...state, license, setupStep, licenseRead: changed ? false : state.licenseRead };
 }
 
-/** Continue from the welcome: to the licence, or once it is accepted, to the model. */
+/** Continue from the welcome, to the licence: the only pane Continue leaves, since Accept leaves the licence's. */
 function reduceSetupContinue( state )
 {
-    const accepted = state.license !== null && state.license.accepted;
+    if ( onboardingPathShowing( state ) )
+        return { ...state, setupStep: nextStep( state, currentStep( state ) ) };
 
     if ( state.setupStep === 'welcome' )
-        return { ...state, setupStep: accepted ? 'model' : 'license' };
-
-    if ( state.setupStep === 'license' && accepted )
-        return { ...state, setupStep: 'model' };
-
-    return state;
-}
-
-/** Go Back: the model's pane returns to the licence read on this run, or to the welcome. */
-function reduceSetupBack( state )
-{
-    if ( state.setupStep === 'license' )
-        return { ...state, setupStep: 'welcome' };
-
-    if ( state.setupStep === 'model' )
-        return { ...state, setupStep: state.licenseRead ? 'license' : 'welcome' };
+        return { ...state, setupStep: 'license' };
 
     return state;
 }
@@ -367,14 +387,15 @@ function reduceError( state, message )
         return appendEntry( state, entry );
 
     const modelsError = { text: message.text, during: message.during };
+    const installAsked = message.during === 'install' ? null : state.installAsked;
 
     // Before a conversation has begun, a refusal is said where the models are offered, not as its first entry.
     if ( state.transcript.length === 0 )
-        return { ...state, modelsError };
+        return { ...state, modelsError, installAsked };
 
     const added = appendEntry( state, entry );
 
-    return { ...added, modelsError };
+    return { ...added, modelsError, installAsked };
 }
 
 function sentAttachment( attachment )
@@ -995,11 +1016,20 @@ export function setupPane( state )
     if ( state.session === null || state.license === undefined || state.license === null )
         return null;
 
+    if ( state.setupStep === 'done' && state.license.accepted )
+        return null;
+
+    // One path for a new install and an update (AssistantOnboarding.md 4.3, round 9): each step that has nothing to do
+    // is passed over.
+    if ( onboardingPathShowing( state ) )
+    {
+        const step = currentStep( state );
+
+        return step === 'finished' ? 'getting-ready' : step;
+    }
+
     if ( !state.license.accepted )
         return state.setupStep === 'welcome' ? 'welcome' : 'license';
-
-    if ( state.setupStep === 'done' )
-        return null;
 
     if ( state.setupInstalling )
         return setupInstallPane( state );
@@ -1011,6 +1041,74 @@ export function setupPane( state )
         return null;
 
     return state.setupStep;
+}
+
+/** Whether the session is onboarding: due, or begun and not yet ended by the interview (AssistantOnboarding.md 4.4). */
+export function onboardingRunning( state )
+{
+    const onboarding = state.session === null ? null : state.session.onboarding;
+
+    return onboarding === 'due' || onboarding === 'started';
+}
+
+/** Whether this version has something new to show a person updating to it, and they have not yet been through it. */
+export function updateShowing( state )
+{
+    return state.session !== null && typeof state.session.whats_new === 'string' && state.session.panes_done !== true;
+}
+
+/**
+ * Whether the onboarding's one path shows (AssistantOnboarding.md 4.3, round 9): a new install's onboarding, unless the
+ * model hub was read and no onboarding model runs here, which the model pane then says; or an update with something
+ * new.
+ */
+export function onboardingPathShowing( state )
+{
+    if ( state.session === null || state.setupStep === 'done' )
+        return false;
+
+    if ( onboardingRunning( state ) )
+        return !( state.publishedModels !== null && state.onboardingModel === null );
+
+    return updateShowing( state );
+}
+
+const onboardingOrder = [ 'welcome', 'license', 'ready', 'capabilities', 'finished' ];
+
+/** Whether a step of the path has something to do now. */
+function stepDue( state, step )
+{
+    if ( step === 'license' )
+        return state.license !== null && !state.license.accepted;
+
+    if ( step === 'ready' )
+        return onboardingRunning( state ) && state.session.onboarding_agreed !== true;
+
+    if ( step === 'finished' )
+        return onboardingRunning( state );
+
+    return true;
+}
+
+/** The step after this one that has something to do; 'done' past the end. */
+function nextStep( state, step )
+{
+    const start = onboardingOrder.indexOf( step ) + 1;
+    const found = onboardingOrder.slice( start ).find( ( candidate ) => stepDue( state, candidate ) );
+
+    return found ?? 'done';
+}
+
+/** The step the person is on: the one they reached, or the next with something to do when it no longer has. */
+function currentStep( state )
+{
+    // A setup that began before the path, or found the licence accepted, starts at the welcome.
+    const reached = onboardingOrder.includes( state.setupStep ) ? state.setupStep : 'welcome';
+
+    if ( stepDue( state, reached ) )
+        return reached;
+
+    return nextStep( state, reached );
 }
 
 /** An install begun from the setup: its pane until the model is loaded, then the conclusion. */
@@ -1026,12 +1124,46 @@ function setupInstallPane( state )
 }
 
 /**
- * Whether the page is in the first-run setup. It then fills the window, with no sidebar or header beside it, as
- * there is nothing yet to go back to or to show.
+ * Whether the page cannot yet tell if the first-run setup is due: the session has not said where the licence stands,
+ * or, with it accepted, whether a model is installed. The window stays empty until it can, so the workspace is never
+ * drawn only for the setup to cover it.
  */
+export function isStarting( state )
+{
+    // A session that stopped or could not start says so in the workspace, which is then shown.
+    if ( state.transcript.some( ( entry ) => entry.kind === 'error' ) )
+        return false;
+
+    if ( state.session === null || state.license === undefined || state.license === null )
+        return true;
+
+    if ( !state.license.accepted || state.setupStep === 'done' || onboardingPathShowing( state ) )
+        return false;
+
+    return state.session.model === null && !state.session.loading && !state.modelsKnown && state.modelsError === null;
+}
+
+/** Whether the page is in the first-run setup. Its sheet is then alone in the window; the workspace starts after it. */
 export function isWelcoming( state )
 {
     return setupPane( state ) !== null;
+}
+
+/**
+ * The install under way, as its progress naming the model by `name`: from the moment it is asked for, with no total
+ * until the session reports one; null when none is.
+ */
+export function installUnderWay( state )
+{
+    const progress = state.progress;
+
+    if ( state.installAsked !== null )
+        return { type: 'progress', task: 'install', name: state.installAsked, done: 0, total: null };
+
+    if ( progress === null || progress.task !== 'install' || progress.total === null || progress.done >= progress.total )
+        return null;
+
+    return progress;
 }
 
 export function isBusy( state )

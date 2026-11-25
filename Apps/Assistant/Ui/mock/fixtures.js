@@ -86,6 +86,21 @@ export const models = [
     }
 ];
 
+/** The onboarding model (AssistantOnboarding.md 4.4): marked onboarding ready, and offered only by scenario 21. */
+export const onboardingModel = {
+    name: 'gemma-4-12b-it-q4_0',
+    display_name: 'Gemma 4 12B',
+    size_bytes: 7100000000,
+    quantization: 'q4_0',
+    family: 'gemma',
+    context_length: 131072,
+    thinking_capable: true,
+    effort_levels: null,
+    modalities: [ 'image', 'audio' ],
+    published: { license: 'gemma', agentic: true, tools: true, onboarding: true, planned_context: 131072 },
+    sampling: { temperature: 1.0, top_k: 64, top_p: 0.95, presence_penalty: 0 }
+};
+
 export function findModel( name )
 {
     const folded = name.toLowerCase();

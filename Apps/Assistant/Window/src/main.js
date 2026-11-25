@@ -179,7 +179,7 @@ async function openLicence( id )
         const failure = await shell.openPath( entry.file );
 
         if ( failure.length > 0 )
-            deliver( { v: 1, type: 'licence.text', id, text: null, problem: 'Mila could not open this licence.' } );
+            deliver( { v: 1, type: 'licence.text', id, text: null, problem: 'Mila could not open this license.' } );
 
         return;
     }
@@ -237,6 +237,7 @@ function onPageMessage( event, message )
     {
         setupShowing = message.showing === true;
         buildMenu();
+        showDevelopmentMenuBar();
 
         return;
     }
@@ -283,6 +284,18 @@ function buildMenu()
     Menu.setApplicationMenu( menu );
 }
 
+/**
+ * A development run keeps Electron's menu for its developer tools, but not over the first-run setup, which then looks
+ * as a release build's does on Windows and Linux (AssistantOnboarding.md 4.1). macOS's menu bar is not the window's.
+ */
+function showDevelopmentMenuBar()
+{
+    if ( app.isPackaged || process.platform === 'darwin' || mainWindow === null || mainWindow.isDestroyed() )
+        return;
+
+    mainWindow.setMenuBarVisibility( !setupShowing );
+}
+
 function denyNavigation( event )
 {
     event.preventDefault();
@@ -321,8 +334,9 @@ function createWindow()
     const options = {
         width: 1280,
         height: 800,
-        minWidth: 560,
-        minHeight: 480,
+        // Holds the first-run setup's sheet, 620 by 500, with its margins (AssistantOnboarding.md 4.1).
+        minWidth: 760,
+        minHeight: 600,
         title: 'Mila Assistant',
         show: false,
         backgroundColor: nativeTheme.shouldUseDarkColors ? '#121215' : '#ffffff',
@@ -334,6 +348,7 @@ function createWindow()
         options.icon = iconPath;
 
     mainWindow = new BrowserWindow( options );
+    showDevelopmentMenuBar();
 
     const contents = mainWindow.webContents;
     const show = () => mainWindow.show();
@@ -353,13 +368,25 @@ function startSession()
     sessionProcess = startSessionProcess( configuration, handlers );
 }
 
-function stopSession()
+/**
+ * Quitting waits for the session to stop what it is doing and end, so an install lets go of the store and keeps what
+ * arrived (AssistantOnboarding.md 4, step 4); one that has not ended in that time is ended with the window.
+ */
+const sessionStopMilliseconds = 5000;
+let sessionStopped = false;
+
+async function onBeforeQuit( event )
 {
-    if ( sessionProcess === null )
+    if ( sessionStopped || sessionProcess === null )
         return;
 
-    sessionProcess.stop();
+    event.preventDefault();
+    sessionStopped = true;
+
+    const stopping = sessionProcess;
     sessionProcess = null;
+    await stopping.stop( sessionStopMilliseconds );
+    app.quit();
 }
 
 // ---- In use or not ---------------------------------------------------------------------------
@@ -411,11 +438,10 @@ function onReady()
 
 function onAllClosed()
 {
-    stopSession();
     app.quit();
 }
 
 registerPageScheme();
 app.on( 'window-all-closed', onAllClosed );
-app.on( 'before-quit', stopSession );
+app.on( 'before-quit', onBeforeQuit );
 app.whenReady().then( onReady );

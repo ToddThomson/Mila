@@ -27,7 +27,7 @@ export function createLicenseView( dialog, actions )
         foot.append( button( 'setup-button primary', 'Close', 'close-license' ) );
 
         clear( dialog );
-        dialog.append( element( 'h2', 'license-title', 'Mila’s licence' ), box, foot );
+        dialog.append( element( 'h2', 'license-title', 'Mila’s License' ), box, foot );
         dialog.showModal();
         box.focus();
     }

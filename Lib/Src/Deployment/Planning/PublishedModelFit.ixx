@@ -72,4 +72,13 @@ namespace Mila::Deployment
      */
     export std::vector<PublishedModelFit> planPublishedModels( const IModelHub& hub, const std::string& owner,
         const DeploymentRequest& request, const ModelStore& store = ModelStore{} );
+
+    /**
+     * @brief The model Mila Assistant's setup installs on this computer (Specifications/Apps/AssistantOnboarding.md 4.4):
+     *        of the planned models whose manifest marks them onboarding ready, the first that can be suggested, agentic
+     *        here before the rest, the smaller download first within each, so the first chat comes soonest.
+     *
+     * @return Its index in fits, or nothing when no onboarding-ready model runs here.
+     */
+    export std::optional<std::size_t> onboardingModel( const std::vector<PublishedModelFit>& fits );
 }

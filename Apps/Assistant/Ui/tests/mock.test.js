@@ -774,6 +774,48 @@ function aFirstRunInstallsTheSuggestionWhichThenLoads()
 
 test( 'a first run installs the suggestion, which then loads', aFirstRunInstallsTheSuggestionWhichThenLoads );
 
+function aCancelledInstallDeletesWhatArrivedAndTheNextStartsAgain()
+{
+    const { clock, events, session } = startSession( 8 );
+
+    session.handle( { v: 1, type: 'ready' } );
+    session.handle( { v: 1, type: 'license.accept', sha256: ofType( events, 'license' ).pop().sha256 } );
+    session.handle( { v: 1, type: 'models.refresh', online: true } );
+    clock.run();
+
+    const name = ofType( events, 'models.list' ).pop().suggested;
+    const installProgress = () => ofType( events, 'progress' ).filter( ( event ) => event.task === 'install' );
+
+    session.handle( { v: 1, type: 'model.install', name } );
+    assert.equal( ofType( events, 'session.state' ).pop().busy, true, 'busy while it installs' );
+    clock.run( () => installProgress().length === 10 );
+
+    const reached = installProgress().pop();
+    assert.equal( reached.name, name, 'the progress names the model' );
+    assert.ok( reached.done > 0 && reached.done < reached.total );
+
+    session.handle( { v: 1, type: 'model.install_stop' } );
+    clock.run();
+
+    assert.equal( installProgress().length, 10, 'nothing arrives after the Cancel' );
+    assert.equal( ofType( events, 'error' ).length, 0, 'a Cancel is not a failure' );
+    assert.equal( ofType( events, 'info' ).length, 0, 'and says nothing' );
+    assert.equal( ofType( events, 'session.state' ).pop().busy, false );
+
+    const listed = ofType( events, 'models.list' ).pop();
+    assert.deepEqual( listed.installed, [] );
+    assert.notEqual( listed.published, null, 'the list fetched before is sent again' );
+
+    session.handle( { v: 1, type: 'model.install', name } );
+    clock.run( () => installProgress().length === 11 );
+    assert.equal( installProgress().pop().done, 0, 'the next install starts from the beginning' );
+
+    clock.run();
+    assert.deepEqual( ofType( events, 'models.list' ).pop().installed.map( ( model ) => model.name ), [ name ] );
+}
+
+test( 'a cancelled install deletes what arrived, and the next starts again', aCancelledInstallDeletesWhatArrivedAndTheNextStartsAgain );
+
 function nothingIsInstalledLoadedOrAnsweredUntilTheLicenceIsAccepted()
 {
     const { clock, events, session } = startSession( 13 );

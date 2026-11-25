@@ -14,7 +14,7 @@ namespace Mila::Assistant
     {
         // Without its licence the package is incomplete, and nothing may be used until one is accepted.
         constexpr std::string_view missing =
-            "The licence that comes with Mila is missing, so Mila cannot start. Install Mila again.";
+            "The license that comes with Mila is missing, so Mila cannot start. Install Mila again.";
 
         std::ifstream file( path, std::ios::binary );
 

@@ -193,6 +193,17 @@ namespace Mila::Assistant
                 return readProjectNotes();
             }, Mila::Agents::ResultOrigin::Outside );
 
+        // The interview's own tools (AssistantOnboarding.md 4.4), offered by its prompt alone; both answer in Mila's words.
+        registerTool( std::string( kRememberNameName ), {}, [this]( const std::string& arguments, const Mila::Agents::ToolGrant&, std::stop_token )
+            {
+                return rememberName( arguments );
+            }, Mila::Agents::ResultOrigin::Application );
+
+        registerTool( std::string( kFinishSetupName ), {}, [this]( const std::string&, const Mila::Agents::ToolGrant&, std::stop_token )
+            {
+                return finishSetup();
+            }, Mila::Agents::ResultOrigin::Application );
+
         // A key kept in search.json before the credential store held it moves there once, and the file goes. Refused,
         // the file stays and its key is still used, so the person's key is never lost.
         if ( const std::optional<std::string> kept_in_file = search_key_file_.read() )
@@ -240,6 +251,24 @@ namespace Mila::Assistant
         if ( !settings_.model.empty() && licenseAccepted() )
         {
             openRemembered();
+        }
+
+        // The model hub is listed and the onboarding model picked at once, so *Getting Mila Ready* can say how much
+        // space it needs; it downloads only once the person has agreed, and an agreed download goes on from where a
+        // quit left it (AssistantOnboarding.md 4.3, round 9).
+        if ( onboardingDue() )
+        {
+            startOnboarding( settings_.download_agreed && licenseAccepted() );
+        }
+
+        // A version with nothing new to say, or a person who had Mila before versions were kept, has nothing to go
+        // through: it counts as gone through, so the next update's What's New shows.
+        const std::string current_version = Mila::getAPIVersion().toString();
+
+        if ( settings_.last_version != current_version && !onboardingDue() && whatsNew().empty() )
+        {
+            settings_.last_version = current_version;
+            saveSettings();
         }
 
         while ( const std::optional<nlohmann::json> request = queue_.pop() )
@@ -307,9 +336,26 @@ namespace Mila::Assistant
 
             const std::string type = request[ "type" ].get<std::string>();
 
+            // The session's own threads hand work to it as internal requests; the page sends none.
+            if ( type.starts_with( kInternalPrefix ) )
+            {
+                std::cerr << "Ignored an internal request from the page.\n";
+                continue;
+            }
+
             if ( type == "turn.stop" )
             {
                 stopReply();
+            }
+            else if ( type == "model.install_stop" )
+            {
+                // Here rather than in the queue, since the session's thread is inside the install it stops. The
+                // person's Cancel: what arrived is deleted.
+                if ( installing_.load() )
+                {
+                    install_discard_asked_ = true;
+                    install_stop_asked_ = true;
+                }
             }
             else if ( type == "app.active" )
             {
@@ -341,8 +387,15 @@ namespace Mila::Assistant
             }
         }
 
+        // The window closing ends input: a reply stops, and so does an install, keeping what arrived for the next install
+        // to continue from and letting go of the store's lock, so the process can end on its own.
         queue_.close();
         stopReply();
+
+        if ( installing_.load() )
+        {
+            install_stop_asked_ = true;
+        }
     }
 
     void SessionProcess::stopReply()
@@ -505,9 +558,33 @@ namespace Mila::Assistant
         {
             deleteConversation( request.value( "id", std::string{} ) );
         }
+        else if ( type == "onboarding.download" )
+        {
+            agreeToDownload();
+        }
+        else if ( type == "onboarding.panes_done" )
+        {
+            panesDone();
+        }
+        else if ( type == kOnboardingListed )
+        {
+            onboardingListed( request );
+        }
+        else if ( type == kOnboardingInstalled )
+        {
+            onboardingInstalled( request );
+        }
         else if ( type == "models.refresh" )
         {
-            sendModels( request.value( "online", false ) );
+            // The setup's Try again asks for the onboarding model again, the list and then its download.
+            if ( request.value( "online", false ) && onboardingDue() && !model_.resident() && !onboarding_working_.load() )
+            {
+                startOnboarding( settings_.download_agreed && licenseAccepted() );
+            }
+            else
+            {
+                sendModels( request.value( "online", false ) );
+            }
         }
         else if ( type == "model.load" )
         {
@@ -716,6 +793,12 @@ namespace Mila::Assistant
         if ( std::exchange( tools_changed_in_call_, false ) )
         {
             offerTools();
+        }
+
+        // The interview is over: the chat goes on as any other, with the general prompt and its tools.
+        if ( std::exchange( interview_finished_in_call_, false ) )
+        {
+            usePrompt( prompts_ / "general.json" );
         }
 
         recordTurn();
@@ -1378,6 +1461,12 @@ namespace Mila::Assistant
 
         useChat( folder, access, from_project );
 
+        // The interview's chat goes on with the interview's prompt until it has ended.
+        if ( id == settings_.interview_conversation && settings_.onboarding == "started" )
+        {
+            usePrompt( prompts_ / std::string( kInterviewPrompt ) );
+        }
+
         plan_.restore( conversation->value( "plan", nlohmann::json( nullptr ) ) );
 
         std::vector<Turn> turns;
@@ -1513,6 +1602,11 @@ namespace Mila::Assistant
 
         Mila::Agents::ToolRules rules;
         rules.add( { std::string( TaskPlan::kUpdateName ), Mila::Agents::ToolPermission::Allow, {} } );
+
+        // The interview's tools keep what the person just said in the chat, so nothing is asked of them twice; they are
+        // offered by the interview's prompt alone (AssistantOnboarding.md 4.4).
+        rules.add( { std::string( kRememberNameName ), Mila::Agents::ToolPermission::Allow, {} } );
+        rules.add( { std::string( kFinishSetupName ), Mila::Agents::ToolPermission::Allow, {} } );
         session().withRules( std::move( rules ) );
 
         plan_.clear();
@@ -2001,6 +2095,13 @@ namespace Mila::Assistant
     std::string SessionProcess::systemPrompt( const std::set<std::string, std::less<>>& offered ) const
     {
         std::string prompt = prompt_.systemPromptFor( offered );
+
+        // The person's own words from the interview (AssistantOnboarding.md 4.4).
+        if ( !settings_.person_name.empty() )
+        {
+            prompt += std::format( "\n\nThe user asked to be called {}.", settings_.person_name );
+        }
+
         const std::optional<nlohmann::json> project = projectOf( conversation_project_ );
 
         if ( !project.has_value() )
@@ -2227,11 +2328,33 @@ namespace Mila::Assistant
             return;
         }
 
-        const auto published = published_display_names_.find( name );
-        install_name_ = published != published_display_names_.end() ? published->second : name;
-        install_total_ = 0;
-        install_percent_ = -1;
+        install_model_ = name;
+        install_name_ = name;
+        install_download_bytes_ = 0;
+        install_finished_bytes_ = 0;
+        install_per_mille_ = -1;
 
+        // What the publisher's list said of it: the name a person reads, and the whole download, which the progress
+        // counts against so that one bar covers every file.
+        if ( published_.is_array() )
+        {
+            for ( const auto& model : published_ )
+            {
+                if ( model.value( "name", std::string{} ) != name )
+                {
+                    continue;
+                }
+
+                const std::string display_name = model.value( "display_name", std::string{} );
+                install_name_ = display_name.empty() ? name : display_name;
+                install_download_bytes_ = model.value( "size_bytes", std::uint64_t{ 0 } );
+            }
+        }
+
+        // Cleared before the reading thread can see the install, so a stop it accepts is for this one.
+        install_stop_asked_ = false;
+        install_discard_asked_ = false;
+        installing_ = true;
         work_ = Work::Install;
         sendState();
 
@@ -2240,17 +2363,30 @@ namespace Mila::Assistant
         try
         {
             for ( const std::string& line : Mila::Assistant::installModel( name,
-                [this]( std::uint64_t received, std::uint64_t total ) { installProgress( received, total ); } ) )
+                [this]( std::uint64_t received, std::uint64_t total ) { return installProgress( received, total ); },
+                [this]() { return install_discard_asked_.load(); } ) )
             {
                 send( "info", { { "text", line }, { "during", "install" } } );
             }
 
             installed = true;
         }
+        catch ( const Mila::Distribution::TransferInProgressError& )
+        {
+            sendError( std::format( "Another Mila program is installing {}. Install it again once it has finished.", install_name_ ),
+                "install" );
+        }
         catch ( const std::exception& error )
         {
-            sendError( std::format( "Install failed: {}", error.what() ), "install" );
+            // A Cancel is not a failure and says nothing more: the card the person pressed it on shows the model
+            // uninstalled again. A stop from the window closing has no one to tell.
+            if ( !install_stop_asked_.load() )
+            {
+                sendError( std::format( "Install failed: {}", error.what() ), "install" );
+            }
         }
+
+        installing_ = false;
 
         // A session with nothing resident wants the model it just installed; a load that fails is said as part of
         // the install.
@@ -2265,21 +2401,44 @@ namespace Mila::Assistant
         sendState();
     }
 
-    void SessionProcess::installProgress( std::uint64_t received, std::uint64_t total )
+    bool SessionProcess::installProgress( std::uint64_t received, std::uint64_t total )
     {
-        // One message per whole percent of each file, and every file's last.
-        const int percent = static_cast<int>( ( received * 100 ) / total );
-
-        if ( total == install_total_ && percent == install_percent_ && received < total )
+        if ( install_stop_asked_.load() )
         {
-            return;
+            return false;
         }
 
-        install_total_ = total;
-        install_percent_ = percent;
+        if ( total == 0 )
+        {
+            return true;
+        }
 
-        send( "progress", { { "task", "install" }, { "label", std::format( "Installing {}", install_name_ ) },
-            { "done", received }, { "total", total } } );
+        // A file's last report ends it, so the next report is the next file's. A file already in the store reports
+        // nothing, and its bytes are never counted: the bar then ends short and the install's end closes it.
+        const std::uint64_t file_done = std::min( received, total );
+        const bool whole_known = install_download_bytes_ > 0;
+        const std::uint64_t whole = whole_known ? install_download_bytes_ : total;
+        const std::uint64_t done = std::min( whole_known ? install_finished_bytes_ + file_done : file_done, whole );
+
+        if ( file_done == total )
+        {
+            install_finished_bytes_ += total;
+        }
+
+        // One message per tenth of a percent, and the last.
+        const int per_mille = static_cast<int>( ( done * 1000 ) / whole );
+
+        if ( per_mille == install_per_mille_ && done < whole )
+        {
+            return true;
+        }
+
+        install_per_mille_ = per_mille;
+
+        send( "progress", { { "task", "install" }, { "name", install_model_ }, { "label", std::format( "Installing {}", install_name_ ) },
+            { "done", done }, { "total", whole } } );
+
+        return true;
     }
 
     void SessionProcess::removeModel( const std::string& name )
@@ -2297,6 +2456,380 @@ namespace Mila::Assistant
         }
 
         sendModels( false );
+    }
+
+    bool SessionProcess::onboardingDue() const
+    {
+        return settings_.onboarding == "started" || ( settings_.onboarding.empty() && settings_.model.empty() );
+    }
+
+    nlohmann::ordered_json SessionProcess::onboardingState() const
+    {
+        if ( settings_.onboarding == "done" )
+        {
+            return "done";
+        }
+
+        if ( !onboardingDue() )
+        {
+            return nullptr;
+        }
+
+        return settings_.onboarding.empty() ? "due" : "started";
+    }
+
+    void SessionProcess::startOnboarding( bool download )
+    {
+        if ( onboarding_working_.exchange( true ) )
+        {
+            return;
+        }
+
+        // The request is made here, on the session's thread, which owns the settings it reads.
+        const DeploymentRequest request = requestFor( std::nullopt );
+
+        if ( onboarding_worker_.joinable() )
+        {
+            onboarding_worker_.join();
+        }
+
+        onboarding_worker_ = std::jthread( [this, request, download]() { prepareOnboarding( request, download ); } );
+    }
+
+    void SessionProcess::prepareOnboarding( DeploymentRequest request, bool download )
+    {
+        nlohmann::json listed;
+
+        try
+        {
+            listed = publishedModels( request );
+        }
+        catch ( const std::exception& failure )
+        {
+            queue_.push( { { "type", kOnboardingListed }, { "error", failure.what() } } );
+            onboarding_working_ = false;
+
+            return;
+        }
+
+        const nlohmann::json pick = listed.value( "onboarding", nlohmann::json( nullptr ) );
+        std::string name;
+        std::string shown;
+        std::uint64_t download_bytes = 0;
+
+        if ( pick.is_string() )
+        {
+            name = pick.get<std::string>();
+
+            for ( const auto& model : listed[ "models" ] )
+            {
+                if ( model.value( "name", std::string{} ) == name )
+                {
+                    shown = model.value( "display_name", std::string{} );
+                    download_bytes = model.value( "size_bytes", std::uint64_t{ 0 } );
+                }
+            }
+        }
+
+        // Nothing comes onto the computer until the person has agreed on *Getting Mila Ready*. The worker is done before
+        // its list is handed over, so an agreement given while it listed can start the download from there.
+        if ( name.empty() || !download )
+        {
+            onboarding_working_ = false;
+            queue_.push( { { "type", kOnboardingListed }, { "listed", std::move( listed ) } } );
+
+            return;
+        }
+
+        queue_.push( { { "type", kOnboardingListed }, { "listed", std::move( listed ) } } );
+
+        const bool installed_already = std::ranges::any_of( installedModels(),
+            [&name]( const nlohmann::json& stored ) { return stored.value( "name", std::string{} ) == name; } );
+
+        std::string failure;
+
+        if ( !installed_already )
+        {
+            install_model_ = name;
+            install_name_ = shown.empty() ? name : shown;
+            install_download_bytes_ = download_bytes;
+            install_finished_bytes_ = 0;
+            install_per_mille_ = -1;
+            install_stop_asked_ = false;
+            install_discard_asked_ = false;
+            installing_ = true;
+
+            // From the start, so the bar moves before the first bytes arrive.
+            send( "progress", { { "task", "install" }, { "name", name }, { "label", std::format( "Installing {}", install_name_ ) },
+                { "done", 0 }, { "total", download_bytes > 0 ? nlohmann::ordered_json( download_bytes ) : nlohmann::ordered_json( nullptr ) } } );
+
+            try
+            {
+                // What the install says is not shown: the setup's pane shows the download, and the chat has not begun.
+                static_cast<void>( Mila::Assistant::installModel( name,
+                    [this]( std::uint64_t received, std::uint64_t total ) { return installProgress( received, total ); },
+                    [this]() { return install_discard_asked_.load(); } ) );
+            }
+            catch ( const Mila::Distribution::TransferInProgressError& )
+            {
+                failure = std::format( "Another Mila program is installing {}. Try again once it has finished.", install_name_ );
+            }
+            catch ( const std::exception& error )
+            {
+                failure = install_stop_asked_.load() ? std::string{} : std::format( "The download stopped: {}", error.what() );
+
+                if ( install_stop_asked_.load() )
+                {
+                    // The window is closing; there is no one to tell, and the next launch continues the download.
+                    installing_ = false;
+                    onboarding_working_ = false;
+
+                    return;
+                }
+            }
+
+            installing_ = false;
+        }
+
+        queue_.push( { { "type", kOnboardingInstalled }, { "name", name },
+            { "error", failure.empty() ? nlohmann::json( nullptr ) : nlohmann::json( failure ) } } );
+        onboarding_working_ = false;
+    }
+
+    void SessionProcess::onboardingListed( const nlohmann::json& request )
+    {
+        if ( request.contains( "error" ) )
+        {
+            published_ = nullptr;
+            published_suggested_ = nullptr;
+            published_onboarding_ = nullptr;
+            sendError( std::format( "Could not list the models that can be installed: {}", request.value( "error", std::string{} ) ),
+                "models" );
+            sendModels( false );
+
+            return;
+        }
+
+        const nlohmann::json& listed = request[ "listed" ];
+        published_ = listed.value( "models", nlohmann::json( nullptr ) );
+        published_suggested_ = listed.value( "suggested", nlohmann::json( nullptr ) );
+        published_onboarding_ = listed.value( "onboarding", nlohmann::json( nullptr ) );
+
+        // Begun once a model is picked, so a person who stops part way returns to the setup.
+        if ( published_onboarding_.is_string() && settings_.onboarding.empty() )
+        {
+            settings_.onboarding = "started";
+            saveSettings();
+        }
+
+        sendModels( false );
+        sendState();
+
+        // The person agreed while the list was being read.
+        if ( std::exchange( agree_pending_, false ) && published_onboarding_.is_string() )
+        {
+            startOnboarding( true );
+        }
+    }
+
+    void SessionProcess::onboardingInstalled( const nlohmann::json& request )
+    {
+        const std::string name = request.value( "name", std::string{} );
+        const nlohmann::json failure = request.value( "error", nlohmann::json( nullptr ) );
+
+        if ( failure.is_string() )
+        {
+            sendError( failure.get<std::string>(), "install" );
+            sendModels( false );
+            sendState();
+
+            return;
+        }
+
+        // Loaded before the terms are accepted: nothing runs on the model until they are.
+        if ( !model_.resident() )
+        {
+            work_ = Work::Load;
+            switchModel( name, std::nullopt );
+            work_ = Work::None;
+        }
+
+        sendModels( false );
+        sendState();
+        beginInterview();
+    }
+
+    void SessionProcess::agreeToDownload()
+    {
+        if ( !licenseAccepted() )
+        {
+            sendError( std::string( kLicenseFirst ), "install" );
+
+            return;
+        }
+
+        if ( !settings_.download_agreed )
+        {
+            settings_.download_agreed = true;
+            saveSettings();
+        }
+
+        // A worker still listing carries no download; it ends in moments, and the download starts on its own then.
+        if ( onboarding_working_.load() )
+        {
+            agree_pending_ = true;
+            sendState();
+
+            return;
+        }
+
+        startOnboarding( true );
+        sendState();
+    }
+
+    void SessionProcess::panesDone()
+    {
+        panes_done_ = true;
+
+        const std::string current = Mila::getAPIVersion().toString();
+
+        if ( settings_.last_version != current )
+        {
+            settings_.last_version = current;
+            saveSettings();
+        }
+
+        sendState();
+
+        if ( onboardingDue() )
+        {
+            beginInterview();
+        }
+    }
+
+    std::string SessionProcess::whatsNew() const
+    {
+        if ( settings_.last_version.empty() || settings_.last_version == Mila::getAPIVersion().toString() )
+        {
+            return {};
+        }
+
+        std::ifstream file( prompts_ / std::string( kWhatsNew ), std::ios::binary );
+        std::string text( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
+
+        while ( !text.empty() && std::isspace( static_cast<unsigned char>( text.back() ) ) )
+        {
+            text.pop_back();
+        }
+
+        return text;
+    }
+
+    void SessionProcess::beginInterview()
+    {
+        // The interview waits for the terms, the model, and the person reaching the end of the panes.
+        if ( !licenseAccepted() || !model_.resident() || settings_.onboarding != "started" || !panes_done_ )
+        {
+            return;
+        }
+
+        // A person who stopped part way returns to the interview's chat, which the page opens.
+        if ( !settings_.interview_conversation.empty() && store_.load( settings_.interview_conversation ).has_value() )
+        {
+            if ( conversation_id_ != settings_.interview_conversation )
+            {
+                openConversation( settings_.interview_conversation );
+            }
+
+            send( "interview", { { "conversation_id", settings_.interview_conversation } } );
+
+            return;
+        }
+
+        std::ifstream file( prompts_ / std::string( kInterviewOpening ), std::ios::binary );
+        std::string opening( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
+
+        while ( !opening.empty() && std::isspace( static_cast<unsigned char>( opening.back() ) ) )
+        {
+            opening.pop_back();
+        }
+
+        if ( opening.empty() )
+        {
+            sendError( std::format( "Mila could not begin setting itself up: the prompts folder has no {}.", kInterviewOpening ), nullptr );
+
+            return;
+        }
+
+        useChat( {} );
+        usePrompt( prompts_ / std::string( kInterviewPrompt ) );
+
+        // Mila's opening words are the chat's first message, and the model takes over from the person's answer.
+        Turn opened;
+        opened.role = Role::Assistant;
+        opened.content = opening;
+        session().openConversation( { opened } );
+
+        conversation_id_ = store_.newIdentifier();
+        conversation_title_ = "Setting up Mila";
+        conversation_created_ = timestamp();
+        conversation_project_.clear();
+        conversation_messages_ = nlohmann::json::array();
+        conversation_messages_.push_back( { { "role", "assistant" }, { "content", opening }, { "thought", nullptr },
+            { "tool_calls", nullptr }, { "attachments", nullptr }, { "stats", nullptr } } );
+        conversation_links_ = nlohmann::json::array();
+        saveConversation();
+
+        settings_.interview_conversation = conversation_id_;
+        saveSettings();
+
+        send( "interview", { { "conversation_id", conversation_id_ } } );
+
+        turn_id_ = std::format( "turn-{}", ++turn_number_ );
+        round_ = 1;
+        send( "turn.begin", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "conversation_id", conversation_id_ } } );
+        sendText( "answer", opening );
+        send( "turn.end", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "finish", "stop" },
+            { "answer", opening }, { "message", conversation_messages_.size() } } );
+
+        sendConversations();
+        sendState();
+    }
+
+    std::string SessionProcess::rememberName( const std::string& arguments )
+    {
+        const nlohmann::json parsed = nlohmann::json::parse( arguments, nullptr, false );
+        std::string name = parsed.is_object() ? parsed.value( "name", std::string{} ) : std::string{};
+
+        while ( !name.empty() && std::isspace( static_cast<unsigned char>( name.back() ) ) )
+        {
+            name.pop_back();
+        }
+
+        name.erase( 0, std::min( name.find_first_not_of( " \t\r\n" ), name.size() ) );
+
+        if ( name.empty() || name.size() > 80 )
+        {
+            return "Nothing was saved: give the name the user asked to be called, in a few words.";
+        }
+
+        settings_.person_name = name;
+        saveSettings();
+
+        // The system prompt says the name from the next turn on.
+        tools_changed_in_call_ = true;
+
+        return std::format( "Saved. Mila will call the user {}.", name );
+    }
+
+    std::string SessionProcess::finishSetup()
+    {
+        settings_.onboarding = "done";
+        settings_.interview_conversation.clear();
+        saveSettings();
+        interview_finished_in_call_ = true;
+
+        return "The setup is finished. Tell the user they are set up, and ask what they would like to start with.";
     }
 
     void SessionProcess::reopen( const DeploymentRequest& request, std::string_view done )
@@ -2710,7 +3243,7 @@ namespace Mila::Assistant
 
         if ( sha256 != license_->sha256 )
         {
-            sendError( "The licence shown is not the one Mila carries. Close Mila and open it again.", "license" );
+            sendError( "The license shown is not the one Mila carries. Close Mila and open it again.", "license" );
             sendLicense();
 
             return;
@@ -2727,10 +3260,16 @@ namespace Mila::Assistant
         sendLicense();
         sendState();
 
-        if ( !settings_.model.empty() && !model_.resident() )
+        if ( !settings_.model.empty() && !model_.resident() && !onboarding_working_.load() )
         {
             openRemembered();
             sendState();
+        }
+
+        // The terms were the last thing the first chat waited on, once the onboarding model is loaded.
+        if ( onboardingDue() )
+        {
+            beginInterview();
         }
     }
 
@@ -2875,7 +3414,8 @@ namespace Mila::Assistant
             }
         }
 
-        const bool busy = busy_.load() || work_ != Work::None;
+        // The onboarding model's download runs on its own thread, and the session is at work while it does.
+        const bool busy = busy_.load() || work_ != Work::None || installing_.load();
 
         const nlohmann::ordered_json stream = {
             { "stream_id", kStreamId },
@@ -2923,6 +3463,15 @@ namespace Mila::Assistant
             { "program_folders", programFoldersShown() },
             { "busy", busy },
             { "license_accepted", licenseAccepted() },
+            { "onboarding", onboardingState() },
+            { "onboarding_agreed", settings_.download_agreed },
+            { "panes_done", panes_done_ },
+            { "whats_new", [this]
+                {
+                    const std::string text = whatsNew();
+
+                    return text.empty() ? nlohmann::ordered_json( nullptr ) : nlohmann::ordered_json( text );
+                }() },
             { "streams", nlohmann::ordered_json::array( { stream } ) } } );
     }
 
@@ -4081,9 +4630,6 @@ namespace Mila::Assistant
 
     void SessionProcess::sendModels( bool online )
     {
-        nlohmann::json published = nullptr;
-        nlohmann::json suggested = nullptr;
-
         if ( online )
         {
             try
@@ -4098,29 +4644,35 @@ namespace Mila::Assistant
                 }
 
                 nlohmann::json listed = publishedModels( request );
-                published = std::move( listed[ "models" ] );
-                published_display_names_.clear();
-
-                for ( const auto& model : published )
-                {
-                    const std::string display_name = model.value( "display_name", std::string{} );
-
-                    if ( !display_name.empty() )
-                    {
-                        published_display_names_[ model.value( "name", std::string{} ) ] = display_name;
-                    }
-                }
-                suggested = std::move( listed[ "suggested" ] );
+                published_ = std::move( listed[ "models" ] );
+                published_suggested_ = std::move( listed[ "suggested" ] );
+                published_onboarding_ = std::move( listed[ "onboarding" ] );
             }
             catch ( const std::exception& failure )
             {
-                published = nullptr;
+                published_ = nullptr;
+                published_suggested_ = nullptr;
+                published_onboarding_ = nullptr;
                 sendError( std::format( "Could not list the models that can be installed: {}", failure.what() ), "models" );
             }
         }
 
-        send( "models.list", { { "installed", installedModels() }, { "published", std::move( published ) },
-            { "suggested", std::move( suggested ) } } );
+        const nlohmann::json installed = installedModels();
+
+        // The list last fetched is sent again after an install or remove, which change only what is installed: a
+        // page given null there would ask the publisher again for a list it has.
+        if ( published_.is_array() )
+        {
+            for ( auto& model : published_ )
+            {
+                const std::string name = model.value( "name", std::string{} );
+                model[ "installed" ] = std::ranges::any_of( installed,
+                    [&name]( const nlohmann::json& stored ) { return stored.value( "name", std::string{} ) == name; } );
+            }
+        }
+
+        send( "models.list", { { "installed", installed }, { "published", published_ }, { "suggested", published_suggested_ },
+            { "onboarding", published_onboarding_ } } );
     }
 
     void SessionProcess::sendError( std::string_view text, nlohmann::ordered_json during )

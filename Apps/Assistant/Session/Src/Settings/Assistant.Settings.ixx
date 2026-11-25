@@ -42,6 +42,26 @@ namespace Mila::Assistant
         /// When they accepted it, ISO 8601 in UTC; empty until they have.
         std::string license_accepted_at;
 
+        /**
+         * @brief Where the onboarding stands (AssistantOnboarding.md 4.4): empty before it began, "started" from the
+         *        onboarding model's pick until the interview ends, then "done".
+         */
+        std::string onboarding;
+
+        /// The interview's chat, so a person who stops part way returns to it; empty when there is none.
+        std::string interview_conversation;
+
+        /// What the person asked to be called, from the interview; empty until they say.
+        std::string person_name;
+
+        /// The person agreed to the onboarding model's download on *Getting Mila Ready* (AssistantOnboarding.md 4.3,
+        /// round 9), so a download they stopped by quitting goes on at the next launch without asking again.
+        bool download_agreed{ false };
+
+        /// The version of Mila whose onboarding the person last went through; an update's own steps are due when it
+        /// differs. Empty before the first.
+        std::string last_version;
+
         Mila::Agents::SamplingOverride sampling;
     };
 

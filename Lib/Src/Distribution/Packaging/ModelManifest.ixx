@@ -132,6 +132,7 @@ namespace Mila::Distribution
             capabilities.thinking = declared.value( "thinking", false );
             capabilities.tools = declared.value( "tools", false );
             capabilities.agentic = declared.value( "agentic", false );
+            capabilities.onboarding = declared.value( "onboarding", false );
         }
 
         if ( json.contains( "modalities" ) && json[ "modalities" ].is_array() )
@@ -159,7 +160,8 @@ namespace Mila::Distribution
             { "instruct", capabilities.instruct },
             { "thinking", capabilities.thinking },
             { "tools", capabilities.tools },
-            { "agentic", capabilities.agentic } };
+            { "agentic", capabilities.agentic },
+            { "onboarding", capabilities.onboarding } };
 
         TJson modalities = TJson::array();
         modalities.push_back( std::string( kTextModality ) );

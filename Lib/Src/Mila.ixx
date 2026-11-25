@@ -431,6 +431,7 @@ export import Distribution.RemovalReport;
 export import Distribution.StoreUsage;
 export import Distribution.InstallOptions;
 export import Distribution.CleanOptions;
+export import Distribution.TransferInProgressError;
 export import Distribution.ModelStore;
 export import Distribution.ModelHub;
 export import Distribution.PublishedModel;

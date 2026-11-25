@@ -3,6 +3,8 @@
 
 import { element, button } from '../dom.js';
 import { formatBytes } from '../format.js';
+import { installUnderWay } from '../state.js';
+import { downloadProgress } from './download-progress.js';
 
 export const areas = [
     { id: 'models', label: 'Models', note: null },
@@ -66,9 +68,20 @@ function modelRow( model )
     return { row, controls };
 }
 
+/** The published model a download is bringing in, whose row shows it; null when none is listed. */
+function downloadingRow( state )
+{
+    const download = installUnderWay( state );
+
+    if ( download === null || state.publishedModels === null )
+        return null;
+
+    return state.publishedModels.some( ( model ) => model.name === download.name ) ? download : null;
+}
+
 /**
- * Above the models: a refusal in the session's own words, until the next load, install or remove, and an
- * install's progress.
+ * Above the models: a refusal in the session's own words, until the next load, install or remove, and the progress
+ * of a load, or of an install whose model's row is not there to show it.
  */
 function modelsLead( state )
 {
@@ -82,7 +95,9 @@ function modelsLead( state )
         shown.push( refusal );
     }
 
-    if ( progress !== null && ( progress.total === null || progress.done < progress.total ) )
+    const running = progress !== null && ( progress.total === null || progress.done < progress.total );
+
+    if ( running && downloadingRow( state ) === null )
         shown.push( progressBar( progress ) );
 
     return shown;
@@ -180,12 +195,14 @@ const available = {
     terms: [ 'models', 'install', 'download', 'published' ],
     needs: null,
     layout: 'list',
-    reads: [ 'publishedModels', 'suggestedModel' ],
+    reads: [ 'publishedModels', 'suggestedModel', 'progress' ],
     note: ( state ) => state.publishedModels === null
         ? 'Mila asks Hugging Face what is published, which sees this computer’s internet address.' : null,
     offered: () => true,
     build( state )
     {
+        const download = downloadingRow( state );
+
         const list = element( 'div', 'model-list' );
 
         if ( state.publishedModels === null )
@@ -211,7 +228,11 @@ const available = {
             if ( said !== null && said !== undefined )
                 text.append( element( 'div', 'model-note', said ) );
 
-            if ( model.installed )
+            if ( download !== null && download.name === model.name )
+            {
+                row.append( downloadProgress( download ) );
+            }
+            else if ( model.installed )
             {
                 controls.append( element( 'span', 'model-badge', 'Installed' ) );
             }
@@ -232,6 +253,12 @@ const available = {
         if ( action === 'install' )
         {
             const message = { type: 'model.install', name: target.dataset.name };
+            view.transmit( message );
+        }
+
+        if ( action === 'stop-install' )
+        {
+            const message = { type: 'model.install_stop' };
             view.transmit( message );
         }
 
@@ -589,7 +616,7 @@ export const settings = [
     detail
 ];
 
-export const leads = { models: { reads: [ 'modelsError', 'progress' ], build: modelsLead } };
+export const leads = { models: { reads: [ 'modelsError', 'progress', 'publishedModels' ], build: modelsLead } };
 
 export function areaOf( identifier )
 {

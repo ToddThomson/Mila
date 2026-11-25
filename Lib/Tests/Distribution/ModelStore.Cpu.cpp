@@ -311,6 +311,44 @@ namespace Mila::Tests::Distribution
         EXPECT_EQ( readWholeFile( path ), payload );
     }
 
+    TEST( ModelStore, ReportsThePartialItChecksBeforeResuming )
+    {
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+
+        const std::string payload = "0123456789abcdefghijklmnopqrstuvwxyz";
+        const std::string digest = sha256Hex( payload.data(), payload.size() );
+        writeWholeFile( scratch.path() / "tmp" / ( "sha256-" + digest + ".partial" ), payload.substr( 0, 10 ) );
+
+        uint64_t checked = 0;
+        const auto path = store.ensureBlob( "model.safetensors", digest, servingFetcher( payload ),
+            [&checked]( uint64_t so_far ) { checked = so_far; return true; } );
+
+        // The count the fetch's own progress then continues from.
+        EXPECT_EQ( checked, 10u );
+        EXPECT_EQ( readWholeFile( path ), payload );
+    }
+
+    TEST( ModelStore, StopsWhileCheckingThePartialAndKeepsIt )
+    {
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+
+        const std::string payload = "0123456789abcdefghijklmnopqrstuvwxyz";
+        const std::string digest = sha256Hex( payload.data(), payload.size() );
+        const auto partial = scratch.path() / "tmp" / ( "sha256-" + digest + ".partial" );
+        writeWholeFile( partial, payload.substr( 0, 10 ) );
+
+        int calls = 0;
+
+        EXPECT_THROW( store.ensureBlob( "model.safetensors", digest, servingFetcher( payload, &calls ),
+            []( uint64_t ) { return false; } ), std::runtime_error );
+
+        EXPECT_EQ( calls, 0 ) << "a stop while checking fetches nothing";
+        EXPECT_EQ( readWholeFile( partial ), payload.substr( 0, 10 ) );
+        EXPECT_FALSE( store.contains( digest ) );
+    }
+
     TEST( ModelStore, PublishesACompletePartialWhenTheRangeIsNotSatisfiable )
     {
         // A process killed between the last write and the rename leaves a partial holding every
@@ -478,35 +516,76 @@ namespace Mila::Tests::Distribution
         EXPECT_TRUE( std::filesystem::exists( final_path ) );
     }
 
-    TEST( ModelStore, RefusesToTransferABlobAnotherProcessHasLocked )
+    TEST( ModelStore, RefusesToTransferABlobATransferInProgressHolds )
     {
         ScratchStoreRoot scratch;
         ModelStore store( scratch.path() );
 
         const std::string payload = "one writer at a time";
         const std::string digest = sha256Hex( payload.data(), payload.size() );
+        const auto lock = scratch.path() / "tmp" / ( "sha256-" + digest + ".lock" );
 
-        // Stand in for a peer process mid-transfer. Without the lock both would append into
-        // one deterministic .partial and interleave.
+        // A second transfer of the same blob started while the first holds its lock stands in for a peer process:
+        // the lock is the operating system's, and refuses a second open in this process as in another. Without it
+        // both would append into one deterministic .partial and interleave.
+        int inner_calls = 0;
+        bool refused = false;
+
+        const BlobFetcher holding = [&]( std::uint64_t resume_from, const std::function<bool( const char*, std::size_t )>& sink )
+            {
+                EXPECT_TRUE( std::filesystem::exists( lock ) );
+
+                try
+                {
+                    store.ensureBlob( "model.safetensors", digest, servingFetcher( payload, &inner_calls ) );
+                }
+                catch ( const TransferInProgressError& error )
+                {
+                    refused = true;
+                    EXPECT_EQ( error.description(), "model.safetensors" );
+                }
+
+                return servingFetcher( payload )( resume_from, sink );
+            };
+
+        store.ensureBlob( "model.safetensors", digest, holding );
+
+        EXPECT_TRUE( refused );
+        EXPECT_EQ( inner_calls, 0 );
+        EXPECT_TRUE( store.contains( digest ) );
+        EXPECT_FALSE( std::filesystem::exists( lock ) ) << "the lock does not outlive its transfer";
+    }
+
+    TEST( ModelStore, ALockFileNoProcessHoldsDoesNotRefuseATransfer )
+    {
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+
+        const std::string payload = "left by a process that was killed";
+        const std::string digest = sha256Hex( payload.data(), payload.size() );
+
+        // What a process killed mid-transfer left behind, and what an earlier Mila's lock was: the file alone.
         const auto lock = scratch.path() / "tmp" / ( "sha256-" + digest + ".lock" );
         writeWholeFile( lock, "" );
-
-        int calls = 0;
-
-        EXPECT_THROW(
-            store.ensureBlob( "model.safetensors", digest, servingFetcher( payload, &calls ) ),
-            std::runtime_error );
-
-        EXPECT_EQ( calls, 0 );
-        EXPECT_FALSE( store.contains( digest ) );
-
-        // Once the peer is gone the transfer proceeds, and the lock does not outlive it.
-        std::filesystem::remove( lock );
 
         store.ensureBlob( "model.safetensors", digest, servingFetcher( payload ) );
 
         EXPECT_TRUE( store.contains( digest ) );
         EXPECT_FALSE( std::filesystem::exists( lock ) );
+    }
+
+    TEST( ModelStore, CleanRemovesALockFileNoProcessHolds )
+    {
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+
+        const auto lock = scratch.path() / "tmp" / "sha256-0000.lock";
+        writeWholeFile( lock, "" );
+
+        const RemovalReport report = store.clean();
+
+        EXPECT_FALSE( std::filesystem::exists( lock ) );
+        EXPECT_EQ( report.files_removed, 1 );
     }
 
     // ================================================================
@@ -822,6 +901,36 @@ namespace Mila::Tests::Distribution
         EXPECT_EQ( report.blobs_removed, 1 );
         EXPECT_FALSE( store.contains( removed_digest ) );
         EXPECT_TRUE( store.contains( unnamed_digest ) );
+    }
+
+    // A cancelled install: one file finished, one partway, and a tokenizer an installed model shares.
+    TEST( ModelStore, DiscardingTransfersDeletesTheirPartialsAndTheBlobsNoRecordNames )
+    {
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+
+        const std::string shared_digest = seedBlob( store, "the shared tokenizer" );
+        const std::string finished_digest = seedBlob( store, "the cancelled model's config" );
+        const std::string partway = "the cancelled model's weights";
+        const std::string partway_digest = sha256Hex( partway.data(), partway.size() );
+        const auto partial = scratch.path() / "tmp" / ( "sha256-" + partway_digest + ".partial" );
+        writeWholeFile( partial, partway.substr( 0, 8 ) );
+
+        ModelRecord installed;
+        installed.name = "installed-fp4";
+        installed.files.push_back( makeFile( "tokenizer", "t.bin", shared_digest, 20 ) );
+        store.writeRecord( installed );
+
+        const RemovalReport report = store.discardTransfers( {
+            makeFile( "tokenizer", "t.bin", shared_digest, 20 ),
+            makeFile( "config", "c.json", finished_digest, 28 ),
+            makeFile( "weights", "w.safetensors", partway_digest, partway.size() ) } );
+
+        EXPECT_EQ( report.blobs_removed, 1 );
+        EXPECT_EQ( report.files_removed, 1 );
+        EXPECT_FALSE( store.contains( finished_digest ) );
+        EXPECT_FALSE( std::filesystem::exists( partial ) );
+        EXPECT_TRUE( store.contains( shared_digest ) ) << "a blob an installed model names stays";
     }
 
     TEST( ModelStore, RemovingAModelKeepsItsBlobsWhileAnotherRecordCannotBeRead )

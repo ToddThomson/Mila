@@ -137,7 +137,7 @@ namespace Mila::Assistant
      */
     export inline nlohmann::json publishedModels( const Mila::Deployment::DeploymentRequest& request )
     {
-        nlohmann::json listed = { { "models", nlohmann::json::array() }, { "suggested", nullptr } };
+        nlohmann::json listed = { { "models", nlohmann::json::array() }, { "suggested", nullptr }, { "onboarding", nullptr } };
 
         if constexpr ( !Mila::Networking::kHttpTransportAvailable )
         {
@@ -147,8 +147,15 @@ namespace Mila::Assistant
         const std::string owner( Mila::Distribution::kDefaultHubOwner );
         const auto hub = Mila::Distribution::makeAnonymousModelHub();
         const auto installed = Mila::Distribution::ModelStore{}.list();
+        const std::vector<Mila::Deployment::PublishedModelFit> fits = Mila::Deployment::planPublishedModels( *hub, owner, request );
 
-        for ( const auto& fit : Mila::Deployment::planPublishedModels( *hub, owner, request ) )
+        // The model the setup installs, the library's pick of the onboarding-ready ones (AssistantOnboarding.md 4.4).
+        if ( const std::optional<std::size_t> onboarding = Mila::Deployment::onboardingModel( fits ) )
+        {
+            listed[ "onboarding" ] = fits[ *onboarding ].model.name();
+        }
+
+        for ( const auto& fit : fits )
         {
             const auto& manifest = fit.model.manifest();
             std::string quantization;
@@ -180,6 +187,7 @@ namespace Mila::Assistant
                 { "installed", is_installed },
                 { "license", manifest ? manifest->license : std::string{} },
                 { "agentic", manifest && manifest->capabilities.agentic },
+                { "onboarding", manifest && manifest->capabilities.onboarding },
                 { "thinking", manifest && manifest->capabilities.thinking },
                 { "tools", manifest && manifest->capabilities.tools },
                 { "modalities", std::move( modalities ) },
@@ -209,11 +217,16 @@ namespace Mila::Assistant
     /**
      * @brief Install a published model by name, reporting each file's bytes as they arrive.
      *
+     * @param progress Called with a file's bytes so far and its size, zero when the hub does not say, the bytes an
+     *        earlier install kept counted as they are checked; returning false stops the install.
+     * @param discard Asked once an install has stopped or failed: true deletes what it downloaded, as for a Cancel,
+     *        and false keeps it for the next install of the model to continue from.
      * @return What to tell the person: what was installed, and its licence when it has one.
-     * @throws std::exception when the install fails; the store keeps nothing of it.
+     * @throws std::exception when the install fails or is stopped; no record is written, so nothing looks installed.
      */
     export inline std::vector<std::string> installModel( const std::string& name,
-        const std::function<void( std::uint64_t received, std::uint64_t total )>& progress )
+        const std::function<bool( std::uint64_t received, std::uint64_t total )>& progress,
+        const std::function<bool()>& discard )
     {
         if constexpr ( !Mila::Networking::kHttpTransportAvailable )
         {
@@ -224,16 +237,27 @@ namespace Mila::Assistant
 
         const auto hub = Mila::Distribution::makeAnonymousModelHub( [&progress]( std::uint64_t received, std::uint64_t total )
             {
-                if ( total > 0 )
-                {
-                    progress( received, total );
-                }
-
-                return true;
+                return progress( received, total );
             } );
 
-        Mila::Distribution::ModelResolver resolver( store, *hub );
-        const auto pulled = resolver.pull( name, std::string( Mila::Distribution::kDefaultHubOwner ) );
+        Mila::Distribution::ModelResolver resolver( store, *hub, progress );
+        std::optional<Mila::Distribution::StoredModel> installed;
+
+        try
+        {
+            installed = resolver.pull( name, std::string( Mila::Distribution::kDefaultHubOwner ) );
+        }
+        catch ( ... )
+        {
+            if ( discard() )
+            {
+                resolver.discardUnfinished();
+            }
+
+            throw;
+        }
+
+        const auto& pulled = *installed;
 
         std::vector<std::string> lines;
         const std::string& shown = pulled.record.display_name.empty() ? pulled.record.name : pulled.record.display_name;

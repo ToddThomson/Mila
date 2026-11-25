@@ -83,7 +83,7 @@ namespace Mila::Tests::Apps::Assistant
         const std::expected<MilaLicense, std::string> license = MilaLicense::read( folder_ / "absent.md" );
 
         ASSERT_FALSE( license.has_value() );
-        EXPECT_NE( license.error().find( "licence" ), std::string::npos ) << license.error();
+        EXPECT_NE( license.error().find( "license" ), std::string::npos ) << license.error();
     }
 
     TEST_F( MilaLicenseTest, AnEmptyLicenceIsNoLicence )

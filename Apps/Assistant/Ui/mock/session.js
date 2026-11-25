@@ -3,7 +3,7 @@
 // and no timers of its own -- the host passes a clock -- so one implementation serves the page in
 // a browser, a Node wrapper on stdio, and node --test.
 
-import { describeCreation, findModel, mockLicense, models, seedConversations, seedMade, seedProjects, summarizeConversation, titleFor } from './fixtures.js';
+import { describeCreation, findModel as findFixture, mockLicense, models as fixtureModels, seedConversations, seedMade, seedProjects, onboardingModel, summarizeConversation, titleFor } from './fixtures.js';
 import { findScenario } from './scenarios.js';
 import { readOfferAnswer, pendingOffer, callWithOffer } from './offers.js';
 
@@ -21,6 +21,14 @@ const mockFolder = 'C:\\Users\\you\\Projects\\calc';
 export function createMockSession( options )
 {
     const scenario = findScenario( options.scenario );
+    // The onboarding model is published only where a scenario names it (AssistantOnboarding.md 4.4).
+    const models = scenario.onboarding === undefined ? fixtureModels : [ ...fixtureModels, onboardingModel ];
+    const findModel = ( name ) => findFixture( name ) ?? ( scenario.onboarding !== undefined && name.toLowerCase() === onboardingModel.name ? onboardingModel : null );
+    let interviewBegun = false;
+    let onboardingAsked = false;
+    let interviewFinished = false;
+    let downloadAgreed = false;
+    let panesDone = false;
     const startModel = scenario.model === null ? null : findModel( scenario.model );
     const startTime = options.now();
     const seeds = seedConversations( startTime );
@@ -169,6 +177,10 @@ export function createMockSession( options )
             web_search: session.webSearch,
             busy: session.busy,
             license_accepted: licenseAccepted,
+            onboarding: scenario.onboarding === undefined ? null : interviewFinished ? 'done' : publishedListed ? 'started' : 'due',
+            onboarding_agreed: downloadAgreed,
+            panes_done: panesDone,
+            whats_new: null,
             streams: [ stream ]
         };
 
@@ -186,7 +198,7 @@ export function createMockSession( options )
     {
         if ( request.sha256 !== mockLicense.sha256 )
         {
-            emitError( 'The licence shown is not the one Mila carries. Close Mila and open it again.', 'license' );
+            emitError( 'The license shown is not the one Mila carries. Close Mila and open it again.', 'license' );
             emitLicense();
 
             return;
@@ -195,6 +207,7 @@ export function createMockSession( options )
         licenseAccepted = true;
         emitLicense();
         emitState();
+        beginInterview();
 
         if ( startModel !== null && session.model === null && installed.has( startModel.name ) )
             loadModel( { name: startModel.name } );
@@ -206,7 +219,7 @@ export function createMockSession( options )
         if ( licenseAccepted )
             return false;
 
-        emitError( 'Accept Mila’s licence first. It is shown when Mila starts.', during );
+        emitError( 'Accept Mila’s License first. It is shown when Mila starts.', during );
 
         return true;
     }
@@ -345,6 +358,9 @@ export function createMockSession( options )
         const suggested = first === undefined ? null : first.name;
         const message = { type: 'models.list', installed: installedItems, published, suggested };
 
+        if ( scenario.onboarding !== undefined )
+            message.onboarding = publishedListed ? scenario.onboarding : null;
+
         emit( message );
     }
 
@@ -356,6 +372,85 @@ export function createMockSession( options )
     }
 
     // ---- Turns -------------------------------------------------------------------------------
+
+    /**
+     * The interview (AssistantOnboarding.md 4.4): once the terms are accepted and the onboarding model is loaded, Mila opens the
+     * first chat with its own message.
+     */
+    function beginInterview()
+    {
+        if ( scenario.createInterview === undefined || interviewBegun || !licenseAccepted || !panesDone || session.model === null || session.busy )
+            return;
+
+        interviewBegun = true;
+        emit( { type: 'interview', conversation_id: 'conversation-' + session.nextConversationNumber } );
+        session.conversationId = 'conversation-' + session.nextConversationNumber;
+        session.nextConversationNumber = session.nextConversationNumber + 1;
+        const turnId = 'turn-' + session.nextTurnNumber;
+        session.nextTurnNumber = session.nextTurnNumber + 1;
+        session.busy = true;
+
+        reply = { turnId, request: { text: '', attachment_ids: [], opener: true }, attachments: [], steps: scenario.createInterview(),
+            next: 0, waiting: null, thought: '', answer: '', toolCalls: [], rounds: [] };
+
+        emitState();
+        scheduleNextStep();
+    }
+
+    /** At launch, before any pane is answered: the published list read, and the onboarding model's download begun (4.4). */
+    /** The onboarding model onto the computer, once agreed, then loaded. */
+    function getOnboardingModel()
+    {
+        if ( !installed.has( scenario.onboarding ) )
+            installModel( { name: scenario.onboarding, onboarding: true } );
+        else if ( session.model === null )
+            loadModel( { name: scenario.onboarding, onboarding: true } );
+    }
+
+    /** `onboarding.download`: the person agreed on Getting Mila Ready. */
+    function agreeToDownload()
+    {
+        if ( heldByLicense( 'install' ) )
+            return;
+
+        downloadAgreed = true;
+        emitState();
+
+        if ( publishedListed )
+            getOnboardingModel();
+    }
+
+    /** `onboarding.panes_done`: the person reached the end of the panes; the interview may open. */
+    function finishPanes()
+    {
+        panesDone = true;
+        emitState();
+        beginInterview();
+    }
+
+    function beginOnboarding()
+    {
+        const answer = () =>
+        {
+            if ( scenario.publisher === 'unreachable' )
+            {
+                emitError( 'Could not list the models that can be installed: the connection failed.', 'models' );
+                emitModels();
+
+                return;
+            }
+
+            publishedListed = true;
+            emitModels();
+            emitState();
+
+            // As the session's: nothing downloads until the person has agreed (AssistantOnboarding.md 4.3, round 9).
+            if ( downloadAgreed )
+                getOnboardingModel();
+        };
+
+        options.schedule( answer, planningMilliseconds );
+    }
 
     function startTurn( request )
     {
@@ -752,15 +847,19 @@ export function createMockSession( options )
         const thought = reply.thought.length > 0 ? reply.thought : null;
         const stats = storedStats( end.finish );
         const assistantMessage = { role: 'assistant', content: end.answer, thought, tool_calls: toolCalls, attachments: null, stats };
+        // The interview's first message is Mila's, with none from the person before it.
+        const opener = reply.request.opener === true;
 
-        session.history.push( userMessage );
+        if ( !opener )
+            session.history.push( userMessage );
+
         session.history.push( assistantMessage );
 
         const existing = conversations.get( session.conversationId );
 
         if ( existing === undefined )
         {
-            const title = titleFor( reply.request.text );
+            const title = opener ? 'Setting up Mila' : titleFor( reply.request.text );
             const created = {
                 id: session.conversationId,
                 title,
@@ -1564,7 +1663,8 @@ export function createMockSession( options )
 
     function loadModel( request )
     {
-        if ( heldByLicense( 'load' ) )
+        // The onboarding model loads while the terms are read; only a turn waits on them (4.4).
+        if ( request.onboarding !== true && heldByLicense( 'load' ) )
             return;
 
         const model = findModel( request.name );
@@ -1638,10 +1738,18 @@ export function createMockSession( options )
         attachments.clear();
         allowedTools.clear();
         emitState();
+        beginInterview();
     }
 
-    const installSteps = 10;
+    // Slow enough to see the card's bar move and to press Cancel.
+    const installSteps = 40;
     const installStepMilliseconds = 150;
+
+    // The install under way, its next step, and the steps an interrupted install had reached, by model. Nothing here
+    // interrupts one but a Cancel, which deletes them; the map is the session's resume, kept for parity with it.
+    let installing = null;
+    let pendingInstall = null;
+    const partialSteps = new Map();
 
     // Planning every published model takes a moment the page shows; the session's time is not measured yet.
     const planningMilliseconds = 900;
@@ -1651,6 +1759,14 @@ export function createMockSession( options )
         if ( !request.online )
         {
             emitModels();
+
+            return;
+        }
+
+        // Asked again for the onboarding model, as its Try again does: the list, then its download.
+        if ( scenario.onboarding !== undefined )
+        {
+            beginOnboarding();
 
             return;
         }
@@ -1679,7 +1795,8 @@ export function createMockSession( options )
 
     function installModel( request )
     {
-        if ( heldByLicense( 'install' ) )
+        // The onboarding model downloads from launch: nothing in its terms restricts downloading (4.4).
+        if ( request.onboarding !== true && heldByLicense( 'install' ) )
             return;
 
         const model = findModel( request.name );
@@ -1700,21 +1817,45 @@ export function createMockSession( options )
             return;
         }
 
-        scheduleInstallStep( model, 0 );
+        // As the session's: busy while it installs, and continuing from what a stopped install left.
+        session.busy = true;
+        installing = model;
+        emitState();
+        scheduleInstallStep( model, partialSteps.get( model.name ) ?? 0 );
     }
 
     function scheduleInstallStep( model, step )
     {
         const next = () => playInstallStep( model, step );
 
-        options.schedule( next, installStepMilliseconds );
+        pendingInstall = options.schedule( next, scenario.installStepMilliseconds ?? installStepMilliseconds );
     }
 
-    /** The install's bytes as they arrive, then the model is on the computer. */
+    /** As the session's Cancel: what arrived is deleted, and nothing is said, since the card shows it uninstalled. */
+    function stopInstall()
+    {
+        if ( installing === null )
+            return;
+
+        options.cancel( pendingInstall );
+        pendingInstall = null;
+
+        partialSteps.delete( installing.name );
+        installing = null;
+        session.busy = false;
+        emitModels();
+        emitState();
+    }
+
+    /** The install's bytes as they arrive, across every file, then the model is on the computer. */
     function playInstallStep( model, step )
     {
+        pendingInstall = null;
+
         const done = Math.round( model.size_bytes * step / installSteps );
-        const progress = { type: 'progress', task: 'install', label: 'Installing ' + model.name, done, total: model.size_bytes };
+        const progress = { type: 'progress', task: 'install', name: model.name, label: 'Installing ' + model.name, done,
+            total: model.size_bytes };
+        partialSteps.set( model.name, step );
         emit( progress );
 
         if ( step < installSteps )
@@ -1725,6 +1866,9 @@ export function createMockSession( options )
         }
 
         installed.add( model.name );
+        partialSteps.delete( model.name );
+        installing = null;
+        session.busy = false;
 
         const said = { type: 'info', text: 'Installed ' + model.name + '.', during: 'install' };
         emit( said );
@@ -1733,9 +1877,13 @@ export function createMockSession( options )
         // As the session's: a model installed with nothing resident is loaded.
         if ( session.model === null && !session.busy )
         {
-            const load = { name: model.name };
+            const load = { name: model.name, onboarding: model.name === scenario.onboarding };
             loadModel( load );
+
+            return;
         }
+
+        emitState();
     }
 
     /** As the session's: the files go, a loaded model stays loaded, and a failure names no task. */
@@ -1768,6 +1916,12 @@ export function createMockSession( options )
                 emitConversations();
                 emitActivity();
                 emitModels();
+
+                if ( scenario.onboarding !== undefined && !onboardingAsked )
+                {
+                    onboardingAsked = true;
+                    beginOnboarding();
+                }
 
                 return;
 
@@ -1835,11 +1989,20 @@ export function createMockSession( options )
             case 'conversation.delete':
                 return deleteConversation( request );
 
+            case 'onboarding.download':
+                return agreeToDownload();
+
+            case 'onboarding.panes_done':
+                return finishPanes();
+
             case 'models.refresh':
                 return refreshModels( request );
 
             case 'model.install':
                 return installModel( request );
+
+            case 'model.install_stop':
+                return stopInstall();
 
             case 'model.remove':
                 return removeModel( request );

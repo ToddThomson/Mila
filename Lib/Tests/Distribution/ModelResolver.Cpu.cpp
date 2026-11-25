@@ -126,7 +126,7 @@ namespace Mila::Tests::Distribution
             {
                 ++file_fetches;
 
-                if ( fail_files )
+                if ( fail_files || ( !fail_path.empty() && path.ends_with( fail_path ) ) )
                 {
                     return { FetchOutcome::Failed, "connection reset" };
                 }
@@ -154,6 +154,9 @@ namespace Mila::Tests::Distribution
             mutable int manifest_fetches{ 0 };
             mutable int file_fetches{ 0 };
             bool fail_files{ false };
+
+            /// Fails only the file whose path ends so, the others arriving.
+            std::string fail_path;
 
         private:
 
@@ -363,6 +366,36 @@ namespace Mila::Tests::Distribution
         // A record naming a blob that never arrived would make a broken model look installed.
         EXPECT_TRUE( store.list().empty() );
         EXPECT_FALSE( store.locate( "gemma-4-12b-it-fp4" ).has_value() );
+    }
+
+    // A pull the person cancelled: one file arrived, the other did not, and both go.
+    TEST( ModelResolverTests, DiscardingAnUnfinishedPullDeletesWhatItFetched )
+    {
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+
+        FakeHub hub( manifestJson() );
+        hub.fail_path = "model_fp4.safetensors";
+
+        ModelResolver resolver( store, hub );
+
+        EXPECT_THROW( resolver.pull( "gemma-4-12b-it-fp4", "mila-llm" ), std::runtime_error );
+
+        const std::string weights_digest = sha256Hex( kWeightsPayload.data(), kWeightsPayload.size() );
+        const std::string tokenizer_digest = sha256Hex( kTokenizerPayload.data(), kTokenizerPayload.size() );
+        const auto weights_partial = scratch.path() / "tmp" / ( "sha256-" + weights_digest + ".partial" );
+
+        // The manifest's files are read by role, so the tokenizer comes before the weights.
+        ASSERT_TRUE( store.contains( tokenizer_digest ) );
+        ASSERT_TRUE( std::filesystem::exists( weights_partial ) );
+
+        const int manifest_fetches = hub.manifest_fetches;
+        const RemovalReport report = resolver.discardUnfinished();
+
+        EXPECT_EQ( hub.manifest_fetches, manifest_fetches ) << "the files are the last pull's, not asked again";
+        EXPECT_EQ( report.blobs_removed, 1 );
+        EXPECT_FALSE( store.contains( tokenizer_digest ) );
+        EXPECT_FALSE( std::filesystem::exists( weights_partial ) );
     }
 
     TEST( ModelResolverTests, PullsAModelWithNoTokenizer )

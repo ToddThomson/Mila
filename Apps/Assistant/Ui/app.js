@@ -2,12 +2,13 @@
 // animation frame however many messages arrived in it.
 
 import { createTransport } from './transport.js';
-import { createInitialState, reduce, isBusy, isWelcoming, isAskingForModel, isRisen, barMode, barProject, streamIdentifier } from './state.js';
+import { createInitialState, reduce, isBusy, isStarting, isWelcoming, isAskingForModel, isRisen, barMode, barProject, streamIdentifier } from './state.js';
 import { createSidebarView } from './views/sidebar.js';
 import { createHeaderView } from './views/header.js';
 import { createPlacesView } from './views/places.js';
 import { createChatHeadView } from './views/chat-head.js';
 import { createTranscriptView } from './views/transcript.js';
+import { createSetupView } from './views/setup.js';
 import { createDockView } from './views/dock.js';
 import { createComposerView } from './views/composer.js';
 import { createSettingsView } from './views/settings.js';
@@ -402,6 +403,7 @@ const header = createHeaderView( document.getElementById( 'header' ), actions );
 const places = createPlacesView( paneScroller, document.getElementById( 'pane' ), actions );
 const chatHead = createChatHeadView( document.getElementById( 'chat-head' ), actions );
 const transcript = createTranscriptView( transcriptScroller, document.getElementById( 'transcript' ), actions );
+const setup = createSetupView( document.getElementById( 'setup-layer' ), document.getElementById( 'setup-window' ), actions );
 const dock = createDockView( document.getElementById( 'conversation-head' ), actions );
 const composer = createComposerView( document.getElementById( 'composer-area' ), mainElement, actions );
 const settings = createSettingsView( document.getElementById( 'settings' ), actions );
@@ -416,11 +418,15 @@ const plan = createPlanView( planElement );
 const made = createMadeView( document.getElementById( 'made-drawer' ), actions );
 
 /**
- * What the pane shows: the first-run setup, which has the window to itself; the screen asking for a model, in the
- * workspace's place while none is loaded; the open chat; or a place, with the conversation risen over it or not.
+ * What the window shows: nothing while it cannot yet tell whether the first-run setup is due; the setup's sheet
+ * alone; the screen asking for a model, in the workspace's place while none is loaded; the open chat; or a place,
+ * with the conversation risen over it or not.
  */
 function paneMode()
 {
+    if ( isStarting( state ) )
+        return 'starting';
+
     if ( isWelcoming( state ) )
         return 'setup';
 
@@ -458,9 +464,9 @@ function render()
     application.classList.toggle( 'sidebar-overlay', surface.narrow && surface.sidebarOverlay );
     application.classList.toggle( 'busy', isBusy( state ) );
 
-    const welcoming = mode === 'setup';
+    const welcoming = mode === 'setup' || mode === 'starting';
 
-    // The window gives a setup assistant's menus while the setup shows.
+    // The window gives a setup assistant's menus while the setup shows, and while the empty window may lead to it.
     if ( welcoming !== setupShown )
     {
         setupShown = welcoming;
@@ -481,6 +487,7 @@ function render()
     places.render( state );
     chatHead.render( state );
     transcript.render( state, surface );
+    setup.render( state );
     dock.render( state );
     composer.render( state, surface );
     settings.render( state, surface );
@@ -522,8 +529,8 @@ function onKeyDown( event )
 {
     const shortcut = isShortcut( event, 'n' ) || isShortcut( event, ',' ) || isShortcut( event, 'k' );
 
-    // The setup's panes are the one way forward: no new conversation, Search or Settings beside them.
-    if ( isWelcoming( state ) && shortcut )
+    // The setup's panes are the one way forward: no new conversation, Search or Settings beside them, nor before them.
+    if ( ( isStarting( state ) || isWelcoming( state ) ) && shortcut )
     {
         event.preventDefault();
 

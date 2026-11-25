@@ -357,6 +357,15 @@ report names the files. A blob left behind costs disk; a blob wrongly deleted co
 left by a crashed process, and on request `tmp/` partials from transfers abandoned rather than resumed.
 It is a library operation today; a `mila store clean` verb is the user surface it waits for.
 
+**A cancelled install is the one deletion of blobs no record names, and only of its own files**
+(2026-11-23, Todd: Cancel in Mila Assistant deletes what arrived). `discardTransfers(files)` deletes
+each listed file's partial, unless a live transfer holds its lock, and each listed file's blob that no
+record names; `ModelResolver::discardUnfinished()` calls it with the files of the manifest its last
+pull read, asking the hub nothing. It is not the sweep above: it never reaches a blob outside that
+list, and like `remove` it deletes nothing while a record cannot be read. One race it does not close: a
+blob another install still under way has finished and not yet recorded is deleted with it, and that
+model then lists as incomplete until it is installed again.
+
 ### Concurrent processes
 
 Chat and the inference server are separate processes over one store, so every mutation is written to
@@ -367,9 +376,17 @@ assume a peer.
 - **Record writes** go to `tmp/` and rename into place, for the same reason.
 - **In-flight transfers need a lock.** The partial is named `tmp/sha256-<digest>.partial` so a retry
   can find it and resume, which means two processes pulling the same blob would otherwise append into
-  one file and interleave. A `tmp/sha256-<digest>.lock`, created exclusively, arbitrates: the holder
-  transfers, and a process that cannot take it reports that another transfer is in progress rather
-  than joining it. The deterministic partial name is kept -- it is what resume depends on.
+  one file and interleave. A lock on `tmp/sha256-<digest>.lock` arbitrates: the holder transfers, and a
+  process that cannot take it throws `TransferInProgressError` rather than joining it, which a program
+  says in its own words. The deterministic partial name is kept -- it is what resume depends on.
+  **The operating system holds the lock, not the file's existence** (`Distribution.TransferLock`,
+  2026-11-23): on Windows the file is opened with no sharing and deleted when its handle closes; on
+  macOS and Linux it is `flock`ed, and its holder unlinks it before closing, checking after the lock
+  that the file it locked is still the one at the path. A process killed or crashed mid-transfer
+  therefore frees it. Until then it was a file created exclusively, and a session ended mid-download
+  left one that refused every later install of that blob, telling the person to delete it (Todd, on
+  Mila Assistant's first run); `clean` waited 24 hours for it. A file no process holds is now taken
+  over, and `clean` removes it at once.
 - **Removal can lose to a reader.** A loaded model is memory-mapped. Windows refuses to delete a
   mapped file, which surfaces as a sharing violation; POSIX unlinks it and leaves the mapping valid.
   Removal reports the platform's answer rather than papering over the difference, and a sweep that
@@ -475,6 +492,13 @@ the final digest check catches.
 Hashing during the transfer rather than in a second pass matters at 6.33 GB: a verification re-read
 would double the I/O for no additional confidence.
 
+Resuming does re-read what was kept, once: SHA-256 is sequential, so the partial is fed through the hash
+before the transfer continues, and for a large partial that is seconds with nothing arriving. `ensureBlob`
+therefore reports it -- its `checking` callback is given the bytes read back so far, and returning false
+stops there and keeps the partial -- and `ModelResolver` passes it on with the file's size from the
+manifest, in the shape of the hub's progress callback, whose reports for that file then go on from the
+same count (2026-11-23, Mila Assistant's bar sitting still before the download went on).
+
 ---
 
 ## The three operations
@@ -573,7 +597,7 @@ Decided 2026-10-20 (Todd). **A build that changes the variant or the base model 
 republish.** The naming rule puts the quantization in the repository's name and the base model behind it, so
 a different format or a different source checkpoint cannot live in the old repository without the name lying.
 It is published in a repository of its own. The first case is the Gemma 4 12B, from FP4 of
-`google/gemma-4-12b-it` to Q4_0 of Google's quantization-aware checkpoint (`gemma-4-12B-it-q4_0`). The Llama
+`google/gemma-4-12b-it` to Q4_0 of Google's quantization-aware checkpoint (`gemma-4-12b-it-q4_0`). The Llama
 packages are the next if L7's format decision changes their variant (`ModelFamilyParity.md` 8.4).
 
 The model it replaces is **superseded**, and stays published as it is:
@@ -587,6 +611,17 @@ The model it replaces is **superseded**, and stays published as it is:
   the successor. A superseded model still installs and loads.
 - It gets no further builds. Its weights keep loading under the one-minor rule above; when that reader goes,
   the refusal names the successor's install.
+
+**The Gemma 4 12B, decided 2026-11-24 (Todd), reversing "stays published" for it.** The hub is not to hold two
+Gemma 4 12B builds: "We do not need 2 Gemma 4 12B FP4 variants", the concern being the number and the size of the
+models on the hub. Its repository is `gemma-4-12b-it-q4_0`, lowercase like the FP4 it replaces (Todd, the same
+day). It is to be published before 0.21 is, as a new model and so not a republish under the 2026-11-13 hold; for
+the development of round 8 (`Apps/AssistantOnboarding.md` 4.4) it is not published at all, and Mila is tested from a
+local model hub instead (`MILA_HUB_DIRECTORY`, `LocalDirectoryHub`): "A local 'test' store would be much better"
+(Todd, the same day). `gemma-4-12b-it-fp4` stays published until 0.21 is, so 0.20, which
+cannot read the Q4_0, keeps a Gemma to install; at 0.21's publish it is made private, not deleted, so it can be
+restored. Open: whether this becomes the rule for every superseded model (one build of each model on the hub), and
+whether 0.21 still builds the two Gemma readers above or refuses a 0.20 FP4 on disk with the Q4_0's install named.
 
 A model's own later builds -- a new revision of the same weights, or an input the same weights gain, such as
 the 12B's image and audio embedders -- stay revisions of its repository, under the rule above.
@@ -673,10 +708,11 @@ ModelStore                     filesystem only, always available
   locate(name)              -> StoredModel?      paths, or nothing
   describe(record)          -> StoredModel       a record plus its resolved blob paths
   remove(name)              -> RemovalReport     blobs only it names, then the record
-  clean(options)            -> RemovalReport     rejects, abandoned locks, partials on request
+  clean(options)            -> RemovalReport     rejects, locks no process holds, partials on request
+  discardTransfers(files)   -> RemovalReport     a cancelled install: its partials, its blobs no record names
   usage()                   -> StoreUsage        in total, and what clean() would free
   install(package, options) -> StoredModel       verify, adopt, record
-  ensureBlob(what, digest, fetcher) -> path      resumable, verified, published on match
+  ensureBlob(what, digest, fetcher, checking) -> path   resumable, verified, published on match
 
 ModelPackage                   filesystem only, always available
   open(directory)           -> ModelPackage      reads the manifest, hashes nothing

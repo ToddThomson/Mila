@@ -106,7 +106,7 @@ kbd {
 /* ---- Frame ------------------------------------------------------------------------------- */
 
 /* One pane beside the sidebar (AssistantInterface.md 4). `data-mode` says what the pane shows: a place, the open
-   chat, the screen asking for a model, or the first-run setup, which has the window to itself. */
+   chat, the screen asking for a model, or the first-run setup, whose sheet is alone in an empty window. */
 .app { display: flex; height: 100vh; position: relative; overflow: hidden; }
 
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; background: var(--ground); }
@@ -127,14 +127,14 @@ kbd {
 
 .app:not([data-mode="chat"]) .chat-head { display: none; }
 
-.app[data-mode="setup"] .sidebar,
-.app[data-mode="setup"] .bar,
-.app[data-mode="setup"] .scrim,
-.app[data-mode="setup"] .dock-fade { display: none; }
-
-.app[data-mode="setup"] .main { background: var(--bg); }
-
-.app[data-mode="setup"] .main > .transcript-scroll { padding-bottom: 32px; }
+/* The workspace starts when the setup ends (AssistantOnboarding.md 4.1): until then, and until the page knows whether
+   the setup is due, the window is an empty shell. */
+.app[data-mode="starting"] > .sidebar,
+.app[data-mode="starting"] > .scrim,
+.app[data-mode="starting"] > .main,
+.app[data-mode="setup"] > .sidebar,
+.app[data-mode="setup"] > .scrim,
+.app[data-mode="setup"] > .main { display: none; }
 
 .app[data-mode="model"] .dock-fade { display: none; }
 
@@ -746,35 +746,72 @@ kbd {
   text-align: left;
 }
 
-.suggestion-name { margin-top: 4px; font-size: 17px; font-weight: 600; }
+.model-suggestion-name { margin-top: 4px; font-size: 17px; font-weight: 600; }
 
 .suggestion-line { margin-top: 6px; }
 
 .suggestion-facts { margin-top: 4px; font-size: 13px; color: var(--muted); }
 
-.empty-state.first-run { padding-top: 12vh; }
-
-.first-run-mark { display: block; width: 72px; height: auto; margin: 0 auto 18px; }
-
-.first-run .empty-heading { margin-bottom: 8px; font-size: 30px; letter-spacing: -.02em; }
-
-.first-run-byline { margin: 0; font-size: 17px; font-weight: 500; color: var(--accent); }
-
-/* The setup's panes: the pane's own content, then Go Back and the way forward at the bottom right, with the
-   progress of what the pane is doing beside them on the left (AssistantOnboarding.md 4.1). */
-.setup-body { max-width: 520px; margin: 0 auto; }
-
-.first-run-introduction.setup-line { margin-top: 28px; }
-
-.first-run-introduction.setup-line + .setup-line { margin-top: 8px; }
-
-.setup-footer {
+/* The first-run setup (AssistantOnboarding.md 4.1): a sheet of one size for every pane, slid down into the empty
+   window; the workspace starts when it ends. The window's minimum size holds the sheet. */
+.setup-layer:not([hidden]) {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
   display: flex;
-  align-items: center;
-  gap: 10px;
-  max-width: 520px;
-  margin: 36px auto 0;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px 16px;
+  background: var(--ground);
 }
+
+.setup-window {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 620px;
+  height: 500px;
+  max-width: 100%;
+  max-height: 100%;
+  padding: 28px 32px 22px;
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+  outline: none;
+  animation: setup-in .28s cubic-bezier(.2, .8, .2, 1);
+  position: relative;
+}
+
+@keyframes setup-in { from { transform: translateY(-40px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) { .setup-window { animation: none; } }
+
+/* The pane's own content fills the sheet above its buttons, and scrolls within it should it ever need to. */
+.setup-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; text-align: left; }
+
+.setup-heading { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
+
+.setup-line { margin: 14px 0 0; font-size: 15px; }
+
+.setup-line + .setup-line { margin-top: 8px; }
+
+.setup-welcome { align-items: center; justify-content: center; text-align: center; }
+
+.setup-mark { display: block; width: 72px; height: auto; margin: 0 0 18px; }
+
+.setup-welcome-heading { margin-bottom: 4px; font-size: 34px; letter-spacing: -.02em; }
+
+.setup-welcome-line { margin: 0 0 10px; font-size: 20px; font-weight: 500; color: var(--muted); }
+
+.setup-byline { margin: 0; font-size: 17px; font-weight: 500; color: var(--accent); }
+
+/* The licence takes the room the sheet has; Accept waits for its end to have been in view. */
+.setup-license .license-text { flex: 1; min-height: 0; max-height: none; }
+
+/* Go Back and the way forward at the bottom right, the progress of what the pane is doing on the left. */
+.setup-footer { display: flex; flex: none; align-items: center; gap: 10px; height: 48px; margin-top: 14px; }
 
 .setup-progress { flex: 1; min-width: 0; text-align: left; }
 
@@ -814,15 +851,79 @@ kbd {
 
 .license-text:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
 
-/* The introduction, the card and the way to another model share the card's left edge. */
-.first-run-introduction { max-width: 520px; margin: 40px auto 0; font-size: 15px; text-align: left; }
+/* The introduction and the card share the card's left edge. */
+.setup-window .start-suggestion { max-width: none; margin-top: 12px; }
 
-.first-run .start-suggestion { margin-top: 12px; }
+.setup-window .start-finding,
+.setup-window .start-refusal { max-width: none; margin-top: 28px; }
 
-.start-other { display: block; max-width: 520px; margin: 14px auto 0; text-align: left; width: 100%; }
+.setup-window .start-why { max-width: none; margin-left: 0; }
 
-.first-run .start-finding,
-.first-run .start-refusal { margin-top: 40px; }
+.setup-window .start-choose { align-self: flex-start; }
+
+/* The setup's focus ring only after the person moves with Tab, so the way forward that holds the keyboard on each pane
+   looks the same whether or not the mouse has been used. */
+.setup-window:not([data-keyboard]) :focus-visible { outline: none; }
+
+/* Getting Mila ready, on every pane of the onboarding once it is under way (AssistantOnboarding.md 4.3, round 9): a
+   ring at the window's corner, as a browser shows a download. */
+.setup-indicator { position: absolute; top: 18px; right: 20px; width: 26px; height: 26px; color: var(--accent-2); }
+
+.setup-indicator svg { display: block; width: 100%; height: 100%; transform: rotate(-90deg); }
+
+.setup-indicator-track { fill: none; stroke: var(--rule); stroke-width: 2.4; }
+
+.setup-indicator-done { fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; transition: stroke-dasharray .3s ease; }
+
+.setup-indicator-arrow { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+  transform: rotate(90deg); transform-origin: 12px 12px; }
+
+.setup-indicator.moving svg { animation: setup-indicator-turn 1.2s linear infinite; }
+
+@keyframes setup-indicator-turn { from { transform: rotate(-90deg); } to { transform: rotate(270deg); } }
+
+@media (prefers-reduced-motion: reduce) { .setup-indicator.moving svg { animation: none; } }
+
+.setup-list { margin: 8px 0 0; padding-left: 22px; }
+
+.setup-list .setup-line { margin-top: 6px; }
+
+/* The full Getting Mila Ready pane: a simple list with checks. */
+.setup-checklist { display: flex; flex-direction: column; gap: 14px; margin: 24px 0 0; padding: 0; list-style: none; }
+
+.setup-check { display: flex; align-items: center; gap: 12px; font-size: 15px; }
+
+.setup-check::before {
+  content: "";
+  box-sizing: border-box;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--rule);
+  border-radius: 50%;
+}
+
+.setup-check[data-status="waiting"] { color: var(--muted); }
+
+.setup-check[data-status="now"]::before {
+  border-color: var(--rule);
+  border-top-color: var(--accent-2);
+  animation: setup-indicator-turn 1s linear infinite;
+}
+
+.setup-check[data-status="done"]::before {
+  content: "\2713";
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-color: var(--accent-2);
+  background: var(--accent-2);
+  color: var(--on-accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) { .setup-check[data-status="now"]::before { animation: none; } }
 
 .model-note { font-size: 12px; color: var(--muted); }
 
@@ -1900,6 +2001,15 @@ textarea.project-edit { display: block; width: 100%; resize: vertical; }
 .progress-label { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
 
 .progress-bar { width: 100%; height: 6px; accent-color: var(--accent-2); }
+
+/* A download on its model's card, in the setup and in Settings' Models: the bar, how much has come, and Cancel. */
+.install-progress { margin-top: 12px; }
+
+.model-row .install-progress { flex-basis: 100%; margin-top: 2px; }
+
+.install-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; }
+
+.install-amount { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* ---- Narrow windows (4.10): the sidebar slides over the pane from the bar's menu button ---- */
 

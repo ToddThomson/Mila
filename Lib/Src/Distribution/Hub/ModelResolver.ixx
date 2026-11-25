@@ -27,8 +27,16 @@ namespace Mila::Distribution
     {
     public:
 
-        ModelResolver( ModelStore& store, const IModelHub& hub )
-            : store_( store ), hub_( hub )
+        /**
+         * @param store The store the model is pulled into; it outlives the resolver.
+         * @param hub Where the model is published; it outlives the resolver.
+         * @param checking Called as the bytes a stopped install kept of a file are read back before it continues,
+         *        with how many have been and the file's size; returning false stops the pull. It has the hub's
+         *        progress callback's shape, and the hub's reports for that file go on from the same count.
+         */
+        ModelResolver( ModelStore& store, const IModelHub& hub,
+            std::function<bool( std::uint64_t received, std::uint64_t total )> checking = {} )
+            : store_( store ), hub_( hub ), checking_( std::move( checking ) )
         {}
 
         /**
@@ -89,6 +97,8 @@ namespace Mila::Distribution
 
             requireCompatibleMilaVersion( manifest, source );
 
+            attempted_ = manifest.files;
+
             ModelRecord record;
             record.name = coordinate.repository;
             record.display_name = manifest.display_name;
@@ -118,6 +128,18 @@ namespace Mila::Distribution
             return store_.describe( store_.writeRecord( std::move( record ) ) );
         }
 
+        /**
+         * @brief Delete what the last pull left when it did not finish, as for an install the person
+         *        cancelled: its files' partials, and those of its blobs no installed model names.
+         *
+         * Reads nothing from the hub: the files are the ones the last pull's manifest declared. Before
+         * any pull has read a manifest there is nothing to delete.
+         */
+        RemovalReport discardUnfinished()
+        {
+            return store_.discardTransfers( attempted_ );
+        }
+
     private:
 
         /**
@@ -129,6 +151,13 @@ namespace Mila::Distribution
             const ModelCoordinate& source = coordinate;
             const std::string path = file.path;
 
+            std::function<bool( std::uint64_t )> checking;
+
+            if ( checking_ )
+            {
+                checking = [this, &file]( std::uint64_t checked ) { return checking_( checked, file.bytes ); };
+            }
+
             store_.ensureBlob(
                 std::format( "{} ({})", path, coordinate.toString() ),
                 file.sha256,
@@ -136,10 +165,13 @@ namespace Mila::Distribution
                     const std::function<bool( const char*, std::size_t )>& sink ) -> FetchReport
                 {
                     return hub.fetchFile( source, path, resume_from, sink );
-                } );
+                },
+                checking );
         }
 
         ModelStore& store_;
         const IModelHub& hub_;
+        std::function<bool( std::uint64_t received, std::uint64_t total )> checking_;
+        std::vector<ModelFile> attempted_;
     };
 }

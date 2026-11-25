@@ -78,7 +78,7 @@ export function createAboutView( dialog, actions )
         }
 
         clear( dialog );
-        dialog.append( head, element( 'h3', 'about-heading', 'Licences' ), list, foot( false ) );
+        dialog.append( head, element( 'h3', 'about-heading', 'Licenses' ), list, foot( false ) );
     }
 
     /** Mila's licence is reflowed as the setup shows it; another project's is kept in its own lines. */

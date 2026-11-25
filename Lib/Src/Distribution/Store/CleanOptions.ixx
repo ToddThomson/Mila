@@ -1,6 +1,6 @@
 /**
  * @file CleanOptions.ixx
- * @brief What cleaning the store may reclaim beyond rejected transfers and abandoned locks.
+ * @brief What cleaning the store may reclaim beyond rejected transfers and locks no process holds.
  */
 
 module;

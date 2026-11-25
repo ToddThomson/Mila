@@ -317,7 +317,7 @@ export function createSidebarView( root, actions )
         const reach = button( 'menu-item', 'What Mila can reach', 'open-place' );
 
         reach.dataset.place = 'reach';
-        menu.append( settings, reach, button( 'menu-item', 'Mila’s licence', 'open-license' ),
+        menu.append( settings, reach, button( 'menu-item', 'Mila’s License', 'open-license' ),
             element( 'div', 'menu-separator' ),
             button( 'menu-item', 'About Mila Assistant', 'open-about' ),
             button( 'menu-item', 'Quit Mila', 'quit' ) );

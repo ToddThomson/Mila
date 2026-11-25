@@ -26,6 +26,20 @@ export function formatBytes( bytes )
     return kilobytes + ' KB';
 }
 
+/** What installing a published model downloads, for its card; null when the publisher did not say. */
+export function downloadLine( model )
+{
+    return model.size_bytes > 0 ? 'Download: ' + formatBytes( model.size_bytes ) : null;
+}
+
+/** How far an install's download has come, beside its bar: "3.1 GB of 15.2 GB". */
+export function installAmount( progress )
+{
+    const sofar = progress.done > 0 ? formatBytes( progress.done ) : '0 KB';
+
+    return sofar + ' of ' + formatBytes( progress.total );
+}
+
 /**
  * What a published model can do, in a line for a person choosing one: an agent only where it was measured as one
  * and planned here at that depth, then thinking and what it reads besides text.

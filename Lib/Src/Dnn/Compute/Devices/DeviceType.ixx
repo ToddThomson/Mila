@@ -19,8 +19,8 @@ namespace Mila::Dnn::Compute
     {
         Cpu,    ///< CPU device type
         Cuda,   ///< CUDA GPU device type
-        Metal,  // FUTURE: Add Metal support
-        Rocm,   // FUTURE: Add ROCm support
+        Metal,  ///< Apple M-series GPU device type
+        Rocm,   ///< ROCm GPU device type: a device scaffold with no operations
     };
 
     /**

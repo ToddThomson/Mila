@@ -1,6 +1,6 @@
 // Starts the session as a child process and speaks JSON lines with it (MilaAssistant.md 4,
 // Transport): requests on its standard input, events from its standard output, its log on
-// standard error. Ending its input ends it.
+// standard error. Ending its input ends it, once it has stopped what it was doing.
 
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
@@ -36,6 +36,8 @@ export function startSessionProcess( configuration, handlers )
     const lineOptions = { input: child.stdout, crlfDelay: Infinity };
     const lines = readline.createInterface( lineOptions );
     let ending = false;
+    let exited = false;
+    const exitWaiters = [];
 
     function onLine( line )
     {
@@ -65,6 +67,11 @@ export function startSessionProcess( configuration, handlers )
 
     function onExit( code )
     {
+        exited = true;
+
+        for ( const waiter of exitWaiters.splice( 0 ) )
+            waiter();
+
         if ( !ending )
             handlers.onExit( code );
     }
@@ -89,12 +96,32 @@ export function startSessionProcess( configuration, handlers )
         child.stdin.write( line );
     }
 
-    function stop()
+    /**
+     * Ends the session's input. The session then stops a reply or an install as Stop or Cancel would, and ends.
+     * Resolves true once it has, or false after `waitMilliseconds` if it has not.
+     */
+    function stop( waitMilliseconds = 0 )
     {
         ending = true;
 
         if ( child.stdin.writable )
             child.stdin.end();
+
+        if ( exited )
+            return Promise.resolve( true );
+
+        function executor( resolve )
+        {
+            const timer = setTimeout( () => resolve( false ), waitMilliseconds );
+
+            exitWaiters.push( () =>
+            {
+                clearTimeout( timer );
+                resolve( true );
+            } );
+        }
+
+        return new Promise( executor );
     }
 
     return { send, stop };

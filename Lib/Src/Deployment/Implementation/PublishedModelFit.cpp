@@ -100,4 +100,44 @@ namespace Mila::Deployment
 
         return fits;
     }
+
+    std::optional<std::size_t> onboardingModel( const std::vector<PublishedModelFit>& fits )
+    {
+        std::optional<std::size_t> chosen;
+
+        for ( std::size_t index = 0; index < fits.size(); ++index )
+        {
+            const PublishedModelFit& fit = fits[ index ];
+
+            if ( !fit.suggestable() || !fit.model.manifest()->capabilities.onboarding )
+            {
+                continue;
+            }
+
+            if ( !chosen )
+            {
+                chosen = index;
+                continue;
+            }
+
+            const PublishedModelFit& best = fits[ *chosen ];
+
+            if ( fit.agenticHere() != best.agenticHere() )
+            {
+                if ( fit.agenticHere() )
+                {
+                    chosen = index;
+                }
+
+                continue;
+            }
+
+            if ( fit.model.downloadBytes() < best.model.downloadBytes() )
+            {
+                chosen = index;
+            }
+        }
+
+        return chosen;
+    }
 }

@@ -38,6 +38,16 @@ namespace Mila::Distribution
         bool agentic{ false };
 
         /**
+         * @brief Mila's own verdict that the model can be the one Mila Assistant's setup installs, and run the
+         *        interview that sets the assistant up with the person.
+         *
+         * Measured, not copied, like `agentic`: written only for a model the interview has been measured on
+         * (Specifications/Apps/AssistantOnboarding.md 4.4). Several models may carry it; the setup picks one for the
+         * computer through the planner (`onboardingModel`).
+         */
+        bool onboarding{ false };
+
+        /**
          * @brief Input modalities besides text, as the manifest names them ("image", "video", "audio").
          *
          * Names, not a closed set: a manifest from a newer Mila may name one this build does not run, and the

@@ -66,7 +66,10 @@ namespace
             "      --agentic                  Its context profile measured it working as an\n"
             "                                 agent (ContextProfile.md). Mila's verdict, not\n"
             "                                 the checkpoint's.\n"
-            "      --modality <name>          An input besides text this Mila runs for it.\n"
+            "      --onboarding               Mila Assistant's setup may install it and run its\n"
+            "                                 interview on it (AssistantOnboarding.md 4.4).\n"
+            "                                 Mila's verdict, measured like --agentic.\n"
+            "      --modality <name>         An input besides text this Mila runs for it.\n"
             "      --drafter <path>           The draft model to carry for speculative decoding.\n"
             "      --sampling <path>          The base model's publisher's sampling settings, as\n"
             "                                 the card's sampling.json transcribes them. Without\n"
@@ -191,6 +194,10 @@ namespace
             else if ( argument == "--agentic" )
             {
                 request.capabilities.agentic = true;
+            }
+            else if ( argument == "--onboarding" )
+            {
+                request.capabilities.onboarding = true;
             }
             else if ( argument == "--modality" && index + 1 < argc )
             {

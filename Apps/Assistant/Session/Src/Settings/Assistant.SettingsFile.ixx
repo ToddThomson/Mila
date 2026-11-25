@@ -151,6 +151,19 @@ namespace Mila::Assistant
                 }
             }
 
+            readText( stored, "onboarding", settings.onboarding, passOver );
+            readText( stored, "interview_conversation", settings.interview_conversation, passOver );
+            readText( stored, "person_name", settings.person_name, passOver );
+            readText( stored, "last_version", settings.last_version, passOver );
+
+            if ( const auto* agreed = find( stored, "download_agreed" ) )
+            {
+                if ( agreed->is_boolean() )
+                    settings.download_agreed = agreed->get<bool>();
+                else
+                    passOver( "download_agreed" );
+            }
+
             return settings;
         }
 
@@ -179,6 +192,11 @@ namespace Mila::Assistant
             stored[ "sampling" ] = std::move( sampling );
             stored[ "license" ] = settings.license_accepted.empty() ? nlohmann::ordered_json( nullptr )
                 : nlohmann::ordered_json{ { "sha256", settings.license_accepted }, { "accepted_at", settings.license_accepted_at } };
+            stored[ "onboarding" ] = textOrNull( settings.onboarding );
+            stored[ "interview_conversation" ] = textOrNull( settings.interview_conversation );
+            stored[ "person_name" ] = textOrNull( settings.person_name );
+            stored[ "download_agreed" ] = settings.download_agreed;
+            stored[ "last_version" ] = textOrNull( settings.last_version );
 
             std::filesystem::create_directories( path_.parent_path() );
 
@@ -252,6 +270,28 @@ namespace Mila::Assistant
         static nlohmann::ordered_json optional( const std::optional<T>& value )
         {
             return value ? nlohmann::ordered_json( *value ) : nlohmann::ordered_json( nullptr );
+        }
+
+        static nlohmann::ordered_json textOrNull( const std::string& value )
+        {
+            return value.empty() ? nlohmann::ordered_json( nullptr ) : nlohmann::ordered_json( value );
+        }
+
+        /// A text setting: kept when the file holds a string, passed over when it holds anything else.
+        template<typename TPassOver>
+        static void readText( const nlohmann::json& stored, std::string_view key, std::string& value, const TPassOver& passOver )
+        {
+            const auto* found = find( stored, key );
+
+            if ( found == nullptr )
+            {
+                return;
+            }
+
+            if ( found->is_string() )
+                value = found->get<std::string>();
+            else
+                passOver( key );
         }
 
         std::string pathText() const

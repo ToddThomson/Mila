@@ -17,8 +17,10 @@ export import Distribution.RemovalReport;
 export import Distribution.StoreUsage;
 export import Distribution.InstallOptions;
 export import Distribution.CleanOptions;
+export import Distribution.TransferInProgressError;
 
 import nlohmann.json;
+import Distribution.TransferLock;
 import Distribution.Sha256;
 import Distribution.Environment;
 import Distribution.MilaFolder;
@@ -133,7 +135,9 @@ namespace Mila::Distribution
          *
          * A transfer lock arbitrates between processes. Chat and the inference server share one
          * store, and the deterministic partial name that makes resume possible would otherwise let
-         * two of them append into a single file and interleave.
+         * two of them append into a single file and interleave. The operating system holds it
+         * (TransferLock), so a process that ended mid-transfer, killed or crashed, leaves nothing that
+         * refuses the next.
          *
          * On a digest mismatch the partial is kept under a rejected name rather than destroyed:
          * the bytes are known bad, but the byte count is the evidence that separates "altered in
@@ -143,14 +147,19 @@ namespace Mila::Distribution
          *        the repository it came from. The store never interprets it.
          * @param expected_sha256_hex The blob's digest, which is also its name under blobs/.
          * @param fetcher Supplies the bytes when the blob is absent, resuming from any partial.
+         * @param checking Called with the bytes of the partial read back so far, as they are hashed again before the
+         *        transfer resumes, which takes seconds for a large one; returning false stops it there and keeps the
+         *        partial. The fetcher's own progress then continues from the same count.
          *
          * @return Path to the verified blob.
-         * @throws std::runtime_error on fetch failure, digest mismatch, or a lock held elsewhere.
+         * @throws TransferInProgressError when a live process is writing the same blob.
+         * @throws std::runtime_error on fetch failure, digest mismatch, or a stop asked for while checking.
          */
         std::filesystem::path ensureBlob(
             const std::string& description,
             const std::string& expected_sha256_hex,
-            const BlobFetcher& fetcher )
+            const BlobFetcher& fetcher,
+            const std::function<bool( std::uint64_t checked )>& checking = {} )
         {
             const auto final_path = blobPath( expected_sha256_hex );
 
@@ -171,12 +180,7 @@ namespace Mila::Distribution
 
             if ( !lock.held() )
             {
-                throw std::runtime_error( std::format(
-                    "ModelStore: another process is already fetching this blob.\n"
-                    "  blob {}\n"
-                    "  lock {}\n"
-                    "If no transfer is running, delete the lock file and retry.",
-                    description, lock.path().string() ) );
+                throw TransferInProgressError( description );
             }
 
             // Re-check under the lock: the process that held it may have been fetching exactly
@@ -191,7 +195,15 @@ namespace Mila::Distribution
 
             if ( std::filesystem::exists( partial_path, ignored ) )
             {
-                resume_from = replayPartialIntoHash( partial_path, hash );
+                const std::optional<std::uint64_t> replayed = replayPartialIntoHash( partial_path, hash, checking );
+
+                if ( !replayed.has_value() )
+                {
+                    throw std::runtime_error( std::format(
+                        "ModelStore: stopped while checking the bytes already received for {}", description ) );
+                }
+
+                resume_from = *replayed;
             }
 
             // Append so a resumed transfer extends the partial rather than truncating it.
@@ -307,7 +319,8 @@ namespace Mila::Distribution
          * that implies verification.
          *
          * @return Path to the verified blob.
-         * @throws std::runtime_error on a digest mismatch or a lock held by another process.
+         * @throws TransferInProgressError when a live process is writing the same blob.
+         * @throws std::runtime_error on a digest mismatch.
          */
         std::filesystem::path adoptBlob(
             const std::string& description,
@@ -331,12 +344,7 @@ namespace Mila::Distribution
 
             if ( !lock.held() )
             {
-                throw std::runtime_error( std::format(
-                    "ModelStore: another process is already installing this blob.\n"
-                    "  blob {}\n"
-                    "  lock {}\n"
-                    "If no install is running, delete the lock file and retry.",
-                    description, lock.path().string() ) );
+                throw TransferInProgressError( description );
             }
 
             if ( std::filesystem::exists( final_path, ignored ) )
@@ -786,7 +794,7 @@ namespace Mila::Distribution
         }
 
         /**
-         * @brief Reclaim rejected transfers and abandoned locks, and on request partials.
+         * @brief Reclaim rejected transfers and locks no process holds, and on request partials.
          *
          * Never touches `blobs/`: a blob is deleted only with the record that named it (see
          * remove and writeRecord).
@@ -815,11 +823,22 @@ namespace Mila::Distribution
                     {
                         reclaim( entry.path(), report, report.files_removed );
                     }
-                    else if ( name.ends_with( ".lock" ) && isAbandoned( entry.path() ) )
+                    else if ( name.ends_with( ".lock" ) )
                     {
-                        // A lock outliving any plausible transfer is a crashed process, not a
-                        // peer. Reclaimed on a generous clock so a slow but live fetch is safe.
-                        reclaim( entry.path(), report, report.files_removed );
+                        // A lock file no live process holds is taken, which removes it as it is released; one a
+                        // transfer holds is refused and left.
+                        const std::filesystem::path path = entry.path();
+                        bool released = false;
+
+                        {
+                            TransferLock abandoned( path );
+                            released = abandoned.held();
+                        }
+
+                        if ( released && !std::filesystem::exists( path, ignored ) )
+                        {
+                            report.files_removed += 1;
+                        }
                     }
                     else if ( name.ends_with( ".partial" ) && options.discard_partials )
                     {
@@ -827,6 +846,47 @@ namespace Mila::Distribution
                     }
                 }
             }
+
+            return report;
+        }
+
+        /**
+         * @brief Delete what an install that was given up left of these files: each one's partial,
+         *        and each one's blob that no record names.
+         *
+         * For an install the person cancelled, whose files are therefore unwanted. A blob another
+         * installed model names stays, and so does a file some other process is still writing.
+         * As with remove, no blob is deleted while a record cannot be read, since it may name it.
+         * A blob that another install still under way has finished, and has not yet recorded, is
+         * deleted too: that model then lists as incomplete, and installing it again fetches it.
+         */
+        RemovalReport discardTransfers( const std::vector<ModelFile>& files )
+        {
+            RemovalReport report;
+
+            std::error_code ignored;
+
+            for ( const auto& file : files )
+            {
+                const auto tmp_root = root_ / "tmp";
+                const auto partial_path = tmp_root / ( "sha256-" + file.sha256 + ".partial" );
+
+                if ( !std::filesystem::exists( partial_path, ignored ) )
+                {
+                    continue;
+                }
+
+                TransferLock lock( tmp_root / ( "sha256-" + file.sha256 + ".lock" ) );
+
+                if ( lock.held() )
+                {
+                    reclaim( partial_path, report, report.files_removed );
+                }
+            }
+
+            ModelRecord abandoned;
+            abandoned.files = files;
+            reclaimBlobsOnlyNamedBy( abandoned, {}, report );
 
             return report;
         }
@@ -899,70 +959,12 @@ namespace Mila::Distribution
 
     private:
 
-        /**
-         * @brief An exclusively created lock file, released on destruction.
-         *
-         * std::ios::noreplace is C++23's open-if-absent: it fails rather than truncates when the
-         * file exists, which is the whole mechanism -- exactly one process can be transferring a
-         * given digest.
-         */
-        class TransferLock
-        {
-        public:
-
-            explicit TransferLock( std::filesystem::path path )
-                : path_( std::move( path ) )
-            {
-                std::ofstream file( path_, std::ios::binary | std::ios::noreplace );
-
-                held_ = file.is_open();
-            }
-
-            ~TransferLock()
-            {
-                if ( held_ )
-                {
-                    std::error_code ignored;
-                    std::filesystem::remove( path_, ignored );
-                }
-            }
-
-            TransferLock( const TransferLock& ) = delete;
-            TransferLock& operator=( const TransferLock& ) = delete;
-
-            bool held() const noexcept { return held_; }
-            const std::filesystem::path& path() const noexcept { return path_; }
-
-        private:
-
-            std::filesystem::path path_;
-            bool held_{ false };
-        };
-
         static std::string utcTimestamp()
         {
             const auto now = std::chrono::time_point_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now() );
 
             return std::format( "{:%Y-%m-%dT%H:%M:%SZ}", now );
-        }
-
-        /**
-         * @brief True when a lock is old enough that no live transfer could still hold it.
-         */
-        static bool isAbandoned( const std::filesystem::path& path )
-        {
-            std::error_code ignored;
-
-            const auto written = std::filesystem::last_write_time( path, ignored );
-
-            if ( ignored )
-            {
-                return false;
-            }
-
-            return ( std::filesystem::file_time_type::clock::now() - written )
-                > std::chrono::hours( 24 );
         }
 
         /**
@@ -1291,13 +1293,15 @@ namespace Mila::Distribution
         }
 
         /**
-         * @brief Feed an existing partial through the hash and return its length.
+         * @brief Feed an existing partial through the hash and return its length, or nothing when
+         *        `checking` asked to stop.
          *
          * SHA-256 is sequential, so resuming a transfer means re-reading the prefix. That is
          * disk-local and far cheaper than re-downloading it.
          */
-        static std::uint64_t replayPartialIntoHash(
-            const std::filesystem::path& partial_path, Sha256& hash )
+        static std::optional<std::uint64_t> replayPartialIntoHash(
+            const std::filesystem::path& partial_path, Sha256& hash,
+            const std::function<bool( std::uint64_t checked )>& checking )
         {
             std::ifstream input( partial_path, std::ios::binary );
 
@@ -1322,6 +1326,11 @@ namespace Mila::Distribution
 
                 hash.update( buffer.data(), read );
                 total += read;
+
+                if ( checking && !checking( total ) )
+                {
+                    return std::nullopt;
+                }
             }
 
             return total;

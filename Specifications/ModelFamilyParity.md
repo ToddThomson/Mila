@@ -144,7 +144,7 @@ each row is in scope unless it cannot fit 16 GB; the last column says whether th
 | Gemma 4 12B | Image and audio input, encoder-free: patches and waveforms projected into the decoder, no vision tower | -- the converter skips `embed_vision` and `embed_audio` | not priced; about 52M parameters, 105 MB at BF16 (derived) | BACKLOG, Gemma 4 Complete; `Gemma4Modality.md` |
 | Gemma 4 12B | Multi-token prediction: a dedicated draft model for speculative decoding | -- | not priced; about 0.85 GB at BF16 (derived), no cache of its own | BACKLOG, Gemma 4 Complete (the measurement, then the loop where it pays); `Gemma4Mtp.md` |
 | Gemma 4 12B | 262144-token context | planner allows it; Chat caps 131072; quality unmeasured above 131072 | yes, at FP4 | `ModelHandle.md` 10.3 |
-| Gemma 4 12B | Quantization-aware 4-bit checkpoint (int4, group 32) | Y, `PerGroupInt4<32>` since `0.21.0-dev+12`; ships as its own package, `gemma-4-12B-it-q4_0` (G6) | yes | `Quantization.md`, Q4_0 |
+| Gemma 4 12B | Quantization-aware 4-bit checkpoint (int4, group 32) | Y, `PerGroupInt4<32>` since `0.21.0-dev+12`; ships as its own package, `gemma-4-12b-it-q4_0` (G6) | yes | `Quantization.md`, Q4_0 |
 | Gemma 4 26B-A4B | Multi-token prediction: its own draft model | -- | not priced | BACKLOG, Gemma 4 Complete (the same measurement as the 12B's, Todd 2026-10-04); `Gemma4Mtp.md` |
 | Gemma 4 26B-A4B | Mixture of experts | Y, in `Lib/Src`, unpublished | yes, at 8192 and the 12B's chunk, since the routed buffers were pooled (3.6) | BACKLOG, "Announce the Gemma 4 26B-A4B mixture of experts" |
 | Gemma 4 26B-A4B | Quantization-aware 4-bit checkpoint (Q4_0, instruct only) | Y, `PerGroupInt4<32>` in the bank since `0.21.0-dev+24`; unpublished | yes, the same bytes as `PerGroupFp4<64>` | `Gemma4MoE.md` Phase 9; 8.2, G5 |
@@ -677,7 +677,7 @@ harness for the card's quality line.
   and Chat's display; the model run through Chat, the inference server and the Python binding, tool calls
   included; then the package, its card and the capability row.
 - The 26B-A4B is a first publish, so it is not held for the 12B. Neither is the 12B's Q4_0 build, since
-  2026-10-20 (Todd): it changes the variant and the base model, so it is a new model, `gemma-4-12B-it-q4_0`, and
+  2026-10-20 (Todd): it changes the variant and the base model, so it is a new model, `gemma-4-12b-it-q4_0`, and
   the FP4 package is superseded rather than republished (`ModelDistribution.md`, *A model replaced by
   another*). It ships when its own gates pass; G7's image and audio embedders, if they stay in the release,
   come later as a revision of its repository.

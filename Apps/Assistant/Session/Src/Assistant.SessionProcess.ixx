@@ -161,8 +161,26 @@ namespace Mila::Assistant
         /// project that has one, and offered to the model in every chat in a project (5.6).
         static constexpr std::string_view kReadProjectNotesName = "read_project_notes";
 
+        /// The interview's own tools (AssistantOnboarding.md 4.4): what the person asked to be called, and the end of the
+        /// setup. Offered only by the interview's prompt.
+        static constexpr std::string_view kRememberNameName = "remember_name";
+        static constexpr std::string_view kFinishSetupName = "finish_setup";
+
+        /// Requests the session's own threads put on its queue, which the reading thread never accepts from the page.
+        static constexpr std::string_view kInternalPrefix = "internal.";
+        static constexpr std::string_view kOnboardingListed = "internal.onboarding_listed";
+        static constexpr std::string_view kOnboardingInstalled = "internal.onboarding_installed";
+
+        /// The interview's prompt, and Mila's opening words in its first chat, both in the prompts folder.
+        static constexpr std::string_view kInterviewPrompt = "interview.json";
+        static constexpr std::string_view kInterviewOpening = "interview-opening.txt";
+
+        /// What is new in this version, written at release time for the person, in the prompts folder; none when a
+        /// release has nothing to tell (AssistantOnboarding.md 4.3, round 9).
+        static constexpr std::string_view kWhatsNew = "whats-new.txt";
+
         /// What a request the licence holds back is told; the page asks for the licence before it sends one.
-        static constexpr std::string_view kLicenseFirst = "Accept Mila's licence first. It is shown when Mila starts.";
+        static constexpr std::string_view kLicenseFirst = "Accept Mila's License first. It is shown when Mila starts.";
 
         /// What the session's thread is doing, for an error to say where it happened.
         enum class Work
@@ -557,9 +575,55 @@ namespace Mila::Assistant
 
         void installModel( const std::string& name );
 
-        void installProgress( std::uint64_t received, std::uint64_t total );
+        /// The install's bytes so far, said across every file it downloads; false once the person asked it to stop.
+        bool installProgress( std::uint64_t received, std::uint64_t total );
 
         void removeModel( const std::string& name );
+
+        // ---- Onboarding (AssistantOnboarding.md 4.4) ---------------------------------------
+
+        /// Whether the setup is to install the onboarding model and run the interview: begun and not finished, or
+        /// never begun by a person with no model remembered.
+        bool onboardingDue() const;
+
+        /// Where the onboarding stands, as session.state says it: "due", "started", "done", or null.
+        nlohmann::ordered_json onboardingState() const;
+
+        /// Starts the worker that lists the model hub and picks the onboarding model for this computer, and, once the
+        /// person has agreed, downloads it, so the session answers the person while it runs. Nothing when one is
+        /// running.
+        void startOnboarding( bool download );
+
+        /// The worker's whole run: what it finds is handed to the session's thread as internal requests.
+        void prepareOnboarding( DeploymentRequest request, bool download );
+
+        /// onboarding.download: the person agreed on *Getting Mila Ready*; kept, and the download begins.
+        void agreeToDownload();
+
+        /// onboarding.panes_done: the person reached the end of the panes, so the interview may open, and this
+        /// version's onboarding is gone through.
+        void panesDone();
+
+        /// What is new in this version, for an update's onboarding: the text shipped beside the prompts, when the
+        /// person last went through an older version's onboarding; empty otherwise.
+        std::string whatsNew() const;
+
+        /// On the session's thread: the model hub's list, or why it could not be read.
+        void onboardingListed( const nlohmann::json& request );
+
+        /// On the session's thread: the onboarding model is on this computer, or why it is not; it is then loaded,
+        /// before the terms are accepted, so the first chat waits only on them.
+        void onboardingInstalled( const nlohmann::json& request );
+
+        /// The interview's first chat, opened with Mila's opening words once the terms are accepted and the model is
+        /// loaded; the chat it began is opened again for a person who stopped part way.
+        void beginInterview();
+
+        /// remember_name: what the person asked to be called, kept in the settings.
+        std::string rememberName( const std::string& arguments );
+
+        /// finish_setup: the interview is over; the chat goes on with the general prompt after this turn.
+        std::string finishSetup();
 
         /**
          * @brief Open the resident model again on another request, the conversation kept: a context sizes the
@@ -792,13 +856,27 @@ namespace Mila::Assistant
         // The tokens the conversation takes in the context: counted between turns, said by each round within one.
         std::optional<dim_t> context_used_;
 
-        /// The model an install is bringing in, as a person reads it: its display name when the publisher's list gave one.
+        /// The model an install is bringing in, by its name, and as a person reads it: its display name when the
+        /// publisher's list gave one.
+        std::string install_model_;
         std::string install_name_;
 
-        /// Each published model's display name from the list last sent, so an install can say what it is installing.
-        std::map<std::string, std::string, std::less<>> published_display_names_;
-        std::uint64_t install_total_{ 0 };
-        int install_percent_{ -1 };
+        /// The publisher's list last fetched, sent again after an install or remove with what is installed made current,
+        /// and its suggestion; null until it is fetched.
+        nlohmann::json published_;
+        nlohmann::json published_suggested_;
+
+        /// The install's whole download from that list (zero when it did not say), the bytes of the files it has
+        /// finished, and the tenth of a percent last said.
+        std::uint64_t install_download_bytes_{ 0 };
+        std::uint64_t install_finished_bytes_{ 0 };
+        int install_per_mille_{ -1 };
+
+        // Set by this thread around an install; the reading thread asks it to stop only while one runs. A Cancel also
+        // asks that what arrived be deleted; the window closing keeps it.
+        std::atomic<bool> installing_{ false };
+        std::atomic<bool> install_stop_asked_{ false };
+        std::atomic<bool> install_discard_asked_{ false };
 
         // The folder the chat's grant holds, in UTF-8, once it has one (AssistantInterface.md 5.5).
         std::optional<std::string> conversation_folder_;
@@ -856,5 +934,23 @@ namespace Mila::Assistant
 
         // Set by a call that changed what the chat is offered, applied once its result is in (offerToolsWhenSafe).
         bool tools_changed_in_call_{ false };
+
+        // Set by finish_setup, so the chat takes the general prompt once the turn that called it ends.
+        bool interview_finished_in_call_{ false };
+
+        /// The onboarding model the model hub's list named; null until it is listed, or when none runs here.
+        nlohmann::json published_onboarding_;
+
+        // Set while the onboarding worker runs, by it.
+        std::atomic<bool> onboarding_working_{ false };
+
+        // Set once the page says the person reached the end of the panes; the interview waits for it.
+        bool panes_done_{ false };
+
+        // Set when the person agreed to the download while the worker was still listing.
+        bool agree_pending_{ false };
+
+        // Last, so it is joined before anything it uses is destroyed.
+        std::jthread onboarding_worker_;
     };
 }

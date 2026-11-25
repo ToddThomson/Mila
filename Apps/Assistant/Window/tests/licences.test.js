@@ -91,8 +91,8 @@ function aTextThatCannotBeReadSaysSo()
     fs.writeFileSync( large, Buffer.alloc( 1024 * 1024 + 1, 'a' ) );
 
     assert.equal( readLicence( gone ).text, null );
-    assert.equal( readLicence( gone ).problem, 'Mila could not read this licence.' );
-    assert.equal( readLicence( { file: large } ).problem, 'This licence is too long to show here.' );
+    assert.equal( readLicence( gone ).problem, 'Mila could not read this license.' );
+    assert.equal( readLicence( { file: large } ).problem, 'This license is too long to show here.' );
 }
 
 test( 'a licence that cannot be read says so', aTextThatCannotBeReadSaysSo );

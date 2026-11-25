@@ -118,12 +118,12 @@ export function readLicence( entry )
         const size = fs.statSync( entry.file ).size;
 
         if ( size > textLimitBytes )
-            return { text: null, problem: 'This licence is too long to show here.' };
+            return { text: null, problem: 'This license is too long to show here.' };
 
         return { text: fs.readFileSync( entry.file, 'utf8' ), problem: null };
     }
     catch
     {
-        return { text: null, problem: 'Mila could not read this licence.' };
+        return { text: null, problem: 'Mila could not read this license.' };
     }
 }
