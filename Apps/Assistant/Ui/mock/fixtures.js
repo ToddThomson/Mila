@@ -196,7 +196,12 @@ export function summarizeConversation( conversation )
         }
     } );
 
-    return { progress, finish, reply_start: replyStart, wrote, kept, offers: offersIn( messages ) };
+    // As Assistant.SetupSteps' outstandingIn: what the setup has still to accomplish, for its chat alone.
+    const setup = Array.isArray( conversation.setup )
+        ? conversation.setup.filter( ( objective ) => objective.status === 'pending' ).map( ( objective ) => objective.objective )
+        : null;
+
+    return { progress, finish, reply_start: replyStart, wrote, kept, offers: offersIn( messages ), setup };
 }
 
 const notReads = [ 'write_file', 'edit_file', 'propose_plan', 'update_step', 'request_folder', 'open_place', 'propose_project',

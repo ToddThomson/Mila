@@ -117,7 +117,7 @@ export function renderProjects( root, state, local, now, search )
     }
 
     const create = button( 'button', 'New project', 'new-project' );
-    const top = head( 'Your Workspace', 'Projects' );
+    const top = head( 'Workspace', 'Projects' );
     const list = element( 'div', 'rows' );
     const shown = matchingProjects( state, local.projectQuery, local.projectFilter, local.projectSort );
 

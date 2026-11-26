@@ -68,9 +68,41 @@ namespace Mila::Assistant
             return words;
         }
 
+        /// Whether the words are one or more of the phrases, end to end: *no thanks, not now* is two refusals, and
+        /// *yes please, go ahead* two acceptances, where a phrase of another kind or any other word makes it Other.
         bool among( std::string_view words, std::span<const std::string_view> phrases )
         {
-            return std::ranges::find( phrases, words ) != phrases.end();
+            if ( words.empty() )
+            {
+                return false;
+            }
+
+            // reaches[ i ]: the words from i to the end are phrases alone.
+            std::vector<bool> reaches( words.size() + 1, false );
+            reaches[ words.size() ] = true;
+
+            for ( std::size_t start = words.size(); start-- > 0; )
+            {
+                if ( start > 0 && words[ start - 1 ] != ' ' )
+                {
+                    continue;
+                }
+
+                for ( const std::string_view phrase : phrases )
+                {
+                    const std::size_t end = start + phrase.size();
+
+                    if ( end <= words.size() && words.substr( start, phrase.size() ) == phrase
+                        && ( end == words.size() ? reaches[ end ] : words[ end ] == ' ' && reaches[ end + 1 ] ) )
+                    {
+                        reaches[ start ] = true;
+
+                        break;
+                    }
+                }
+            }
+
+            return reaches[ 0 ];
         }
     }
 

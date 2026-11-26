@@ -74,6 +74,13 @@ namespace Mila::Deployment
         const DeploymentRequest& request, const ModelStore& store = ModelStore{} );
 
     /**
+     * @brief Rank planned models as planPublishedModels does, for a caller that planned some of them on requests of its
+     *        own, such as a KV-cache format chosen per model: the planner prices that format, and the caller chooses it
+     *        (Specifications/Deployment.md section 2).
+     */
+    export void rankPublishedModels( std::vector<PublishedModelFit>& fits );
+
+    /**
      * @brief The model Mila Assistant's setup installs on this computer (Specifications/Apps/AssistantOnboarding.md 4.4):
      *        of the planned models whose manifest marks them onboarding ready, the first that can be suggested, agentic
      *        here before the rest, the smaller download first within each, so the first chat comes soonest.

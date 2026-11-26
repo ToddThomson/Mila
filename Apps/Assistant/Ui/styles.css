@@ -254,29 +254,6 @@ kbd {
 
 .sidebar-top { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 2px; padding: 12px 10px 8px; overflow-y: auto; }
 
-.side-workspace {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  margin-bottom: 8px;
-  padding: 8px;
-  border: 1px solid var(--rule);
-  border-radius: 12px;
-  background: var(--ground);
-  text-align: left;
-}
-
-.side-workspace:hover { border-color: color-mix(in srgb, var(--accent-2) 45%, var(--rule)); }
-
-.side-mark { flex: none; width: 30px; height: auto; margin: 0 2px; }
-
-.side-name { flex: 1; min-width: 0; line-height: 1.35; }
-
-.side-name b { display: block; overflow: hidden; font-size: 14.5px; font-weight: 650; letter-spacing: -.01em; text-overflow: ellipsis; white-space: nowrap; }
-
-.side-name span { display: block; color: var(--faint-text); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
-
 .side-item {
   display: flex;
   align-items: center;
@@ -327,59 +304,15 @@ kbd {
 
 .sidebar-foot { position: relative; flex: none; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px 10px; }
 
-.model-button .caret { flex: none; margin: 0 2px; }
-
-.model-button .side-label { color: var(--muted); font-size: 12.5px; }
-
-.model-button:hover .side-label { color: var(--fg); }
-
-.person-button {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  margin-top: 6px;
-  padding: 8px;
-  border: 0;
-  border-top: 1px solid var(--rule);
-  background: none;
-  text-align: left;
-}
-
-.person-button:hover { border-radius: 10px; background: var(--sunk); }
-
-.person-button .side-name b { font-size: 13.5px; }
-
-.person-button .side-name span { font-size: 11.5px; letter-spacing: 0; text-transform: none; }
-
-.avatar {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--sunk);
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.side-chevrons { display: inline-flex; flex: none; color: var(--faint-text); }
-
-.side-chevrons svg { width: 16px; height: 16px; }
-
-/* The model's details and the person's menu open above the foot. */
-.sidebar-popover { left: 10px; width: 300px; max-width: calc(100vw - 20px); bottom: calc(100% - 4px); padding: 8px; }
-
 .popover-title { padding: 0 9px 6px; font-weight: 600; }
 
 .menu-item-name { flex: 1; }
 
-/* How much of the open chat's context is used: a ring that fills, its details in the model's popover. */
-.context-ring { display: inline-flex; flex: none; margin-left: auto; }
+/* How much of the open chat's context is used: a ring that fills at the bar's end, its details in the model's
+   popover beneath it. */
+.context-ring { display: inline-flex; flex: none; }
 
-.context-ring svg { width: 18px; height: 18px; }
+.context-ring svg { width: 20px; height: 20px; }
 
 .context-ring circle { fill: none; stroke-width: 2.5; }
 
@@ -438,6 +371,28 @@ kbd {
 .crumb:hover { color: var(--accent-2); }
 
 .crumb-here { min-width: 0; overflow: hidden; color: var(--fg); text-overflow: ellipsis; }
+
+.bar-status { position: relative; flex: none; margin-left: auto; }
+
+.model-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.model-status:hover, .model-status[aria-expanded="true"] { background: var(--hover); color: var(--fg); }
+
+.model-status-note { white-space: nowrap; }
+
+.bar-popover { right: 0; top: calc(100% + 6px); width: 300px; max-width: calc(100vw - 20px); padding: 8px; }
 
 /* ---- The places (4.3, 4.6, 4.8) ----------------------------------------------------------- */
 
@@ -799,11 +754,15 @@ kbd {
 
 .setup-welcome { align-items: center; justify-content: center; text-align: center; }
 
-.setup-mark { display: block; width: 72px; height: auto; margin: 0 0 18px; }
+/* The website's lockup (Web/layouts/_default/baseof.html, .lockup), whose comment holds the measurements: the mark's
+   viewBox is trimmed to its ink, so baseline alignment seats its feet on the wordmark's baseline; it stands .76em, a
+   little above the ascender, as a point set flush reads short; and line-height 1 keeps the line box to the word. */
+.setup-lockup { --mark-h: .76em; display: inline-flex; align-items: baseline; gap: .12em; margin: 0 0 22px;
+  font-size: 52px; font-weight: 700; line-height: 1; letter-spacing: -.03em; }
 
-.setup-welcome-heading { margin-bottom: 4px; font-size: 34px; letter-spacing: -.02em; }
+.setup-lockup img { display: block; width: auto; height: var(--mark-h); }
 
-.setup-welcome-line { margin: 0 0 10px; font-size: 20px; font-weight: 500; color: var(--muted); }
+.setup-welcome-heading { margin-bottom: 10px; font-size: 26px; }
 
 .setup-byline { margin: 0; font-size: 17px; font-weight: 500; color: var(--accent); }
 
@@ -1352,6 +1311,9 @@ kbd {
 .chip-remove svg { width: 13px; height: 13px; }
 
 .composer-line { display: flex; align-items: flex-start; gap: 10px; flex: 1; min-width: 0; }
+
+/* The setup's chat once the setup is over: a new chat where the message box was. */
+.composer-closed { display: flex; justify-content: center; padding: 10px 0; }
 
 .composer-mark { flex: none; width: 19px; height: auto; margin-top: 8px; }
 

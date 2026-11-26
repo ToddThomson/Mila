@@ -376,7 +376,7 @@ export function createPlacesView( scroller, root, actions )
         const actionsRow = element( 'div', 'notice-actions' );
         const item = row.item;
         const finishing = row.kind === 'reply' && item.finish === 'length';
-        const label = row.kind === 'plan' ? 'Answer and continue' : replyActions[ item.finish ];
+        const label = row.kind === 'setup' ? 'Continue' : row.kind === 'plan' ? 'Answer and continue' : replyActions[ item.finish ];
         const act = button( 'button', label, finishing ? 'finish-reply' : 'open-conversation' );
         const project = projectOfChat( actions.getState(), item );
 
@@ -519,7 +519,7 @@ export function createPlacesView( scroller, root, actions )
 
         const atGlance = section( 'At a glance', null, null );
         atGlance.append( glanceOf( overview ) );
-        root.append( head( longDate( now ), 'Your Workspace' ), atGlance );
+        root.append( head( longDate( now ), 'Workspace' ), atGlance );
 
         if ( needed > 0 || overview.suggested.length > 0 || overview.noticed.length > 0 )
         {
@@ -692,7 +692,7 @@ export function createPlacesView( scroller, root, actions )
         else
             list.append( ...shown.map( ( item ) => managedRow( item, now, where( item ) ) ) );
 
-        root.append( head( 'Your Workspace', 'All chats' ), tools, list );
+        root.append( head( 'Workspace', 'All chats' ), tools, list );
 
         const input = list.querySelector( '.rename-input' );
 
@@ -717,7 +717,7 @@ export function createPlacesView( scroller, root, actions )
             tools.append( filter );
         }
 
-        root.append( head( 'Your Workspace', 'Activity' ), tools );
+        root.append( head( 'Workspace', 'Activity' ), tools );
 
         const days = activityDays( state, local.kind );
 
@@ -889,7 +889,7 @@ export function createPlacesView( scroller, root, actions )
             reachRow( 'Commands', reach.commands ? 'Mila asks before each one' : 'Off', null ) );
         internet.append( internetRows );
 
-        root.append( head( 'Your Workspace', 'What Mila can reach' ), folders, chat, internet );
+        root.append( head( 'Workspace', 'What Mila can reach' ), folders, chat, internet );
     }
 
     function render( state )

@@ -10,6 +10,18 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## A change to Mila Assistant's prompts alone does not reach the build, so the session runs the old prompt
+
+`Apps/Assistant/Session/CMakeLists.txt` (the `POST_BUILD` copy of `Prompts`) @ 0.21.0-dev+164
+
+Found 2026-11-25 changing `Prompts/interview.json` during Todd's walk of the interview. The prompts are copied beside `mila-session.exe` by a `POST_BUILD` command, which runs only when the executable links; a build after editing a prompt alone links nothing, reports success, and the session goes on reading the old copy. Seen in `x64-claude-verify`; a VS build of `x64-profile` works the same way. Copied by hand with `cmake -E copy_directory` that day.
+
+## Mila Assistant does not tell the model today's date or the time, so on Gemma and Qwen it does not know what day it is
+
+`Apps/Assistant/Session/Src/Implementation/SessionProcess.cpp` (the system prompt, beside `person_name`); `Lib/Src/Dnn/Models/LlaMa/Llama.ChatProtocol.ixx` (`date_string`) @ 0.21.0-dev+164
+
+Found 2026-11-25 scoping the interview's goals. The session's system prompt carries the person's name and nothing of when or where: no date, time or time zone. Llama's template fills `date_string` with today's date itself; Gemma's and Qwen's carry none, so the onboarding model answers "what's on today" or "next Tuesday" with no date at all. The computer knows all of it on Windows, macOS and Linux.
+
 ## Models a person installed with v0.20 are not found by 0.21, since the store moved and nothing moves it
 
 `Lib/Src/Distribution/Store/ModelStore.ixx` (`resolveStoreRoot`); `Apps/Chat/Src/Settings/Chat.SettingsResolution.ixx` (`resolveConfigRoot`); `Specifications/ModelDistribution.md` @ 0.21.0-dev+163

@@ -18,18 +18,44 @@ function normalized( text )
     return text.replace( /['’]/g, '' ).toLowerCase().split( /[^a-z0-9\u0080-￿]+/ ).filter( ( word ) => word.length > 0 ).join( ' ' );
 }
 
+/** Whether the words are one or more of the phrases end to end, as Assistant.OfferAnswer reads them: *no thanks, not now*. */
+function among( words, phrases )
+{
+    if ( words.length === 0 )
+        return false;
+
+    const reaches = new Array( words.length + 1 ).fill( false );
+    reaches[ words.length ] = true;
+
+    for ( let start = words.length - 1; start >= 0; start = start - 1 )
+    {
+        if ( start > 0 && words[ start - 1 ] !== ' ' )
+            continue;
+
+        reaches[ start ] = phrases.some( ( phrase ) =>
+        {
+            const end = start + phrase.length;
+
+            return words.startsWith( phrase, start )
+                && ( end === words.length ? reaches[ end ] : words[ end ] === ' ' && reaches[ end + 1 ] );
+        } );
+    }
+
+    return reaches[ 0 ];
+}
+
 /** `accept`, `decline`, `keep_separate` or `other`. */
 export function readOfferAnswer( text )
 {
     const words = normalized( typeof text === 'string' ? text : '' );
 
-    if ( acceptances.includes( words ) )
+    if ( among( words, acceptances ) )
         return 'accept';
 
-    if ( refusals.includes( words ) )
+    if ( among( words, refusals ) )
         return 'decline';
 
-    return keepSeparate.includes( words ) ? 'keep_separate' : 'other';
+    return among( words, keepSeparate ) ? 'keep_separate' : 'other';
 }
 
 /** The call whose offer the next message answers: one open in Mila's last reply, or a move made and said there. */

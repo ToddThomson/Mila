@@ -12,8 +12,9 @@ namespace Mila::Assistant
     /**
      * @brief A message read as an answer to an offer, by app code and never by the model.
      *
-     * Only a message that is nothing but an acceptance, a refusal or *keep it separate* answers; anything longer is
-     * Other, and goes to Mila as an ordinary message.
+     * Only a message that is nothing but acceptances, nothing but refusals or nothing but *keep it separate* answers --
+     * *No thanks, not now* is two refusals -- and anything else, a word of another kind among them included, is Other,
+     * and goes to Mila as an ordinary message.
      */
     export enum class OfferAnswer
     {

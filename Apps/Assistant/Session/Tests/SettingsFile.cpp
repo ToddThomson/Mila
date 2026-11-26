@@ -220,4 +220,62 @@ namespace Mila::Tests::Apps::Assistant
         partial += ".partial";
         EXPECT_FALSE( std::filesystem::exists( partial ) );
     }
+
+    // A launch part way through the interview reads the settings the last one wrote: the panes it went through are not
+    // shown again (AssistantOnboarding.md 4.4).
+    TEST_F( SettingsFileTest, PanesGoneThroughInThisVersionAreReadBackAsGoneThrough )
+    {
+        Settings settings;
+        settings.onboarding = "started";
+        settings.interview_conversation = "conversation-20261125152435-5b3627";
+        settings.last_version = "0.21.0-dev+164";
+        SettingsFile( path() ).write( settings );
+
+        std::vector<std::string> problems;
+        const Settings read = SettingsFile( path() ).read( problems );
+
+        EXPECT_TRUE( problems.empty() );
+        EXPECT_TRUE( onboardingPanesGoneThrough( read, "0.21.0-dev+164" ) );
+        EXPECT_FALSE( onboardingPanesGoneThrough( read, "0.21.0-dev+165" ) ) << "another version's are its own";
+    }
+
+    TEST_F( SettingsFileTest, WhatTheSetupKeptOfThePersonAndTheModelToMoveToAreReadBack )
+    {
+        Settings settings;
+        settings.person_name = "Sam";
+        settings.person_uses = "writing and planning trips";
+        settings.person_needs = "files_and_tools,long_documents";
+        settings.next_model = "qwen3.8-27b-fp4";
+        settings.declined_model = "gemma-4-26b-a4b-it-q4_0";
+        settings.declined_at = "2026-11-25T20:00:00Z";
+        SettingsFile( path() ).write( settings );
+
+        std::vector<std::string> problems;
+        const Settings read = SettingsFile( path() ).read( problems );
+
+        EXPECT_TRUE( problems.empty() );
+        EXPECT_EQ( read.person_uses, "writing and planning trips" );
+        EXPECT_EQ( read.next_model, "qwen3.8-27b-fp4" );
+        EXPECT_EQ( read.person_needs, "files_and_tools,long_documents" );
+        EXPECT_EQ( read.declined_model, "gemma-4-26b-a4b-it-q4_0" );
+        EXPECT_EQ( read.declined_at, "2026-11-25T20:00:00Z" );
+
+        SettingsFile( path() ).write( Settings{} );
+        const Settings empty = SettingsFile( path() ).read( problems );
+        EXPECT_TRUE( empty.person_uses.empty() );
+        EXPECT_TRUE( empty.next_model.empty() );
+        EXPECT_TRUE( empty.declined_model.empty() );
+    }
+
+    TEST_F( SettingsFileTest, PanesAreNotGoneThroughBeforeTheirEndOrAfterTheInterview )
+    {
+        Settings begun;
+        begun.onboarding = "started";
+        EXPECT_FALSE( onboardingPanesGoneThrough( begun, "0.21.0-dev+164" ) ) << "a first run has not reached their end";
+
+        Settings finished;
+        finished.onboarding = "done";
+        finished.last_version = "0.21.0-dev+164";
+        EXPECT_FALSE( onboardingPanesGoneThrough( finished, "0.21.0-dev+164" ) ) << "nothing is due once the interview ended";
+    }
 }

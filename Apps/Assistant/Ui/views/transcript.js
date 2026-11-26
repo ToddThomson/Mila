@@ -630,6 +630,38 @@ function updateTool( built, block, expanded )
     updateApproval( built, block );
 }
 
+/**
+ * The setup's download (AssistantOnboarding.md 4.4, round 12): what it gives the person's work and the space it takes,
+ * never a model's name, with the buttons that answer it while it is open. Words answer it too.
+ */
+function updateDownload( built, block, offer )
+{
+    const download = offer.download ?? {};
+    const gains = Array.isArray( download.gains ) ? download.gains.join( ' and ' ) : '';
+    const size = ( ( download.size_bytes ?? 0 ) / 1e9 ).toFixed( 1 ) + ' GB';
+
+    built.offer.append( element( 'p', 'offer-text', 'To be better at ' + gains + ', Mila needs to download about ' + size + '.' ) );
+
+    if ( offer.state !== 'open' && offer.state !== 'undecided' )
+    {
+        built.offer.append( element( 'div', 'offer-state', offer.state === 'accepted' ? 'Downloading' : 'Not downloaded' ) );
+
+        return;
+    }
+
+    const choices = element( 'div', 'offer-choices' );
+
+    for ( const [ label, decision, style ] of [ [ 'Download', 'accept', 'chip-button' ], [ 'Not now', 'decline', 'chip-button quiet' ] ] )
+    {
+        const choice = button( style, label, 'offer-decide' );
+        choice.dataset.call = block.callId;
+        choice.dataset.decision = decision;
+        choices.append( choice );
+    }
+
+    built.offer.append( choices );
+}
+
 /** A move Mila offered or made (6), as it stands. */
 function moveLine( offer )
 {
@@ -665,6 +697,13 @@ function updateOffer( built, block )
     if ( offer.kind === 'move' )
     {
         built.offer.append( element( 'p', 'offer-text', moveLine( offer ) ) );
+
+        return;
+    }
+
+    if ( offer.kind === 'download' )
+    {
+        updateDownload( built, block, offer );
 
         return;
     }

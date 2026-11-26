@@ -48,7 +48,7 @@ The values that decide how a model runs, and which of them a caller can choose t
 | Context length | yes, `withContextLength` | caller, or Chat's `"auto"` |
 | Prefill chunk | no | the transformer, at build |
 | Weight format | only for a BF16 package, by quantize-on-load to FP8 or FP4; a pre-quantized package fixes it (`requireStoredQuantizationMatches`) | caller |
-| KV-cache compression | yes, `withKvCacheCompression( FP8 )`: every Llama layer and Gemma's global layers, CUDA BF16 builds only; Qwen refuses it (`dispatchKvCacheCompression`) | caller; priced, never chosen (`Quantization.md` KV decision 5) |
+| KV-cache compression | yes, `withKvCacheCompression( FP8 )`: every Llama layer, Gemma's global layers and Qwen's full-attention layers (its DeltaNet layers hold no cache), CUDA BF16 builds only (`dispatchKvCacheCompression`; Qwen's since `Qwen3.8.md` *The fp4-cb3 allocation*, the line here corrected 2026-11-25) | caller; priced, never chosen (`Quantization.md` KV decision 5). Mila Assistant chooses per model: the FP8 cache where the uncompressed one leaves the model short of `kAgenticContextLength` and FP8 reaches it (`Apps/AssistantOnboarding.md` 4.4, round 12) |
 | Batch | fixed at 1 | not a knob |
 
 The planner decides the first four. Weight format and KV-cache compression stay the caller's

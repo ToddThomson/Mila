@@ -237,7 +237,7 @@ function onPageMessage( event, message )
     {
         setupShowing = message.showing === true;
         buildMenu();
-        showDevelopmentMenuBar();
+        hideDevelopmentMenuBar();
 
         return;
     }
@@ -285,15 +285,18 @@ function buildMenu()
 }
 
 /**
- * A development run keeps Electron's menu for its developer tools, but not over the first-run setup, which then looks
- * as a release build's does on Windows and Linux (AssistantOnboarding.md 4.1). macOS's menu bar is not the window's.
+ * A development run keeps Electron's menu for its shortcuts -- developer tools, reload, zoom -- with its bar hidden, so
+ * the window looks as a release build's does on Windows and Linux (Todd, 2026-11-25); Alt shows the bar, except over
+ * the first-run setup (AssistantOnboarding.md 4.1). macOS's menu bar is not the window's.
  */
-function showDevelopmentMenuBar()
+function hideDevelopmentMenuBar()
 {
     if ( app.isPackaged || process.platform === 'darwin' || mainWindow === null || mainWindow.isDestroyed() )
         return;
 
-    mainWindow.setMenuBarVisibility( !setupShowing );
+    // Auto-hide first: turned on while the bar shows, it would leave it showing.
+    mainWindow.setAutoHideMenuBar( !setupShowing );
+    mainWindow.setMenuBarVisibility( false );
 }
 
 function denyNavigation( event )
@@ -348,7 +351,7 @@ function createWindow()
         options.icon = iconPath;
 
     mainWindow = new BrowserWindow( options );
-    showDevelopmentMenuBar();
+    hideDevelopmentMenuBar();
 
     const contents = mainWindow.webContents;
     const show = () => mainWindow.show();

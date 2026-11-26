@@ -23,7 +23,9 @@ closing Mila keeps it; *Choose another model* goes and **Skip** comes, "if a mod
 need to select the avail list through normal channels"; and an update of Mila is to have a *What's New* pane
 (section 4.3, not built). Round 8 (2026-11-24, Todd, decided in part, not built): an onboarding model for every
 backend, its download begun at the first launch, Mila's terms accepted before the first chat, and the interview as the
-workspace's first chat (section 4.4). Where it is decided it supersedes rounds 3, 5 and 7's model pane.
+workspace's first chat (section 4.4). Where it is decided it supersedes rounds 3, 5 and 7's model pane. Round 10
+(2026-11-25, Todd, walking the interview): its two goals, and that it ends in the person's decision to stay on the
+onboarding model or move to a regular one (section 4.4).
 
 What a person meets from Mila Assistant's first launch to its first reply, and how the model Mila suggests for
 their computer is chosen. The suggestion is the planner's answer, never the app's (Todd, 2026-11-13).
@@ -203,8 +205,10 @@ session opens the remembered model: the window returns at once.
 
 While the panes show, a packaged Mac's menu bar is the application menu (About, Quit) and Edit only (question 19).
 The page tells the window (`setup.showing`), which builds the menu; the empty window before the setup counts as it.
-A run from the source folders keeps Electron's menu bar for its developer tools on Windows and Linux, hidden while the
-panes show (Todd, 2026-11-22), so the setup looks as a released Mila's does.
+A run from the source folders keeps Electron's menu on Windows and Linux for its shortcuts -- developer tools, reload,
+zoom -- with its bar hidden, so the window looks as a released Mila's does: over the panes since 2026-11-22, and
+everywhere since 2026-11-25 (Todd: "hide it in the development run too"). Alt shows the bar, except while the panes
+show.
 
 **What is accepted, and who keeps it.** The session decides, not the page:
 
@@ -318,7 +322,9 @@ at 4.4 s, the download ended at 27 s, the interview opened at 30 s after the pan
 `finish_setup` ran. The mock's scenario 21 walks the same panes. The full pane is titled *Almost Ready* (Todd, 2026-11-25), as
 *Getting Mila Ready* is the step that asks for the download, and is a simple list with checks (Todd, the same day: "A
 simple list with checks would do here"): what Mila needs downloaded, Mila started, the first chat
-opened, each checked once done, the window's ring still showing the download. Found in Todd's first walk and fixed:
+opened, each checked once done, the window's ring still showing the download. The Welcome begins with Mila's lockup,
+the mark and the wordmark as one object as on the website, with *Welcome* beneath it as the pane's title (Todd, the
+same day). Found in Todd's first walk and fixed:
 the panes were drawn again for every progress message, which replaced their buttons between a press and its release,
 so Continue did nothing while the download ran; a pane showing the same thing now has only its ring moved. **Not run:** the window against this session, an
 update's path (no release has shipped a `whats-new.txt`), and the macOS and Linux builds.
@@ -378,7 +384,11 @@ models are published (`mila-llm` on HuggingFace), **model metadata** is what a m
 
 - **A person who stops part way** returns where they stopped: accepted terms and an unfinished download open on the
   waiting pane; an unfinished interview reopens the first chat. The session's settings keep the interview's end
-  beside the terms' acceptance.
+  beside the terms' acceptance. *Fixed 2026-11-25, found in Todd's walk:* as built at `+164` a launch part way through
+  the interview showed the panes again from the welcome, since the session kept their end only in memory and the page
+  began at the welcome. The version kept at the panes' end (`last_version`) now says they were gone through
+  (`onboardingPanesGoneThrough`), and the page then shows *Almost Ready* until Mila is ready and opens the interview's
+  chat; the mock's scenario 22 plays it.
 - **A store that already holds models** (`Mila/Store`, shared with Chat) still installs the onboarding model, so every
   first chat runs on one; a store that holds it downloads nothing.
 - **The interview again** is asked for in the person's own words; no button.
@@ -440,6 +450,268 @@ interview's tools waited for the person's approval, so both are allowed without 
 - Gemma's terms: where the person meets them, now that they did not choose Gemma (question 16).
 - Contacting the model hub at launch, before any press: round 5 already asks as *Install Model* shows; this moves it
   earlier, and section 4.2's promise is to be said accordingly.
+
+### The interview's goals (round 10, 2026-11-25)
+
+Set out with Todd while he walked the interview as built at `+164`. The interview is *Setting up Mila*, the
+workspace's first chat.
+
+**Decided (Todd, 2026-11-25):**
+
+- **It has two goals:** Mila and the person get to know each other, and Mila is set up on a model suited to the
+  person's ongoing chats. "The other 'Setting up Mila' objective is to deploy a more suitable intelligence model for
+  ongoing sessions."
+- ~~**It ends in a decision:** "Setting up Mila must result in a decision to stay with the current onboarding model or
+  move to a new regular session model."~~ *Superseded the same day by round 12: the person is offered no choice of
+  model; Mila assesses the need and asks only to download.*
+
+**Proposed (Claude's, for Todd), from the vision's promises (`../Direction/MilaVision.md` 3 and 6):**
+
+- **What is asked passes three tests:** Mila does something differently with the answer at once; the computer cannot
+  tell Mila itself; and the person can see where it is kept, and change or delete it. The interview stays a
+  conversation of a few turns.
+- **What to ask:** what to call the person (built; a full name offered on the way is kept too, for what Mila signs);
+  how they like answers, short or thorough, plain or formal; and what they mostly want help with, in the vision's
+  areas (section 5: work, their files, organization, research, mail and messages, getting things done). The last
+  earns its place as an input to the model's decision, not as a survey.
+- **What is read, never asked:** the date, the time and time zone, the language and the region's formats, from the
+  operating system on Windows, macOS and Linux, following the person when a laptop travels. None of it reaches the
+  model today on Gemma or Qwen (`Issues/Untriaged.md`, 2026-11-25), which comes before any question.
+- **Location:** no precise location at the setup. Each platform asks the person for it through its own prompt, and it
+  is among the most sensitive facts on the machine. A home area the person offers in words is kept; otherwise Mila asks
+  when a request first needs it ("Which city?") and offers to remember it. A search that carries it is an outward
+  action like any other (the vision's section 3).
+- **Mila says who it is:** what it can do on this computer (tools and projects, or the conversation alone), that the
+  person can see and change what it knows of them, and that saying "set me up again" runs the interview again.
+- **The model's decision:** the planner decides what runs here and the model metadata what each candidate does
+  (section 3); the person's answers say which strengths matter -- measured agentic here for work with files and tools,
+  the longest context for long documents, a smaller and faster model for conversation. Staying is recommended when the
+  planner finds nothing better here. The choice is put without naming a model (round 9), with what the person gains
+  and the download's size; an agreed download runs in the background with the window's ring, and the change of model
+  comes between turns with one line in the chat.
+- **What is kept:** one record of what the person told Mila, each entry pointing to the chat it was said in, given to
+  every chat and shown in Settings, where it can be changed or deleted -- the first piece of the vision's Personal
+  Context (section 6), and the job a person's entry in the window could return for (`AssistantInterface.md` 4.1).
+
+**In the way today:**
+
+1. **A change of model clears the conversation** in Mila Assistant (`MilaAssistant.md` 7), so the interview cannot
+   carry on after the move. The library carries a conversation across models; only the app clears it
+   (`../Direction.md` 4.3).
+2. **A conversation crossing families is untested**, and `../Direction.md` 4.3 asks for that test before anything
+   relies on it. The interview begins with Mila's message, and only Gemma's chat format was read to take that.
+3. **Nothing holds the answers but the name.** The interview asks what the person uses Mila for, acknowledges it and
+   keeps nothing.
+4. **Free disk space is not checked**, and two models -- about 7 GB and a larger one -- make it matter.
+
+**Open:** whether the onboarding model stays installed after a move (it runs "set me up again", and every first chat
+runs on one by round 8); and whether the move happens at once or at the next new chat.
+
+### The first walk, and the interview's next design (round 11, 2026-11-25)
+
+**What happened** (Todd's run on Gemma 4 12B Q4_0, `+164`, one run, not a measurement). The name was kept. Asked what
+he expected to use Mila for, Todd asked back *"What are some of the things that you can do?"*; the model read that as
+starting on something else, as the prompt's way out allowed, called `finish_setup`, and answered *"You are all set
+up, Todd! I can help you with ... organizing your schedule, answering questions, drafting emails, or helping with
+creative projects."* The setup was marked done with nothing set up but the name, no model decision put, and two of
+four things offered that Mila does not have.
+
+**Why, most important first:**
+
+1. **The order was backwards.** Nobody can say what they will use Mila for before knowing what it can do, so the
+   question back was the natural answer. Mila says what it can do here before asking.
+2. **Mila had no facts about itself,** so asked, the model gave a generic assistant's list. The interview's prompt
+   gave it two tools and nothing of what Mila can do, and *"do not describe how you work inside"* pushed it to vagueness.
+3. **The way out was far too wide:** *"to start on something else at once, call finish_setup"* made any change of
+   subject the setup's end. A question about the question is not a skip.
+4. **The model alone ended the setup.** `finish_setup` worked whenever called, and no code checked what was done, so
+   round 10's rule -- the setup ends in the person's decision to stay or move -- held only if the model behaved, against
+   the vision's invariant 4.
+5. **The tool's result told the model to say something untrue:** *"Tell the user they are set up"*, whatever was kept.
+6. **The uses answer had nowhere to go** even had it been given (round 10, *In the way today* 3).
+
+**The next design (Todd, 2026-11-25: "write it into 4.4 and start on the prompt"):**
+
+- **Order:** the greeting and the name; what Mila can do here; what the person will mostly use it for; how they like
+  answers, once there is a record to keep it in; then the model decision, which ends the setup.
+- **Facts, not recall:** the app gives the model what Mila can do here as data -- the tools a chat gets on this
+  install (a search key set, commands on) and the onboarding model's measured capabilities, the facts *What Mila Can
+  Do* shows -- and the model says only what that list says. Until the app hands them over, the prompt carries the list
+  the app offers every chat today, without the web search and commands that depend on settings.
+- **Questions are answered and the interview goes on;** only a plain wish to skip the setup or to start now ends it,
+  and a skip is a choice to stay, said as such.
+- **The end is the person's decision, recorded in code:** the stay-or-move choice is put to them as a project
+  suggestion is put today, and the setup ends when they answer. The model may propose it and cannot declare the setup
+  done.
+- **The ending says what was kept,** never "set up".
+- **Measured before promised:** scripted people on Gemma 4 12B Q4_0 -- one who answers everything, one who asks back,
+  one who skips, one who starts on a real task -- each counted for staying on course.
+
+**The steps are the app's, and an unfinished setup is flagged** (Todd, 2026-11-25: "A session should be flagged with
+outstanding items?"; proposed, Claude's):
+
+- **The app keeps the setup's steps:** the name, what Mila can do (said), what the person will mostly use Mila for,
+  and the stay-or-move decision, each *done*, *skipped* or *outstanding*. A skip is an answer, so it is not outstanding.
+  The interview's tools mark them as they happen, so what is left is known in code, never from the model's words.
+- **They are what the setup has to accomplish, not a plan, and nothing of them is drawn in the chat** (Todd, 2026-11-25,
+  on seeing them built as the chat's plan, with its panel: "Why did you add a 'plan'? I do not like this shown at all.
+  This needs to be what the 'setup' needs to accomplish.").
+- **An unfinished setup is under *Needs you*** on the overview (4.3 of `AssistantInterface.md`): *Setting up Mila*,
+  what is still to do, and *Continue*.
+- **Only the decision is required;** the name and the uses may be skipped (proposed: round 10 made the decision the
+  setup's end, and nothing else is).
+- **At a launch** with the setup unfinished, the workspace opens with the *Needs you* card rather than on the chat
+  (proposed: the chat today reopens at every launch, which keeps the person in the setup until it ends).
+
+**One setup chat, which ends and hands over to a new chat** (Todd, 2026-11-25: "once finished ... should the model
+start a new chat or say that it is ready for a new session? What is the handoff"; Claude's answer, taken: "write it
+all into 4.4"):
+
+- **One per workspace.** "Set me up again" carries on in it, so there is never a second *Setting up Mila*.
+- **The app ends the setup,** once the decision is made and every other step is done or skipped; the model cannot.
+- **Mila's last reply there says what was kept and decided,** in a sentence or two, and that a new chat is where to
+  start; "set up" is true by then.
+- **The setup chat then closes:** its steps all ticked, no message box, *New chat* in its place; the workspace's own
+  box starts one too. It stays as the record of what was decided.
+- **The first chat of the person's own is a new one,** on the chosen model once it is ready and on the onboarding
+  model until then. So the move happens at the next new chat, and no conversation crosses models at the handoff --
+  round 10's *In the way today* 1 and 2 no longer stand in the setup's path, though reopening an older chat on a new
+  model still needs the test across families (`../Direction.md` 4.3).
+- **Not taken:** Mila opening a new chat by itself with *What would you like to start with?*, which would be fixed
+  text again, since the model cannot speak first, and would leave an empty chat behind each time someone only looks.
+
+**Built, Claude, 2026-11-25 (Todd: "Let's build the setup steps and the handoff"), on Windows:**
+
+- **The objectives** are `Assistant.SetupSteps` -- *What to call you*, *What you will use Mila for*, *Which model Mila
+  runs on*, each pending, done or skipped, with what was said -- kept with the setup's chat under `setup`, never as
+  its plan, so no plan panel is drawn. The chat's summary carries what is still outstanding (`setup`), and the overview
+  puts an unfinished setup under *Needs you*: *Still to do: what you will use Mila for and which model Mila runs on*,
+  with *Continue*. Built first as the chat's plan and changed the same day at Todd's word above.
+- **The tools:** `remember_name` and `note_uses` mark their steps (`person_uses` joins every chat's system prompt, as
+  the name does); `skip_question` skips the name or the uses, or with `setup` the whole setup, which stays on the model
+  and ends it; `offer_model_choice` is refused until the name and the uses are each done or skipped, and puts the choice
+  as an offer of kind `model`. `finish_setup` is gone.
+- **The choice** is built by code: the planner's suggestion from the model hub's list, offered as a move only for what
+  it gives over the model Mila runs on -- measured agentic here, or a longer context -- with its download's size and
+  no model named; otherwise *This model suits this computer best.* It is answered in words (a bare yes or no, read by
+  app code as other offers are) or with its buttons (*Move to it* and *Stay*, or *Stay on this model*), through
+  `suggestion.decide`.
+- **The end:** the answer marks the model's step, ends the setup and adds the app's own line -- *I'm set up: I'll call
+  you Alex, and I'll stay on the model I run on now. Start a new chat whenever you're ready.* -- so the last line is
+  true whatever the model would say. The setup's chat then takes no more messages (the session refuses them), and the
+  page puts *New chat* where its message box was; `session.state` carries `setup_conversation`. The setup chat is kept
+  (`interview_conversation` is no longer cleared at its end).
+- **A move** keeps the model in `next_model` and downloads it on the worker, as the onboarding model's download runs,
+  so the person goes on meanwhile; the first new chat once it is installed loads it (`conversation.new`), as does a
+  launch, and a download a quit stopped goes on at the next launch.
+- **Checked:** the session's tests (`SetupSteps`, the summary, the settings) and the page's (scenario 21 played through
+  the page: the objectives kept and no plan drawn, *Needs you* with what is still to do, the choice answered in words
+  and with its button, the chat closed and refusing a message); the window over the mock, both widths, light and dark,
+  *Continue* on the card reopening the chat. **Not run:** the real session's interview
+  past the name (Todd's walk), a move (the local model hub holds the onboarding model alone), a skip of the whole setup,
+  and the macOS and Linux builds.
+- **Not built:** the launch with an unfinished setup still reopens its chat rather than showing the *Needs you* card
+  (proposed above, Todd's call); "set me up again"; the facts from the app beyond the tools; the record shown in
+  Settings; the measurement.
+
+*Built the same day, the prompt's part (points 1, 3 and 5, with the list in the prompt):* `Prompts/interview.json`
+says what Mila can do before asking what the person will use it for, answers a question and returns to the interview,
+ends only on a plain wish to skip or to start; `finish_setup`'s result says what was kept. Its list is kept by the
+tools a chat on this computer is offered (a folder on Windows and macOS, a search key, commands), not the interview's
+own. From Todd's next walk (*"when someone introduces themselves the correct response should contain a 'hi' back"*):
+Mila answers what the person said before asking anything, greets them back by name, and keeps the name they
+introduce themselves with rather than their full name. Not built: the facts from the app, the decision in code, the
+steps and the flag, the handoff, the record, the measurement.
+
+### No choice of model: Mila assesses, the person agrees to a download (round 12, 2026-11-25)
+
+**Decided (Todd, 2026-11-25),** on seeing the choice of model built (round 11): "The model is nothing the user should
+focus on. Mila is an intelligence harness. The user does not need to be offered the choice of a model." Then: "Mila
+will assess the need for a suitable model from the user interview process. If the user does not accept the download
+and install then the onboarding model will then stay. Mila must be able to later (through normal usage) need to
+remember this and perhaps offer again if it fails at tasks, etc."
+
+- **The person is offered no choice of model.** The setup is about the person; which model runs is Mila's to decide.
+- **Mila assesses the need from the interview:** what the person said they will use Mila for, against what the
+  onboarding model does on this computer and what a published model would do better (the planner, section 3).
+- **When something more suits them, Mila asks only to download and install it,** in what it gives the person and the
+  space it takes, no model named (round 9's rule). Accepted, it downloads in the background and the next new chat runs
+  on it (round 11's mechanism, kept). Declined, the onboarding model stays as the person's regular one.
+- **A decline is remembered,** and Mila may offer again later, from normal use, when it falls short at a task.
+- **A choice of model exists only in Settings, as an advanced setting,** through the library's deployment API. The
+  Settings review is still to come and will change much there.
+- **Mila Assistant is not a showcase of the library's API.** It is "more of the old Mila::AI idea": a harness between
+  the person and the library that makes these decisions on the person's behalf.
+
+This supersedes round 10's decision that the setup ends in a choice to stay or move, and round 11's `offer_model_choice`
+and its card (*Move to it*, *Stay*, *This model suits this computer best*).
+
+**Proposed (Claude's, for Todd), built below:**
+
+- **The person's objectives** are what to call them and what they will mostly use Mila for; the third, Mila's own, is
+  *What Mila needs for your work*, done once Mila has assessed it and, when it asks, the person has answered.
+- **The assessment is code, from the model's reading of the answer:** `note_uses` also takes what the uses need, as
+  the model reads them -- conversation, work of several steps with files and tools, long documents -- and
+  `assess_needs` (in `offer_model_choice`'s place) compares the planner's suggestion with the onboarding model on
+  those needs alone: measured agentic here for files and tools, a longer context for long documents.
+- **Nothing needed, nothing asked:** the setup ends there, and Mila says it is set up.
+- **Something needed:** a card, *To do more of this for you -- work of several steps with your files -- Mila needs to
+  download about 15.2 GB*, with *Download* and *Not now*, answered by its buttons or a bare yes or no. Either answer
+  ends the setup with the app's line.
+- **The decline is kept in the settings** (what was declined, and when). Offering again from use is not built now:
+  which failures count is a design of its own, measured before it is promised.
+- **The harness's decisions stay in the Assistant session for 0.21**, behind one interface written as the harness's
+  own, and move into a library layer when 0.22's family-blind harness is designed.
+
+**Built, Claude, 2026-11-25, while Todd was away ("Please continue on where you can"), as proposed above,** on Windows:
+
+- **The objectives** are *What to call you*, *What you will use Mila for* and *What Mila needs for your work*
+  (`Assistant.SetupSteps`). `note_uses` takes `needs` (`conversation`, `files_and_tools`, `long_documents`), kept as
+  `person_needs`; `assess_needs` replaces `offer_model_choice` and its card. With nothing needed it ends the setup
+  itself; with something needed it offers a download of kind `download` (`download`: `name`, `size_bytes`, `gains`),
+  the card reading *To be better at work of several steps with your files and tools, Mila needs to download about
+  14.4 GB*, with *Download* and *Not now*. `Download` keeps `next_model` and starts it on the worker; *Not now* keeps
+  `declined_model` and `declined_at`. Either ends the setup with the app's line: *I'm set up: I'll call you Alex, and
+  I'm downloading what I need for your work, about 14.4 GB; your next new chat uses it*, or *... and I'll carry on as I
+  am*. A skip of the whole setup downloads nothing.
+- **Run on the real session** (Gemma 4 12B Q4_0, the local model hub holding the 26B-A4B and Qwen `fp4-cb3`, a
+  throwaway Mila folder, the 16 GB card; six runs answering "coding ... multi-step plans in my project folders"):
+  every run greeted the person by name, read the needs as `files_and_tools`, and was offered the 26B-A4B's download,
+  14.4 GB, no model named. Accepted, the download ran in the background (about 46 s from the local hub) and the next
+  new chat loaded the 26B-A4B with the FP8 cache at 73,728 tokens; declined in words, the setup ended and the decline
+  was kept. One run in six left out the question about uses, and two of six the question about the download, before
+  the prompt asked every setup reply to end with its question; three runs after, every reply did. One reply called the
+  download "small", and one said Mila could "manage your files". Runs, not a measurement.
+- **Found in the runs and fixed:** the offer was dropped, as `assess_needs` runs without a question and so had no call
+  announced to keep it on, and a bare *yes* went to the model, which said it had started the download when nothing
+  had (the call is now announced first, as `read_project_notes` is; the prompt says the app downloads); a background
+  download made the session busy, so the person could not type until it finished (it no longer does, while the
+  onboarding model's still does); *No thanks, not now.* was no answer, being two refusals together (answers of one
+  kind together are now that answer, for every offer, `Assistant.OfferAnswer`); and pricing a load on the whole card
+  priced the 26B-A4B uncompressed at 95,232 where its load got 37,888 (a change of model now releases the resident one
+  and prices on the card as it is free; a `log` event says what each cache priced at).
+- **Not built:** offering a declined download again from use; the facts from the app beyond the tools; the setup in
+  the real window (the mock's scenarios 21 and 23 play it in the page); the macOS and Linux builds.
+
+**The models offered for coding and multi-step work, and the cache they run with (Todd, 2026-11-25):** "I'd like the
+Gemma 4 26B A4b 4 bit quantized model and the Qwen 3.8 27B model avail in the local store ... They should be avail for
+coding/programs and multi-step iterative plans and processes ... They would only target a CUDA 16GB compute env." Then,
+of the KV cache: "Yes, use the FP8 cache for those models."
+
+- **On the local model hub** (`Data/Hub`, for testing the setup on this PC): Gemma 4 26B-A4B Q4_0, packaged from the
+  store's copy with its display name, licence and the `agentic` mark it carried; and Qwen 3.8 27B `fp4-cb3`, the build
+  `../Qwen3.8.md` chose for agentic work on the 16 GB card (FP4 plans 16K there, and the 2.82-bit build drops closing
+  brackets), packaged from `Data/Models/Qwen` with the publisher's sampling. The current library reads both.
+- **Qwen 3.8 27B carries no `agentic` mark:** `../ModelEval.md` Phase 8, which would award it, has not run, and a mark
+  is a measured verdict (section 3). Until it does, the assessment offers it for nothing that needs one.
+- **The cache:** the Assistant asked every model for the uncompressed cache (since `+105`, with no reason recorded), so
+  on the 16 GB card the 26B-A4B planned 37,888 tokens and `fp4-cb3` 32,768, short of the 64K agentic work is measured
+  at, where each was measured at 65,536 with the FP8 cache. The harness now prices both and takes the FP8 cache only
+  where the uncompressed one falls short of `kAgenticContextLength` and FP8 reaches it (`Assistant.KvCacheChoice`):
+  for a load, priced on the card as it is free once the resident model is released (pricing on the whole card was
+  tried and misjudged it, above); for the published list, each model planned
+  both ways and the library's ranking applied to the result (`rankPublishedModels`, exported for it). A change of
+  context keeps the cache the model was loaded with. Every model that reaches 64K uncompressed is unchanged.
 
 ## 5. The suggestion, as built at +142
 

@@ -305,6 +305,16 @@ export function whenLabel( updated, now )
  */
 export function attentionLine( row )
 {
+    // What the setup has still to accomplish, by its names: "Still to do: what you will use Mila for and which model
+    // Mila runs on" (AssistantOnboarding.md 4.4, round 11).
+    if ( row.kind === 'setup' )
+    {
+        const left = row.item.setup.map( ( objective ) => objective.charAt( 0 ).toLowerCase() + objective.slice( 1 ) );
+        const listed = left.length === 1 ? left[ 0 ] : left.slice( 0, -1 ).join( ', ' ) + ' and ' + left[ left.length - 1 ];
+
+        return 'Still to do: ' + listed;
+    }
+
     if ( row.kind === 'plan' )
     {
         const progress = row.item.progress;

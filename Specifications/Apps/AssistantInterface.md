@@ -56,7 +56,8 @@ gathers the chat it is called in and chats named by title or words, matched as `
 nothing are told back to the model, so the app groups nothing itself and a chat is *seen as belonging together* when it
 is in an open suggestion (4.3); an offer lives on the call that made it, in the stored chat, with its state, and the
 overview reads it from there, with no `suggestions.json` (8); the person's next message after an offer is read by app
-code, a bare acceptance or refusal taking or declining it, being stored in the chat with the app's line and starting no
+code, a bare acceptance or refusal taking or declining it (since 2026-11-25, answers of one kind together count, *No
+thanks, not now*; `AssistantOnboarding.md` 4.4, round 12), being stored in the chat with the app's line and starting no
 reply, and anything else closing it undecided, after which it stays on the overview as a card until answered there
 (5.4); in an exposed chat the offer is drawn in the transcript with *Make the project* and *Not now* and words do not
 count, and elsewhere it has no buttons; `move_to_project` moves only the chat it is called in and only a chat in no
@@ -225,8 +226,8 @@ developer can build the same thing; the store and any connector in the app (ques
 
 ```
 +------------------------+-------------------------------------------------------------+
-| [M] Your Workspace  ^v | [::] Your Workspace / Projects / Calculator app   (example) |
-| (/) Search       Cmd K +-------------------------------------------------------------+
+| (/) Search       Cmd K | [::] Workspace / Projects / Calculator app (example)    (o) |
+|                        +-------------------------------------------------------------+
 |------------------------|                                                             |
 | [::] Workspace         |   the workspace overview, all projects, a project,          |
 | [ ] Projects         5 |   all chats, a chat, or activity                            |
@@ -238,9 +239,7 @@ developer can build the same thing; the store and any connector in the app (ques
 |  + New project         |          | the conversation, risen while you talk    |      |
 | RECENT CHATS           |          +-------------------------------------------+      |
 |  o Why does a KV cache |          | [M] Ask Mila: open a project, ...      (^) |      |
-| Settings               |          +-------------------------------------------+      |
-| . Gemma 4 12B    Model |                                                             |
-| (TT) Name, owner    ^v |                                                             |
+| Settings        Ctrl , |          +-------------------------------------------+      |
 +------------------------+-------------------------------------------------------------+
 ```
 
@@ -251,8 +250,9 @@ the person talks (section 5).
 
 Always the same places, with where the person is marked among them.
 
-- **The workspace**, at the top: Mila's mark, *Your Workspace* and *Mila Assistant*. A click opens the overview. There
-  is one workspace, so nothing switches it (question C).
+- **There is one workspace, so nothing switches it** (question C), and nothing heads the sidebar: *Workspace* among the
+  places opens the overview. Until 2026-11-25 a button at the top said *Your Workspace* and *Mila Assistant* beside
+  Mila's mark and opened the same overview; Todd: "The LHS Your Workspace is not needed. There is already a Workspace."
 - **Search** with its shortcut (Command+K, Ctrl+K): jump to any project, chat or file by name (section 4.11).
 - **The four places**, each with its count where it has one: *Workspace* (the overview, 4.3), *Projects* (4.4),
   *Chats* (4.6), *Activity* (4.8). The one shown is marked.
@@ -269,34 +269,46 @@ Always the same places, with where the person is marked among them.
   without asking. *As built at phase 6:* the sidebar's *New project* begins a chat in no project from the bar, which
   says *Tell Mila what the project is for* until something is sent; *New project* on *All projects* opens the sheet.
 - **Recent chats**: the four most recent, in any project or none; the open one marked.
-- **At the foot**: *Settings* (Command+, or Ctrl+,), the window of `../MilaAssistant.md` 3.7; the model, its name and
-  *Model*, which opens what Mila chose (the model, chosen for this computer, the context, thinking, the share of the
-  open chat's context); and the person: initials, name, *Workspace owner*, and a menu of Settings, Mila's licence,
-  About Mila Assistant and Quit.
+- **At the foot**: *Settings* (Command+, or Ctrl+,), the window of `../MilaAssistant.md` 3.7. The model is the bar's
+  (4.2).
 
-As built at phase 2: the model's row ends in the ring of the open chat's share of the context, and while the app
-loads, installs or restores, a turning ring and what it is doing take its place. The person is named by the login
-name of whoever is signed in to the computer, which the window sends (`about`, section 10). *About Mila Assistant*,
-in the menu above *Quit Mila*, opens a dialog with Mila's mark, the version and *Licences*: Mila's, then each the app
-carries -- Electron, Chromium, and the session's by NOTICE.md's names (`nlohmann/json`, `CUDA`) -- each opening its
-text in the dialog with *Back*, except Chromium's, which opens in the browser (`../MilaAssistant.md` 4, `licence.open`;
-as built 2026-11-17, +153).
+**No person at the foot** (Todd, 2026-11-25). Until then the foot also held the model's row and the person, named by
+the computer's login name, *Workspace owner* and a menu of Settings, What Mila can reach, Mila's License, About Mila
+Assistant and Quit Mila. *Workspace owner* came from team workspaces, where several people share one and each has a
+role; Mila has one workspace per person, so the role said nothing, and the menu gathered what had no other place
+(Todd: "completely unrelated"). Its items moved: Settings is at the foot; What Mila can reach, Mila's License and
+About Mila Assistant are lines in Settings' *About*, each closing Settings and opening its own; Quit is closing the
+window on Windows and Linux, and the application menu's Quit and Command+Q on a Mac. A person's entry could return
+with a job of its own: what Mila knows of the person, which the interview begins (`AssistantOnboarding.md` 4.4).
+
+*About Mila Assistant* opens a dialog with Mila's mark, the version and *Licences*: Mila's, then each the app carries
+-- Electron, Chromium, and the session's by NOTICE.md's names (`nlohmann/json`, `CUDA`) -- each opening its text in the
+dialog with *Back*, except Chromium's, which opens in the browser (`../MilaAssistant.md` 4, `licence.open`; as built
+2026-11-17, +153).
 
 ### 4.2 The bar
 
-Where the person is, as a path they can step back along: *Your Workspace / Projects / Calculator app*, or *Your
-Workspace / Kyoto in November / Plan a three-day trip to Kyoto* for a chat. Each part but the last opens its place.
-Nothing else: no model, no switch of view, no search.
+Where the person is, as a path they can step back along: *Workspace / Projects / Calculator app*, or *Workspace /
+Kyoto in November / Plan a three-day trip to Kyoto* for a chat. Each part but the last opens its place.
+
+**At its end, the model** (Todd, 2026-11-25: "The model information should be part of the top status. It should be
+a the context filled widget and it should be clickable and then show the details."): a ring filled by the open chat's
+share of the context, empty with no chat open, the model's name and the share in its tooltip; while the app loads,
+installs or restores, a turning ring and what it is doing take its place. A click opens what Mila is running on --
+the model, the context used and its window, where it compacts, what is left, thinking -- and *Manage models...*, which
+opens Settings at *Models*; a click elsewhere or Esc closes it. It moved from the sidebar's foot. Nothing else: no
+switch of view, no search.
 
 ### 4.3 The workspace overview
 
 What the window opens on. Top to bottom, a section left out when it has nothing:
 
-1. **The date and *Your Workspace*.**
+1. **The date and *Workspace*.**
 2. **At a glance**: a row of figures, each a number, a word and a line, each opening what it counts. With projects:
    *Projects* (*2 with work under way*), *Waiting on you* (the projects, by name; amber when not zero), *Chats* (*5 not
    in a project*). With none: *Chats* (*Newest: ...*) and *Waiting on you*.
-3. **Needs you, and what Mila noticed**: a plan stopped for the person (*Stopped at step 3 of 5: ...*, *Answer and
+3. **Needs you, and what Mila noticed**: a setup left part way (*Setting up Mila*, *Still to do: ...*, *Continue*;
+   `AssistantOnboarding.md` 4.4, round 11), a plan stopped for the person (*Stopped at step 3 of 5: ...*, *Answer and
    continue*), a reply cut short (*Ask Mila to finish*), a file changed on disk after Mila wrote it (*Where it came
    from*), a note waiting to be accepted (section 5.6), and Mila's suggestion of a project (section 6). Each names its
    project.
@@ -419,8 +431,8 @@ where it is; arrow keys and Enter.
 
 ### 4.12 What Mila can reach
 
-*Proposed; the name is a working one, and Todd's to choose.* One place for what Mila has been given, opened from the
-person's menu, from Settings and from a chat's head. A new kind of source becomes one more row here, not a screen of its
+*Proposed; the name is a working one, and Todd's to choose.* One place for what Mila has been given, opened from
+Settings and from a chat's head. A new kind of source becomes one more row here, not a screen of its
 own (`../Direction/MilaVision.md` section 2).
 
 - **Folders and other sources:** each with the chats or project that hold it, how far Mila may go (*Read*, *Read and
@@ -430,7 +442,7 @@ own (`../Direction/MilaVision.md` section 2).
 
 A removal applies once any reply being written has ended, since the session takes requests between replies. The view
 holds nothing of its own (rule 5). *As built at T1:* the view is a place, *reach*, opened from the person's menu and from
-the head of a chat with a folder, and Settings does not yet open it.
+the head of a chat with a folder; since 2026-11-25 Settings' *About* opens it in the menu's place.
 
 ## 5. Mila: the bar, and moving through the workspace by talking
 

@@ -1051,6 +1051,18 @@ export function onboardingRunning( state )
     return onboarding === 'due' || onboarding === 'started';
 }
 
+/**
+ * Whether the open chat is the setup's, and the setup is over: it then takes no more messages, and what comes next is a
+ * new chat (AssistantOnboarding.md 4.4, round 11).
+ */
+export function setupChatClosed( state )
+{
+    const session = state.session;
+
+    return state.place === 'chat' && session !== null && session.onboarding === 'done'
+        && typeof session.setup_conversation === 'string' && state.conversationId === session.setup_conversation;
+}
+
 /** Whether this version has something new to show a person updating to it, and they have not yet been through it. */
 export function updateShowing( state )
 {
@@ -1102,6 +1114,11 @@ function nextStep( state, step )
 /** The step the person is on: the one they reached, or the next with something to do when it no longer has. */
 function currentStep( state )
 {
+    // Panes gone through on an earlier launch, with the interview still to end, are not shown again: Almost Ready
+    // until Mila is ready, then the interview's chat (AssistantOnboarding.md 4.4).
+    if ( onboardingRunning( state ) && state.session.panes_done === true )
+        return 'finished';
+
     // A setup that began before the path, or found the licence accepted, starts at the welcome.
     const reached = onboardingOrder.includes( state.setupStep ) ? state.setupStep : 'welcome';
 
@@ -1223,6 +1240,12 @@ function planStopped( item )
     return Boolean( item.progress ) && item.progress.current !== null;
 }
 
+/** Whether a chat is the setup's, with something still to accomplish (AssistantOnboarding.md 4.4, round 11). */
+function setupUnfinished( item )
+{
+    return Array.isArray( item.setup ) && item.setup.length > 0;
+}
+
 function filesOf( item )
 {
     return Array.isArray( item.wrote ) ? item.wrote : [];
@@ -1267,8 +1290,8 @@ export function isKept( state, message )
 }
 
 /**
- * What needs the person (4.3): a plan stopped short of its end, and a reply that ended before it finished, newest
- * first. The chat a reply is under way in needs nothing yet.
+ * What needs the person (4.3): a setup with something still to accomplish, a plan stopped short of its end, and a reply
+ * that ended before it finished, newest first. The chat a reply is under way in needs nothing yet.
  */
 export function needsYou( state )
 {
@@ -1278,7 +1301,9 @@ export function needsYou( state )
 
     for ( const item of idle )
     {
-        if ( planStopped( item ) )
+        if ( setupUnfinished( item ) )
+            rows.push( { kind: 'setup', item } );
+        else if ( planStopped( item ) )
             rows.push( { kind: 'plan', item } );
         else if ( attentionEndings.includes( item.finish ) )
             rows.push( { kind: 'reply', item } );

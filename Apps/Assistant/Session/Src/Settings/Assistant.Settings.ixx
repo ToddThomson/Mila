@@ -54,6 +54,22 @@ namespace Mila::Assistant
         /// What the person asked to be called, from the interview; empty until they say.
         std::string person_name;
 
+        /// What the person said they will mostly use Mila for, from the interview; empty until they say.
+        std::string person_uses;
+
+        /// What that work needs, as the model read the answer: conversation, files_and_tools or long_documents, each
+        /// once, joined by commas (AssistantOnboarding.md 4.4, round 12); empty until it is read.
+        std::string person_needs;
+
+        /// The model the person declined to download when Mila asked, and when, so Mila can offer it again later from
+        /// use (round 12); empty when nothing was declined.
+        std::string declined_model;
+        std::string declined_at;
+
+        /// The model the person chose at the setup's end to move to, kept until it is installed and a new chat or
+        /// launch runs on it (AssistantOnboarding.md 4.4, round 11); empty when there is none.
+        std::string next_model;
+
         /// The person agreed to the onboarding model's download on *Getting Mila Ready* (AssistantOnboarding.md 4.3,
         /// round 9), so a download they stopped by quitting goes on at the next launch without asking again.
         bool download_agreed{ false };
@@ -99,5 +115,16 @@ namespace Mila::Assistant
         }
 
         return false;
+    }
+
+    /**
+     * @brief Whether the person went through the onboarding's panes in this version and the interview has not ended.
+     *
+     * Reaching the panes' end keeps the version, so a launch part way through the interview returns to its chat, not
+     * to the panes (AssistantOnboarding.md 4.4).
+     */
+    export inline bool onboardingPanesGoneThrough( const Settings& settings, std::string_view version ) noexcept
+    {
+        return settings.onboarding == "started" && !settings.last_version.empty() && settings.last_version == version;
     }
 }

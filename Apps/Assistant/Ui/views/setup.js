@@ -269,15 +269,17 @@ export function createSetupView( layer, sheet, actions )
     // what the steps after it do; the words are a draft until the process is settled (4.3, round 9).
     function renderWelcomePane( state, body, footer )
     {
-        const mark = element( 'img', 'setup-mark' );
+        // The lockup, the mark and the wordmark as one object as on the website, then Welcome beneath it as the
+        // pane's title (Todd, 2026-11-25).
+        const lockup = element( 'div', 'setup-lockup' );
+        const mark = element( 'img', '' );
         mark.src = 'mila-mark.svg';
         mark.alt = '';
-        // The mark, Mila, then Welcome beneath it (Todd, 2026-11-25).
-        const heading = element( 'h1', 'setup-heading setup-welcome-heading', 'Mila' );
-        const welcome = element( 'p', 'setup-welcome-line', 'Welcome' );
+        lockup.append( mark, element( 'span', '', 'Mila' ) );
+        const heading = element( 'h1', 'setup-heading setup-welcome-heading', 'Welcome' );
 
         body.classList.add( 'setup-welcome' );
-        body.append( mark, heading, welcome );
+        body.append( lockup, heading );
 
         if ( onboardingRunning( state ) )
         {

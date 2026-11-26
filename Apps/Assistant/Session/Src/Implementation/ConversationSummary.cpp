@@ -11,6 +11,7 @@ import std;
 import nlohmann.json;
 import Assistant.Creations;
 import Assistant.Offers;
+import Assistant.SetupSteps;
 
 namespace Mila::Assistant
 {
@@ -360,6 +361,7 @@ namespace Mila::Assistant
         return { { "progress", planProgress( plan ) }, { "finish", lastFinish( messages ) },
             { "reply_start", replyStart( messages ) }, { "wrote", filesWritten( messages ) },
             { "sent", whatWasSent( conversation, messages ) }, { "kept", repliesKept( messages ) },
-            { "offers", offersIn( messages ) } };
+            { "offers", offersIn( messages ) },
+            { "setup", SetupSteps::outstandingIn( conversation.value( "setup", nlohmann::json( nullptr ) ) ) } };
     }
 }

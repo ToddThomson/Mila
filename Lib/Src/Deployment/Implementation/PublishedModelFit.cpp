@@ -84,6 +84,13 @@ namespace Mila::Deployment
             fits.push_back( planOne( std::move( model ), hub, request, store ) );
         }
 
+        rankPublishedModels( fits );
+
+        return fits;
+    }
+
+    void rankPublishedModels( std::vector<PublishedModelFit>& fits )
+    {
         std::ranges::stable_sort( fits, []( const PublishedModelFit& left, const PublishedModelFit& right )
             {
                 const int left_tier = tierOf( left );
@@ -97,8 +104,6 @@ namespace Mila::Deployment
 
                 return left.model.name() < right.model.name();
             } );
-
-        return fits;
     }
 
     std::optional<std::size_t> onboardingModel( const std::vector<PublishedModelFit>& fits )

@@ -161,15 +161,20 @@ namespace Mila::Assistant
         /// project that has one, and offered to the model in every chat in a project (5.6).
         static constexpr std::string_view kReadProjectNotesName = "read_project_notes";
 
-        /// The interview's own tools (AssistantOnboarding.md 4.4): what the person asked to be called, and the end of the
-        /// setup. Offered only by the interview's prompt.
+        /// The interview's own tools (AssistantOnboarding.md 4.4, rounds 11 and 12): what the person asked to be called,
+        /// what they will mostly use Mila for and what that needs, a question or the whole setup skipped, and Mila's
+        /// assessment of what it needs. Offered only by the interview's prompt; the setup ends in code, never by a tool
+        /// the model calls to end it.
         static constexpr std::string_view kRememberNameName = "remember_name";
-        static constexpr std::string_view kFinishSetupName = "finish_setup";
+        static constexpr std::string_view kNoteUsesName = "note_uses";
+        static constexpr std::string_view kSkipQuestionName = "skip_question";
+        static constexpr std::string_view kAssessNeedsName = "assess_needs";
 
         /// Requests the session's own threads put on its queue, which the reading thread never accepts from the page.
         static constexpr std::string_view kInternalPrefix = "internal.";
         static constexpr std::string_view kOnboardingListed = "internal.onboarding_listed";
         static constexpr std::string_view kOnboardingInstalled = "internal.onboarding_installed";
+        static constexpr std::string_view kNextModelInstalled = "internal.next_model_installed";
 
         /// The interview's prompt, and Mila's opening words in its first chat, both in the prompts folder.
         static constexpr std::string_view kInterviewPrompt = "interview.json";
@@ -551,6 +556,11 @@ namespace Mila::Assistant
         /// apply as the weights load when one is asked for.
         DeploymentRequest requestFor( std::optional<WeightQuantization> quantization ) const;
 
+        /// requestFor's request for one installed model, with the KV cache the harness chooses for it from the
+        /// planner's prices of both formats (Assistant.KvCacheChoice); the uncompressed cache when it cannot be priced.
+        /// What each priced at is said as a `log` event.
+        DeploymentRequest requestForModel( const std::string& name, std::optional<WeightQuantization> quantization );
+
         /// The model the settings remember, opened as the session starts; one that will not open is said in the
         /// page's no-model state, where the person chooses another.
         void openRemembered();
@@ -619,11 +629,52 @@ namespace Mila::Assistant
         /// loaded; the chat it began is opened again for a person who stopped part way.
         void beginInterview();
 
-        /// remember_name: what the person asked to be called, kept in the settings.
+        /// remember_name: what the person asked to be called, kept in the settings, and the setup's first step done.
         std::string rememberName( const std::string& arguments );
 
-        /// finish_setup: the interview is over; the chat goes on with the general prompt after this turn.
-        std::string finishSetup();
+        /// note_uses: what the person will mostly use Mila for, and what that needs as the model read it, kept in the
+        /// settings, and its objective done.
+        std::string noteUses( const std::string& arguments );
+
+        /// skip_question: the name or the uses skipped, or the whole setup, which downloads nothing and ends it.
+        std::string skipQuestion( const std::string& arguments );
+
+        /**
+         * @brief assess_needs: what Mila needs for the person's work (round 12), once the other objectives are answered
+         *        or skipped.
+         *
+         * The first published model, in the library's ranking, that gives what the work needs and the model Mila runs
+         * on does not -- measured agentic here for files and tools, a longer context for long documents -- is offered as
+         * a download of kind `download`, no model named; with nothing needed, nothing is asked and the setup ends.
+         */
+        std::string assessNeeds();
+
+        /// Whether the open chat is the setup's, with the setup under way.
+        bool inSetup() const;
+
+        /**
+         * @brief The person's answer to the download: it begins, or its decline is kept so Mila can offer it again;
+         *        either way the last objective is done and the setup ends.
+         *
+         * @return The line the chat keeps, in the app's words: what was kept and decided.
+         */
+        std::string decideDownload( nlohmann::json& offer, bool accept );
+
+        /// The setup is over: kept in the settings, and its chat closed to new messages.
+        void endSetup();
+
+        /// The app's line in Mila's place, for an answer given on a card rather than in words.
+        void sayAppLine( const std::string& line, const std::string& call_id, const nlohmann::json& answered );
+
+        /// The model the person chose to move to, downloaded by the worker so the person goes on meanwhile.
+        void startNextModelDownload();
+
+        /// On the session's thread: the model to move to is on this computer, or why it is not.
+        void nextModelInstalled( const nlohmann::json& request );
+
+        /// The model the person chose to move to, loaded once it is installed and no chat holds the old one: at a new
+        /// chat or a launch. True when it was loaded.
+        bool moveToNextModel();
 
         /**
          * @brief Open the resident model again on another request, the conversation kept: a context sizes the
@@ -875,6 +926,9 @@ namespace Mila::Assistant
         // Set by this thread around an install; the reading thread asks it to stop only while one runs. A Cancel also
         // asks that what arrived be deleted; the window closing keeps it.
         std::atomic<bool> installing_{ false };
+
+        // Set while the worker downloads what Mila needs after the setup, which leaves the person free to go on.
+        std::atomic<bool> next_model_downloading_{ false };
         std::atomic<bool> install_stop_asked_{ false };
         std::atomic<bool> install_discard_asked_{ false };
 
@@ -910,6 +964,9 @@ namespace Mila::Assistant
             }();
         TaskPlan plan_;
 
+        // What the setup has to accomplish, in the setup's own chat (Assistant.SetupSteps' toJson); null in any other.
+        nlohmann::json setup_steps_;
+
         // The conversation the session's history belongs to; empty until its first turn.
         std::string conversation_id_;
         std::string conversation_title_;
@@ -934,9 +991,6 @@ namespace Mila::Assistant
 
         // Set by a call that changed what the chat is offered, applied once its result is in (offerToolsWhenSafe).
         bool tools_changed_in_call_{ false };
-
-        // Set by finish_setup, so the chat takes the general prompt once the turn that called it ends.
-        bool interview_finished_in_call_{ false };
 
         /// The onboarding model the model hub's list named; null until it is listed, or when none runs here.
         nlohmann::json published_onboarding_;

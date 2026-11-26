@@ -1,7 +1,9 @@
 // Scenario 21: a first run with the onboarding model (AssistantOnboarding.md 4.4). Its download begins at launch,
 // while the welcome and the Terms and Conditions show; once they are accepted and the model is loaded, the workspace
 // opens on the first chat, where Mila begins the interview. The interview is scripted: each reply is the next of its
-// steps, whatever the person says.
+// steps, taking the person's words as their answer. Then Mila assesses what it needs (round 12): in scenario 21, nothing,
+// so the setup ends with no question; in scenario 23, a download for coding work, which the person answers in words or
+// with its buttons. The setup's chat then closes.
 
 import { streamSteps, tokensPerSecond } from './stream.js';
 
@@ -9,24 +11,41 @@ const opener = 'Hello, I\'m Mila, and I run here, on this computer.\n\n'
     + 'Before we start, I\'d like to set myself up for you. A few questions, and you can skip any of them.\n\n'
     + 'First: what should I call you?';
 
-const replies = [
-    {
-        answer: 'Thank you. What do you expect to use me for, mostly? For example writing, working through documents, '
-            + 'planning a trip, keeping track of a project, or code.',
-        calls: [ { name: 'set_person_name', summary: 'Remembering what to call you', arguments: { name: 'from your reply' } } ]
-    },
-    {
-        answer: 'That helps. Are there folders on this computer you would like me to be able to read, such as Documents? '
-            + 'I will only read from the folders you name, and I ask before I change anything.',
-        calls: [ { name: 'note_interests', summary: 'Noting what you will use Mila for', arguments: { interests: 'from your reply' } } ]
-    },
-    {
-        answer: 'You\'re set up. I can read the folders you named, and I will ask before writing to any of them.\n\n'
-            + 'The model I\'m running on suits this computer and what you have described, so there is nothing more to '
-            + 'install. You can change any of this later: just ask me.\n\nWhat would you like to start with?',
-        calls: [ { name: 'allow_folders', summary: 'Letting Mila read the folders you named', arguments: { folders: 'from your reply' } } ]
-    }
-];
+const capabilities = 'I can answer questions, plan a piece of work and carry it out once you approve it, keep your chats '
+    + 'about one piece of work together in a project, find what was said in earlier chats, read web pages you point me '
+    + 'to, and work with the files in a folder you choose, asking you first.';
+
+// The download the session's assess_needs would ask for on the 16 GB card for coding work: Gemma 4 26B-A4B Q4_0, measured
+// agentic there with the FP8 cache. Its name goes to the session alone; the person reads what it gives and its size.
+const codingDownload = { kind: 'download', state: 'open', in_window: false,
+    download: { name: 'gemma-4-26b-a4b-it-q4_0', size_bytes: 14420000000, gains: [ 'work of several steps with your files and tools' ] } };
+
+/** The person's answers, as the scripted model reads them: their words, whatever they are, and then Mila's assessment. */
+function repliesFor( download )
+{
+    const assessed = download === undefined
+        ? { answer: 'Thank you, that helps. You\'re set up: start a new chat whenever you\'re ready.', needs: [ 'conversation' ],
+            result: 'Mila has what this work needs on this computer, so nothing is downloaded. The setup has ended.' }
+        : { answer: 'Thank you, that helps. To be better at work of several steps with your files and tools, I need to '
+            + 'download about 14.4 GB. It downloads while you go on. Shall I download it?', needs: [ 'files_and_tools' ],
+            result: 'To do more of this work, Mila needs a download.' };
+
+    return [
+        ( said ) => ( {
+            answer: 'It\'s nice to meet you, ' + said + '!\n\n' + capabilities + '\n\nWhat do you expect to use me for most?',
+            calls: [ { name: 'remember_name', summary: 'Remembering what to call you', arguments: { name: said },
+                result: 'Saved. Mila will call the user ' + said + '.' } ]
+        } ),
+        ( said ) => ( {
+            answer: assessed.answer,
+            calls: [
+                { name: 'note_uses', summary: 'Noting what you will use Mila for', arguments: { uses: said, needs: assessed.needs },
+                    result: 'Kept. Both questions are answered or skipped: call assess_needs.' },
+                { name: 'assess_needs', summary: 'Working out what Mila needs for your work', arguments: {}, offer: download,
+                    result: assessed.result } ]
+        } )
+    ];
+}
 
 function roundEnd( round, tokens, finish )
 {
@@ -46,11 +65,19 @@ function createInterview()
     return [ { delay: 400, message: { type: 'turn.begin' } }, ...answerSteps( opener, 1 ) ];
 }
 
-function createReply( request, context )
+/** The interview's replies, with Mila's assessment asking for this download, or for nothing when there is none. */
+function replyFor( download )
+{
+    const replies = repliesFor( download );
+
+    return ( request, context ) => scriptedReply( replies, request, context );
+}
+
+function scriptedReply( replies, request, context )
 {
     // The opener was turn 1, so the person's first answer is turn 2.
     const index = Math.min( Math.max( context.turnNumber - 2, 0 ), replies.length - 1 );
-    const step = replies[ index ];
+    const step = replies[ index ]( request.text.trim() );
     const steps = [ { delay: 200, message: { type: 'turn.begin' } } ];
 
     step.calls.forEach( ( call, position ) =>
@@ -58,8 +85,13 @@ function createReply( request, context )
         const callId = 'call-setup-' + context.turnNumber + '-' + position;
         const argumentsJson = JSON.stringify( call.arguments );
         steps.push( { delay: 300, message: { type: 'turn.tool_call', round: 1, call_id: callId, name: call.name, summary: call.summary, arguments: argumentsJson } } );
+
+        // An offer is kept on the call that made it, as the session sends it while the call runs.
+        if ( call.offer !== undefined )
+            steps.push( { delay: 0, message: { type: 'turn.offer', call_id: callId, offer: { ...call.offer } } } );
+
         steps.push( { delay: 0, message: roundEnd( 1, 12, 'tool_call' ) } );
-        steps.push( { delay: 150, message: { type: 'turn.tool_result', call_id: callId, result: '{"ok": true}', is_error: false } } );
+        steps.push( { delay: 150, message: { type: 'turn.tool_result', call_id: callId, result: call.result, is_error: false } } );
     } );
 
     steps.push( ...answerSteps( step.answer, 2 ) );
@@ -78,5 +110,28 @@ export const onboardingFirstRun = {
     installStepMilliseconds: 500,
     prompt: 'Alex',
     createInterview,
-    createReply
+    createReply: replyFor( undefined )
+};
+
+// Scenario 22: the same person launching Mila again part way through the interview. The terms are accepted, the model
+// is installed and the panes were gone through, so Almost Ready shows while the model loads, then the interview's chat;
+// the session reopens the chat it began, where the mock begins it again.
+export const onboardingReturning = {
+    ...onboardingFirstRun,
+    number: 22,
+    title: 'Launching again part way through the interview: Almost Ready, then its chat, no panes',
+    installed: [ 'gemma-4-12b-it-q4_0' ],
+    licenseAccepted: true,
+    panesGoneThrough: true
+};
+
+// Scenario 23: the interview of scenario 22 for a person whose work is coding, on the 16 GB card: Mila assesses that it
+// needs a download for it and asks, no model named, with Download and Not now (AssistantOnboarding.md 4.4, round 12).
+export const onboardingDownload = {
+    ...onboardingReturning,
+    number: 23,
+    title: 'The interview for coding work: Mila asks to download what it needs',
+    prompt: 'Alex',
+    downloadOffer: codingDownload,
+    createReply: replyFor( codingDownload )
 };

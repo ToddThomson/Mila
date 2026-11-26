@@ -9,6 +9,7 @@ export module Assistant.Models;
 import std;
 import nlohmann.json;
 import Mila;
+import Assistant.KvCacheChoice;
 
 namespace Mila::Assistant
 {
@@ -147,7 +148,39 @@ namespace Mila::Assistant
         const std::string owner( Mila::Distribution::kDefaultHubOwner );
         const auto hub = Mila::Distribution::makeAnonymousModelHub();
         const auto installed = Mila::Distribution::ModelStore{}.list();
-        const std::vector<Mila::Deployment::PublishedModelFit> fits = Mila::Deployment::planPublishedModels( *hub, owner, request );
+        // Each priced with both caches, and planned with the one the harness chooses for it (Assistant.KvCacheChoice),
+        // then ranked as the library ranks, so a model measured agentic with the FP8 cache is suggested as it runs.
+        Mila::Deployment::DeploymentRequest compressed = request;
+        compressed.withKvCacheCompression( Mila::Dnn::KvCacheCompression::FP8 );
+
+        std::vector<Mila::Deployment::PublishedModelFit> plain = Mila::Deployment::planPublishedModels( *hub, owner, request );
+        std::vector<Mila::Deployment::PublishedModelFit> with_fp8 = Mila::Deployment::planPublishedModels( *hub, owner, compressed );
+        std::vector<Mila::Deployment::PublishedModelFit> fits;
+        std::set<std::string> fp8_chosen;
+
+        const auto bestOf = []( const Mila::Deployment::PublishedModelFit& fit ) -> std::optional<Mila::Dnn::dim_t>
+            {
+                return fit.plans ? std::optional<Mila::Dnn::dim_t>( fit.plans->best().contextLength() ) : std::nullopt;
+            };
+
+        for ( Mila::Deployment::PublishedModelFit& fit : plain )
+        {
+            const auto other = std::ranges::find_if( with_fp8,
+                [&fit]( const Mila::Deployment::PublishedModelFit& candidate ) { return candidate.model.name() == fit.model.name(); } );
+
+            if ( other != with_fp8.end()
+                && chooseKvCache( bestOf( fit ), bestOf( *other ) ) == Mila::Dnn::KvCacheCompression::FP8 )
+            {
+                fp8_chosen.insert( other->model.name() );
+                fits.push_back( std::move( *other ) );
+
+                continue;
+            }
+
+            fits.push_back( std::move( fit ) );
+        }
+
+        Mila::Deployment::rankPublishedModels( fits );
 
         // The model the setup installs, the library's pick of the onboarding-ready ones (AssistantOnboarding.md 4.4).
         if ( const std::optional<std::size_t> onboarding = Mila::Deployment::onboardingModel( fits ) )
@@ -194,6 +227,7 @@ namespace Mila::Assistant
                 { "fits", fit.suggestable() },
                 { "agentic_here", fit.agenticHere() },
                 { "context_length", fit.plans ? nlohmann::json( fit.plans->best().contextLength() ) : nlohmann::json( nullptr ) },
+                { "kv_cache", fp8_chosen.contains( fit.model.name() ) ? "fp8" : "none" },
                 { "why_not", nullptr } };
 
             const std::string why_not = whyNotSuggested( fit );

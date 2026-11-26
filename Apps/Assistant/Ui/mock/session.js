@@ -10,6 +10,9 @@ import { readOfferAnswer, pendingOffer, callWithOffer } from './offers.js';
 const streamId = 'stream-1';
 const mockFolder = 'C:\\Users\\you\\Projects\\calc';
 
+// What the setup has to accomplish, as Assistant.SetupSteps names it.
+const setupTitles = [ 'What to call you', 'What you will use Mila for', 'What Mila needs for your work' ];
+
 /**
  * @param options.scenario The scenario's number (section 5).
  * @param options.emit Called with each event, a plain object.
@@ -27,8 +30,15 @@ export function createMockSession( options )
     let interviewBegun = false;
     let onboardingAsked = false;
     let interviewFinished = false;
-    let downloadAgreed = false;
-    let panesDone = false;
+    // A person returning part way through the interview agreed to the download and went through the panes on an
+    // earlier launch, which the session reads from its settings (AssistantOnboarding.md 4.4).
+    let downloadAgreed = scenario.panesGoneThrough === true;
+    let panesDone = scenario.panesGoneThrough === true;
+    // As the session's (AssistantOnboarding.md 4.4, round 11): the setup's chat, its steps kept as its plan, and the
+    // name the person gave, which the setup's last line says.
+    let setupConversation = null;
+    let setupSteps = null;
+    let personName = '';
     const startModel = scenario.model === null ? null : findModel( scenario.model );
     const startTime = options.now();
     const seeds = seedConversations( startTime );
@@ -180,6 +190,7 @@ export function createMockSession( options )
             onboarding: scenario.onboarding === undefined ? null : interviewFinished ? 'done' : publishedListed ? 'started' : 'due',
             onboarding_agreed: downloadAgreed,
             panes_done: panesDone,
+            setup_conversation: setupConversation,
             whats_new: null,
             streams: [ stream ]
         };
@@ -385,6 +396,8 @@ export function createMockSession( options )
         interviewBegun = true;
         emit( { type: 'interview', conversation_id: 'conversation-' + session.nextConversationNumber } );
         session.conversationId = 'conversation-' + session.nextConversationNumber;
+        setupConversation = session.conversationId;
+        setupSteps = setupTitles.map( ( objective ) => ( { objective, status: 'pending', said: '' } ) );
         session.nextConversationNumber = session.nextConversationNumber + 1;
         const turnId = 'turn-' + session.nextTurnNumber;
         session.nextTurnNumber = session.nextTurnNumber + 1;
@@ -395,6 +408,92 @@ export function createMockSession( options )
 
         emitState();
         scheduleNextStep();
+    }
+
+    /** An objective of the setup marked, as the session's interview tools mark it, and kept with the setup's chat. */
+    function markSetupStep( index, status, said )
+    {
+        if ( setupSteps === null )
+            return;
+
+        setupSteps[ index ] = { objective: setupTitles[ index ], status, said: said ?? '' };
+
+        const stored = conversations.get( setupConversation );
+
+        if ( stored !== undefined )
+            stored.setup = setupSteps.map( ( step ) => ( { ...step } ) );
+    }
+
+    /** The interview's own tool calls, as the session's tools handle them. */
+    function setupCall( message )
+    {
+        if ( interviewFinished || session.conversationId !== setupConversation )
+            return;
+
+        let parsed = {};
+
+        try
+        {
+            parsed = JSON.parse( message.arguments );
+        }
+        catch
+        {
+            parsed = {};
+        }
+
+        if ( message.name === 'remember_name' && typeof parsed.name === 'string' )
+        {
+            personName = parsed.name;
+            markSetupStep( 0, 'done', parsed.name );
+        }
+
+        if ( message.name === 'note_uses' && typeof parsed.uses === 'string' )
+            markSetupStep( 1, 'done', parsed.uses );
+
+        if ( message.name === 'skip_question' && ( parsed.question === 'name' || parsed.question === 'uses' ) )
+            markSetupStep( parsed.question === 'name' ? 0 : 1, 'skipped', null );
+
+        // A skip of the whole setup is a choice to stay, and ends it.
+        if ( message.name === 'skip_question' && parsed.question === 'setup' )
+        {
+            for ( const index of [ 0, 1 ] )
+            {
+                if ( setupSteps[ index ].status === 'pending' )
+                    markSetupStep( index, 'skipped', null );
+            }
+
+            markSetupStep( 2, 'done', 'nothing, as the setup was skipped' );
+            interviewFinished = true;
+        }
+
+        // Nothing needed, nothing asked: the setup ends; a scenario that scripts a download puts it as an offer.
+        if ( message.name === 'assess_needs' && scenario.downloadOffer === undefined )
+        {
+            markSetupStep( 2, 'done', 'nothing more' );
+            interviewFinished = true;
+        }
+    }
+
+    /**
+     * The person's answer to the setup's download (round 12): the last objective done, the setup ended, and the app's own
+     * last line. The mock downloads nothing.
+     */
+    function decideDownload( offer, accept )
+    {
+        const download = offer.download ?? null;
+        const downloading = accept && download !== null;
+
+        offer.state = accept ? 'accepted' : 'declined';
+        offer.decided = new Date( options.now() ).toISOString();
+        markSetupStep( 2, 'done', downloading ? 'downloading what it needs' : 'carries on as it is' );
+        interviewFinished = true;
+
+        const named = personName.length === 0 ? '' : 'I\'ll call you ' + personName + ', and ';
+        const what = downloading
+            ? 'I\'m downloading what I need for your work, about ' + ( download.size_bytes / 1e9 ).toFixed( 1 ) + ' GB; your next new chat uses it'
+            : 'I\'ll carry on as I am';
+
+        return 'I\'m set up: ' + named + what + '. Start a new chat whenever you\'re ready.';
     }
 
     /** At launch, before any pane is answered: the published list read, and the onboarding model's download begun (4.4). */
@@ -467,6 +566,14 @@ export function createMockSession( options )
         if ( session.model === null )
         {
             emitError( 'No model is loaded. Choose one from the model menu.', 'turn' );
+
+            return;
+        }
+
+        // As the session's: the setup's chat takes no more messages once the setup is over.
+        if ( interviewFinished && session.conversationId !== null && session.conversationId === setupConversation )
+        {
+            emitError( 'This chat set Mila up, and the setup is finished. Start a new chat to go on.', 'turn' );
 
             return;
         }
@@ -757,6 +864,7 @@ export function createMockSession( options )
         {
             const call = { call_id: message.call_id, name: message.name, summary: message.summary, arguments: message.arguments, decision: null, result: null, is_error: false };
             reply.toolCalls.push( call );
+            setupCall( message );
         }
 
         if ( message.type === 'turn.tool_result' )
@@ -770,7 +878,10 @@ export function createMockSession( options )
             if ( call !== undefined )
                 call.offer = { ...message.offer };
 
-            // A move done and said is done as the call runs.
+            // A move done and said is done as the call runs; the setup's download is no suggestion of a project.
+            if ( message.offer.kind === 'download' )
+                return;
+
             if ( message.offer.kind === 'move' && message.offer.state === 'accepted' )
                 moveOne( session.conversationId, message.offer.project, { who: 'mila' } );
             else
@@ -871,6 +982,11 @@ export function createMockSession( options )
                 updated,
                 messages: session.history.slice()
             };
+
+            // The setup's chat carries what the setup has to accomplish from its first message, and no plan.
+            if ( session.conversationId === setupConversation && setupSteps !== null )
+                created.setup = setupSteps.map( ( step ) => ( { ...step } ) );
+
             conversations.set( session.conversationId, created );
         }
         else
@@ -954,6 +1070,9 @@ export function createMockSession( options )
 
     function takeOffer( offer, conversationId, callId, name )
     {
+        if ( offer.kind === 'download' )
+            return decideDownload( offer, true );
+
         offer.decided = new Date( options.now() ).toISOString();
 
         if ( offer.kind === 'move' )
@@ -1009,6 +1128,9 @@ export function createMockSession( options )
 
     function declineOffer( offer, conversationId )
     {
+        if ( offer.kind === 'download' )
+            return decideDownload( offer, false );
+
         offer.state = 'declined';
         offer.decided = new Date( options.now() ).toISOString();
         recordEvent( { kind: 'suggestion.declined', conversation: conversationId, name: offer.name,
@@ -1026,6 +1148,28 @@ export function createMockSession( options )
         return 'Kept this chat separate from ' + offer.name + '.';
     }
 
+    /** The app's line in Mila's place, for an answer given with a button rather than in words. */
+    function sayAppLine( callId, offer, line )
+    {
+        const turnId = 'turn-' + session.nextTurnNumber;
+        session.nextTurnNumber = session.nextTurnNumber + 1;
+
+        session.history.push( { role: 'assistant', content: line, thought: null, tool_calls: null, attachments: null, stats: null, app: true } );
+
+        const stored = conversations.get( session.conversationId );
+
+        if ( stored !== undefined )
+        {
+            stored.messages = session.history.slice();
+            stored.updated = new Date( options.now() ).toISOString();
+        }
+
+        emit( { type: 'turn.begin', stream_id: streamId, turn_id: turnId, conversation_id: session.conversationId } );
+        emit( { type: 'turn.answered', stream_id: streamId, turn_id: turnId, call_id: callId, offer: { ...offer }, text: line } );
+        emit( { type: 'turn.end', stream_id: streamId, turn_id: turnId, finish: 'stop', answer: '', message: session.history.length - 1 } );
+        emitWorkspace();
+    }
+
     /** `suggestion.decide`: a project offer answered on a card, with the name as the person left it. */
     function decideSuggestion( request )
     {
@@ -1034,8 +1178,23 @@ export function createMockSession( options )
         const messages = isOpen ? openMessages() : conversation === undefined ? [] : conversation.messages;
         const call = callWithOffer( messages, request.call_id );
         const offer = call === null ? null : call.offer;
+        const undecided = offer !== null && ( offer.state === 'open' || offer.state === 'undecided' );
 
-        if ( offer === null || offer.kind !== 'project' || ( offer.state !== 'open' && offer.state !== 'undecided' ) )
+        // The setup's download, answered with its buttons in its own chat: the app's line follows in the chat.
+        if ( offer !== null && offer.kind === 'download' && isOpen && undecided && !interviewFinished )
+        {
+            const line = decideDownload( offer, request.decision === 'accept' );
+            const held = callWithOffer( session.history, request.call_id );
+
+            if ( held !== null && held !== call )
+                held.offer = { ...offer };
+
+            sayAppLine( request.call_id, offer, line );
+
+            return;
+        }
+
+        if ( offer === null || offer.kind !== 'project' || !undecided )
         {
             emitError( 'That suggestion has already been answered.', null );
             emitConversations();

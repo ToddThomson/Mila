@@ -59,6 +59,18 @@ export function createSettingsView( root, actions )
         {
             Object.assign( local, change );
             refresh();
+        },
+        /** What Settings' About opens: the place What Mila can reach, the License or About Mila Assistant. */
+        open( shown )
+        {
+            actions.closeSettings();
+
+            if ( shown === 'reach' )
+                actions.openPlace( 'reach' );
+            else if ( shown === 'license' )
+                actions.openLicense();
+            else
+                actions.openAbout();
         }
     };
 

@@ -12,7 +12,8 @@ export const areas = [
     { id: 'sampling', label: 'Sampling', note: 'Each model opens at its publisher\'s recommended values.' },
     { id: 'search', label: 'Web search', note: null },
     { id: 'build', label: 'Commands', note: null },
-    { id: 'display', label: 'Display', note: null }
+    { id: 'display', label: 'Display', note: null },
+    { id: 'about', label: 'About', note: null }
 ];
 
 const detailChoices = [
@@ -600,6 +601,29 @@ const detail = {
     }
 };
 
+/** A line in About that opens a place or a window of its own: Settings closes, and it shows. */
+function opening( id, label, terms, verb, shown )
+{
+    const action = 'show-' + shown;
+
+    return {
+        id,
+        area: 'about',
+        label,
+        terms,
+        needs: null,
+        reads: [],
+        note: () => null,
+        offered: () => true,
+        build: () => button( 'chip-button', verb, action ),
+        onAction( performed, target, view )
+        {
+            if ( performed === action )
+                view.open( shown );
+        }
+    };
+}
+
 export const settings = [
     installed,
     available,
@@ -613,7 +637,10 @@ export const settings = [
     seed,
     searchKey,
     runCommands,
-    detail
+    detail,
+    opening( 'reach_view', 'What Mila can reach', [ 'reach', 'folders', 'files', 'internet', 'web', 'access' ], 'Show', 'reach' ),
+    opening( 'license_view', 'Mila’s License', [ 'license', 'licence', 'terms', 'conditions' ], 'Read', 'license' ),
+    opening( 'about_view', 'About Mila Assistant', [ 'version', 'about', 'licences', 'credits' ], 'Show', 'about' )
 ];
 
 export const leads = { models: { reads: [ 'modelsError', 'progress', 'publishedModels' ], build: modelsLead } };
