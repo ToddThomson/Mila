@@ -128,7 +128,8 @@ namespace Mila::Assistant
     }
 
     /**
-     * @brief Every model the publisher offers, as `models.list` carries it, and the one suggested for this computer.
+     * @brief Every model the publisher offers, as `models.list` carries it, and the one suggested for this computer,
+     *        which is also the one the setup installs (`onboarding`).
      *
      * Each is planned on this computer for the request given (Specifications/Apps/AssistantOnboarding.md), ranked by
      * the library, and the first it can suggest is named; each costs two small reads of its weights the first time.
@@ -181,12 +182,6 @@ namespace Mila::Assistant
         }
 
         Mila::Deployment::rankPublishedModels( fits );
-
-        // The model the setup installs, the library's pick of the onboarding-ready ones (AssistantOnboarding.md 4.4).
-        if ( const std::optional<std::size_t> onboarding = Mila::Deployment::onboardingModel( fits ) )
-        {
-            listed[ "onboarding" ] = fits[ *onboarding ].model.name();
-        }
 
         for ( const auto& fit : fits )
         {
@@ -244,6 +239,9 @@ namespace Mila::Assistant
 
             listed[ "models" ].push_back( std::move( entry ) );
         }
+
+        // The setup downloads the suggestion itself, and the interview runs on it (AssistantOnboarding.md 4.4, round 13).
+        listed[ "onboarding" ] = listed[ "suggested" ];
 
         return listed;
     }

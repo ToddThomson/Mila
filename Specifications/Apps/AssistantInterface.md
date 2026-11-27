@@ -57,8 +57,10 @@ nothing are told back to the model, so the app groups nothing itself and a chat 
 is in an open suggestion (4.3); an offer lives on the call that made it, in the stored chat, with its state, and the
 overview reads it from there, with no `suggestions.json` (8); the person's next message after an offer is read by app
 code, a bare acceptance or refusal taking or declining it (since 2026-11-25, answers of one kind together count, *No
-thanks, not now*; `AssistantOnboarding.md` 4.4, round 12), being stored in the chat with the app's line and starting no
-reply, and anything else closing it undecided, after which it stays on the overview as a card until answered there
+thanks, not now*; `AssistantOnboarding.md` 4.4, round 12), ~~being stored in the chat with the app's line and starting no
+reply~~ -- *revised 2026-11-26 (Todd, on his walk of the setup: "the final reply is confusing"): the app still does what
+the answer says, then places its own call, `offer_answered`, in the turn the answer begins, whose result is what was done,
+and Mila replies in its own words and goes on; with no model resident the app's line is kept as before* -- and anything else closing it undecided, after which it stays on the overview as a card until answered there
 (5.4); in an exposed chat the offer is drawn in the transcript with *Make the project* and *Not now* and words do not
 count, and elsewhere it has no buttons; `move_to_project` moves only the chat it is called in and only a chat in no
 project, is an offer the first time for each project and after the person's first yes for that project runs and is
@@ -587,6 +589,11 @@ with:
 - **The network, for reading public pages and searching.** Every page read and every search is asked (section 5.7).
 - **One rule:** `update_step` runs without asking. Every other call is asked, and a command every time
   (`../ContainedPrograms.md` 5).
+
+**A folder's tools reach the model in the reply that asked for it** (2026-11-26, Todd's walk: Gemma 4 26B-A4B, given
+a folder partway through a reply, said it could not write files, the tools it then had not being in the prompt it was
+reading). The agent renders a round whole when its tools changed while the calls were answered (`../ToolCalling.md`
+4, *the splice*); for a day before, `request_folder`'s result named the tools instead.
 
 A grant widened in a chat is that chat's: the next chat begins without it unless both are in a project that holds it.
 Being in a project never widens what a tool may reach beyond the project's folders.

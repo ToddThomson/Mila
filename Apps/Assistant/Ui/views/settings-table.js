@@ -520,14 +520,14 @@ const searchKey = {
 const runCommands = {
     id: 'run_commands',
     area: 'build',
-    label: 'Run commands (experimental)',
+    label: 'Run commands',
     terms: [ 'commands', 'container', 'terminal', 'shell', 'git', 'build', 'test' ],
     needs: 'session',
     reads: [ 'session' ],
-    note: () => 'Mila can run commands such as builds, tests and git in a Windows container limited to the ' +
-        'chat\'s folder and the program folders below, on a desktop of their own. Each command asks first. A ' +
-        'command has no internet unless it asks and you allow it; one that has it can send what it reads. ' +
-        'Needs Windows 11 26H2 or later.',
+    note: () => 'Mila can run commands such as builds, tests and git in a container limited to the chat\'s ' +
+        'folder and the program folders below, on a desktop of their own. Each command asks first. A command has ' +
+        'no internet unless it asks and you allow it; one that has it can send what it reads. On Windows, needs ' +
+        'Windows 11 26H2 or later.',
     offered: () => true,
     build: ( state ) => switchControl( state.session.run_commands === true, 'Run commands', 'run-commands' ),
     /** Under the note: why commands cannot run, the folders they can read, and the known gaps. */

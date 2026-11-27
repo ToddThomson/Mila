@@ -51,7 +51,8 @@ deployment's features, use cases and that rebuild are v0.22.0's (**Future**, bel
 **Once it is set, the date is fixed and the scope drains, except for *The Desktop Agent*.** What has not landed by then
 returns to [`Vnext.md`](Issues/Vnext.md) and the release ships with what it has, its claim stated as
 narrowed. **The 26B-A4B's vision tower is tentative and drains first**, with *Mila on Apple Silicon*, which is
-experimental; the 12B's image and audio are committed. *The Desktop Agent* neither drains nor narrows: its code is not compromised to hold the date, and if
+experimental, and with *The Desktop Agent*'s use of more than one intelligence, tentative too (Todd, 2026-11-26); the
+12B's image and audio are committed. Apart from that part, *The Desktop Agent* neither drains nor narrows: its code is not compromised to hold the date, and if
 it is not done the date moves (Todd, 2026-10-25).
 
 Pre-1.0 still holds: breaking changes to the API are acceptable. **A model a user installed is not one
@@ -246,11 +247,14 @@ connections, which holds it to the folder and to public addresses. The models AP
 provides the file and web tools both apps offer, written through grants, and Chat offers them as Mila Assistant does: a person names a folder or
 allows the web, and is asked before each call and shown what it can reach. And an agent holds a session -- what the program
 gave it and the conversation -- apart from its model, so a program changes model or context without losing either;
-Mila Assistant and Chat each build on the library alone for that, with no family-specific code of their own (`Direction.md` 4.3, Todd, 2026-10-27). One program-running tool comes in as an
-experiment, off by default: the grant runs a program in Microsoft's execution container, held to the folder, the
-network as granted and a desktop of its own, and Mila Assistant's Build & Code gains a shell through it
-(`ContainedPrograms.md`, Todd, 2026-10-27). MCP and other people's tool servers come later, through the same
-container. The grant's checks hold on Windows and on a Mac, each tested on both (*Mila on Apple Silicon*, Todd,
+Mila Assistant and Chat each build on the library alone for that, with no family-specific code of their own (`Direction.md` 4.3, Todd, 2026-10-27). One program-running tool comes in,
+on by default, since this release is fully agentic (Todd, 2026-11-26): the grant runs a program in Microsoft's
+execution container, held to the folder, the network as granted and a desktop of its own, and Mila Assistant's chats
+gain builds, tests and git through it, on Windows, macOS and Linux (`ContainedPrograms.md` decision 16). MCP and other people's tool servers come later, through the same
+container. **Tentatively (Todd, 2026-11-26), Mila begins to harness more than one intelligence** (`MilaVision.md`
+9.1): it shows what it has to work with on the computer, puts a second model to work in the background where the
+machine has room, and asks a frontier model over the network only when the person asks it to, each send shown and
+approved. The grant's checks hold on Windows and on a Mac, each tested on both (*Mila on Apple Silicon*, Todd,
 2026-11-15); on Linux a tool runs only once its checks are tested there.
 
 **Success criteria:** on Windows, Mila Assistant runs every model this release publishes that calls tools through a
@@ -268,11 +272,15 @@ Chat each build on `Mila::Agents` alone, neither linking the other's code, and n
 a model belongs to; no dispatch site in `Mila::Agents` carries a
 per-family branch; and across a multi-turn tool session, prefill tokens per turn equal the tokens the turn added,
 measured, for every family that permits prefix reuse, Qwen from the position it saved at the end of the previous
-turn; and with the experimental setting on, on Windows 11 26H2 and on macOS 15 or later, Mila Assistant runs a
+turn; and on Windows 11 26H2, on macOS 15 or later and on Linux, with commands on as they are by default, Mila Assistant runs a
 command in the chosen folder, asked first, and a test per kind of access the container refuses -- a file outside, a
 name inside for a file outside, a file also in a denied folder, a write to a read-only folder, the network with none
 granted, a private address with it granted, the person's screen -- shows it refused beside the same access inside
-allowed, on both (`ContainedPrograms.md` decision 12, Todd, 2026-11-17).
+allowed, on both (`ContainedPrograms.md` decision 12, Todd, 2026-11-17); and, tentatively (`MilaVision.md` 9.1),
+on Windows, macOS and Linux, Settings shows each device, each model that runs there and what it is measured to do; a
+second model resident beside the agent does Mila Assistant's background work where the machine has room, with what it
+costs the agent measured; and a frontier model is asked only on the person's explicit request, off by default, each
+send shown and approved, and its reply treated as content from outside.
 
 ### A Developer Can Start
 

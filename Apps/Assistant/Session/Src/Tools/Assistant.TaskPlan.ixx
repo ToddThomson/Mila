@@ -49,8 +49,11 @@ namespace Mila::Assistant
 
             steps_ = std::move( steps );
 
-            return std::format( "The user approved the plan of {} steps. Work through them in order, and mark each with "
-                "update_step as you start it and as you finish it.", steps_.size() );
+            // Said plainly, as Gemma 4 26B-A4B took the approval for a request to wait for one and ended the turn
+            // (Todd's walk, 2026-11-26).
+            return std::format( "The user approved the plan of {} steps. Start step 1 now, in this reply, without waiting "
+                "for another message; work through the steps in order, and mark each with update_step as you start it and "
+                "as you finish it.", steps_.size() );
         }
 
         /// `step`, from 1, and `status`: in_progress, done or skipped.

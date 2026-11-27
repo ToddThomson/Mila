@@ -277,6 +277,44 @@ LLM Agents against Prompt Injections" (arXiv 2506.08837) surveys such patterns a
 | Encryption at rest | Section 6 | App, operating system | None |
 | Confinement of the session itself | A defect in the grant should not reach everything the person can | App, operating system | Filed in `../../Issues/Untriaged.md` |
 
+### 9.1 The intelligence Mila can use (2026-11-26)
+
+**Current thinking (Todd, 2026-11-26):** Mila understands that more than one intelligence may be available to it --
+"using a frontier model via an API *could* be avail (the whole harnessing intelligence thing)", and "the compute
+environment with multiple devices could be used with multiple models". The steps below are tentatively in v0.21.0 (Todd,
+the same day: "Let's not lose the small first steps. Tentatively add to 0.21"), the first work to drain.
+
+**Proposed (Claude's, 2026-11-26):**
+
+- **The harness keeps a list of what it can use.** Each entry says where it runs (a device here, or a service over the
+  network), what it was measured to do (the `agentic` mark, the context the planner gives it here), what it costs
+  (memory, time, money) and whether using it sends anything off the computer. Today the session knows one model; the
+  planner already prices what fits on each device, so most of the list is measured already.
+- **Which intelligence does which job is decided by measurement, never by a model's name** (as suitability is).
+- **A frontier model is a tool the harness offers, never a model swap.** The local model stays in charge, writes the
+  question and hands it out through the gate as any outward action: the person sees exactly what would be sent and
+  approves each send (section 3, *that specific thing*), it is off by default, its key is in the credential store as
+  the search key is, its spend is shown, and its reply is content from outside (section 8). It is proposed by the
+  person ("ask a frontier model"), or by the app when the local model is stuck -- a failed check, a spent budget --
+  never on the model's own judgement that it is out of its depth. The cost to watch is the product: the local promise
+  is what Mila is, and a path that leaks by design has to stay visibly exceptional.
+- **Several models at once** where the machine has room: one larger model split across cards
+  (`../LayerSplit.md`), or a second model resident beside the agent for background work -- titles, summaries,
+  compaction, project notes -- and later a worker or a specialist (section 9's *Two agents on one machine*). It is an
+  extra for larger machines, never something Mila depends on: the 16 GB reference card spends its memory on the
+  agent's context. On a Mac the memory is one pool, not separate devices, so the design is in memory budgets, not
+  device counts, and the three platforms have the same feature.
+
+**The small first steps** (tentatively v0.21.0, each in `../../BACKLOG.md` under *The Desktop Agent*):
+
+1. **This section.** *Done 2026-11-26.*
+2. **The list, shown:** Settings says what Mila has to work with on this computer -- each device, each model that
+   runs here and what it is measured to do, and what the network offers -- read from the planner and the model
+   metadata.
+3. **A second model for background work** on a second device or within a larger memory budget, the first piece that
+   can be measured: what it does, and what it costs the agent beside it.
+4. **A frontier model as an explicit, off-by-default request,** under the rules above.
+
 ## 10. Where Mila stands today
 
 Read in the tree at `0.21.0-dev+153`. What can leave the machine was inventoried on 2026-11-18
@@ -395,6 +433,7 @@ Todd's. Claude's recommendation is that v0.21.0 takes the small corrections (ste
    life" are candidates only.
 7. **The audience statement** in the public message, once something ships that makes it true.
 8. **A frontier model** as an opt-in resource: whether, when, and how it is presented under the local promise.
+   *Current thinking and a proposal since 2026-11-26: section 9.1.*
 9. **What enters v0.21.0,** beyond this. *Decided (Todd, 2026-11-18):* the link that shows its address before it opens,
    from step 3, enters it. The rest of section 11 is still Todd's to place.
 

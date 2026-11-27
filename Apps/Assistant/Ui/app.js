@@ -19,7 +19,6 @@ import { createLinkView } from './views/link.js';
 import { createNewProjectView } from './views/new-project.js';
 import { createDevelopmentView } from './views/development.js';
 import { createLogView } from './views/log.js';
-import { createPlanView } from './views/plan.js';
 import { createMadeView } from './views/made.js';
 
 const narrowQuery = window.matchMedia( '(max-width: 899.98px)' );
@@ -395,7 +394,6 @@ const transcriptScroller = document.getElementById( 'transcript-scroll' );
 const conversationElement = document.getElementById( 'conversation' );
 const dockElement = document.getElementById( 'dock' );
 const dockFade = mainElement.querySelector( '.dock-fade' );
-const planElement = document.getElementById( 'plan' );
 const logElement = document.getElementById( 'log-drawer' );
 
 const sidebar = createSidebarView( document.getElementById( 'sidebar' ), actions );
@@ -414,7 +412,6 @@ const linkSheet = createLinkView( document.getElementById( 'link-window' ), acti
 const newProjectSheet = createNewProjectView( document.getElementById( 'project-window' ), actions );
 const development = createDevelopmentView( sidebar.development, transport.development, composer );
 const log = createLogView( logElement, actions );
-const plan = createPlanView( planElement );
 const made = createMadeView( document.getElementById( 'made-drawer' ), actions );
 
 /**
@@ -492,7 +489,6 @@ function render()
     composer.render( state, surface );
     settings.render( state, surface );
     log.render( state, surface );
-    plan.render( state );
     made.render( state );
 
     // A moved transcript starts again at its latest turn.
@@ -503,7 +499,6 @@ function render()
 
     const conversing = mode === 'chat' || risen;
 
-    planElement.hidden = planElement.hidden || !conversing;
     logElement.hidden = logElement.hidden || !conversing;
 }
 
@@ -511,6 +506,7 @@ function render()
 const dockSize = new ResizeObserver( () =>
 {
     mainElement.style.setProperty( '--dock-height', dockElement.offsetHeight + 'px' );
+    transcript.keepToEnd();
 } );
 
 dockSize.observe( dockElement );

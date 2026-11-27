@@ -10,6 +10,36 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## A command's output names a different folder from the one the person gave Mila
+
+`Apps/Assistant/Session/Src/Implementation/SessionProcess.cpp` (the folder mapped into the container) @ 0.21.0-dev+166
+
+Found 2026-11-27 reading Todd's HelloWorld walk on Gemma 4 26B-A4B. He gave `C:\Users\ToddT\Src\Mila\HelloWorld`, and `request_folder`'s result said so, but `New-Item`'s output inside the container read `Directory: D:\Mila\HelloWorld`. The model let it pass this time; a model that writes an absolute path, or a person reading the tool card, meets two names for one folder.
+
+## A model that joins build and run with `;` reports a failed build as a success
+
+`Apps/Assistant/Prompts/general.json` (the `run_command` passage) @ 0.21.0-dev+166
+
+Found 2026-11-27 in the same walk: the model ran `New-Item ...; cl /Fe:build/hello.exe src/main.cpp; .\build\hello.exe` as one command. The exit code is the last command's, so a compile that failed would still read 0, and would run a stale `hello.exe` if one were there. The prompt forbids `&&` and `||` (PowerShell 5.1 has neither) but says nothing of `;`.
+
+## A project made from a chat keeps none of that chat's folder, and its note is never brought up to date
+
+`Data/TestUser/Mila/Assistant/Projects/project-20261127151632-dd1c55` (`project.json`, `understanding.json`) @ 0.21.0-dev+166
+
+Found 2026-11-27 in the same walk: the folder was given after the chat moved into the HelloWorld project, yet the project's `folders` is empty, so a new chat in it starts with no folder. Its understanding note, written once when the project was made, still says the next step is "Ask Todd how he would like to begin", after the files were written, built and run; the model called `note_understanding` once and not after the plan or the build.
+
+## A turn on Gemma 4 12B went silent for over nine minutes after its plan's last step, and never ended
+
+`D:\Claude\round13\round-off.log` (the real session, commands off, Gemma 4 12B Q4_0 on the RTX 4070) @ 0.21.0-dev+165
+
+Found 2026-11-26 testing commands for Todd. After `update_step` marked the last of five steps done at 44.8 s, the session sent nothing more until the script's 600 s limit stopped it: no text, no round end, no call. Run again the same way, the turn ended at 52.9 s with a reply; a trace of that run showed one round thinking for 6,756 characters. Not reproduced; whether it was a long thought, a loop or a hang is not known, and the session has no limit that would have ended it.
+
+## After setup downloads a model, the first chat on it does not know it is that model, and asks whether the person means a machine learning model
+
+`Apps/Assistant/Session/Src/Implementation/SessionProcess.cpp` (the system prompt); `Apps/Assistant/Prompts/interview.json` (`assess_needs`, "do not name any model") @ 0.21.0-dev+165
+
+Found 2026-11-26 reading Todd's walk of the interview. His first chat on Gemma 4 26B-A4B after setup downloaded it opened "Are you ready with the new model?"; the model searched his chats for "new model", found nothing (the interview offered "a download" and never said "model"), and asked whether he meant a model for a project or a machine learning model. The system prompt says nothing of which model is running, that it was just downloaded, or what setup did.
+
 ## A change to Mila Assistant's prompts alone does not reach the build, so the session runs the old prompt
 
 `Apps/Assistant/Session/CMakeLists.txt` (the `POST_BUILD` copy of `Prompts`) @ 0.21.0-dev+164

@@ -1210,8 +1210,8 @@ kbd {
 
 .conversation .turn { margin-bottom: 18px; }
 
-/* A plan and the log sit above the bar while a chat is shown, each on its own surface. */
-.plan-panel, .log-drawer {
+/* The log sits above the bar while a chat is shown, on its own surface. */
+.log-drawer {
   flex: none;
   padding: 8px 12px;
   border: 1px solid var(--rule);
@@ -1219,17 +1219,16 @@ kbd {
   background: var(--surface);
 }
 
-.plan-heading { display: flex; gap: 8px; align-items: baseline; font-size: 13px; font-weight: 600; }
+/* A plan is drawn on the call that proposed it, in the conversation, as it stands (MilaAssistant.md 3.1). */
+.tool-plan { padding: 2px 14px 10px 40px; }
 
-.plan-progress { font-weight: 400; color: var(--faint-text); }
+.plan-progress { font-size: 12.5px; color: var(--faint-text); }
 
 .plan-steps {
   margin: 4px 0 0;
-  padding: 6px 2px 2px;
-  max-height: 24vh;
-  overflow: auto;
+  padding: 2px 2px 0;
   list-style: none;
-  font-size: 13px;
+  font-size: 13.5px;
 }
 
 .plan-step { display: flex; gap: 8px; padding: 2px 0; }
@@ -1313,7 +1312,6 @@ kbd {
 .composer-line { display: flex; align-items: flex-start; gap: 10px; flex: 1; min-width: 0; }
 
 /* The setup's chat once the setup is over: a new chat where the message box was. */
-.composer-closed { display: flex; justify-content: center; padding: 10px 0; }
 
 .composer-mark { flex: none; width: 19px; height: auto; margin-top: 8px; }
 

@@ -11,7 +11,7 @@ const streamId = 'stream-1';
 const mockFolder = 'C:\\Users\\you\\Projects\\calc';
 
 // What the setup has to accomplish, as Assistant.SetupSteps names it.
-const setupTitles = [ 'What to call you', 'What you will use Mila for', 'What Mila needs for your work' ];
+const setupTitles = [ 'What to call you', 'What you will use Mila for' ];
 
 /**
  * @param options.scenario The scenario's number (section 5).
@@ -34,11 +34,9 @@ export function createMockSession( options )
     // earlier launch, which the session reads from its settings (AssistantOnboarding.md 4.4).
     let downloadAgreed = scenario.panesGoneThrough === true;
     let panesDone = scenario.panesGoneThrough === true;
-    // As the session's (AssistantOnboarding.md 4.4, round 11): the setup's chat, its steps kept as its plan, and the
-    // name the person gave, which the setup's last line says.
+    // As the session's (AssistantOnboarding.md 4.4, rounds 11 and 13): the setup's chat and the steps kept with it.
     let setupConversation = null;
     let setupSteps = null;
-    let personName = '';
     const startModel = scenario.model === null ? null : findModel( scenario.model );
     const startTime = options.now();
     const seeds = seedConversations( startTime );
@@ -442,10 +440,7 @@ export function createMockSession( options )
         }
 
         if ( message.name === 'remember_name' && typeof parsed.name === 'string' )
-        {
-            personName = parsed.name;
             markSetupStep( 0, 'done', parsed.name );
-        }
 
         if ( message.name === 'note_uses' && typeof parsed.uses === 'string' )
             markSetupStep( 1, 'done', parsed.uses );
@@ -453,7 +448,6 @@ export function createMockSession( options )
         if ( message.name === 'skip_question' && ( parsed.question === 'name' || parsed.question === 'uses' ) )
             markSetupStep( parsed.question === 'name' ? 0 : 1, 'skipped', null );
 
-        // A skip of the whole setup is a choice to stay, and ends it.
         if ( message.name === 'skip_question' && parsed.question === 'setup' )
         {
             for ( const index of [ 0, 1 ] )
@@ -461,39 +455,11 @@ export function createMockSession( options )
                 if ( setupSteps[ index ].status === 'pending' )
                     markSetupStep( index, 'skipped', null );
             }
-
-            markSetupStep( 2, 'done', 'nothing, as the setup was skipped' );
-            interviewFinished = true;
         }
 
-        // Nothing needed, nothing asked: the setup ends; a scenario that scripts a download puts it as an offer.
-        if ( message.name === 'assess_needs' && scenario.downloadOffer === undefined )
-        {
-            markSetupStep( 2, 'done', 'nothing more' );
+        // Both answered or skipped: the setup ends, and its chat goes on as the person's first (round 13).
+        if ( setupSteps.every( ( step ) => step.status !== 'pending' ) )
             interviewFinished = true;
-        }
-    }
-
-    /**
-     * The person's answer to the setup's download (round 12): the last objective done, the setup ended, and the app's own
-     * last line. The mock downloads nothing.
-     */
-    function decideDownload( offer, accept )
-    {
-        const download = offer.download ?? null;
-        const downloading = accept && download !== null;
-
-        offer.state = accept ? 'accepted' : 'declined';
-        offer.decided = new Date( options.now() ).toISOString();
-        markSetupStep( 2, 'done', downloading ? 'downloading what it needs' : 'carries on as it is' );
-        interviewFinished = true;
-
-        const named = personName.length === 0 ? '' : 'I\'ll call you ' + personName + ', and ';
-        const what = downloading
-            ? 'I\'m downloading what I need for your work, about ' + ( download.size_bytes / 1e9 ).toFixed( 1 ) + ' GB; your next new chat uses it'
-            : 'I\'ll carry on as I am';
-
-        return 'I\'m set up: ' + named + what + '. Start a new chat whenever you\'re ready.';
     }
 
     /** At launch, before any pane is answered: the published list read, and the onboarding model's download begun (4.4). */
@@ -570,17 +536,9 @@ export function createMockSession( options )
             return;
         }
 
-        // As the session's: the setup's chat takes no more messages once the setup is over.
-        if ( interviewFinished && session.conversationId !== null && session.conversationId === setupConversation )
-        {
-            emitError( 'This chat set Mila up, and the setup is finished. Start a new chat to go on.', 'turn' );
-
-            return;
-        }
-
-        // An answer to Mila's offer is read by app code and needs no reply (AssistantInterface.md 5.4).
-        if ( answerOffer( request.text ) )
-            return;
+        // An answer to Mila's offer is read by app code, which does what it says; Mila then replies, told what was done
+        // by the app's own call (AssistantInterface.md 5.4).
+        const answered = answerOffer( request.text );
 
         if ( session.conversationId === null )
         {
@@ -592,6 +550,10 @@ export function createMockSession( options )
         const turnId = 'turn-' + session.nextTurnNumber;
         const sent = takeAttachments( request.attachment_ids );
         const stored = conversations.get( session.conversationId );
+
+        // As the session's: the setup's chat goes on as the person's first, named by its first message after the setup.
+        if ( stored !== undefined && session.conversationId === setupConversation && interviewFinished && stored.title === 'Setting up Mila' )
+            stored.title = titleFor( request.text );
         const context = { attachments: sent, model: session.model, conversationId: session.conversationId,
             title: stored === undefined ? titleFor( request.text ) : stored.title, project: session.project, projects, conversations,
             turnNumber: session.nextTurnNumber };
@@ -602,7 +564,7 @@ export function createMockSession( options )
             turnId,
             request,
             attachments: sent,
-            steps: scenario.createReply( request, context ),
+            steps: answered === null ? scenario.createReply( request, context ) : answeredReply( answered, session.nextTurnNumber ),
             next: 0,
             waiting: null,
             thought: '',
@@ -878,10 +840,7 @@ export function createMockSession( options )
             if ( call !== undefined )
                 call.offer = { ...message.offer };
 
-            // A move done and said is done as the call runs; the setup's download is no suggestion of a project.
-            if ( message.offer.kind === 'download' )
-                return;
-
+            // A move done and said is done as the call runs.
             if ( message.offer.kind === 'move' && message.offer.state === 'accepted' )
                 moveOne( session.conversationId, message.offer.project, { who: 'mila' } );
             else
@@ -1014,16 +973,16 @@ export function createMockSession( options )
         return stored === undefined ? session.history : stored.messages;
     }
 
-    /** As the session's answerOffer: a bare answer takes, declines or undoes, and is kept with the app's line. */
+    /** As the session's answerOffer: a bare answer takes, declines or undoes; what was done, or null for no answer. */
     function answerOffer( text )
     {
         if ( session.conversationId === null )
-            return false;
+            return null;
 
         const call = pendingOffer( session.history );
 
         if ( call === null )
-            return false;
+            return null;
 
         const offer = call.offer;
         const answer = readOfferAnswer( text );
@@ -1043,36 +1002,37 @@ export function createMockSession( options )
             if ( open )
                 offer.state = 'undecided';
 
-            return false;
+            return null;
         }
-
-        const turnId = 'turn-' + session.nextTurnNumber;
-        session.nextTurnNumber = session.nextTurnNumber + 1;
-
-        session.history.push( { role: 'user', content: text, thought: null, tool_calls: null, attachments: null, stats: null } );
-        session.history.push( { role: 'assistant', content: line, thought: null, tool_calls: null, attachments: null, stats: null, app: true } );
 
         const stored = conversations.get( session.conversationId );
 
         if ( stored !== undefined )
-        {
             stored.messages = session.history.slice();
-            stored.updated = new Date( options.now() ).toISOString();
-        }
 
-        emit( { type: 'turn.begin', stream_id: streamId, turn_id: turnId, conversation_id: session.conversationId } );
-        emit( { type: 'turn.answered', stream_id: streamId, turn_id: turnId, call_id: call.call_id, offer: { ...offer }, text: line } );
-        emit( { type: 'turn.end', stream_id: streamId, turn_id: turnId, finish: 'stop', answer: '', message: session.history.length - 1 } );
         emitWorkspace();
 
-        return true;
+        return line;
+    }
+
+    /** Mila's reply to an answer: the app's offer_answered call placed first, with what was done, then a scripted reply. */
+    function answeredReply( line, turnNumber )
+    {
+        const callId = 'call-answered-' + turnNumber;
+        const said = 'Done. ' + line + ' What would you like to do next?';
+
+        return [
+            { delay: 100, message: { type: 'turn.begin' } },
+            { delay: 0, message: { type: 'turn.tool_call', round: 1, call_id: callId, name: 'offer_answered', summary: 'What your answer did', arguments: '{}' } },
+            { delay: 50, message: { type: 'turn.tool_result', call_id: callId, result: 'The user answered your suggestion, and the app did what they chose: ' + line, is_error: false } },
+            { delay: 100, message: { type: 'turn.text', round: 1, channel: 'answer', text: said } },
+            { delay: 0, message: { type: 'turn.round_end', round: 1, prefill_ms: 80, tokens_per_second: 40, tokens: 16, thought_tokens: 0, finish: 'stop' } },
+            { delay: 0, message: { type: 'turn.end', finish: 'stop', answer: said } }
+        ];
     }
 
     function takeOffer( offer, conversationId, callId, name )
     {
-        if ( offer.kind === 'download' )
-            return decideDownload( offer, true );
-
         offer.decided = new Date( options.now() ).toISOString();
 
         if ( offer.kind === 'move' )
@@ -1128,9 +1088,6 @@ export function createMockSession( options )
 
     function declineOffer( offer, conversationId )
     {
-        if ( offer.kind === 'download' )
-            return decideDownload( offer, false );
-
         offer.state = 'declined';
         offer.decided = new Date( options.now() ).toISOString();
         recordEvent( { kind: 'suggestion.declined', conversation: conversationId, name: offer.name,
@@ -1148,28 +1105,6 @@ export function createMockSession( options )
         return 'Kept this chat separate from ' + offer.name + '.';
     }
 
-    /** The app's line in Mila's place, for an answer given with a button rather than in words. */
-    function sayAppLine( callId, offer, line )
-    {
-        const turnId = 'turn-' + session.nextTurnNumber;
-        session.nextTurnNumber = session.nextTurnNumber + 1;
-
-        session.history.push( { role: 'assistant', content: line, thought: null, tool_calls: null, attachments: null, stats: null, app: true } );
-
-        const stored = conversations.get( session.conversationId );
-
-        if ( stored !== undefined )
-        {
-            stored.messages = session.history.slice();
-            stored.updated = new Date( options.now() ).toISOString();
-        }
-
-        emit( { type: 'turn.begin', stream_id: streamId, turn_id: turnId, conversation_id: session.conversationId } );
-        emit( { type: 'turn.answered', stream_id: streamId, turn_id: turnId, call_id: callId, offer: { ...offer }, text: line } );
-        emit( { type: 'turn.end', stream_id: streamId, turn_id: turnId, finish: 'stop', answer: '', message: session.history.length - 1 } );
-        emitWorkspace();
-    }
-
     /** `suggestion.decide`: a project offer answered on a card, with the name as the person left it. */
     function decideSuggestion( request )
     {
@@ -1179,20 +1114,6 @@ export function createMockSession( options )
         const call = callWithOffer( messages, request.call_id );
         const offer = call === null ? null : call.offer;
         const undecided = offer !== null && ( offer.state === 'open' || offer.state === 'undecided' );
-
-        // The setup's download, answered with its buttons in its own chat: the app's line follows in the chat.
-        if ( offer !== null && offer.kind === 'download' && isOpen && undecided && !interviewFinished )
-        {
-            const line = decideDownload( offer, request.decision === 'accept' );
-            const held = callWithOffer( session.history, request.call_id );
-
-            if ( held !== null && held !== call )
-                held.offer = { ...offer };
-
-            sayAppLine( request.call_id, offer, line );
-
-            return;
-        }
 
         if ( offer === null || offer.kind !== 'project' || !undecided )
         {

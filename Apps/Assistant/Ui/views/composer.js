@@ -2,8 +2,8 @@
 // that becomes Stop while a reply is written. In a chat it is the reply box; elsewhere what is typed goes on with the
 // conversation begun here, or begins a chat. A file dropped anywhere on the main pane attaches.
 
-import { element, button, iconButton, setIcon, clear, previewOrIcon, milaMark } from '../dom.js';
-import { isBusy, currentProject, setupChatClosed } from '../state.js';
+import { element, iconButton, setIcon, clear, previewOrIcon, milaMark } from '../dom.js';
+import { isBusy, currentProject } from '../state.js';
 import { barPrompt } from '../format.js';
 
 const maximumRows = 12;
@@ -24,9 +24,6 @@ export function createComposerView( root, dropZone, actions )
     const picker = element( 'input', 'file-picker' );
     const dropOverlay = element( 'div', 'drop-overlay' );
     const dropLabel = element( 'span', 'drop-label', 'Drop to attach' );
-    // The setup's chat once the setup is over: no message box, and a new chat in its place (AssistantOnboarding.md 4.4).
-    const closed = element( 'div', 'composer-closed' );
-    const fresh = button( 'chip-button', 'New chat', 'new-chat' );
     let nextAttachmentNumber = 1;
     let lastAttachments = null;
     let attachRefusal = null;
@@ -41,9 +38,7 @@ export function createComposerView( root, dropZone, actions )
     row.append( attach, hint, submit );
     line.append( milaMark( 'composer-mark' ), input );
     form.append( chips, line, row );
-    closed.append( fresh );
-    closed.hidden = true;
-    root.append( form, closed, picker );
+    root.append( form, picker );
     dropZone.append( dropOverlay );
 
     function resize()
@@ -239,7 +234,6 @@ export function createComposerView( root, dropZone, actions )
     attach.addEventListener( 'click', onAttachClick );
     picker.addEventListener( 'change', onPickerChange );
     chips.addEventListener( 'click', onChipClick );
-    fresh.addEventListener( 'click', () => actions.newConversation() );
     dropZone.addEventListener( 'dragover', onDragOver );
     dropZone.addEventListener( 'dragleave', onDragLeave );
     dropZone.addEventListener( 'drop', onDrop );
@@ -312,10 +306,6 @@ export function createComposerView( root, dropZone, actions )
         const busy = isBusy( state );
         const session = state.session;
         const loaded = session !== null && session.model !== null;
-        const ended = setupChatClosed( state ) && !busy;
-
-        form.hidden = ended;
-        closed.hidden = !ended;
 
         attachRefusal = refusalFor( session );
         attach.classList.toggle( 'disabled', attachRefusal !== null );

@@ -33,8 +33,9 @@ namespace Mila::Assistant
         /// off, thoughts or all.
         std::string detail{ "off" };
 
-        /// Whether Build & Code offers the experimental command tool (ContainedPrograms.md 4.11).
-        bool run_commands{ false };
+        /// Whether chats are offered the command tool (ContainedPrograms.md 4.11): on unless the person turns it off,
+        /// since 0.21 is fully agentic (Todd, 2026-11-26).
+        bool run_commands{ true };
 
         /// The SHA-256 of the licence text the person accepted; empty until they have (AssistantOnboarding.md 4.1).
         std::string license_accepted;
@@ -44,7 +45,7 @@ namespace Mila::Assistant
 
         /**
          * @brief Where the onboarding stands (AssistantOnboarding.md 4.4): empty before it began, "started" from the
-         *        onboarding model's pick until the interview ends, then "done".
+         *        pick of the model for this computer until the interview ends, then "done".
          */
         std::string onboarding;
 
@@ -57,20 +58,7 @@ namespace Mila::Assistant
         /// What the person said they will mostly use Mila for, from the interview; empty until they say.
         std::string person_uses;
 
-        /// What that work needs, as the model read the answer: conversation, files_and_tools or long_documents, each
-        /// once, joined by commas (AssistantOnboarding.md 4.4, round 12); empty until it is read.
-        std::string person_needs;
-
-        /// The model the person declined to download when Mila asked, and when, so Mila can offer it again later from
-        /// use (round 12); empty when nothing was declined.
-        std::string declined_model;
-        std::string declined_at;
-
-        /// The model the person chose at the setup's end to move to, kept until it is installed and a new chat or
-        /// launch runs on it (AssistantOnboarding.md 4.4, round 11); empty when there is none.
-        std::string next_model;
-
-        /// The person agreed to the onboarding model's download on *Getting Mila Ready* (AssistantOnboarding.md 4.3,
+        /// The person agreed to the setup's download on *Getting Mila Ready* (AssistantOnboarding.md 4.3,
         /// round 9), so a download they stopped by quitting goes on at the next launch without asking again.
         bool download_agreed{ false };
 

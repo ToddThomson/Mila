@@ -1030,3 +1030,20 @@ about 14 GB, so a 16 GB card needs it quantized. The question before any of that
 local LLMs, and a second model class with no next-token loss to measure against is a direction decision.
 
 `https://huggingface.co/Qwen/Qwen-Image-2.1`
+
+## Mila Assistant's setup starts a person on a smaller model while a very large one downloads
+
+`apps` · `distribution`
+
+Out of the setup at `+165` (Todd, 2026-11-26): setup now downloads the best model that fits the computer once, and the
+interview runs on it. The two-step it replaced -- an onboarding model first, the interview's assessment, then a
+second download -- saved about 12 minutes before the first chat on a 16 GB card (Gemma 4 12B Q4_0, 6.96 GB, against
+Gemma 4 26B-A4B Q4_0, 14.41 GB, at 10 MB/s: arithmetic, not measured) and cost 12 more in total, a first conversation on
+the weaker model, and a handoff that went wrong in five ways on Todd's walk (`AssistantOnboarding.md` 4.4, round 13).
+It pays when the best fit's download is long: an hour or more against the onboarding model's 12 minutes. The trigger
+is the expected wait, which the session can measure from the first seconds of the download, not the graphics memory:
+the link counts as much as the size (the 26B-A4B is 96 minutes at 2.5 MB/s), and the Mac's is unified memory. Taken up
+when Mila publishes a model whose download makes it pay; the threshold is measured then, not guessed now. Round 12's
+code is the starting point (`git show` at `+165`: `Assistant.SetupSteps`, `assess_needs`, `next_model`).
+
+`Specifications/Apps/AssistantOnboarding.md` 4.4

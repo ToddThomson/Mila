@@ -91,7 +91,7 @@ namespace Mila::Tests::Apps::Assistant
 
         const PromptFile prompt = PromptFile::load( shippedPrompts() / "general.json" );
 
-        EXPECT_EQ( prompt.tools.size(), 18u );
+        EXPECT_EQ( prompt.tools.size(), 19u );
 
         for ( const PromptTool& tool : prompt.tools )
         {
@@ -131,6 +131,40 @@ namespace Mila::Tests::Apps::Assistant
         EXPECT_NE( on_windows.find( "web_search" ), std::string::npos );
         EXPECT_EQ( on_windows.find( "You cannot search the web" ), std::string::npos );
         EXPECT_EQ( on_windows.find( "run_command" ), std::string::npos );
+
+        // Commands come with a folder, so a chat before one is told whether they will, naming no tool it lacks
+        // (2026-11-26: a plan made before the folder said the work could not be built).
+        std::set<std::string, std::less<>> before_folder = mac;
+        before_folder.insert( { "request_folder", "commands_on" } );
+        const std::string commands_coming = prompt.systemPromptFor( before_folder );
+
+        EXPECT_NE( commands_coming.find( "run commands in it" ), std::string::npos );
+        EXPECT_EQ( commands_coming.find( "run_command" ), std::string::npos );
+        EXPECT_EQ( commands_coming.find( "turning on Commands in Settings" ), std::string::npos );
+
+        before_folder.erase( "commands_on" );
+        before_folder.insert( "commands_off" );
+        const std::string commands_off = prompt.systemPromptFor( before_folder );
+
+        EXPECT_NE( commands_off.find( "turning on Commands in Settings" ), std::string::npos );
+        EXPECT_EQ( commands_off.find( "run_command" ), std::string::npos );
+        EXPECT_EQ( commands_off.find( "experimental" ), std::string::npos ) << "commands are no longer an experiment";
+
+        // On, where this computer cannot run them: no setting to send the person to.
+        before_folder.erase( "commands_off" );
+        before_folder.insert( "commands_unavailable" );
+        const std::string cannot_here = prompt.systemPromptFor( before_folder );
+
+        EXPECT_NE( cannot_here.find( "on this computer" ), std::string::npos );
+        EXPECT_EQ( cannot_here.find( "Settings" ), std::string::npos );
+
+        // With a folder and commands on, the command's passage and not the promise of one.
+        std::set<std::string, std::less<>> with_commands = windows;
+        with_commands.insert( { "run_command", "commands_on" } );
+        const std::string commands_here = prompt.systemPromptFor( with_commands );
+
+        EXPECT_NE( commands_here.find( "no && or ||" ), std::string::npos );
+        EXPECT_EQ( commands_here.find( "you will also be able to run commands" ), std::string::npos );
 
         // The workspace's own tools are named only where they are offered (AssistantInterface.md 5.2).
         std::set<std::string, std::less<>> workspace = mac;

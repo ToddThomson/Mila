@@ -186,7 +186,7 @@ function startScenario19()
     return { session, events, say, latest };
 }
 
-function scenario19OffersAProjectAndYesMakesItWithNoReply()
+function scenario19OffersAProjectAndYesMakesItAndMilaReplies()
 {
     const { say, latest, session } = startScenario19();
     const offered = say( 'Help me load my CSV files into DuckDB' );
@@ -202,10 +202,14 @@ function scenario19OffersAProjectAndYesMakesItWithNoReply()
     assert.equal( listed.offers[ 0 ].call_id, offerEvent.call_id );
 
     const answered = say( 'yes' );
+    const told = answered.find( ( event ) => event.type === 'turn.tool_call' );
 
-    assert.equal( answered.some( ( event ) => event.type === 'turn.text' ), false, 'Mila writes no reply to an answer' );
-    assert.equal( answered.find( ( event ) => event.type === 'turn.answered' ).text,
-        'Made the project CSV analytics and moved this chat and 1 other into it.' );
+    // The app does what the answer says, and its own call tells Mila, who replies (AssistantInterface.md 5.4).
+    assert.equal( answered.some( ( event ) => event.type === 'turn.answered' ), false, 'no line in the app\'s voice' );
+    assert.equal( told.name, 'offer_answered' );
+    assert.match( answered.find( ( event ) => event.type === 'turn.tool_result' ).result,
+        /Made the project CSV analytics and moved this chat and 1 other into it\./ );
+    assert.ok( answered.some( ( event ) => event.type === 'turn.text' && event.channel === 'answer' ), 'Mila replies' );
 
     const made = latest( 'projects.list' ).items.find( ( project ) => project.name === 'CSV analytics' );
 
@@ -226,7 +230,7 @@ function scenario19OffersAProjectAndYesMakesItWithNoReply()
     assert.ok( latest( 'activity.list' ).items.some( ( event ) => event.kind === 'project.undone' ) );
 }
 
-test( 'scenario 19 offers a project, and yes makes it with no reply from Mila', scenario19OffersAProjectAndYesMakesItWithNoReply );
+test( 'scenario 19 offers a project, yes makes it, and Mila replies told what was done', scenario19OffersAProjectAndYesMakesItAndMilaReplies );
 
 function scenario19NotNowDeclinesAndAnythingElseLeavesTheCard()
 {
@@ -276,7 +280,7 @@ function scenario19OffersAMoveTheFirstTimeAndYesMovesTheChat()
 
     const answered = say( 'Sure' );
 
-    assert.equal( answered.find( ( event ) => event.type === 'turn.answered' ).text, 'Moved this chat into Calculator app.' );
+    assert.match( answered.find( ( event ) => event.type === 'turn.tool_result' ).result, /Moved this chat into Calculator app\./ );
 
     const moved = latest( 'activity.list' ).items.find( ( event ) => event.kind === 'chat.moved' && event.suggested === 'move' );
 

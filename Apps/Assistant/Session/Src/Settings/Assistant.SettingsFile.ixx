@@ -155,10 +155,6 @@ namespace Mila::Assistant
             readText( stored, "interview_conversation", settings.interview_conversation, passOver );
             readText( stored, "person_name", settings.person_name, passOver );
             readText( stored, "person_uses", settings.person_uses, passOver );
-            readText( stored, "person_needs", settings.person_needs, passOver );
-            readText( stored, "declined_model", settings.declined_model, passOver );
-            readText( stored, "declined_at", settings.declined_at, passOver );
-            readText( stored, "next_model", settings.next_model, passOver );
             readText( stored, "last_version", settings.last_version, passOver );
 
             if ( const auto* agreed = find( stored, "download_agreed" ) )
@@ -201,10 +197,6 @@ namespace Mila::Assistant
             stored[ "interview_conversation" ] = textOrNull( settings.interview_conversation );
             stored[ "person_name" ] = textOrNull( settings.person_name );
             stored[ "person_uses" ] = textOrNull( settings.person_uses );
-            stored[ "person_needs" ] = textOrNull( settings.person_needs );
-            stored[ "declined_model" ] = textOrNull( settings.declined_model );
-            stored[ "declined_at" ] = textOrNull( settings.declined_at );
-            stored[ "next_model" ] = textOrNull( settings.next_model );
             stored[ "download_agreed" ] = settings.download_agreed;
             stored[ "last_version" ] = textOrNull( settings.last_version );
 

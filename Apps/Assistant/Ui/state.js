@@ -64,7 +64,7 @@ export function reduce( state, message )
     switch ( message.type )
     {
         case 'session.state':
-            return reduceSessionState( state, message );
+            return planInTranscript( reduceSessionState( state, message ) );
 
         case 'models.list':
             return {
@@ -98,7 +98,7 @@ export function reduce( state, message )
             return { ...state, place: 'project', projectId: message.id, risen: false };
 
         case 'conversation.loaded':
-            return reduceConversationLoaded( state, message );
+            return planInTranscript( reduceConversationLoaded( state, message ) );
 
         case 'creation.loaded':
             return state.creation === null ? state : { ...state, creation: { ...state.creation, loaded: message, problem: null } };
@@ -123,7 +123,7 @@ export function reduce( state, message )
             return updateTurn( state, message.turn_id, reduceToolApproval, message );
 
         case 'turn.tool_result':
-            return updateTurn( state, message.turn_id, reduceToolResult, message );
+            return planInTranscript( updateTurn( state, message.turn_id, reduceToolResult, message ) );
 
         case 'turn.went':
             return reduceTurnWent( state, message );
@@ -294,6 +294,43 @@ function reduceSessionState( state, message )
     const installAsked = workEnded ? null : state.installAsked;
 
     return { ...state, session: message, conversationId, transcript, attachments, progress, installAsked };
+}
+
+/**
+ * The chat's plan, as the session holds it, kept on the call that proposed it: the conversation shows the plan where it
+ * was approved, each step as it stands (MilaAssistant.md 3.1, revised 2026-11-26: no longer pinned above the bar). The
+ * session holds the latest plan approved, so it is the latest approved proposal's.
+ */
+function planInTranscript( state )
+{
+    const plan = state.session === null || !Array.isArray( state.session.plan ) ? null : state.session.plan;
+
+    if ( plan === null )
+        return state;
+
+    for ( let index = state.transcript.length - 1; index >= 0; index = index - 1 )
+    {
+        const entry = state.transcript[ index ];
+
+        if ( entry.kind !== 'assistant' )
+            continue;
+
+        const proposed = entry.blocks.filter( ( block ) => block.kind === 'tool' && block.name === 'propose_plan'
+            && block.result !== null && !block.isError && block.decision !== 'deny' ).pop();
+
+        if ( proposed === undefined )
+            continue;
+
+        if ( JSON.stringify( proposed.plan ?? null ) === JSON.stringify( plan ) )
+            return state;
+
+        const transcript = state.transcript.slice();
+        transcript[ index ] = updateToolBlock( entry, proposed.callId, { plan } );
+
+        return { ...state, transcript };
+    }
+
+    return state;
 }
 
 function appendEntry( state, entry )
@@ -1049,18 +1086,6 @@ export function onboardingRunning( state )
     const onboarding = state.session === null ? null : state.session.onboarding;
 
     return onboarding === 'due' || onboarding === 'started';
-}
-
-/**
- * Whether the open chat is the setup's, and the setup is over: it then takes no more messages, and what comes next is a
- * new chat (AssistantOnboarding.md 4.4, round 11).
- */
-export function setupChatClosed( state )
-{
-    const session = state.session;
-
-    return state.place === 'chat' && session !== null && session.onboarding === 'done'
-        && typeof session.setup_conversation === 'string' && state.conversationId === session.setup_conversation;
 }
 
 /** Whether this version has something new to show a person updating to it, and they have not yet been through it. */

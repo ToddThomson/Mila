@@ -1032,12 +1032,10 @@ Gemma 4's drafter is not part of this: v0.21.0 ships it in each package, on by d
 `agents`
 
 In v0.21.0 a tool runs in the application's process, held by the grant it works through (`ToolCalling.md` 3.4),
-and one kind of tool runs a program through the grant's container: Mila Assistant's shell, an experiment off by
-default (`BACKLOG.md`, `ContainedPrograms.md`, Todd 2026-10-27). What waits: other people's MCP servers started as
-processes, and tools an agent writes, through the same container (`ContainedPrograms.md` phase 4); and the
-container off Windows -- MXC's bubblewrap backend accepts and refuses on Linux as its Windows one does
-(`Notebooks/MxcConformance.md`), but the grant's file checks are Windows only (macOS's are v0.21.0's, `BACKLOG.md`),
-and macOS's Seatbelt backend is unmeasured.
+and one kind of tool runs a program through the grant's container: Mila Assistant's commands, on by default and on
+Windows, macOS and Linux in v0.21.0 (`BACKLOG.md`, `ContainedPrograms.md` decision 16, Todd 2026-11-26). What waits:
+other people's MCP servers started as processes, and tools an agent writes, through the same container
+(`ContainedPrograms.md` phase 4).
 
 `Specifications/ContainedPrograms.md` section 8; `Notebooks/MxcConformance.md`
 

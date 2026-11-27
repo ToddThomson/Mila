@@ -239,32 +239,36 @@ namespace Mila::Tests::Apps::Assistant
         EXPECT_FALSE( onboardingPanesGoneThrough( read, "0.21.0-dev+165" ) ) << "another version's are its own";
     }
 
-    TEST_F( SettingsFileTest, WhatTheSetupKeptOfThePersonAndTheModelToMoveToAreReadBack )
+    TEST_F( SettingsFileTest, WhatTheSetupKeptOfThePersonIsReadBack )
     {
         Settings settings;
         settings.person_name = "Sam";
         settings.person_uses = "writing and planning trips";
-        settings.person_needs = "files_and_tools,long_documents";
-        settings.next_model = "qwen3.8-27b-fp4";
-        settings.declined_model = "gemma-4-26b-a4b-it-q4_0";
-        settings.declined_at = "2026-11-25T20:00:00Z";
         SettingsFile( path() ).write( settings );
 
         std::vector<std::string> problems;
         const Settings read = SettingsFile( path() ).read( problems );
 
         EXPECT_TRUE( problems.empty() );
+        EXPECT_EQ( read.person_name, "Sam" );
         EXPECT_EQ( read.person_uses, "writing and planning trips" );
-        EXPECT_EQ( read.next_model, "qwen3.8-27b-fp4" );
-        EXPECT_EQ( read.person_needs, "files_and_tools,long_documents" );
-        EXPECT_EQ( read.declined_model, "gemma-4-26b-a4b-it-q4_0" );
-        EXPECT_EQ( read.declined_at, "2026-11-25T20:00:00Z" );
 
         SettingsFile( path() ).write( Settings{} );
         const Settings empty = SettingsFile( path() ).read( problems );
         EXPECT_TRUE( empty.person_uses.empty() );
-        EXPECT_TRUE( empty.next_model.empty() );
-        EXPECT_TRUE( empty.declined_model.empty() );
+    }
+
+    // Round 12 kept the model to move to and a declined one; a file it wrote is read with them passed over silently.
+    TEST_F( SettingsFileTest, WhatAnEarlierSetupKeptOfASecondModelIsPassedOver )
+    {
+        store( R"({ "v": 1, "person_uses": "coding", "person_needs": "files_and_tools",
+            "next_model": "gemma-4-26b-a4b-it-q4_0", "declined_model": null, "declined_at": null })" );
+
+        std::vector<std::string> problems;
+        const Settings read = SettingsFile( path() ).read( problems );
+
+        EXPECT_TRUE( problems.empty() );
+        EXPECT_EQ( read.person_uses, "coding" );
     }
 
     TEST_F( SettingsFileTest, PanesAreNotGoneThroughBeforeTheirEndOrAfterTheInterview )

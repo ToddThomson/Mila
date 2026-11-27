@@ -5,7 +5,7 @@
 import { element, button, iconButton, setIcon, clear, previewOrIcon } from '../dom.js';
 import { renderMarkdown } from '../markdown.js';
 import { summarizeTurn, isBusy, emptyScreen, setupPane, isKept } from '../state.js';
-import { thoughtLabel, statsLine, finishNotice, readableJson, formatBytes, modelTitle, approvalWords, folderName,
+import { thoughtLabel, statsLine, finishNotice, readableJson, formatBytes, modelTitle, approvalWords, folderName, planProgress,
     gatheredLine } from '../format.js';
 
 const stickDistance = 80;
@@ -17,6 +17,10 @@ export function createTranscriptView( scroller, container, actions )
     const waiting = element( 'div', 'turn assistant waiting' );
     let lastLength = 0;
     let showingEmpty = false;
+
+    // Whether the person is at the latest turn, kept from their own scrolling: the bar growing under the transcript --
+    // a plan appearing, the message box taking more lines -- moves no scroll position, so it cannot say they left it.
+    let following = true;
 
     waiting.append( readingLine() );
 
@@ -92,6 +96,14 @@ export function createTranscriptView( scroller, container, actions )
     }
 
     container.addEventListener( 'click', onClick );
+    scroller.addEventListener( 'scroll', () => { following = nearBottom(); } );
+
+    /** The bar changed height: a person who was at the latest turn stays there, never with it under the bar. */
+    function keepToEnd()
+    {
+        if ( following && !showingEmpty )
+            scroller.scrollTop = scroller.scrollHeight;
+    }
 
     function render( state, surface )
     {
@@ -104,7 +116,7 @@ export function createTranscriptView( scroller, container, actions )
             return;
         }
 
-        const stick = nearBottom();
+        const stick = following;
         const seen = new Set();
         const children = [];
 
@@ -269,7 +281,7 @@ export function createTranscriptView( scroller, container, actions )
         return record;
     }
 
-    return { render };
+    return { render, keepToEnd };
 }
 
 function placeChildren( container, children )
@@ -553,17 +565,20 @@ function createToolRecord( block )
     const approval = element( 'div', 'tool-approval' );
     const made = button( 'link tool-made', 'Where it came from', 'open-made-file' );
     const offer = element( 'div', 'tool-offer' );
+    const plan = element( 'div', 'tool-plan' );
 
     made.hidden = true;
     offer.hidden = true;
+    plan.hidden = true;
     toggle.dataset.identifier = block.id;
     setIcon( icon, 'tool' );
     setIcon( chevron, 'chevronRight' );
     toggle.append( icon, summary, name, status, chevron );
     detail.append( argumentsLabel, argumentsBody, resultLabel, resultBody );
-    card.append( toggle, made, offer, detail, approval );
+    card.append( toggle, plan, made, offer, detail, approval );
 
-    return { element: card, toggle, summary, status, detail, argumentsBody, resultBody, approval, made, offer, offerKey: null, choices: null };
+    return { element: card, toggle, summary, status, detail, argumentsBody, resultBody, approval, made, offer, plan, planKey: null,
+        offerKey: null, choices: null };
 }
 
 const choiceLabels = {
@@ -626,40 +641,71 @@ function updateTool( built, block, expanded )
     built.argumentsBody.textContent = readableJson( block.arguments );
     built.resultBody.textContent = toolResultText( block );
     updateMadeLink( built, block );
+    updatePlan( built, block );
     updateOffer( built, block );
     updateApproval( built, block );
 }
 
+const planMarks = { pending: '○', in_progress: '◐', done: '●', skipped: '–' };
+
 /**
- * The setup's download (AssistantOnboarding.md 4.4, round 12): what it gives the person's work and the space it takes,
- * never a model's name, with the buttons that answer it while it is open. Words answer it too.
+ * The steps a propose_plan call proposed, as they stand: the session's plan where this call's is the chat's current one,
+ * otherwise the steps as proposed, one a line.
  */
-function updateDownload( built, block, offer )
+function planSteps( block )
 {
-    const download = offer.download ?? {};
-    const gains = Array.isArray( download.gains ) ? download.gains.join( ' and ' ) : '';
-    const size = ( ( download.size_bytes ?? 0 ) / 1e9 ).toFixed( 1 ) + ' GB';
+    if ( Array.isArray( block.plan ) )
+        return block.plan;
 
-    built.offer.append( element( 'p', 'offer-text', 'To be better at ' + gains + ', Mila needs to download about ' + size + '.' ) );
+    let text = '';
 
-    if ( offer.state !== 'open' && offer.state !== 'undecided' )
+    try
     {
-        built.offer.append( element( 'div', 'offer-state', offer.state === 'accepted' ? 'Downloading' : 'Not downloaded' ) );
+        const parsed = JSON.parse( block.arguments );
+        text = typeof parsed.steps === 'string' ? parsed.steps : '';
+    }
+    catch
+    {
+        text = '';
+    }
 
+    return text.split( '\n' ).map( ( line ) => line.trim().replace( /^(\d+[.)]|[-*•])\s+/, '' ) ).filter( ( line ) => line.length > 0 )
+        .map( ( line ) => ( { text: line, status: 'pending' } ) );
+}
+
+/** A plan in the conversation where it was proposed (MilaAssistant.md 3.1): every step, marked as the model works. */
+function updatePlan( built, block )
+{
+    const steps = block.name === 'propose_plan' ? planSteps( block ) : [];
+    const key = JSON.stringify( [ steps, Array.isArray( block.plan ) ] );
+
+    if ( built.planKey === key )
         return;
-    }
 
-    const choices = element( 'div', 'offer-choices' );
+    built.planKey = key;
+    clear( built.plan );
+    built.plan.hidden = steps.length === 0;
 
-    for ( const [ label, decision, style ] of [ [ 'Download', 'accept', 'chip-button' ], [ 'Not now', 'decline', 'chip-button quiet' ] ] )
+    if ( steps.length === 0 )
+        return;
+
+    if ( Array.isArray( block.plan ) )
+        built.plan.append( element( 'div', 'plan-progress', planProgress( block.plan ) ) );
+
+    const list = element( 'ol', 'plan-steps' );
+
+    for ( const step of steps )
     {
-        const choice = button( style, label, 'offer-decide' );
-        choice.dataset.call = block.callId;
-        choice.dataset.decision = decision;
-        choices.append( choice );
+        const item = element( 'li', 'plan-step' );
+        const mark = element( 'span', 'plan-mark', planMarks[ step.status ] ?? planMarks.pending );
+
+        item.classList.add( step.status );
+        mark.setAttribute( 'aria-hidden', 'true' );
+        item.append( mark, element( 'span', 'plan-text', step.text ) );
+        list.append( item );
     }
 
-    built.offer.append( choices );
+    built.plan.append( list );
 }
 
 /** A move Mila offered or made (6), as it stands. */
@@ -697,13 +743,6 @@ function updateOffer( built, block )
     if ( offer.kind === 'move' )
     {
         built.offer.append( element( 'p', 'offer-text', moveLine( offer ) ) );
-
-        return;
-    }
-
-    if ( offer.kind === 'download' )
-    {
-        updateDownload( built, block, offer );
 
         return;
     }

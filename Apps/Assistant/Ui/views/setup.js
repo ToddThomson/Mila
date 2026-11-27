@@ -300,7 +300,7 @@ export function createSetupView( layer, sheet, actions )
         footer.append( setupButton( 'Continue', 'setup-continue', true, true ) );
     }
 
-    /** The onboarding model's published entry, for its size and what it can do here; null until the list is read. */
+    /** The published entry of the model the setup installs, for its size and what it can do here; null until the list is read. */
     function onboardingEntry( state )
     {
         if ( state.publishedModels === null || state.onboardingModel === null )
@@ -360,8 +360,9 @@ export function createSetupView( layer, sheet, actions )
     }
 
     /**
-     * Getting Mila Ready, after the terms: how much space Mila needs on this computer, and the person's agreement,
-     * which starts the download (AssistantOnboarding.md 4.3, round 9). No model is named. Declining is closing the window.
+     * Getting Mila Ready, after the terms: the model Mila chose for this computer and the space it takes, and the
+     * person's agreement, which starts the download (AssistantOnboarding.md 4.3, round 9). The model is spoken of and
+     * not named (4.4, round 13). Declining is closing the window.
      */
     function renderReadyPane( state, body, footer )
     {
@@ -387,14 +388,14 @@ export function createSetupView( layer, sheet, actions )
             const finding = element( 'div', 'reading start-finding' );
             const caret = element( 'span', 'caret' );
             caret.setAttribute( 'aria-hidden', 'true' );
-            finding.append( caret, element( 'span', 'reading-label', 'Finding what Mila needs on this computer' ) );
+            finding.append( caret, element( 'span', 'reading-label', 'Finding the model that suits this computer' ) );
             body.append( finding );
 
             return;
         }
 
-        body.append( element( 'p', 'setup-line', 'Mila needs about ' + formatBytes( entry.size_bytes ) + ' of space on this computer to work. '
-            + 'It downloads in the background while you go on.' ) );
+        body.append( element( 'p', 'setup-line', 'Mila has chosen a model that suits this computer. It takes about '
+            + formatBytes( entry.size_bytes ) + ' of space, and downloads in the background while you go on.' ) );
     }
 
     /**
@@ -425,7 +426,7 @@ export function createSetupView( layer, sheet, actions )
         body.append( element( 'p', 'setup-line', 'On this computer, Mila can:' ), list );
     }
 
-    /** What the onboarding model can do here, in the person's words; the conversation alone when nothing more is measured. */
+    /** What the setup's model can do here, in the person's words; the conversation alone when nothing more is measured. */
     function capabilityLines( entry )
     {
         if ( entry === null )
@@ -496,7 +497,7 @@ export function createSetupView( layer, sheet, actions )
         const downloading = progress !== null && progress.phase === 'download';
         const starting = progress !== null && progress.phase === 'load';
         const list = element( 'ul', 'setup-checklist' );
-        list.append( checkItem( 'Download what Mila needs', downloading ? 'now' : 'done' ) );
+        list.append( checkItem( 'Download the model', downloading ? 'now' : 'done' ) );
         list.append( checkItem( 'Start Mila', starting ? 'now' : downloading ? 'waiting' : 'done' ) );
         list.append( checkItem( 'Open your first chat', 'waiting' ) );
         body.append( list );

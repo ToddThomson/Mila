@@ -54,6 +54,51 @@ namespace Mila::Assistant
 
     namespace
     {
+        /**
+         * @brief What a command here can use, said to the model: the build tools in the folders the session gives a
+         *        command, by the name a person knows them by. Empty when none was found.
+         */
+        std::string commandToolsLine( const Mila::Agents::ProgramFolders& programs )
+        {
+            static constexpr std::array<std::pair<std::string_view, std::string_view>, 7> kTools{ {
+                { "git.exe", "Git" }, { "cmake.exe", "CMake" }, { "ninja.exe", "Ninja" },
+                { "cl.exe", "Visual Studio's C++ compiler (cl)" }, { "msbuild.exe", "MSBuild" }, { "node.exe", "Node" },
+                { "dotnet.exe", ".NET" } } };
+
+            std::vector<std::string_view> found;
+
+            for ( const auto& [ file, name ] : kTools )
+            {
+                const bool here = std::ranges::any_of( programs.folders, [file]( const std::filesystem::path& folder )
+                    {
+                        std::error_code ignored;
+
+                        return std::filesystem::exists( folder / file, ignored );
+                    } );
+
+                if ( here )
+                {
+                    found.push_back( name );
+                }
+            }
+
+            if ( found.empty() )
+            {
+                return {};
+            }
+
+            std::string listed;
+
+            for ( std::size_t index = 0; index < found.size(); ++index )
+            {
+                listed += index == 0 ? "" : index + 1 == found.size() ? " and " : ", ";
+                listed += found[ index ];
+            }
+
+            return std::format( "\n\nA command here can use {}, and no other build tools: not make, gcc or g++, which are "
+                "not on this computer for commands.", listed );
+        }
+
         /// The text without the white space around it.
         std::string trimmed( std::string_view text )
         {
@@ -195,6 +240,11 @@ namespace Mila::Assistant
                 return readProjectNotes();
             }, Mila::Agents::ResultOrigin::Outside );
 
+        registerTool( std::string( kOfferAnsweredName ), {}, [this]( const std::string&, const Mila::Agents::ToolGrant&, std::stop_token )
+            {
+                return offerAnswered();
+            }, Mila::Agents::ResultOrigin::Application );
+
         // The interview's own tools (AssistantOnboarding.md 4.4), offered by its prompt alone; each marks the setup's
         // steps, which are the app's, and answers in Mila's words.
         registerTool( std::string( kRememberNameName ), {}, [this]( const std::string& arguments, const Mila::Agents::ToolGrant&, std::stop_token )
@@ -210,11 +260,6 @@ namespace Mila::Assistant
         registerTool( std::string( kSkipQuestionName ), {}, [this]( const std::string& arguments, const Mila::Agents::ToolGrant&, std::stop_token )
             {
                 return skipQuestion( arguments );
-            }, Mila::Agents::ResultOrigin::Application );
-
-        registerTool( std::string( kAssessNeedsName ), {}, [this]( const std::string&, const Mila::Agents::ToolGrant&, std::stop_token )
-            {
-                return assessNeeds();
             }, Mila::Agents::ResultOrigin::Application );
 
         // A key kept in search.json before the credential store held it moves there once, and the file goes. Refused,
@@ -261,25 +306,9 @@ namespace Mila::Assistant
 
         useChat( {} );
 
-        // A launch opens no chat, so the model chosen at the setup's end runs from it once installed (round 11).
-        const bool next_installed = !settings_.next_model.empty() && std::ranges::any_of( installedModels(),
-            [this]( const nlohmann::json& stored ) { return stored.value( "name", std::string{} ) == settings_.next_model; } );
-
-        if ( next_installed && licenseAccepted() )
-        {
-            settings_.model = std::exchange( settings_.next_model, std::string{} );
-            saveSettings();
-        }
-
         if ( !settings_.model.empty() && licenseAccepted() )
         {
             openRemembered();
-        }
-
-        // Its download, stopped by a quit, goes on.
-        if ( !settings_.next_model.empty() && licenseAccepted() )
-        {
-            startNextModelDownload();
         }
 
         const std::string current_version = Mila::getAPIVersion().toString();
@@ -288,8 +317,8 @@ namespace Mila::Assistant
         // ready, not to the panes (AssistantOnboarding.md 4.4).
         panes_done_ = onboardingPanesGoneThrough( settings_, current_version );
 
-        // The model hub is listed and the onboarding model picked at once, so *Getting Mila Ready* can say how much
-        // space it needs; it downloads only once the person has agreed, and an agreed download goes on from where a
+        // The model hub is listed and the model for this computer picked at once, so *Getting Mila Ready* can say how
+        // much space it needs; it downloads only once the person has agreed, and an agreed download goes on from where a
         // quit left it (AssistantOnboarding.md 4.3, round 9).
         if ( onboardingDue() )
         {
@@ -607,13 +636,9 @@ namespace Mila::Assistant
         {
             onboardingInstalled( request );
         }
-        else if ( type == kNextModelInstalled )
-        {
-            nextModelInstalled( request );
-        }
         else if ( type == "models.refresh" )
         {
-            // The setup's Try again asks for the onboarding model again, the list and then its download.
+            // The setup's Try again asks for the model for this computer again, the list and then its download.
             if ( request.value( "online", false ) && onboardingDue() && !model_.resident() && !onboarding_working_.load() )
             {
                 startOnboarding( settings_.download_agreed && licenseAccepted() );
@@ -685,18 +710,11 @@ namespace Mila::Assistant
             return;
         }
 
-        // The setup's chat closes when the setup ends; what comes next is a new chat (AssistantOnboarding.md 4.4).
-        if ( settings_.onboarding == "done" && !conversation_id_.empty() && conversation_id_ == settings_.interview_conversation )
-        {
-            busy_ = false;
-            sendError( "This chat set Mila up, and the setup is finished. Start a new chat to go on.", "turn" );
-            sendState();
+        // An answer to Mila's offer is read here, by app code, which does what it says (AssistantInterface.md 5.4); Mila
+        // then replies, told what was done, unless no model is there to.
+        const std::optional<std::string> offer_answer = answerOffer( text );
 
-            return;
-        }
-
-        // An answer to Mila's offer is read here, by app code, and needs no reply (AssistantInterface.md 5.4).
-        if ( answerOffer( text ) )
+        if ( offer_answer.has_value() && !model_.resident() )
         {
             busy_ = false;
             sendState();
@@ -719,6 +737,14 @@ namespace Mila::Assistant
             conversation_title_ = titleFor( text );
             conversation_created_ = timestamp();
             conversation_messages_ = nlohmann::json::array();
+        }
+
+        // The setup's chat goes on as the person's first (AssistantOnboarding.md 4.4, round 13), so its first message
+        // after the setup names it, as a new chat's first message does; the setup stays in its stored steps.
+        if ( conversation_id_ == settings_.interview_conversation && settings_.onboarding == "done"
+            && conversation_title_ == kSetupChatTitle )
+        {
+            conversation_title_ = titleFor( text );
         }
 
         // Stored at once with the person's message, so the list shows the conversation on send and a quit during
@@ -774,7 +800,14 @@ namespace Mila::Assistant
         std::optional<Mila::Agents::Response> responded;
 
         // A new chat in a project is given the project's note after its first message, as data (5.6).
-        const std::vector<ToolCall> placed = placedCalls();
+        std::vector<ToolCall> placed = placedCalls();
+
+        if ( offer_answer.has_value() )
+        {
+            offer_answer_line_ = *offer_answer;
+            placed.push_back( ToolCall{ std::string( kOfferAnsweredName ), "{}" } );
+        }
+
         placing_notes_ = !placed.empty();
 
         try
@@ -786,6 +819,7 @@ namespace Mila::Assistant
         catch ( const DeviceOutOfMemoryError& )
         {
             placing_notes_ = false;
+            offer_answer_line_.clear();
             // The agent left the conversation as it was and the model loaded, so the message stored on send is
             // taken back out -- with the conversation, when it was its first -- and the person can send it again.
             memory_holder_.idle();
@@ -813,6 +847,12 @@ namespace Mila::Assistant
             {
                 offerTools();
             }
+
+            if ( std::exchange( setup_ended_in_turn_, false ) )
+            {
+                usePrompt( prompts_ / "general.json" );
+            }
+
             busy_ = false;
             sendState();
 
@@ -840,6 +880,12 @@ namespace Mila::Assistant
         if ( std::exchange( tools_changed_in_call_, false ) )
         {
             offerTools();
+        }
+
+        // The setup ended in this turn, and its last reply was the interview's: the chat goes on as any chat does.
+        if ( std::exchange( setup_ended_in_turn_, false ) )
+        {
+            usePrompt( prompts_ / "general.json" );
         }
 
         recordTurn();
@@ -1646,14 +1692,14 @@ namespace Mila::Assistant
         Mila::Agents::ToolRules rules;
         rules.add( { std::string( TaskPlan::kUpdateName ), Mila::Agents::ToolPermission::Allow, {} } );
 
+        // It only tells the model what the person's answer did, so it asks nothing of them.
+        rules.add( { std::string( kOfferAnsweredName ), Mila::Agents::ToolPermission::Allow, {} } );
+
         // The interview's tools keep what the person just said in the chat, so nothing is asked of them twice; they are
         // offered by the interview's prompt alone (AssistantOnboarding.md 4.4).
         rules.add( { std::string( kRememberNameName ), Mila::Agents::ToolPermission::Allow, {} } );
         rules.add( { std::string( kNoteUsesName ), Mila::Agents::ToolPermission::Allow, {} } );
         rules.add( { std::string( kSkipQuestionName ), Mila::Agents::ToolPermission::Allow, {} } );
-
-        // A download it asks for is the person's to answer, so assessing needs no question of its own.
-        rules.add( { std::string( kAssessNeedsName ), Mila::Agents::ToolPermission::Allow, {} } );
         session().withRules( std::move( rules ) );
 
         plan_.clear();
@@ -1733,8 +1779,10 @@ namespace Mila::Assistant
                 "list_folder shows them.", *chosen );
         }
 
-        return std::format( "The user gave you the folder {} to read. Paths are relative to it, as list_folder shows "
-            "them. The user is asked the first time you change a file in it.", *chosen );
+        // Said as what may be done, since "to read" alone was taken as a folder Mila may not write to (2026-11-26).
+        return std::format( "The user gave you the folder {}. Paths are relative to it, as list_folder shows them. You "
+            "can read its files now, and write and change them too: the user is asked the first time you change one.",
+            *chosen );
     }
 
     nlohmann::json SessionProcess::placesFor( const std::string& arguments ) const
@@ -2146,7 +2194,7 @@ namespace Mila::Assistant
         // offered, not by its own (AssistantOnboarding.md 4.4, round 11).
         std::set<std::string, std::less<>> kept = offered;
 
-        if ( std::ranges::contains( prompt_tools_, kAssessNeedsName, &PromptTool::name ) )
+        if ( std::ranges::contains( prompt_tools_, kNoteUsesName, &PromptTool::name ) )
         {
             kept.insert( "read_web_page" );
 
@@ -2166,7 +2214,19 @@ namespace Mila::Assistant
             }
         }
 
+        // Commands come with a folder, so a chat without one yet is told whether they will, and a plan made before the
+        // folder is given counts on them, says where the person turns them on, or that this computer cannot run them.
+        if ( folders_enforced_ )
+        {
+            kept.insert( !settings_.run_commands ? "commands_off" : container_ ? "commands_on" : "commands_unavailable" );
+        }
+
         std::string prompt = prompt_.systemPromptFor( kept );
+
+        if ( offered.contains( CommandTool::kName ) )
+        {
+            prompt += command_tools_;
+        }
 
         // The person's own words from the interview (AssistantOnboarding.md 4.4).
         if ( !settings_.person_name.empty() )
@@ -2913,7 +2973,7 @@ namespace Mila::Assistant
         session().openConversation( { opened } );
 
         conversation_id_ = store_.newIdentifier();
-        conversation_title_ = "Setting up Mila";
+        conversation_title_ = std::string( kSetupChatTitle );
         conversation_created_ = timestamp();
         conversation_project_.clear();
         conversation_messages_ = nlohmann::json::array();
@@ -2971,9 +3031,7 @@ namespace Mila::Assistant
         setup_steps_ = steps.toJson();
         sendState();
 
-        return std::format( "Saved. Mila will call the user {}. {}", name, steps.readyForChoice()
-            ? "Both questions are answered or skipped: call assess_needs."
-            : "Greet them back by that name, then go on with the next question." );
+        return afterStep( steps, std::format( "Saved. Mila will call the user {}. Greet them back by that name.", name ) );
     }
 
     bool SessionProcess::inSetup() const
@@ -3002,22 +3060,6 @@ namespace Mila::Assistant
         }
 
         settings_.person_uses = uses;
-
-        // What the work needs, as the model read the answer: what the assessment compares the models on (round 12).
-        std::string needs;
-
-        for ( const nlohmann::json& need : parsed.value( "needs", nlohmann::json::array() ) )
-        {
-            const std::string named = need.is_string() ? need.get<std::string>() : std::string{};
-
-            if ( ( named == "conversation" || named == "files_and_tools" || named == "long_documents" )
-                && needs.find( named ) == std::string::npos )
-            {
-                needs += needs.empty() ? named : "," + named;
-            }
-        }
-
-        settings_.person_needs = needs;
         saveSettings();
 
         // The system prompt says it from the next turn on.
@@ -3037,9 +3079,7 @@ namespace Mila::Assistant
         setup_steps_ = steps.toJson();
         sendState();
 
-        return steps.readyForChoice()
-            ? "Kept. Both questions are answered or skipped: call assess_needs."
-            : "Kept. Go on with the next question.";
+        return afterStep( steps, "Kept." );
     }
 
     std::string SessionProcess::skipQuestion( const std::string& arguments )
@@ -3055,7 +3095,6 @@ namespace Mila::Assistant
 
         if ( question == "setup" )
         {
-            // A skip of the whole setup downloads nothing: Mila carries on as it is (rounds 11 and 12).
             if ( steps.pending( SetupSteps::Step::Name ) )
             {
                 steps.skip( SetupSteps::Step::Name );
@@ -3066,12 +3105,9 @@ namespace Mila::Assistant
                 steps.skip( SetupSteps::Step::Uses );
             }
 
-            steps.done( SetupSteps::Step::Needs, "nothing, as the setup was skipped" );
             setup_steps_ = steps.toJson();
-            endSetup();
 
-            return "The setup has ended, as the user skipped it, and this chat takes no more messages. In a sentence or "
-                "two, say so, and that a new chat is where to start on anything.";
+            return afterStep( steps, "The user skipped the rest of the setup." );
         }
 
         if ( question != "name" && question != "uses" )
@@ -3083,318 +3119,31 @@ namespace Mila::Assistant
         setup_steps_ = steps.toJson();
         sendState();
 
-        return steps.readyForChoice()
-            ? "Skipped. Both questions are answered or skipped: call assess_needs."
-            : "Skipped. Go on with the next question.";
+        return afterStep( steps, "Skipped." );
     }
 
-    std::string SessionProcess::assessNeeds()
+    std::string SessionProcess::afterStep( const SetupSteps& steps, std::string_view kept )
     {
-        if ( !inSetup() )
+        if ( !steps.finished() )
         {
-            return "There is no setup under way.";
-        }
-
-        SetupSteps steps = SetupSteps::fromJson( setup_steps_ );
-
-        if ( !steps.readyForChoice() )
-        {
-            return "Not yet: first ask what to call the user and what they will mostly use Mila for, or call skip_question "
-                "for either.";
-        }
-
-        // What the work needs, as the model read it, against what the model Mila runs on does here: the first published
-        // model, in the library's ranking, that gives what is needed and this one does not (section 3's rules, round 12).
-        const bool wants_tools = settings_.person_needs.find( "files_and_tools" ) != std::string::npos;
-        const bool wants_long = settings_.person_needs.find( "long_documents" ) != std::string::npos;
-        const std::string current = model_.name();
-        const std::int64_t current_context = static_cast<std::int64_t>( model_.agent().plan().contextLength() );
-        bool agentic_now = false;
-
-        if ( published_.is_array() )
-        {
-            for ( const nlohmann::json& entry : published_ )
-            {
-                if ( entry.value( "name", std::string{} ) == current )
-                {
-                    agentic_now = entry.value( "agentic_here", false );
-                }
-            }
-        }
-
-        nlohmann::json download = nullptr;
-
-        if ( published_.is_array() && ( wants_tools || wants_long ) )
-        {
-            for ( const nlohmann::json& entry : published_ )
-            {
-                if ( entry.value( "name", std::string{} ) == current || !entry.value( "fits", false ) )
-                {
-                    continue;
-                }
-
-                nlohmann::json gains = nlohmann::json::array();
-
-                if ( wants_tools && entry.value( "agentic_here", false ) && !agentic_now )
-                {
-                    gains.push_back( "work of several steps with your files and tools" );
-                }
-
-                const nlohmann::json longer = entry.value( "context_length", nlohmann::json( nullptr ) );
-
-                if ( wants_long && longer.is_number_integer() && longer.get<std::int64_t>() > current_context )
-                {
-                    gains.push_back( "longer documents" );
-                }
-
-                if ( !gains.empty() )
-                {
-                    download = { { "name", entry.value( "name", std::string{} ) },
-                        { "size_bytes", entry.value( "size_bytes", std::uint64_t{ 0 } ) }, { "gains", std::move( gains ) } };
-
-                    break;
-                }
-            }
-        }
-
-        // Nothing needed, nothing asked: the setup ends here.
-        if ( download.is_null() )
-        {
-            steps.done( SetupSteps::Step::Needs, "nothing more" );
-            setup_steps_ = steps.toJson();
-            endSetup();
-
-            return "Mila has what this work needs on this computer, so nothing is downloaded. The setup has ended, and this "
-                "chat takes no more messages. In a sentence or two, tell the user they are set up, and that a new chat is "
-                "where to start on anything. Do not mention models.";
-        }
-
-        // The call runs without a question before it, so it is announced here to have its offer kept on it, as
-        // read_project_notes is; unannounced, the offer was dropped and a bare yes went to the model (round 12's run).
-        if ( announced_call_id_.empty() )
-        {
-            announceCall( kAssessNeedsName, "{}" );
-        }
-
-        nlohmann::json offer = { { "kind", "download" }, { "state", "open" }, { "download", download }, { "in_window", false } };
-        keepOffer( offer );
-
-        std::string gained;
-
-        for ( const nlohmann::json& gain : download[ "gains" ] )
-        {
-            gained += gained.empty() ? gain.get<std::string>() : " and " + gain.get<std::string>();
-        }
-
-        return std::format( "To do more of this work, Mila needs a download: it would be better at {}, and it takes about "
-            "{:.1f} GB of space. It downloads while the user goes on, and their next new chat uses it. In a sentence or two, "
-            "put this to the user, and end your reply by asking whether to download it; do not name any model. They "
-            "answer in their next message, or with the buttons under it.", gained, static_cast<double>( download.value( "size_bytes", std::uint64_t{ 0 } ) ) / 1e9 );
-    }
-
-    std::string SessionProcess::decideDownload( nlohmann::json& offer, bool accept )
-    {
-        const nlohmann::json download = offer.value( "download", nlohmann::json( nullptr ) );
-        const bool downloading = accept && download.is_object();
-
-        offer[ "state" ] = accept ? "accepted" : "declined";
-        offer[ "decided" ] = timestamp();
-
-        SetupSteps steps = SetupSteps::fromJson( setup_steps_ );
-        steps.done( SetupSteps::Step::Needs, downloading ? "downloading what it needs" : "carries on as it is" );
-        setup_steps_ = steps.toJson();
-
-        if ( downloading )
-        {
-            settings_.next_model = download.value( "name", std::string{} );
-            saveSettings();
-            startNextModelDownload();
-        }
-        else if ( download.is_object() )
-        {
-            // Kept, so Mila can offer it again later from use (round 12).
-            settings_.declined_model = download.value( "name", std::string{} );
-            settings_.declined_at = timestamp();
-            saveSettings();
+            return std::format( "{} Then go on with the next question.", kept );
         }
 
         endSetup();
 
-        // What was kept and decided, in the app's words, so the chat's last line is true whatever the model would say.
-        const std::string named = settings_.person_name.empty() ? std::string{}
-            : std::format( "I'll call you {}, and ", settings_.person_name );
-        const std::string what = downloading
-            ? std::format( "I'm downloading what I need for your work, about {:.1f} GB; your next new chat uses it",
-                static_cast<double>( download.value( "size_bytes", std::uint64_t{ 0 } ) ) / 1e9 )
-            : std::string( "I'll carry on as I am" );
-
-        return std::format( "I'm set up: {}{}. Start a new chat whenever you're ready.", named, what );
+        // The model says the setup's last words itself, and the chat goes on: no line from the app, no closed chat.
+        return std::format( "{} Every question is answered or skipped, so the setup has ended, and this chat goes on as "
+            "any chat does. In a sentence or two, say what you kept, if anything, then ask what they would like to start "
+            "with, or, when they already said, that you are ready to start on it.", kept );
     }
 
     void SessionProcess::endSetup()
     {
-        // The setup's chat stays as the record of what was decided, and takes no more messages.
+        // The setup's chat stays, and goes on as the person's first chat once this turn is over (round 13).
         settings_.onboarding = "done";
         saveSettings();
+        setup_ended_in_turn_ = true;
         sendState();
-    }
-
-    void SessionProcess::sayAppLine( const std::string& line, const std::string& call_id, const nlohmann::json& answered )
-    {
-        conversation_messages_.push_back( { { "role", "assistant" }, { "content", line }, { "thought", nullptr },
-            { "tool_calls", nullptr }, { "attachments", nullptr }, { "stats", nullptr }, { "app", true } } );
-
-        Turn kept;
-        kept.role = Role::Assistant;
-        kept.content = line;
-        session().turns().push_back( std::move( kept ) );
-
-        turn_id_ = std::format( "turn-{}", ++turn_number_ );
-
-        send( "turn.begin", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "conversation_id", conversation_id_ } } );
-        send( "turn.answered", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "call_id", call_id },
-            { "offer", answered }, { "text", line } } );
-        send( "turn.end", { { "stream_id", kStreamId }, { "turn_id", turn_id_ }, { "finish", "stop" }, { "answer", "" },
-            { "message", conversation_messages_.size() - 1 } } );
-    }
-
-    void SessionProcess::startNextModelDownload()
-    {
-        const std::string name = settings_.next_model;
-
-        if ( name.empty() || onboarding_working_.exchange( true ) )
-        {
-            return;
-        }
-
-        std::string shown = name;
-        std::uint64_t download_bytes = 0;
-
-        if ( published_.is_array() )
-        {
-            for ( const nlohmann::json& entry : published_ )
-            {
-                if ( entry.value( "name", std::string{} ) == name )
-                {
-                    const std::string display_name = entry.value( "display_name", std::string{} );
-                    shown = display_name.empty() ? name : display_name;
-                    download_bytes = entry.value( "size_bytes", std::uint64_t{ 0 } );
-                }
-            }
-        }
-
-        const bool installed_already = std::ranges::any_of( installedModels(),
-            [&name]( const nlohmann::json& stored ) { return stored.value( "name", std::string{} ) == name; } );
-
-        if ( onboarding_worker_.joinable() )
-        {
-            onboarding_worker_.join();
-        }
-
-        // On the worker, as the onboarding model's download is, so the person goes on in their chats meanwhile.
-        next_model_downloading_ = true;
-        onboarding_worker_ = std::jthread( [this, name, shown, download_bytes, installed_already]()
-            {
-                std::string failure;
-
-                if ( !installed_already )
-                {
-                    install_model_ = name;
-                    install_name_ = shown;
-                    install_download_bytes_ = download_bytes;
-                    install_finished_bytes_ = 0;
-                    install_per_mille_ = -1;
-                    install_stop_asked_ = false;
-                    install_discard_asked_ = false;
-                    installing_ = true;
-
-                    send( "progress", { { "task", "install" }, { "name", name }, { "label", std::format( "Installing {}", shown ) },
-                        { "done", 0 }, { "total", download_bytes > 0 ? nlohmann::ordered_json( download_bytes ) : nlohmann::ordered_json( nullptr ) } } );
-
-                    try
-                    {
-                        static_cast<void>( Mila::Assistant::installModel( name,
-                            [this]( std::uint64_t received, std::uint64_t total ) { return installProgress( received, total ); },
-                            [this]() { return install_discard_asked_.load(); } ) );
-                    }
-                    catch ( const Mila::Distribution::TransferInProgressError& )
-                    {
-                        failure = std::format( "Another Mila program is installing {}. It is downloaded again at the next launch.", shown );
-                    }
-                    catch ( const std::exception& error )
-                    {
-                        if ( install_stop_asked_.load() )
-                        {
-                            // The window is closing; the next launch continues the download.
-                            installing_ = false;
-                            next_model_downloading_ = false;
-                            onboarding_working_ = false;
-
-                            return;
-                        }
-
-                        failure = std::format( "The download of what Mila needs for your work stopped: {}. It goes on at the "
-                            "next launch.", error.what() );
-                    }
-
-                    installing_ = false;
-                }
-
-                next_model_downloading_ = false;
-                queue_.push( { { "type", kNextModelInstalled }, { "name", name },
-                    { "error", failure.empty() ? nlohmann::json( nullptr ) : nlohmann::json( failure ) } } );
-                onboarding_working_ = false;
-            } );
-    }
-
-    void SessionProcess::nextModelInstalled( const nlohmann::json& request )
-    {
-        const nlohmann::json failure = request.value( "error", nlohmann::json( nullptr ) );
-
-        if ( failure.is_string() )
-        {
-            sendError( failure.get<std::string>(), "install" );
-        }
-        else
-        {
-            send( "info", { { "text", "What Mila needs for your work is downloaded. Your next new chat uses it." }, { "during", "install" } } );
-        }
-
-        sendModels( false );
-        sendState();
-    }
-
-    bool SessionProcess::moveToNextModel()
-    {
-        const std::string name = settings_.next_model;
-
-        if ( name.empty() || installing_.load() )
-        {
-            return false;
-        }
-
-        const bool installed = std::ranges::any_of( installedModels(),
-            [&name]( const nlohmann::json& stored ) { return stored.value( "name", std::string{} ) == name; } );
-
-        if ( !installed )
-        {
-            return false;
-        }
-
-        if ( model_.name() != name )
-        {
-            switchModel( name, std::nullopt );
-        }
-
-        if ( model_.name() != name )
-        {
-            return false;
-        }
-
-        settings_.next_model.clear();
-        saveSettings();
-
-        return true;
     }
 
     void SessionProcess::reopen( const DeploymentRequest& request, std::string_view done )
@@ -3766,6 +3515,7 @@ namespace Mila::Assistant
         container_ = std::move( *opened );
         container_problem_.clear();
         programs_ = ProgramSetup::find();
+        command_tools_ = commandToolsLine( programs_ );
 
         registerTool( std::string( CommandTool::kName ), CommandTool::needs(),
             []( const std::string& arguments, const Mila::Agents::ToolGrant& grant, std::stop_token stop )
@@ -3835,7 +3585,7 @@ namespace Mila::Assistant
             sendState();
         }
 
-        // The terms were the last thing the first chat waited on, once the onboarding model is loaded.
+        // The terms were the last thing the first chat waited on, once the setup's model is loaded.
         if ( onboardingDue() )
         {
             beginInterview();
@@ -3983,9 +3733,8 @@ namespace Mila::Assistant
             }
         }
 
-        // The onboarding model's download runs on its own thread, and the session is at work while it does; the download
-        // of what Mila needs after the setup does not hold the person up, who goes on in their chats (round 12).
-        const bool busy = busy_.load() || work_ != Work::None || ( installing_.load() && !next_model_downloading_.load() );
+        // The setup's download runs on its own thread, and the session is at work while it does.
+        const bool busy = busy_.load() || work_ != Work::None || installing_.load();
 
         const nlohmann::ordered_json stream = {
             { "stream_id", kStreamId },
@@ -4298,10 +4047,6 @@ namespace Mila::Assistant
         // A chat begins with no folder, whatever an older page asks for (AssistantInterface.md 5.5), unless its project
         // holds one (10).
         const auto starting = project.has_value() ? startingFolder( *project ) : std::nullopt;
-
-        // The model chosen at the setup's end runs from the first new chat after it is installed, so no conversation
-        // crosses models (AssistantOnboarding.md 4.4, round 11).
-        moveToNextModel();
 
         if ( starting.has_value() )
         {
@@ -4755,18 +4500,18 @@ namespace Mila::Assistant
             { "offer", std::move( offer ) } } );
     }
 
-    bool SessionProcess::answerOffer( const std::string& text )
+    std::optional<std::string> SessionProcess::answerOffer( const std::string& text )
     {
         if ( conversation_id_.empty() )
         {
-            return false;
+            return std::nullopt;
         }
 
         const nlohmann::json pending = pendingOffer( conversation_messages_ );
 
         if ( pending.is_null() )
         {
-            return false;
+            return std::nullopt;
         }
 
         nlohmann::json& call = conversation_messages_[ pending[ "message" ].get<std::size_t>() ][ "tool_calls" ][ pending[ "call" ].get<std::size_t>() ];
@@ -4797,7 +4542,16 @@ namespace Mila::Assistant
                 offer[ "state" ] = "undecided";
             }
 
-            return false;
+            return std::nullopt;
+        }
+
+        // Mila is told what was done and replies; the chat's list carries the offer's new state to its card.
+        if ( model_.resident() )
+        {
+            sendProjects();
+            sendActivity( {} );
+
+            return line;
         }
 
         const nlohmann::json answered = offer;
@@ -4831,7 +4585,31 @@ namespace Mila::Assistant
         sendConversations();
         sendActivity( {} );
 
-        return true;
+        return line;
+    }
+
+    std::string SessionProcess::offerAnswered()
+    {
+        const std::string line = std::exchange( offer_answer_line_, std::string{} );
+
+        // The app's call has no question before it, so it is announced here, as read_project_notes is.
+        if ( announced_call_id_.empty() )
+        {
+            announceCall( kOfferAnsweredName, "{}" );
+        }
+
+        if ( std::exchange( placing_notes_, false ) )
+        {
+            storedCall( announced_call_id_ )[ "placed" ] = true;
+        }
+
+        if ( line.empty() )
+        {
+            return "The user has not just answered a suggestion of yours, so nothing was done.";
+        }
+
+        return std::format( "The user answered your suggestion, and the app did what they chose: {} In a sentence, in "
+            "your own words, say what was done, then go on with what they asked for.", line );
     }
 
     void SessionProcess::decideSuggestion( const nlohmann::json& request )
@@ -4852,22 +4630,6 @@ namespace Mila::Assistant
 
         const std::string state = found != nullptr ? found->value( "state", std::string{} ) : std::string{};
         const std::string kind = found != nullptr ? found->value( "kind", std::string{} ) : std::string{};
-
-        // The setup's download, answered with its buttons in the setup's own chat, while the setup is under way.
-        if ( found != nullptr && kind == "download" && is_open && inSetup() && ( state == "open" || state == "undecided" ) )
-        {
-            nlohmann::json offer = *found;
-            const std::string line = decideDownload( offer, decision == "accept" );
-
-            // Written back before the line is added, which may move the messages the pointer is into.
-            *found = offer;
-            sayAppLine( line, call_id, offer );
-            saveConversation();
-            sendConversations();
-            sendState();
-
-            return;
-        }
 
         if ( found == nullptr || kind != "project" || ( state != "open" && state != "undecided" ) )
         {
@@ -4927,12 +4689,6 @@ namespace Mila::Assistant
     std::string SessionProcess::takeOffer( nlohmann::json& offer, const std::string& conversation_id, const std::string& call_id,
         const std::string& name )
     {
-        // The setup's download (round 12): a yes downloads it.
-        if ( offer.value( "kind", std::string{} ) == "download" )
-        {
-            return decideDownload( offer, true );
-        }
-
         offer[ "decided" ] = timestamp();
 
         if ( offer.value( "kind", std::string{} ) == "move" )
@@ -4992,11 +4748,6 @@ namespace Mila::Assistant
 
     std::string SessionProcess::declineOffer( nlohmann::json& offer, const std::string& conversation_id )
     {
-        if ( offer.value( "kind", std::string{} ) == "download" )
-        {
-            return decideDownload( offer, false );
-        }
-
         const std::string name = offer.value( "name", std::string{} );
         const bool move = offer.value( "kind", std::string{} ) == "move";
 

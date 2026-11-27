@@ -25,7 +25,9 @@ need to select the avail list through normal channels"; and an update of Mila is
 backend, its download begun at the first launch, Mila's terms accepted before the first chat, and the interview as the
 workspace's first chat (section 4.4). Where it is decided it supersedes rounds 3, 5 and 7's model pane. Round 10
 (2026-11-25, Todd, walking the interview): its two goals, and that it ends in the person's decision to stay on the
-onboarding model or move to a regular one (section 4.4).
+onboarding model or move to a regular one (section 4.4). Round 13 (2026-11-26, Todd, after walking round 12): one
+download, of the model that suits this computer, and the interview runs on it; the onboarding model and the second
+download go (section 4.4).
 
 What a person meets from Mila Assistant's first launch to its first reply, and how the model Mila suggests for
 their computer is chosen. The suggestion is the planner's answer, never the app's (Todd, 2026-11-13).
@@ -565,7 +567,7 @@ outstanding items?"; proposed, Claude's):
 
 **One setup chat, which ends and hands over to a new chat** (Todd, 2026-11-25: "once finished ... should the model
 start a new chat or say that it is ready for a new session? What is the handoff"; Claude's answer, taken: "write it
-all into 4.4"):
+all into 4.4"). *Its close and the handoff are superseded by round 13: the setup chat goes on as the person's first.*
 
 - **One per workspace.** "Set me up again" carries on in it, so there is never a second *Setting up Mila*.
 - **The app ends the setup,** once the decision is made and every other step is done or skipped; the model cannot.
@@ -624,6 +626,8 @@ introduce themselves with rather than their full name. Not built: the facts from
 steps and the flag, the handoff, the record, the measurement.
 
 ### No choice of model: Mila assesses, the person agrees to a download (round 12, 2026-11-25)
+
+*Superseded by round 13 (below): one download, and no assessment after it. Kept as the record of what was tried.*
 
 **Decided (Todd, 2026-11-25),** on seeing the choice of model built (round 11): "The model is nothing the user should
 focus on. Mila is an intelligence harness. The user does not need to be offered the choice of a model." Then: "Mila
@@ -712,6 +716,62 @@ of the KV cache: "Yes, use the FP8 cache for those models."
   tried and misjudged it, above); for the published list, each model planned
   both ways and the library's ranking applied to the result (`rankPublishedModels`, exported for it). A change of
   context keeps the cache the model was loaded with. Every model that reaches 64K uncompressed is unchanged.
+
+### One download, of the model that suits this computer (round 13, 2026-11-26)
+
+**What happened** (Todd's walk at `+165`, the 16 GB card, the local model hub; one run, not a measurement). The
+interview on Gemma 4 12B Q4_0 did what its prompt asked: it kept *Todd*, said what Mila can do, read *"all features
+and capabilities"* as all three needs, and put *"a download that takes about 14.4 GB"*, no model named. Todd said yes;
+the app's line ended the setup and the chat closed. Todd, the next morning: the words -- "What is it downloading?
+Users will understand model. Mila has chosen a new, larger model." -- no progress of the download in the chat, a new
+chat pressed before it finished would have run on the 12B without a word, and "the chat just ended abruptly". The
+first chat on the 26B-A4B, asked *"Are you ready with the new model?"*, searched his chats for *new model*, found
+nothing, as the interview never said *model*, and asked whether he meant a machine learning model
+(`Issues/Untriaged.md`). And the two-step's gain is small where the larger model fits: at Todd's 10 MB/s the 12B's
+6.96 GB is about 12 minutes, the 26B-A4B's 14.41 GB about 24, and both together about 36 (arithmetic), so the first
+chat came 12 minutes sooner and the person waited 12 more in all, with their first conversation on the weaker model.
+
+**Decided (Todd, 2026-11-26: "Agreed, file it in Future.md and go to one download"):**
+
+- **One download.** The setup downloads the model that suits this computer best, the planner's suggestion (section 5,
+  the library's ranking: agentic here first, then the larger download), and the interview runs on it. There is no
+  onboarding model, no second download and no handoff between models. This supersedes round 8's onboarding model and
+  round 12's assessment and its download.
+- **People understand *model*.** The setup says that Mila downloads a model chosen for this computer, and its size.
+  This revises round 9's *no model named anywhere* for the words: the model is spoken of; its name stays out
+  (proposed, Claude's: Todd did not say whether the name may appear, so it does not until he does).
+- **Starting on a smaller model while a very large one downloads** is `Issues/Future.md`'s, triggered by the
+  expected wait rather than the graphics memory, and taken up when Mila publishes a model whose download makes it pay.
+
+**Proposed (Claude's, taken with the decision):**
+
+- **The setup's steps are the person's two:** what to call them and what they will mostly use Mila for, each done or
+  skipped, and the setup ends when both are. `assess_needs`, the offer of kind `download`, `next_model`,
+  `declined_model`, `declined_at` and `person_needs` go; `note_uses` takes the uses alone.
+- **The setup chat carries on as the person's first chat.** No line from the app, no closed chat and no *New chat* in
+  its place: the tool that ends the setup tells the model so, and Mila, in its own words, says what it kept and asks
+  what they would like to start with. From the next message the chat runs as every chat does, on the general prompt
+  and its tools. This supersedes round 11's *The setup chat then closes*, which existed only because the next model
+  was not the one the setup ran on.
+- **Its title follows** (Todd, 2026-11-26, after his walk, where a project gathered the setup's chat and its path read
+  *Workspace / HelloWorld / Setting up Mila*): the chat is *Setting up Mila* until its first message after the setup,
+  which names it as a new chat's first message does. The setup stays on record in the chat's stored steps.
+
+**Built, Claude, 2026-11-26, on Windows.** As above. Run on the real session (the local model hub, a throwaway Mila
+folder, the 16 GB card): the setup picked the 26B-A4B, downloaded and loaded it in about 55 s at 75,776 tokens, the
+interview ran on it, Mila closed the setup in its own words, and the next message in the same chat called
+`request_folder`, offered by the general prompt alone. Todd walked it in the window the same day. **Not run:** the macOS
+and Linux builds.
+
+**Open:**
+
+- **The macOS part.** The planner suggests by what fits and by the `agentic` mark, and neither says whether this
+  backend runs the model whole. On Metal in v0.21.0 the Gemma 26B-A4B and Qwen 3.8 whole are `Issues/Vnext.md`'s
+  (`../Metal/MetalBackend.md`), so a Mac with the memory for either could be suggested a model Metal does not yet run;
+  round 8's pick was held to the onboarding-ready models, of which Gemma 4 12B runs on Metal. The one download is not
+  done on macOS until the suggestion leaves out what the backend cannot run (put to Todd).
+- **The library's onboarding pick** (`Deployment::onboardingModel`) and the `capabilities.onboarding` mark it reads
+  (`ExportArtifact --onboarding`) are no longer read by the app; removing them is a library change put to Todd.
 
 ## 5. The suggestion, as built at +142
 

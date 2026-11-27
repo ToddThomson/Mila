@@ -472,6 +472,52 @@ Gemma 4 is validated through both applications across plain-chat, single-tool an
 and what is missing is the evidence that Llama's grammar reaches it. Moved from `Vnext.md`, where moving it out had
 narrowed the Models criterion and `README.md`'s Llama section; the theme's criterion now restates it.
 
+#### A person cannot see what Mila has to work with on their computer
+
+`open` · `apps` · `distribution`
+
+Tentative, admitted by Todd on 2026-11-26, and the first of this theme to drain. Settings shows each device, each model
+that runs there and what it is measured to do, and what the network offers, read from the planner and the model
+metadata, never from a device's or a model's name. The session knows one model today; the planner already prices
+what fits on each device. Windows, macOS and Linux, the Mac's memory as one pool.
+
+`Specifications/Direction/MilaVision.md` section 9.1, step 2
+
+#### A second model on a computer with room for one does no work
+
+`open` · `apps` · `perf`
+
+Tentative, admitted by Todd on 2026-11-26, and the first of this theme to drain. Where the machine has room -- a
+second card, or a larger memory budget on a Mac -- a second model stays resident beside the agent and does Mila
+Assistant's background work: titles, summaries, compaction and project notes, today done by the agent's own model.
+Measured for what it does and for what it costs the agent beside it; the 16 GB card alone never depends on it.
+
+`Specifications/Direction/MilaVision.md` section 9.1, step 3
+
+#### A person cannot ask a frontier model for help from Mila
+
+`open` · `apps` · `agents`
+
+Tentative, admitted by Todd on 2026-11-26, and the first of this theme to drain. A tool the harness offers, off by
+default: the local model writes the question, and the person sees exactly what would be sent and approves each send;
+the key is in the credential store, the spend is shown, and the reply is content from outside. Proposed by the person,
+or by the app when the local model is stuck, never on the model's own judgement.
+
+`Specifications/Direction/MilaVision.md` section 9.1, step 4
+
+#### On Linux Mila Assistant cannot run a command, and a tool is held to no folder
+
+`open` · `agents` · `apps` · `mila-src`
+
+The grant's file checks are Windows only (macOS's are the item above), so on Linux a tool working in a folder is held
+to none and none is offered, and `run_command` has no container there. Work: the grant's file checks on Linux, with
+the same refused-beside-allowed tests; the Linux candidate of `Agents.MxcProgramContainer` over MXC's bubblewrap
+backend, whose accepts and refusals match Windows' (`Notebooks/MxcConformance.md`); and the environment, shell and
+program folders for Linux. Tested in WSL; the window there is unverified. Moved from `Issues/Vnext.md` by Todd's
+decision that running commands is a feature of all three platforms (`ContainedPrograms.md` decision 16, 2026-11-26).
+
+`Specifications/ContainedPrograms.md` section 8, phase 4; decision 16
+
 ### A Developer Can Start
 
 #### A conversation that fills its context stops, and nothing carries it forward

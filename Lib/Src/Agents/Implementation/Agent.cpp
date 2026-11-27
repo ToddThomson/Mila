@@ -482,7 +482,7 @@ namespace Mila::Agents
 
             if ( closesItsCalls( reply_text ) )
             {
-                RoundPrompt as_generated{ { prompt.text + reply_text, false }, tokens };
+                RoundPrompt as_generated{ { prompt.text + reply_text, false }, tokens, next.framing };
                 as_generated.tokens.insert( as_generated.tokens.end(), reply_tokens.begin(), reply_tokens.end() );
                 continued_ = std::move( as_generated );
             }
@@ -666,13 +666,16 @@ namespace Mila::Agents
     auto Agent::nextRound() const -> RoundPrompt
     {
         const std::span<const Conversation::Turn> history = session_.conversation();
+        std::string framed_by = framing();
 
-        if ( !continued_ )
+        // Changed while the calls were answered: the round is rendered whole, so the model reads the session as it now
+        // stands, at the cost of prefilling again from where the framing changed.
+        if ( !continued_ || continued_->framing != framed_by )
         {
             Conversation::Prompt prompt = render( history );
             std::vector<std::int32_t> tokens = encode( prompt );
 
-            return { std::move( prompt ), std::move( tokens ) };
+            return { std::move( prompt ), std::move( tokens ), std::move( framed_by ) };
         }
 
         std::size_t first_result = history.size();
@@ -721,6 +724,26 @@ namespace Mila::Agents
         }
 
         return options;
+    }
+
+    std::string Agent::framing() const
+    {
+        const Conversation::PromptOptions options = promptOptions();
+
+        // Joined by a byte none of them holds, so no two different framings read the same.
+        std::string framed = session_.systemPrompt();
+        framed += '\0';
+        framed += options.tools_json;
+
+        for ( const auto& [ name, value ] : options.template_variables )
+        {
+            framed += '\0';
+            framed += name;
+            framed += '=';
+            framed += value;
+        }
+
+        return framed;
     }
 
     Conversation::Prompt Agent::render( std::span<const Conversation::Turn> history ) const

@@ -10,7 +10,9 @@ not yet measured. Decided before it (Todd, 2026-10-27): MXC goes into
 tool calling for v0.21.0 as an experiment, behind a switch that is off by default, as long as the grant
 (`ToolCalling.md` 3.4) remains v0.21.0's safe tool calling; the design works around the two accesses MXC's policy
 accepts that no grant gives; a file that gains a second name from outside while a run is going is accepted as a
-known gap. Evidence: `Notebooks/MxcConformance.md`. Decisions in section 9.
+known gap. Evidence: `Notebooks/MxcConformance.md`. Decisions in section 9. **No longer an experiment** (Todd,
+2026-11-26, decision 16): v0.21.0 is fully agentic, so running commands is on by default and is a feature of Windows,
+macOS and Linux alike.
 
 ---
 
@@ -125,7 +127,8 @@ whose walk passes a bound is refused, saying why (decision 7).
   is part of the run and counts against the call's own time; a walk that does not finish within it refuses the run,
   saying the folder is too large to check in the time given.
 - **macOS and Linux** have no call that lists a file's names, so a file with more than one name is denied there
-  whatever its other names; for macOS, and whether Windows keeps the rule above, see section 11.3. Linux is for later.
+  whatever its other names; for macOS, and whether Windows keeps the rule above, see section 11.3. Linux is v0.21.0's
+  (decision 16), through MXC's bubblewrap backend, and stands on the grant's file checks there.
 
 ### 4.4 A desktop of Mila's own
 
@@ -236,7 +239,9 @@ grant reads what the person keeps under `HKCU`, which no grant gives. It is a kn
 - **The build:** a CMake option, off by default, selects `MxcProgramContainer`'s module or a module whose container
   is always absent -- two candidate files for one module, as the grant's file system has (no `#ifdef` in a module).
   Off, nothing of MXC is built or shipped.
-- **The app:** a setting, off by default, labelled experimental. Off, the shell tool is not registered.
+- **The app:** a setting, on by default since decision 16 (off by default and labelled experimental until then). Off,
+  the shell tool is not registered. On where the container cannot run, the setting says why and Mila tells the person
+  it cannot run commands on this computer.
 
 ## 5. The first tool: running a command in Build & Code
 
@@ -264,12 +269,20 @@ grant reads what the person keeps under `HKCU`, which no grant gives. It is a kn
   person's Git name and email, and nothing else of their Git settings, go in the project's `.mila\Home\.gitconfig`,
   and `.mila\.gitignore` keeps the tools' home and the script out of the project's history.
 - The result the model reads: the exit code, the output as cut, and any files withheld (4.3).
+- **What the model is told** (2026-11-26, after Todd's walk, where a plan wrote a `Makefile` for `g++` and said it
+  could not build): while `run_command` is offered, which build tools a command can use here -- those of the program
+  folders above, by name -- and none other; that Windows PowerShell 5.1 has no `&&`; and that a build goes outside the
+  sources and a first commit comes with a `.gitignore` for it. The chosen folder's result says it can be written as well
+  as read, since "to read" alone was taken as read-only. Before the chat has a folder, the model is told that commands will come with one
+  when the setting is on, with it off, that the person turns them on in Settings, and with it on where the container
+  cannot run, that this computer cannot run them, so a plan
+  made before the folder neither gives up nor promises.
 
 ## 6. What the person is told
 
 The setting says what it does and what it does not: commands run in a Windows container limited to the project
 folder and the program folders shown, on a desktop of their own, with no network unless a command asks for it and
-the person allows it, and then public addresses only, where an allowed command can send what it reads; experimental; on
+the person allows it, and then public addresses only, where an allowed command can send what it reads; on Windows, on
 Windows 11 26H2 or later. It never calls the tool sandboxed. The known gaps -- a file given a second name during a
 run (4.3), and the registry under `HKCU` read (4.9) -- are stated where the setting is.
 
@@ -385,6 +398,14 @@ later"):
     the grant's file checks refuse one. Not chosen: Windows' rule of 4.3 beside a stricter Mac rule, two behaviours
     for one feature, and one that no grant gives in the first place.
 
+Decided 2026-11-26 (Todd: "No, commands are no longer experimental. 0.21 will be fully agentic", then "Agreed to all"):
+
+16. **Running commands is not an experiment: on by default, on Windows, macOS and Linux.** The setting is on unless
+    the person turns it off, and is not labelled experimental; the known gaps of 4.3 and 4.9 are stated where it is as
+    facts. Linux joins decision 12, through MXC's bubblewrap backend once the grant's file checks run there, and moves
+    from `Issues/Vnext.md` into v0.21.0. What Mila ships carries an unrouted MXC build of its own (decision 13), and
+    the release build carries the container (4.11's CMake option), which the maintainer's own build has off today.
+
 ## 10. Relationship to other specs
 
 - **`ToolCalling.md`** owns the grant: 3.1 names the fourth need, 3.4 the container as the grant's, and 6 points
@@ -409,8 +430,7 @@ v1.1.0, but v1.1.0 fixes its symlink and parent-traversal enforcement (microsoft
   application's bundle, the same `repr(C)` functions as Windows' (they are one Rust crate), the version pinned the same
   way. MXC's v1.1.0 release carries `arm64/libmxc_ffi.dylib` (about 5.6 MB) beside the Windows DLL; MXC sends no
   telemetry on macOS, so the decision of 4.10 does not reach it.
-- The app's setting is the same setting, off by default, labelled experimental, with the same wording but the
-  platform's.
+- The app's setting is the same setting, on by default (decision 16), with the same wording but the platform's.
 
 ### 11.2 From the grant to Seatbelt
 

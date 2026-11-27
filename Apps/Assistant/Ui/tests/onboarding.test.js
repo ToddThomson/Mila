@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createMockSession } from '../mock/session.js';
-import { createInitialState, reduce, setupPane, setupChatClosed, needsYou } from '../state.js';
+import { createInitialState, reduce, setupPane, needsYou } from '../state.js';
 import { attentionLine } from '../format.js';
 import { createClock } from './clock.js';
 
@@ -94,23 +94,25 @@ function anUnfinishedSetupNeedsThePersonWithWhatIsStillToDoAndShowsNoPlan()
 {
     const played = toTheInterview();
 
-    assert.deepEqual( stillToDo( played.played.state ), [ 'What to call you', 'What you will use Mila for', 'What Mila needs for your work' ] );
+    assert.deepEqual( stillToDo( played.played.state ), [ 'What to call you', 'What you will use Mila for' ] );
 
     say( played, 'Alex' );
 
     const named = played.played.state;
-    assert.deepEqual( stillToDo( named ), [ 'What you will use Mila for', 'What Mila needs for your work' ] );
+    assert.deepEqual( stillToDo( named ), [ 'What you will use Mila for' ] );
     assert.equal( named.session.plan, null, 'the setup is not a plan, and none is drawn' );
 
     const waiting = needsYou( named ).find( ( row ) => row.item.id === named.session.setup_conversation );
     assert.ok( waiting !== undefined, 'the unfinished setup is under Needs you' );
     assert.equal( waiting.kind, 'setup' );
-    assert.equal( attentionLine( waiting ), 'Still to do: what you will use Mila for and what Mila needs for your work' );
+    assert.equal( attentionLine( waiting ), 'Still to do: what you will use Mila for' );
 }
 
 test( 'an unfinished setup needs the person, with what is still to do, and shows no plan', anUnfinishedSetupNeedsThePersonWithWhatIsStillToDoAndShowsNoPlan );
 
-function whenMilaNeedsNothingTheSetupEndsWithNoQuestionAndItsChatCloses()
+// Round 13: the setup downloads one model, the interview runs on it, and nothing more is asked or downloaded; the chat
+// the setup ran in goes on as the person's first.
+function onceBothQuestionsAreAnsweredTheSetupEndsAndItsChatGoesOn()
 {
     const played = toTheInterview();
 
@@ -120,84 +122,27 @@ function whenMilaNeedsNothingTheSetupEndsWithNoQuestionAndItsChatCloses()
     const { state } = played.played;
 
     assert.equal( played.played.events.some( ( event ) => event.type === 'turn.offer' ), false, 'nothing is asked' );
+    assert.equal( played.played.events.some( ( event ) => event.type === 'turn.answered' ), false, 'the app adds no line of its own' );
     assert.equal( state.session.onboarding, 'done' );
     assert.deepEqual( stillToDo( state ), [] );
-    assert.equal( setupChatClosed( state ), true, 'the setup\'s chat closes' );
     assert.equal( needsYou( state ).some( ( row ) => row.item.id === state.session.setup_conversation ), false, 'and needs nothing more' );
 
-    // It takes no more messages: what comes next is a new chat.
+    const last = state.transcript.filter( ( entry ) => entry.kind === 'assistant' ).pop();
+    assert.match( last.answer, /What would you like to start with\?$/, 'Mila, in its own words, asks what to start with' );
+
+    // The chat takes the person's next message, as any chat does.
     const errors = played.played.events.filter( ( event ) => event.type === 'error' ).length;
-    say( played, 'And now?' );
-    assert.equal( played.played.events.filter( ( event ) => event.type === 'error' ).length, errors + 1 );
+    const replies = state.transcript.filter( ( entry ) => entry.kind === 'assistant' ).length;
+    say( played, 'Help me plan a weekend away' );
+
+    const after = played.played.state;
+    assert.equal( played.played.events.filter( ( event ) => event.type === 'error' ).length, errors );
+    assert.equal( after.transcript.filter( ( entry ) => entry.kind === 'assistant' ).length, replies + 1 );
+    assert.equal( after.conversationId, state.session.setup_conversation, 'in the same chat' );
+
+    // Named by that first message, as a new chat is, so a project that gathers it does not hold a chat called Setting up Mila.
+    const listed = after.conversations.find( ( conversation ) => conversation.id === state.session.setup_conversation );
+    assert.equal( listed.title, 'Help me plan a weekend away' );
 }
 
-test( 'when Mila needs nothing, the setup ends with no question and its chat closes', whenMilaNeedsNothingTheSetupEndsWithNoQuestionAndItsChatCloses );
-
-/** Scenario 23, the panes gone through, to the interview's first question; then the name and coding work. */
-function toTheDownload()
-{
-    const played = play( 23 );
-
-    played.clock.run( () => played.played.events.some( ( event ) => event.type === 'interview' ) );
-    played.clock.run( () => played.played.state.session.busy === false );
-    say( played, 'Alex' );
-    say( played, 'coding and building programs' );
-
-    return played;
-}
-
-function forCodingWorkMilaAsksToDownloadNamingNoModel()
-{
-    const played = toTheDownload();
-    const { state } = played.played;
-    const offered = played.played.events.filter( ( event ) => event.type === 'turn.offer' ).pop();
-
-    assert.equal( offered.offer.kind, 'download' );
-    assert.deepEqual( offered.offer.download.gains, [ 'work of several steps with your files and tools' ] );
-    assert.deepEqual( stillToDo( state ), [ 'What Mila needs for your work' ] );
-    assert.equal( setupChatClosed( state ), false, 'still open while the download waits' );
-
-    const reply = state.transcript.filter( ( entry ) => entry.kind === 'assistant' ).pop();
-    assert.match( reply.answer, /download about 14\.4 GB/ );
-    assert.equal( /gemma|qwen|model/i.test( reply.answer ), false, 'Mila names no model' );
-}
-
-test( 'for coding work, Mila asks to download what it needs, naming no model', forCodingWorkMilaAsksToDownloadNamingNoModel );
-
-function theDownloadAcceptedWithItsButtonEndsTheSetup()
-{
-    const played = toTheDownload();
-    const offered = played.played.events.filter( ( event ) => event.type === 'turn.offer' ).pop();
-    const conversation = played.played.state.session.setup_conversation;
-
-    played.session.handle( { v: 1, type: 'suggestion.decide', conversation_id: conversation, call_id: offered.call_id, decision: 'accept' } );
-    played.clock.run();
-
-    const { state } = played.played;
-    const answered = played.played.events.filter( ( event ) => event.type === 'turn.answered' ).pop();
-
-    assert.equal( answered.offer.state, 'accepted' );
-    assert.equal( answered.text, 'I\'m set up: I\'ll call you Alex, and I\'m downloading what I need for your work, about 14.4 GB; your next new chat uses it. Start a new chat whenever you\'re ready.' );
-    assert.equal( state.session.onboarding, 'done' );
-    assert.equal( setupChatClosed( state ), true );
-}
-
-test( 'the download accepted with its button ends the setup', theDownloadAcceptedWithItsButtonEndsTheSetup );
-
-function theDownloadDeclinedInWordsEndsTheSetupAndMilaCarriesOn()
-{
-    const played = toTheDownload();
-
-    say( played, 'No thanks, not now.' );
-
-    const { state } = played.played;
-    const answered = played.played.events.filter( ( event ) => event.type === 'turn.answered' ).pop();
-
-    assert.equal( answered.offer.state, 'declined' );
-    assert.equal( answered.text, 'I\'m set up: I\'ll call you Alex, and I\'ll carry on as I am. Start a new chat whenever you\'re ready.' );
-    assert.equal( state.session.onboarding, 'done' );
-    assert.deepEqual( stillToDo( state ), [] );
-    assert.equal( setupChatClosed( state ), true );
-}
-
-test( 'the download declined in words ends the setup, and Mila carries on as it is', theDownloadDeclinedInWordsEndsTheSetupAndMilaCarriesOn );
+test( 'once both questions are answered, the setup ends and its chat goes on', onceBothQuestionsAreAnsweredTheSetupEndsAndItsChatGoesOn );

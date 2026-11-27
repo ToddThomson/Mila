@@ -1,7 +1,7 @@
 /**
  * @file Assistant.SetupSteps.ixx
  * @brief What the setup has to accomplish, which the app keeps and the interview's tools mark (AssistantOnboarding.md
- *        4.4, round 11).
+ *        4.4, rounds 11 and 13).
  */
 
 export module Assistant.SetupSteps;
@@ -13,13 +13,11 @@ namespace Mila::Assistant
 {
     /**
      * @brief The setup's objectives, each pending, done or skipped: what to call the person and what they will mostly
-     *        use Mila for, theirs to answer, and what Mila needs for their work, Mila's to assess (round 12).
+     *        use Mila for.
      *
      * Kept with the setup's chat under its own key, never as the chat's plan: the setup is not work the person
      * approved, and nothing of it is drawn in the chat. The workspace reads what is still outstanding to put an
-     * unfinished setup under *Needs you*. Only the last is required: the setup ends when Mila has assessed what it
-     * needs and, when it asks to download something, the person has answered; it assesses only once the other two are
-     * done or skipped.
+     * unfinished setup under *Needs you*. A skip is an answer, so the setup ends once each is done or skipped.
      */
     export class SetupSteps
     {
@@ -29,7 +27,6 @@ namespace Mila::Assistant
         {
             Name,
             Uses,
-            Needs,
         };
 
         /// Every objective pending.
@@ -117,17 +114,10 @@ namespace Mila::Assistant
             return statuses_[ indexOf( step ) ] == "pending";
         }
 
-        /// Whether Mila may assess what it needs: what to call the person and what they will use Mila for are each
-        /// done or skipped.
-        [[nodiscard]] bool readyForChoice() const
-        {
-            return !pending( Step::Name ) && !pending( Step::Uses );
-        }
-
-        /// Whether the setup is over: what Mila needs, the one that is required, is assessed and answered.
+        /// Whether the setup is over: every objective done or skipped.
         [[nodiscard]] bool finished() const
         {
-            return !pending( Step::Needs );
+            return !pending( Step::Name ) && !pending( Step::Uses );
         }
 
         /// The objectives still pending, by their names.
@@ -162,8 +152,7 @@ namespace Mila::Assistant
 
     private:
 
-        static constexpr std::array<std::string_view, 3> kTitles{
-            "What to call you", "What you will use Mila for", "What Mila needs for your work" };
+        static constexpr std::array<std::string_view, 2> kTitles{ "What to call you", "What you will use Mila for" };
 
         SetupSteps()
         {
@@ -175,7 +164,7 @@ namespace Mila::Assistant
             return static_cast<std::size_t>( step );
         }
 
-        std::array<std::string, 3> statuses_;
-        std::array<std::string, 3> said_;
+        std::array<std::string, 2> statuses_;
+        std::array<std::string, 2> said_;
     };
 }

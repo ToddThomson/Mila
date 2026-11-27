@@ -400,7 +400,12 @@ operating-system sandbox's own measurement (`Vnext.md`), not to the grant's.
   a rendering of them. A round's prompt is the last round's prompt and its reply as generated, followed by the
   results as the template frames them after a call -- the model's protocol gives that text, tested against the
   template's full rendering -- so a round prefills only the results it adds. A reply whose last call is left open is
-  rendered instead, so the model never reads a call it did not finish followed by its result. Across responses the
+  rendered instead, so the model never reads a call it did not finish followed by its result. **So is a round whose
+  framing changed while its calls were answered** -- the session's system prompt, tools or template variables, as when
+  a call gives the program a folder and the program then offers the folder's tools: continued, the round would read the
+  framing the response began with, and the model could call a tool it is never shown (2026-11-26, Todd's walk of Mila
+  Assistant: Gemma 4 26B-A4B, given a folder, reasoned "It doesn't list `write_file`" and said it could not write
+  files). It prefills again from where the framing changed, early in the prompt, once. Across responses the
   conversation is rendered: Gemma and Llama prefill from where the rendering first differs from what they hold,
   such as the reasoning a template drops, and Qwen from the end of its last reply when the rendering extends it,
   else from the end of the last round's prompt. Measured in `Direction.md` 5.3. The model ends a reply on the token the template opens its results with (Gemma's

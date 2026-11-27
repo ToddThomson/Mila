@@ -571,6 +571,79 @@ namespace Mila::Tests::AI
         expectEachRoundPrefillsOnlyWhatItAdds( *name );
     }
 
+    // A tool the program offers while a response's calls are answered -- as Mila Assistant offers a folder's tools once
+    // a call gives it the folder -- is in the next round's prompt: the round is rendered whole rather than continued from
+    // a prompt that never named it (2026-11-26, Gemma 4 26B-A4B said it had no write_file).
+    TEST( AgentCuda, AToolOfferedWhileCallsAreAnsweredIsInTheNextRoundsPrompt )
+    {
+        const auto name = firstInstalled( { "gemma-4-12b-it-q4_0", "gemma-4-12b-it-fp4" } );
+
+        if ( const auto skipped = whyNotRunnable( name ) )
+        {
+            GTEST_SKIP() << *skipped;
+        }
+
+        std::vector<std::string> arguments_seen;
+
+        auto agent = Agent::create( *name, *requestThatFits( *name ), Session{}
+            .withTool( weatherTool( arguments_seen ) )
+            .onAsk( []( const ToolQuestion& ) { return ToolAnswer::Once; } ) );
+
+        agent.model().model().seedSampler( 7 );
+
+        const Tool forecast{ "get_forecast", "Get the weather forecast for the next three days in a city.", kWeatherParameters,
+            []( std::string_view, const ToolGrant&, std::stop_token ) { return std::string( "Rain on Thursday." ); } };
+
+        const std::string message = "What is the weather in Paris right now?";
+        const dim_t first_prompt = static_cast<dim_t>( agent.model().tokenizer().encode( agent.prompt( message ).text ).size() );
+
+        ReuseLog reuse;
+        std::vector<dim_t> prompt_tokens;
+        std::vector<dim_t> generated;
+        bool offered = false;
+
+        const Response response = agent.respond( message, [&]( const AgentEvent& event )
+            {
+                if ( event.kind == AgentEvent::Kind::RoundBegan )
+                {
+                    reuse.beginRound();
+                    prompt_tokens.push_back( event.prompt_tokens.value_or( 0 ) );
+                    generated.push_back( 0 );
+                }
+                else if ( event.kind == AgentEvent::Kind::Token )
+                {
+                    ++generated.back();
+                }
+                else if ( event.kind == AgentEvent::Kind::ToolCalled && !offered )
+                {
+                    // Once the call has its result, as the program does: never while the gate runs one of its tools.
+                    agent.session().withTool( forecast );
+                    offered = true;
+                }
+            } );
+
+        ASSERT_GE( response.rounds, 2 ) << *name << " answered without calling the tool: " << response.text;
+        ASSERT_TRUE( offered );
+
+        // Continued, the round would be the first prompt, its reply and the result; rendered whole, it also holds the new
+        // tool's definition.
+        const auto conversation = agent.session().conversation();
+        const Conversation::Prompt results = agent.model().protocol()->continueWithToolResults( conversation.subspan( 2, 1 ), {} );
+        const dim_t added = static_cast<dim_t>( agent.model().tokenizer().encode( results.text ).size() );
+        const dim_t continued = first_prompt + generated.front() + added;
+
+        EXPECT_GT( prompt_tokens[ 1 ], continued ) << "the second round was continued from a prompt without the new tool";
+
+        // And prefilled again from where the tools are, early in the prompt, not from the result.
+        const auto& prefill = reuse.rounds()[ 1 ];
+        const dim_t prefilled = prefill.has_value() ? prefill->prompt - prefill->skipped : prompt_tokens[ 1 ];
+
+        EXPECT_GT( prefilled, added + 20 ) << "the second round prefilled only the result";
+
+        std::printf( "%s\n", std::format( "{}: round 2 holds {} prompt tokens, {} had it been continued; prefilled {}",
+            *name, prompt_tokens[ 1 ], continued, prefilled ).c_str() );
+    }
+
     // ================================================================
     // Every call passes the question: one Gemma agent, a test per outcome
     // ================================================================

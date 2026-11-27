@@ -86,7 +86,7 @@ export const models = [
     }
 ];
 
-/** The onboarding model (AssistantOnboarding.md 4.4): marked onboarding ready, and offered only by scenario 21. */
+/** The model the setup installs in scenarios 21 and 22 (AssistantOnboarding.md 4.4), and offered only by them. */
 export const onboardingModel = {
     name: 'gemma-4-12b-it-q4_0',
     display_name: 'Gemma 4 12B',

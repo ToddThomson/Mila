@@ -276,11 +276,13 @@ namespace Mila::Agents
         /// The most tokens a round may generate: the reply tokens the response has left, within the context left.
         std::optional<dim_t> roundBudget( const std::vector<std::int32_t>& tokens, dim_t generated ) const;
 
-        /// A prompt and its tokens, which within a response are not always the encoding of its text.
+        /// A prompt and its tokens, which within a response are not always the encoding of its text, and the framing
+        /// it was rendered with (framing()).
         struct RoundPrompt
         {
             Conversation::Prompt prompt;
             std::vector<std::int32_t> tokens;
+            std::string framing;
         };
 
         /**
@@ -288,9 +290,16 @@ namespace Mila::Agents
          *
          * After a reply that made calls, the reply as generated followed by the results answered so far, as the
          * template frames them after it: the model holds every token before the results, so nothing it read or
-         * wrote is prefilled again. Otherwise the conversation as the template renders it.
+         * wrote is prefilled again. Otherwise the conversation as the template renders it -- and so too when the
+         * session's system prompt, tools or template variables changed while the calls were answered, as when a call
+         * gives the program a folder whose tools it then offers: continued, the round would read the framing the
+         * response began with, and the model could call a tool it is never shown.
          */
         RoundPrompt nextRound() const;
+
+        /// What frames the conversation in a prompt as the session stands: the system prompt, the tools offered and
+        /// the template variables, compared to tell whether a prompt rendered earlier still shows the session.
+        std::string framing() const;
 
         /**
          * @brief Whether a reply's last call is closed as the template closes it, so the reply can stand in the
