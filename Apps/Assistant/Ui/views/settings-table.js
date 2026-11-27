@@ -8,6 +8,7 @@ import { downloadProgress } from './download-progress.js';
 
 export const areas = [
     { id: 'models', label: 'Models', note: null },
+    { id: 'you', label: 'About you', note: 'What Mila keeps about you. Every chat is given it; change it or clear it here.' },
     { id: 'responses', label: 'Responses', note: null },
     { id: 'sampling', label: 'Sampling', note: 'Each model opens at its publisher\'s recommended values.' },
     { id: 'search', label: 'Web search', note: null },
@@ -601,6 +602,49 @@ const detail = {
     }
 };
 
+/**
+ * One thing Mila keeps about the person, from the setup or typed here (AssistantOnboarding.md 4.4). Sent when the field
+ * is left, as the context is; an empty field forgets it.
+ */
+function personSetting( key, label, terms, placeholder )
+{
+    return {
+        id: key,
+        area: 'you',
+        label,
+        terms,
+        needs: 'session',
+        reads: [ 'session' ],
+        note: () => null,
+        offered: () => true,
+        build( state )
+        {
+            const row = element( 'div', 'setting-row' );
+            const field = element( 'input', 'person-input number-input' );
+
+            field.type = 'text';
+            field.dataset.person = key;
+            field.value = state.session[ key ] ?? '';
+            field.placeholder = placeholder;
+            field.spellcheck = true;
+            field.setAttribute( 'aria-label', label );
+            row.append( field );
+
+            return row;
+        },
+        onAction() {},
+        onChange( target, view )
+        {
+            if ( target.dataset.person !== key )
+                return;
+
+            const value = target.value.trim();
+            const change = { [ key ]: value.length > 0 ? value : null };
+            view.set( change );
+        }
+    };
+}
+
 /** A line in About that opens a place or a window of its own: Settings closes, and it shows. */
 function opening( id, label, terms, verb, shown )
 {
@@ -627,6 +671,9 @@ function opening( id, label, terms, verb, shown )
 export const settings = [
     installed,
     available,
+    personSetting( 'person_name', 'What Mila calls you', [ 'name', 'call', 'person' ], 'Your name' ),
+    personSetting( 'person_about', 'About you', [ 'about', 'yourself', 'work', 'person' ], 'Your work, what you do' ),
+    personSetting( 'person_uses', 'What you would like help with', [ 'help', 'uses', 'use', 'person' ], 'What Mila can help with' ),
     thinking,
     effort,
     context,

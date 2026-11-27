@@ -94,18 +94,18 @@ function anUnfinishedSetupNeedsThePersonWithWhatIsStillToDoAndShowsNoPlan()
 {
     const played = toTheInterview();
 
-    assert.deepEqual( stillToDo( played.played.state ), [ 'What to call you', 'What you will use Mila for' ] );
+    assert.deepEqual( stillToDo( played.played.state ), [ 'What to call you', 'About you, and what you would like help with' ] );
 
     say( played, 'Alex' );
 
     const named = played.played.state;
-    assert.deepEqual( stillToDo( named ), [ 'What you will use Mila for' ] );
+    assert.deepEqual( stillToDo( named ), [ 'About you, and what you would like help with' ] );
     assert.equal( named.session.plan, null, 'the setup is not a plan, and none is drawn' );
 
     const waiting = needsYou( named ).find( ( row ) => row.item.id === named.session.setup_conversation );
     assert.ok( waiting !== undefined, 'the unfinished setup is under Needs you' );
     assert.equal( waiting.kind, 'setup' );
-    assert.equal( attentionLine( waiting ), 'Still to do: what you will use Mila for' );
+    assert.equal( attentionLine( waiting ), 'Still to do: about you, and what you would like help with' );
 }
 
 test( 'an unfinished setup needs the person, with what is still to do, and shows no plan', anUnfinishedSetupNeedsThePersonWithWhatIsStillToDoAndShowsNoPlan );

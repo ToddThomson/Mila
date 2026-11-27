@@ -644,6 +644,97 @@ namespace Mila::Tests::AI
             *name, prompt_tokens[ 1 ], continued, prefilled ).c_str() );
     }
 
+    // A round's events say what it read and what it wrote, so a program never guesses (ToolCalling.md 4.1): the prompt
+    // whole, the sampling, and each token's id beside its text -- the markers the reader hides from the answer included.
+    TEST( AgentCuda, ARoundsEventsAreWhatItReadAndWhatItWrote )
+    {
+        const auto name = firstInstalled( { "gemma-4-12b-it-q4_0", "gemma-4-12b-it-fp4" } );
+
+        if ( const auto skipped = whyNotRunnable( name ) )
+        {
+            GTEST_SKIP() << *skipped;
+        }
+
+        std::vector<std::string> arguments_seen;
+
+        auto agent = Agent::create( *name, *requestThatFits( *name ), Session{}
+            .withTool( weatherTool( arguments_seen ) )
+            .onAsk( []( const ToolQuestion& ) { return ToolAnswer::Once; } ) );
+
+        agent.model().model().seedSampler( 7 );
+
+        const std::string message = "What is the weather in Paris right now?";
+        const std::string first_prompt = agent.prompt( message ).text;
+        const SamplingParams sampling = agent.sampling();
+
+        struct Round
+        {
+            std::string prompt;
+            std::optional<SamplingParams> sampling;
+            std::vector<std::int32_t> ids;
+            std::string text;
+            std::string routed;
+        };
+
+        std::vector<Round> rounds;
+        bool every_token_has_its_id = true;
+
+        const Response response = agent.respond( message, [&]( const AgentEvent& event )
+            {
+                switch ( event.kind )
+                {
+                    case AgentEvent::Kind::RoundBegan:
+                        rounds.push_back( { std::string( event.prompt ), event.sampling } );
+                        break;
+
+                    case AgentEvent::Kind::Token:
+                        every_token_has_its_id = every_token_has_its_id && event.token.has_value();
+                        rounds.back().ids.push_back( event.token.value_or( -1 ) );
+                        rounds.back().text += event.text;
+                        break;
+
+                    case AgentEvent::Kind::Reasoning:
+                    case AgentEvent::Kind::Answer:
+                        rounds.back().routed += event.text;
+                        break;
+
+                    default:
+                        break;
+                }
+            } );
+
+        ASSERT_GE( response.rounds, 2 ) << *name << " answered without calling the tool: " << response.text;
+        ASSERT_EQ( rounds.size(), static_cast<std::size_t>( response.rounds ) );
+        EXPECT_TRUE( every_token_has_its_id );
+
+        // The first round reads the conversation rendered, as prompt shows it before the response.
+        EXPECT_EQ( rounds[ 0 ].prompt, first_prompt );
+
+        for ( const Round& round : rounds )
+        {
+            ASSERT_TRUE( round.sampling.has_value() );
+            EXPECT_EQ( round.sampling->temperature, sampling.temperature );
+            EXPECT_EQ( round.sampling->top_k, sampling.top_k );
+            EXPECT_EQ( round.sampling->top_p, sampling.top_p );
+            EXPECT_EQ( round.sampling->presence_penalty, sampling.presence_penalty );
+
+            // The ids decode to the text the round reported.
+            EXPECT_EQ( agent.model().tokenizer().decode( round.ids ), round.text );
+        }
+
+        // Nothing changed the framing while the call was answered, so the second round continues the first: its prompt,
+        // its reply as generated, and then the result.
+        EXPECT_TRUE( rounds[ 1 ].prompt.starts_with( rounds[ 0 ].prompt + rounds[ 0 ].text ) );
+        EXPECT_GT( rounds[ 1 ].prompt.size(), ( rounds[ 0 ].prompt + rounds[ 0 ].text ).size() );
+
+        // The call's markers are in the tokens and in nothing the reader routed to reasoning or the answer.
+        const std::string& call_open = agent.model().protocol()->replyGrammar().tool_call_open;
+
+        ASSERT_FALSE( call_open.empty() );
+        EXPECT_NE( rounds[ 0 ].text.find( call_open ), std::string::npos ) << rounds[ 0 ].text;
+        EXPECT_EQ( rounds[ 0 ].routed.find( call_open ), std::string::npos );
+    }
+
     // ================================================================
     // Every call passes the question: one Gemma agent, a test per outcome
     // ================================================================

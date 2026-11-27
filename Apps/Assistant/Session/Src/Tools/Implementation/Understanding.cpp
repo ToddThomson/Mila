@@ -81,7 +81,16 @@ namespace Mila::Assistant
                 {
                     std::string words = questionWords( line );
 
-                    if ( !words.empty() )
+                    // A line with no letter or digit says none: Gemma 4 26B-A4B wrote "``" for no open questions (Todd's
+                    // walk, 2026-11-27). A byte past ASCII is taken as a letter of another script.
+                    const bool says_something = std::ranges::any_of( words, []( char character )
+                        {
+                            const auto byte = static_cast<unsigned char>( character );
+
+                            return byte >= 0x80 || std::isalnum( byte ) != 0;
+                        } );
+
+                    if ( says_something )
                     {
                         questions.push_back( std::move( words ) );
                     }

@@ -69,6 +69,30 @@ namespace Mila::Tests::Apps::Assistant
         EXPECT_EQ( sourcesOf( note ), nlohmann::json::array( { "chat-tomatoes" } ) );
     }
 
+    TEST( Understanding, ALineWithNoWordsIsNoQuestion )
+    {
+        // "``" was Gemma 4 26B-A4B's way of writing none (Todd's walk, 2026-11-27).
+        for ( const char* none : { "``", "-", "N/A", "\"\"", "...", "?" } )
+        {
+            const nlohmann::json made = written( arguments( "Hello World in C++.", none ) );
+
+            ASSERT_TRUE( made.contains( "note" ) ) << none;
+
+            if ( std::string_view( none ) == "N/A" )
+            {
+                // Letters are kept: what reads as none to a person is a word to the note.
+                EXPECT_EQ( made[ "note" ][ "questions" ].size(), 1u );
+            }
+            else
+            {
+                EXPECT_TRUE( made[ "note" ][ "questions" ].empty() ) << none;
+            }
+        }
+
+        EXPECT_EQ( written( arguments( "Hello.", "``\nWhich compiler?" ) )[ "note" ][ "questions" ],
+            nlohmann::json::array( { "Which compiler?" } ) );
+    }
+
     TEST( Understanding, ANoteRestsOnItsChatAndOnWhatTheNoteItWasGivenRestedOn )
     {
         const nlohmann::json given = { { { "conversation", "chat-soil" } }, { { "conversation", "chat-tomatoes" } },

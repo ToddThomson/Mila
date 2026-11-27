@@ -195,11 +195,37 @@ namespace Mila::Assistant
         nlohmann::json gathered = nlohmann::json::array( { { { "id", open_chat }, { "title", text( *asking, "title" ) } } } );
         std::vector<std::string> problems;
 
-        std::istringstream lines( text( parsed, "chats" ) );
-        std::string line;
+        // A list of titles, as the schema asks and Gemma 4 26B-A4B wrote it (Todd's walk, 2026-11-27), or one a line.
+        std::vector<std::string> named;
+        const nlohmann::json listed = parsed.is_object() ? parsed.value( "chats", nlohmann::json( nullptr ) ) : nlohmann::json( nullptr );
 
-        while ( std::getline( lines, line ) && gathered.size() <= kMostChatsGathered )
+        if ( listed.is_array() )
         {
+            for ( const nlohmann::json& title : listed )
+            {
+                if ( title.is_string() )
+                {
+                    named.push_back( title.get<std::string>() );
+                }
+            }
+        }
+        else
+        {
+            std::istringstream lines( text( parsed, "chats" ) );
+
+            for ( std::string line; std::getline( lines, line ); )
+            {
+                named.push_back( line );
+            }
+        }
+
+        for ( const std::string& line : named )
+        {
+            if ( gathered.size() > kMostChatsGathered )
+            {
+                break;
+            }
+
             const std::string words = chatWords( line );
 
             if ( words.empty() )
@@ -502,9 +528,10 @@ namespace Mila::Assistant
             {
                 const std::string kind = text( event, "kind" );
 
-                // Mila's offers are not the person's changes; a chat gathered into it is the making itself.
+                // Mila's offers are not the person's changes; a chat gathered into it is the making itself, and so is the
+                // folder that chat held, which became the project's as it was made.
                 return kind == "project.made" || kind == "suggestion.made" || kind == "suggestion.declined"
-                    || ( kind == "chat.moved" && text( event, "suggested" ) == "project" );
+                    || ( ( kind == "chat.moved" || kind == "project.folder_added" ) && text( event, "suggested" ) == "project" );
             } );
     }
 }

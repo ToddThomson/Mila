@@ -99,3 +99,24 @@ function withNoModelTheModelsSettingsAreListedWithNoControl()
 }
 
 test( 'with no model, the model\'s settings are listed with no control', withNoModelTheModelsSettingsAreListedWithNoControl );
+
+function aboutYouHoldsWhatMilaKeepsAndAnEmptyFieldForgetsIt()
+{
+    const state = pageState( loadedSession( { person_name: 'Todd', person_about: 'A software engineer', person_uses: '' } ) );
+
+    assert.deepEqual( identifiers( settingsInArea( 'you', state ) ), [ 'person_name', 'person_about', 'person_uses' ] );
+
+    const sent = [];
+    const view = { set: ( change ) => sent.push( change ) };
+    const about = settings.find( ( setting ) => setting.id === 'person_about' );
+
+    about.onChange( { dataset: { person: 'person_about' }, value: '  A software engineer who uses C++  ' }, view );
+    about.onChange( { dataset: { person: 'person_about' }, value: '   ' }, view );
+
+    // A change to another field is not this one's.
+    about.onChange( { dataset: { person: 'person_uses' }, value: 'Coding' }, view );
+
+    assert.deepEqual( sent, [ { person_about: 'A software engineer who uses C++' }, { person_about: null } ] );
+}
+
+test( 'About you holds what Mila keeps, and an empty field forgets it', aboutYouHoldsWhatMilaKeepsAndAnEmptyFieldForgetsIt );

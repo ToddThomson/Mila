@@ -1346,28 +1346,6 @@ Open: whether the agent (`Mila::Agents`) adds per-round totals over its tool cal
 `Lib/Src/Dnn/Core/Models/LanguageModel.ixx` (`generate`'s "the model keeps no stopwatch") ·
 `Apps/Chat/Src/Chat.Session.ixx` (`RoundTimer`) · `Specifications/Notebooks/SessionInventory.md` decision 4
 
-## A Mac encodes every kernel of every token again, because Metal does not replay a decode step
-
-`architecture` · `perf` · `mila-src`
-
-CUDA records a decode step once and replays it every token (`DecodeGraph.md`); on Metal
-`createDecodeRecording()` returns null (`Metal/MetalBackend.md` 4.4), so every network calls each step whole. Each
-family still turns replay on whatever the device (`setDecodeReplay( true )` in `LlamaModel.ixx`, `GemmaModel.ixx`,
-`QwenModel.ixx`), so the first decode of every Metal load warns "replay of the decode step is off for this network --
-it could not be recorded", words that mean a real failure on CUDA. A note of 2026-11-07 that Llama 3.2 3B and 3.1 8B
-loads did not warn where Gemma 4 12B's did was never explained: no Metal network can record. Indirect command buffers
-(Apple3 and later) are the candidate. Also open: whether a device says it records, or the network tells a null
-recording from a failed one. Moved out of v0.21.0 (Todd, 2026-11-09): Metal in that release is what the development
-Mac builds and tests, and replay is not part of it.
-
-## Metal has no grouped prefill for a Q4_0 expert bank
-
-`moe` · `perf` · `mila-src`
-
-`MetalMoeOp` runs one kernel for prefill and decode, where `CudaMoeOp` has a grouped prefill on INT8 matrix
-products; Metal's speed on a bank is unmeasured. Its only user is the Gemma 4 26B-A4B, which does not fit a 16 GB Mac
-(`Notebooks/MetalGemma.md` 2.1). `Lib/Src/Dnn/Compute/Devices/Metal/Operations/Moe/MetalMoeOp.ixx`
-
 ## Metal cannot quantize BF16 weights to Q4_0 or six bits at load
 
 `quantization` · `mila-src`
@@ -1388,28 +1366,6 @@ path builds either on CUDA: Gemma's sliding layers keep the BF16 ring under an F
 6's second arm), and no family asks for an FP8 embedding table. Only CUDA tests reach them
 (`CudaGqaOp.Fp8Cache.Cuda.cpp`, the disabled `Gemma.LogLikelihood.Cuda.cpp` arms, `TokenEmbedding.Cuda.cpp` section F).
 Whether CUDA keeps them is a question of its own.
-
-## Neither Qwen 3.8 nor the Gemma 4 26B-A4B runs whole on a Mac
-
-`qwen` · `gemma` · `measured`
-
-Qwen 3.8's operations are on Metal and its four-layer packed build passes its HuggingFace gate in FP16 and BF16
-(`Notebooks/MetalQwen.md`). No Qwen 3.8 agentic build fits a 16 GB Mac's working set; `cb2-3` fits at a short
-context and has not been run whole, and Qwen has no Mac rates. The 26B-A4B does not fit at all. Qwen 3.8 on a Mac is
-v0.22.0's (Todd, 2026-11-09). `Specifications/Metal/MetalBackend.md` section 9, Phase 6.
-
-**A hardware restriction, not a gap in parity (Todd, 2026-11-17):** "These models should work but we have no way to
-test." Windows and macOS have the same features by design (`CLAUDE.md`), and a model a Mac's memory cannot hold is
-the Mac's limit, not Mila's; the planner refuses it there for memory, as on a card too small. What stays here is the
-testing, which needs a Mac with more memory than the development M1 Pro's 16 GB.
-
-**The 26B-A4B needs a 24 to 32 GB Mac (Todd, 2026-11-10).** Arithmetic, not measured: Q4_0 weights are 13.5 GiB
-against the 16 GB M1 Pro's 11.84 GiB working set, and with the FP8 global cache at 65536 about 14.7 GiB in all (CUDA's
-measured fit, `MemoryFootprint.md` 8). The expert bank is 90% of the weights (22.84B of 25.23B parameters); only experts
-below four bits (a 3-bit codebook, about 11.4 GiB at 65536) would fit 16 GB, which bends "a model runs in the format it
-was trained for" and was declined. A 24 GB Mac fits the Q4_0 build if its working set is near three quarters of its
-memory, which is assumed, not measured. Either way it needs the FP8 global cache on Metal (`Untriaged.md`, the FP8
-cache widened in a separate pass) and Metal's MoE operations.
 
 ## Metal has run only on an M1 Pro, so which chips have native BF16 and which matrix path wins on each is unknown
 

@@ -589,8 +589,17 @@ all into 4.4"). *Its close and the handoff are superseded by round 13: the setup
   its plan, so no plan panel is drawn. The chat's summary carries what is still outstanding (`setup`), and the overview
   puts an unfinished setup under *Needs you*: *Still to do: what you will use Mila for and which model Mila runs on*,
   with *Continue*. Built first as the chat's plan and changed the same day at Todd's word above.
-- **The tools:** `remember_name` and `note_uses` mark their steps (`person_uses` joins every chat's system prompt, as
-  the name does); `skip_question` skips the name or the uses, or with `setup` the whole setup, which stays on the model
+- **One question about the person** (Todd, 2026-11-27, replacing *What you will use Mila for*): in all three of his
+  HelloWorld walks he answered "what do you expect to use me for most?" with who he is ("I am a software engineer that
+  likes to code in c++"), kept as uses and said to every chat as "will mostly use you for: Software Engineer who uses
+  C++". So Mila asks *a bit about yourself and what you would like my help with*, the step is *About you, and what you
+  would like help with*, and `note_uses` takes `about` and `uses`, either or both, kept as `person_about` and
+  `person_uses`. Every chat's prompt says each on its own line. Settings has an *About you* area with the name and
+  both, which the person can change or clear: what every chat is given about them is theirs to see. *A full name
+  keeps the first* (the same day): told "my name is Todd Thomson", the 26B kept and used the whole; Mila now keeps the
+  first name and says the person can ask to be called otherwise.
+- **The tools:** `remember_name` and `note_uses` mark their steps (`person_uses` and `person_about` join every chat's
+  system prompt, as the name does); `skip_question` skips the name or the uses, or with `setup` the whole setup, which stays on the model
   and ends it; `offer_model_choice` is refused until the name and the uses are each done or skipped, and puts the choice
   as an offer of kind `model`. `finish_setup` is gone.
 - **The choice** is built by code: the planner's suggestion from the model hub's list, offered as a move only for what

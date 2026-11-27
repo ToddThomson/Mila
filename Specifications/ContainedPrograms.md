@@ -257,6 +257,13 @@ grant reads what the person keeps under `HKCU`, which no grant gives. It is a kn
   model's text changes the command line and errors come back as text, with execution policy bypassed for that
   process alone so `npm.ps1` runs. `cmd`'s `dir` is refused in a granted folder (phase 1), so the prompt names
   PowerShell's own commands.
+- **A failed program stops the command** (2026-11-27, after Todd's HelloWorld walk, where `New-Item; cl ...;
+  .\build\hello.exe` would have read 0 had the compile failed, and run a stale program). The script parses the
+  command and runs its top-level statements one at a time, dot-sourced so what one defines the next can use; a
+  statement in which a program exits with a code other than 0 ends the command with that code and a line on
+  standard error naming it. A cmdlet's error does not stop it, since `-ErrorAction SilentlyContinue` reads as
+  failed too and is how a model lets a step fail; the last statement failing still makes the exit code 1. Standard
+  error reaches the model labelled as such, not "Errors", since a compiler writes its banner there on a clean build.
 - **What Mila Assistant gives a command** (`Assistant.ProgramSetup`, found once when the setting is turned on): the
   folders of Git, CMake, Ninja, Node and .NET on the person's `PATH`; Visual Studio's x64 setup, run once on the host,
   for `INCLUDE`, `LIB`, `LIBPATH`, the folders they name and the folders under Visual Studio and the Windows SDK it adds
@@ -271,8 +278,23 @@ grant reads what the person keeps under `HKCU`, which no grant gives. It is a kn
 - The result the model reads: the exit code, the output as cut, and any files withheld (4.3).
 - **What the model is told** (2026-11-26, after Todd's walk, where a plan wrote a `Makefile` for `g++` and said it
   could not build): while `run_command` is offered, which build tools a command can use here -- those of the program
-  folders above, by name -- and none other; that Windows PowerShell 5.1 has no `&&`; and that a build goes outside the
-  sources and a first commit comes with a `.gitignore` for it. The chosen folder's result says it can be written as well
+  folders above, by name -- and none other; that Windows PowerShell 5.1 has no `&&`, and that a failed program stops a
+  command; and that a build goes outside the sources and a first commit comes with a `.gitignore` for it. Since the
+  HelloWorld walk (Todd, 2026-11-27): a new piece of software is planned with the build system and source control its
+  developers normally use, when they are here -- CMake for C++, configured into `build`, and git for any project --
+  while a folder that already has a build system or a repository keeps its own; `cl` run directly is given `/EHsc`
+  and `/Fo`/`/Fe` into the build folder; and after a build the model checks that nothing it made is outside it. How
+  new software is planned is said whenever commands are on, before the folder as well as with it, since a plan is
+  made first (the replay's plan had no git, its model never having read the passage). Build, test and run steps are
+  commands of their own, never a script the model writes: a step failing inside `build.ps1` neither stops the
+  command nor always shows in its exit code (Todd's second walk read `Exit code: 0` for a script whose last line
+  failed). The first commit is offered as the plan's last step, once the project builds and runs, so the person
+  decides on it with the plan (Todd, 2026-11-27); and a command's output shown to the person goes in a code block.
+  The 26B planned no commit in two walks running, so a plan that finishes in a folder whose repository has no commit
+  yet (`Assistant.GitRepository`, read from `.git` without running git) has its last `update_step` result ask Mila to
+  offer the first commit in its reply, made only on the person's yes. The model is told that a CMake build here,
+  configured with no generator named, uses NMake and puts the program in the build folder itself: the walk's model
+  looked in `build\Debug` twice first. The chosen folder's result says it can be written as well
   as read, since "to read" alone was taken as read-only. Before the chat has a folder, the model is told that commands will come with one
   when the setting is on, with it off, that the person turns them on in Settings, and with it on where the container
   cannot run, that this computer cannot run them, so a plan
@@ -405,6 +427,9 @@ Decided 2026-11-26 (Todd: "No, commands are no longer experimental. 0.21 will be
     facts. Linux joins decision 12, through MXC's bubblewrap backend once the grant's file checks run there, and moves
     from `Issues/Vnext.md` into v0.21.0. What Mila ships carries an unrouted MXC build of its own (decision 13), and
     the release build carries the container (4.11's CMake option), which the maintainer's own build has off today.
+    The item's date is the release's and it does not drain (decision 1's drain no longer holds): its macOS part sits
+    in *The Desktop Agent* beside Linux's, the Mac version having full parity with Windows in v0.21.0 (Todd,
+    2026-11-27).
 
 ## 10. Relationship to other specs
 

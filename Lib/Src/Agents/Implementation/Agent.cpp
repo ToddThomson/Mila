@@ -404,6 +404,8 @@ namespace Mila::Agents
             AgentEvent began{ AgentEvent::Kind::RoundBegan };
             began.budget = budget;
             began.prompt_tokens = static_cast<dim_t>( tokens.size() );
+            began.prompt = prompt.text;
+            began.sampling = params.sampling;
             emit( began );
             ++response.rounds;
 
@@ -430,7 +432,9 @@ namespace Mila::Agents
                     ++generated;
                     reply_tokens.push_back( token );
                     reply_text += piece;
-                    emit( { AgentEvent::Kind::Token, piece } );
+                    AgentEvent produced{ AgentEvent::Kind::Token, piece };
+                    produced.token = token;
+                    emit( produced );
                     forward( reader.feed( piece ) );
                 },
                 params,

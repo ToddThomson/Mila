@@ -152,7 +152,7 @@ namespace Mila::Assistant
 
     private:
 
-        static constexpr std::array<std::string_view, 2> kTitles{ "What to call you", "What you will use Mila for" };
+        static constexpr std::array<std::string_view, 2> kTitles{ "What to call you", "About you, and what you would like help with" };
 
         SetupSteps()
         {

@@ -91,6 +91,21 @@ namespace Mila::Tests::Apps::Assistant
         EXPECT_NE( result.find( "answers in their next message" ), std::string::npos ) << result;
     }
 
+    TEST( OffersTest, TheChatsToGatherMayBeAListOfTitles )
+    {
+        // As the schema asks, and as Gemma 4 26B-A4B wrote them (Todd's walk, 2026-11-27); an empty list is this chat alone.
+        const std::string listed = nlohmann::json{ { "name", "Garden" }, { "purpose", "Growing vegetables" },
+            { "chats", nlohmann::json::array( { "Raised beds for the garden", "soil" } ) } }.dump();
+
+        EXPECT_EQ( gatheredIds( offerProject( listed, chats(), projects(), "chat-asking", true ) ),
+            ( std::vector<std::string>{ "chat-asking", "chat-beds", "chat-soil" } ) );
+
+        const std::string alone = nlohmann::json{ { "name", "Garden" }, { "chats", nlohmann::json::array() } }.dump();
+
+        EXPECT_EQ( gatheredIds( offerProject( alone, chats(), projects(), "chat-asking", true ) ),
+            ( std::vector<std::string>{ "chat-asking" } ) );
+    }
+
     TEST( OffersTest, ATitleThatBeginsWithANumberIsNotAListsNumber )
     {
         const nlohmann::json offered = offerProject( proposal( "Paperwork", "2026 taxes" ), chats(), projects(), "chat-asking", true );
@@ -272,6 +287,18 @@ namespace Mila::Tests::Apps::Assistant
         moved_by_person.push_back( { { "kind", "chat.moved" } } );
 
         EXPECT_FALSE( projectUndoable( made, moved_by_person, all ) );
+
+        // The folder the gathered chat held became the project's as it was made: still the making (Todd, 2026-11-27).
+        std::vector<nlohmann::json> with_folder = history;
+        with_folder.push_back( { { "kind", "project.folder_added" }, { "suggested", "project" } } );
+
+        EXPECT_TRUE( projectUndoable( made, with_folder, all ) );
+
+        // One the person gave later is a change.
+        std::vector<nlohmann::json> folder_given = history;
+        folder_given.push_back( { { "kind", "project.folder_added" } } );
+
+        EXPECT_FALSE( projectUndoable( made, folder_given, all ) );
 
         std::vector<nlohmann::json> later = all;
         later.push_back( { { "id", "project-5" }, { "created", "2026-11-21T10:00:00.000Z" } } );

@@ -126,6 +126,14 @@ namespace Mila::Assistant
                     passOver( "run_commands" );
             }
 
+            if ( const auto* record_rounds = find( stored, "record_rounds" ) )
+            {
+                if ( record_rounds->is_boolean() )
+                    settings.record_rounds = record_rounds->get<bool>();
+                else
+                    passOver( "record_rounds" );
+            }
+
             if ( const auto* sampling = find( stored, "sampling" ) )
             {
                 if ( sampling->is_object() )
@@ -154,6 +162,7 @@ namespace Mila::Assistant
             readText( stored, "onboarding", settings.onboarding, passOver );
             readText( stored, "interview_conversation", settings.interview_conversation, passOver );
             readText( stored, "person_name", settings.person_name, passOver );
+            readText( stored, "person_about", settings.person_about, passOver );
             readText( stored, "person_uses", settings.person_uses, passOver );
             readText( stored, "last_version", settings.last_version, passOver );
 
@@ -190,12 +199,14 @@ namespace Mila::Assistant
             stored[ "effort" ] = settings.effort.empty() ? nlohmann::ordered_json( nullptr ) : nlohmann::ordered_json( settings.effort );
             stored[ "detail" ] = settings.detail;
             stored[ "run_commands" ] = settings.run_commands;
+            stored[ "record_rounds" ] = settings.record_rounds;
             stored[ "sampling" ] = std::move( sampling );
             stored[ "license" ] = settings.license_accepted.empty() ? nlohmann::ordered_json( nullptr )
                 : nlohmann::ordered_json{ { "sha256", settings.license_accepted }, { "accepted_at", settings.license_accepted_at } };
             stored[ "onboarding" ] = textOrNull( settings.onboarding );
             stored[ "interview_conversation" ] = textOrNull( settings.interview_conversation );
             stored[ "person_name" ] = textOrNull( settings.person_name );
+            stored[ "person_about" ] = textOrNull( settings.person_about );
             stored[ "person_uses" ] = textOrNull( settings.person_uses );
             stored[ "download_agreed" ] = settings.download_agreed;
             stored[ "last_version" ] = textOrNull( settings.last_version );

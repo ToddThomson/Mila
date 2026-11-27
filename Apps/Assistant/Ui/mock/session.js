@@ -11,7 +11,7 @@ const streamId = 'stream-1';
 const mockFolder = 'C:\\Users\\you\\Projects\\calc';
 
 // What the setup has to accomplish, as Assistant.SetupSteps names it.
-const setupTitles = [ 'What to call you', 'What you will use Mila for' ];
+const setupTitles = [ 'What to call you', 'About you, and what you would like help with' ];
 
 /**
  * @param options.scenario The scenario's number (section 5).
@@ -37,6 +37,8 @@ export function createMockSession( options )
     // As the session's (AssistantOnboarding.md 4.4, rounds 11 and 13): the setup's chat and the steps kept with it.
     let setupConversation = null;
     let setupSteps = null;
+    // What Mila keeps about the person, as the session's settings hold it.
+    const person = { person_name: '', person_about: '', person_uses: '' };
     const startModel = scenario.model === null ? null : findModel( scenario.model );
     const startTime = options.now();
     const seeds = seedConversations( startTime );
@@ -183,6 +185,9 @@ export function createMockSession( options )
             allowed_for_chat: [ ...allowedTools ],
             plan: null,
             web_search: session.webSearch,
+            person_name: person.person_name,
+            person_about: person.person_about,
+            person_uses: person.person_uses,
             busy: session.busy,
             license_accepted: licenseAccepted,
             onboarding: scenario.onboarding === undefined ? null : interviewFinished ? 'done' : publishedListed ? 'started' : 'due',
@@ -440,10 +445,18 @@ export function createMockSession( options )
         }
 
         if ( message.name === 'remember_name' && typeof parsed.name === 'string' )
+        {
+            person.person_name = parsed.name;
             markSetupStep( 0, 'done', parsed.name );
+        }
 
-        if ( message.name === 'note_uses' && typeof parsed.uses === 'string' )
-            markSetupStep( 1, 'done', parsed.uses );
+        // As the session's: what they said about themselves and what they would like help with, either or both.
+        if ( message.name === 'note_uses' && ( typeof parsed.uses === 'string' || typeof parsed.about === 'string' ) )
+        {
+            person.person_about = parsed.about ?? '';
+            person.person_uses = parsed.uses ?? '';
+            markSetupStep( 1, 'done', [ parsed.about, parsed.uses ].filter( ( said ) => typeof said === 'string' && said.length > 0 ).join( '; ' ) );
+        }
 
         if ( message.name === 'skip_question' && ( parsed.question === 'name' || parsed.question === 'uses' ) )
             markSetupStep( parsed.question === 'name' ? 0 : 1, 'skipped', null );
@@ -1615,6 +1628,26 @@ export function createMockSession( options )
 
         if ( Object.hasOwn( request, 'seed' ) )
             return changeSeed( request.seed );
+
+        // What Mila keeps about the person, from Settings; empty or null forgets it.
+        for ( const key of [ 'person_name', 'person_about', 'person_uses' ] )
+        {
+            if ( !Object.hasOwn( request, key ) )
+                continue;
+
+            const value = request[ key ];
+
+            if ( value !== null && typeof value !== 'string' )
+            {
+                emitError( 'What Mila keeps about you is text, or nothing.', 'settings' );
+
+                return;
+            }
+
+            person[ key ] = value === null ? '' : value.trim();
+
+            return emitState();
+        }
 
         // The mock keeps no key: it says only whether one is set, as the session does.
         if ( Object.hasOwn( request, 'search_key' ) )

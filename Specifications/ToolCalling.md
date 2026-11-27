@@ -416,6 +416,48 @@ operating-system sandbox's own measurement (`Vnext.md`), not to the grant's.
   generation left when a prompt extends every token that state holds. The loop does not know which family it drives.
 - **The conversation is the agent's;** its history and the cache always agree.
 
+### 4.1 The round record
+
+*Decided 2026-11-27 (Todd), after a walk of Mila Assistant in which Gemma 4 26B-A4B's reply was the word "thought" on
+line after line and nobody could say whether the model wrote the word or a channel marker the reply reader hid:* an
+application can know everything a round read and wrote, without a guess. It is a feature, not a diagnostic, for the
+reason `Observability.md` section 1 gives: a program built on Mila::Agents that cannot see what its model was given
+and what it generated cannot reason about its own prompts and tools. It sits beside observability, not inside it:
+observability is held to values flowing through compute (its section 10), and a prompt, a sampled token and the
+reader's routing are not tensors.
+
+**What the agent reports.** Every token was already reported as a `Token` event, its text the token decoded, the
+template's markers included, so the Token events of a round are its output verbatim; and the reader's routing was
+already reported as `ReasoningOpened`, `Reasoning`, `ReasoningClosed`, `Answer`, `ToolCallOpened`, `ToolCalled`,
+`MalformedToolCall` and `RoundEnded`. Added:
+
+- `Token` carries the token's id, since a token's text alone is not always text: a character split across tokens
+  decodes to a fragment of it.
+- `RoundBegan` carries the prompt the round generates from, as text, whole -- the conversation rendered, or within a
+  response the last round's prompt, its reply as generated and the results the template frames after it (the splice
+  above) -- and the sampling the round runs at.
+
+Together a round's events say what it read, each token it generated, where the reader put each piece (text in a
+Token event that reaches no Reasoning, Answer or call was a marker the reader hid), the calls and how each was
+answered, and why the round stopped.
+
+**What it does not hold.** The sampler's random state, so a round cannot yet be generated again token for token: the
+stream is seeded once (`LanguageModel::seedSampler`) and runs on across rounds. *Open:* the agent seeding each round
+from a seed it reports, which changes what a program that seeds once gets, against recording how far the stream has
+run. The candidate tokens and their probabilities at each step are observability's: observing `"*.lm_head"` on
+decode gives the logits, and turns decode replay off for that run (`DecodeGraph.md` 5.4).
+
+**Not an event bus.** The record is what one round of one response read and wrote. Loading, compaction's own work and
+the gate's internals stay out; compaction and the call record already have their events.
+
+**Where it is kept is the application's,** as the call record's is (3.3). Mila Assistant: a setting, `record_rounds`,
+off by default, since the record holds what the conversation holds and the system prompt besides; with it on, one file
+per conversation beside it, `Conversations/<id>.rounds.jsonl`, a JSON line per event in the order the agent reported
+them. A round's prompt is written whole when it does not extend the last round's prompt and reply, and otherwise only
+the text it adds, so a long conversation does not write its history every round. Deleting the conversation deletes its
+record. The same file on Windows, macOS and Linux. The cost to decoding is a host-side write per token, not yet
+measured.
+
 ## 5. What the application brings
 
 - **Which tools it offers, and any of its own.** The models API has none. *Decided 2026-11-01 (Todd), replacing "the tools are

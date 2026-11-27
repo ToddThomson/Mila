@@ -75,8 +75,39 @@ namespace Mila::Assistant
             steps_[ static_cast<std::size_t>( number - 1 ) ].status = status;
 
             const auto finished = std::ranges::count_if( steps_, []( const Step& step ) { return step.status != "pending" && step.status != "in_progress"; } );
+            std::string result = std::format( "Step {} is {}; {} of {} steps are finished.", number, status, finished, steps_.size() );
 
-            return std::format( "Step {} is {}; {} of {} steps are finished.", number, status, finished, steps_.size() );
+            // An earlier step left in progress stays so on the person's plan, though the reply says the work is done; and
+            // left there, Gemma 4 26B-A4B once thought for 642 s about marking them all (Todd's walk, 2026-11-27).
+            std::vector<std::size_t> open;
+
+            for ( std::size_t index = 0; index + 1 < static_cast<std::size_t>( number ); ++index )
+            {
+                if ( steps_[ index ].status == "in_progress" )
+                    open.push_back( index + 1 );
+            }
+
+            if ( !open.empty() )
+            {
+                std::string listed;
+
+                for ( std::size_t at = 0; at < open.size(); ++at )
+                    listed += std::format( "{}{}", at == 0 ? "" : at + 1 == open.size() ? " and " : ", ", open[ at ] );
+
+                result += std::format( " Step{} {} {} still in progress: mark {} done, or skipped if not needed, with update_step.",
+                    open.size() == 1 ? "" : "s", listed, open.size() == 1 ? "is" : "are", open.size() == 1 ? "it" : "each" );
+            }
+
+            return result;
+        }
+
+        /// Whether every step is done or skipped.
+        [[nodiscard]] bool finished() const noexcept
+        {
+            return !steps_.empty() && std::ranges::all_of( steps_, []( const Step& step )
+                {
+                    return step.status == "done" || step.status == "skipped";
+                } );
         }
 
         void clear() noexcept

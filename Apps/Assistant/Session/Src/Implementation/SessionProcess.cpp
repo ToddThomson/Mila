@@ -33,6 +33,7 @@ import Assistant.SettingsFile;
 import Assistant.SetupSteps;
 import Assistant.StoreFile;
 import Assistant.TaskPlan;
+import Assistant.GitRepository;
 import Assistant.Understanding;
 import Assistant.WebSearch;
 import Mila;
@@ -54,6 +55,10 @@ namespace Mila::Assistant
 
     namespace
     {
+        // A call always gets a round after it, so a model that wrote its reply before noting wrote it twice (the
+        // HelloWorld walk, 2026-11-27).
+        constexpr std::string_view kNotedReply = "Now write your reply, once; if you already wrote it this turn, end here.";
+
         /**
          * @brief What a command here can use, said to the model: the build tools in the folders the session gives a
          *        command, by the name a person knows them by. Empty when none was found.
@@ -113,6 +118,23 @@ namespace Mila::Assistant
 
             return std::string( text.substr( first, last - first + 1 ) );
         }
+
+        /// What the person said about themselves, kept as a phrase every chat's prompt can end with a full stop.
+        std::string personText( std::string_view text )
+        {
+            std::string kept = trimmed( text );
+
+            while ( !kept.empty() && ( kept.back() == '.' || kept.back() == '!' ) )
+            {
+                kept.pop_back();
+            }
+
+            return kept;
+        }
+
+        // The most of what the person tells Mila about themselves or what they want help with that every prompt carries.
+        constexpr std::size_t kMostPersonCharacters = 300;
+        constexpr std::size_t kMostNameCharacters = 80;
 
         /// A project's folder entry's access: `read_write` is *Read and change*, anything else reads.
         Mila::Agents::FolderAccess folderAccessOf( const nlohmann::json& folder )
@@ -188,6 +210,27 @@ namespace Mila::Assistant
             {
                 std::string result = plan_.update( arguments );
                 sendState();
+
+                // Asked for in the prompt and called in none of Todd's HelloWorld walks (2026-11-27): the end of a plan
+                // is when a project's note most needs bringing up to date.
+                const bool notes = std::ranges::any_of( session().tools(), []( const Mila::Agents::Tool& tool )
+                    {
+                        return tool.name == kNoteUnderstandingName;
+                    } );
+
+                if ( plan_.finished() && notes )
+                {
+                    result += " Every step is finished. Before you say what you did, call note_understanding with what the "
+                        "project now holds, what was decided and what comes next.";
+                }
+
+                // A plan that started a repository ends by offering its first commit, which no prompt wording got the
+                // 26B to plan for (Todd's walks, 2026-11-27); the person decides, so it is offered, never made.
+                if ( plan_.finished() && conversation_folder_ && repositoryWithoutCommits( *conversation_folder_ ) )
+                {
+                    result += " The folder's git repository has no commit yet: when you say what you did, offer the user "
+                        "the first commit, and make it only if they say yes.";
+                }
 
                 return result;
             }, Mila::Agents::ResultOrigin::Application );
@@ -809,16 +852,33 @@ namespace Mila::Assistant
         }
 
         placing_notes_ = !placed.empty();
+        round_record_.reset();
+
+        if ( settings_.record_rounds )
+        {
+            round_record_.emplace( RoundRecord::pathFor( store_.directory(), conversation_id_ ) );
+
+            if ( !round_record_->good() )
+            {
+                Mila::Logging::Logger::warning( std::format( "{}: the round record of {} could not be opened", turn_id_,
+                    conversation_id_ ) );
+                round_record_.reset();
+            }
+        }
 
         try
         {
             responded = agent.respond( text, placed,
                 [&]( const AgentEvent& event ) { onAgentEvent( event, timer, stop ); }, stop );
             placing_notes_ = false;
+
+            // Closed with the turn, so a conversation deleted between turns takes its record with it.
+            round_record_.reset();
         }
         catch ( const DeviceOutOfMemoryError& )
         {
             placing_notes_ = false;
+            round_record_.reset();
             offer_answer_line_.clear();
             // The agent left the conversation as it was and the model loaded, so the message stored on send is
             // taken back out -- with the conversation, when it was its first -- and the person can send it again.
@@ -962,6 +1022,12 @@ namespace Mila::Assistant
             case Kind::ReasoningClosed:
             case Kind::ToolCallOpened:
                 break;
+        }
+
+        // After the switch, so a round that begins is written under its own number.
+        if ( round_record_ )
+        {
+            round_record_->record( event, turn_id_, round_, event.kind == Kind::RoundBegan ? timestamp() : std::string{} );
         }
     }
 
@@ -1769,6 +1835,17 @@ namespace Mila::Assistant
             throw std::runtime_error( std::format( "the folder {} cannot be used: {}", *chosen, refused.what() ) );
         }
 
+        // The first folder a project's chat is given is the project's (Todd, 2026-11-27).
+        std::string joined;
+
+        if ( !held.has_value() && adoptFolder( conversation_project_, *chosen, conversation_id_, false ) )
+        {
+            conversation_folder_from_project_ = true;
+            joined = std::format( " It is now the folder of the project {} too, so its new chats start there.",
+                project->value( "name", std::string{} ) );
+            sendProjects();
+        }
+
         // The file tools are offered from the next round, now that there is a folder for them to work in (5.5).
         offerToolsWhenSafe();
         sendState();
@@ -1776,13 +1853,13 @@ namespace Mila::Assistant
         if ( conversation_folder_access_ == Mila::Agents::FolderAccess::ReadWrite )
         {
             return std::format( "The user gave you the folder {} to read and change. Paths are relative to it, as "
-                "list_folder shows them.", *chosen );
+                "list_folder shows them.{}", *chosen, joined );
         }
 
         // Said as what may be done, since "to read" alone was taken as a folder Mila may not write to (2026-11-26).
         return std::format( "The user gave you the folder {}. Paths are relative to it, as list_folder shows them. You "
-            "can read its files now, and write and change them too: the user is asked the first time you change one.",
-            *chosen );
+            "can read its files now, and write and change them too: the user is asked the first time you change one.{}",
+            *chosen, joined );
     }
 
     nlohmann::json SessionProcess::placesFor( const std::string& arguments ) const
@@ -2087,10 +2164,11 @@ namespace Mila::Assistant
         if ( where == "waiting" )
         {
             return std::format( "Noted. This chat has read from outside, so the note waits for the user to accept it on the "
-                "project {} before new chats there are given it.", project->value( "name", std::string{} ) );
+                "project {} before new chats there are given it. {}", project->value( "name", std::string{} ), kNotedReply );
         }
 
-        return std::format( "Noted for the project {}; new chats in it are given this note.", project->value( "name", std::string{} ) );
+        return std::format( "Noted for the project {}; new chats in it are given this note. {}", project->value( "name", std::string{} ),
+            kNotedReply );
     }
 
     void SessionProcess::decideNote( const nlohmann::json& request )
@@ -2234,9 +2312,14 @@ namespace Mila::Assistant
             prompt += std::format( "\n\nThe user asked to be called {}.", settings_.person_name );
         }
 
+        if ( !settings_.person_about.empty() )
+        {
+            prompt += std::format( "\n\nWhat the user told you about themselves: {}.", settings_.person_about );
+        }
+
         if ( !settings_.person_uses.empty() )
         {
-            prompt += std::format( "\n\nThe user said they will mostly use you for: {}.", settings_.person_uses );
+            prompt += std::format( "\n\nWhat the user would like your help with: {}.", settings_.person_uses );
         }
 
         const std::optional<nlohmann::json> project = projectOf( conversation_project_ );
@@ -3010,7 +3093,7 @@ namespace Mila::Assistant
 
         name.erase( 0, std::min( name.find_first_not_of( " \t\r\n" ), name.size() ) );
 
-        if ( name.empty() || name.size() > 80 )
+        if ( name.empty() || name.size() > kMostNameCharacters )
         {
             return "Nothing was saved: give the name the user asked to be called, in a few words.";
         }
@@ -3047,18 +3130,16 @@ namespace Mila::Assistant
         }
 
         const nlohmann::json parsed = nlohmann::json::parse( arguments, nullptr, false );
-        std::string uses = trimmed( parsed.is_object() ? parsed.value( "uses", std::string{} ) : std::string{} );
+        const std::string about = personText( parsed.is_object() ? parsed.value( "about", std::string{} ) : std::string{} );
+        const std::string uses = personText( parsed.is_object() ? parsed.value( "uses", std::string{} ) : std::string{} );
 
-        while ( !uses.empty() && ( uses.back() == '.' || uses.back() == '!' ) )
+        if ( ( about.empty() && uses.empty() ) || about.size() > kMostPersonCharacters || uses.size() > kMostPersonCharacters )
         {
-            uses.pop_back();
+            return "Nothing was kept: give what the user said about themselves and what they would like help with, each "
+                "in a short phrase in their own words.";
         }
 
-        if ( uses.empty() || uses.size() > 300 )
-        {
-            return "Nothing was kept: give what the user said they will mostly use Mila for, in a short phrase.";
-        }
-
+        settings_.person_about = about;
         settings_.person_uses = uses;
         saveSettings();
 
@@ -3066,7 +3147,7 @@ namespace Mila::Assistant
         tools_changed_in_call_ = true;
 
         // The step shows a short form of it; the whole is in the settings.
-        std::string shown = uses;
+        std::string shown = about.empty() ? uses : uses.empty() ? about : about + "; " + uses;
 
         if ( shown.size() > 60 )
         {
@@ -3210,10 +3291,47 @@ namespace Mila::Assistant
         {
             changeRunCommands( request[ "run_commands" ] );
         }
+        else if ( request.contains( "person_name" ) || request.contains( "person_about" ) || request.contains( "person_uses" ) )
+        {
+            changePerson( request );
+        }
         else
         {
             sendError( "That is not a setting this session has.", "settings" );
         }
+    }
+
+    void SessionProcess::changePerson( const nlohmann::json& request )
+    {
+        const char* key = request.contains( "person_name" ) ? "person_name" : request.contains( "person_about" ) ? "person_about" : "person_uses";
+        const nlohmann::json& value = request[ key ];
+
+        if ( !value.is_string() && !value.is_null() )
+        {
+            sendError( "What Mila keeps about you is text, or nothing.", "settings" );
+
+            return;
+        }
+
+        const std::string kept = value.is_null() ? std::string{} : std::string_view( key ) == "person_name"
+            ? trimmed( value.get<std::string>() ) : personText( value.get<std::string>() );
+        const std::size_t most = std::string_view( key ) == "person_name" ? kMostNameCharacters : kMostPersonCharacters;
+
+        if ( kept.size() > most )
+        {
+            sendError( std::format( "That is longer than the {} characters Mila keeps.", most ), "settings" );
+
+            return;
+        }
+
+        std::string& field = std::string_view( key ) == "person_name" ? settings_.person_name
+            : std::string_view( key ) == "person_about" ? settings_.person_about : settings_.person_uses;
+        field = kept;
+        saveSettings();
+
+        // Every chat's prompt says it, the open one's from its next round.
+        offerToolsWhenSafe();
+        sendState();
     }
 
     void SessionProcess::changeContext( const nlohmann::json& value )
@@ -3777,6 +3895,9 @@ namespace Mila::Assistant
             { "plan", plan_.toJson() },
             { "web_search", web_search_.has_value() },
             { "run_commands", settings_.run_commands },
+            { "person_name", settings_.person_name },
+            { "person_about", settings_.person_about },
+            { "person_uses", settings_.person_uses },
             { "run_commands_problem", container_problem_.empty()
                 ? nlohmann::ordered_json( nullptr ) : nlohmann::ordered_json( container_problem_ ) },
             { "program_folders", programFoldersShown() },
@@ -4388,12 +4509,62 @@ namespace Mila::Assistant
             { "project", project.empty() ? nlohmann::json( nullptr ) : nlohmann::json( project ) },
             { "from", from.empty() ? nlohmann::json( nullptr ) : nlohmann::json( from ) } };
 
+        const bool making = details.is_object() && details.value( "suggested", std::string{} ) == "project";
+
         if ( details.is_object() )
         {
             event.update( details );
         }
 
         recordEvent( std::move( event ) );
+
+        // The open chat's folder is the one it holds now; a stored one's is the one it was saved with.
+        const nlohmann::json held = id == conversation_id_
+            ? ( conversation_folder_ ? nlohmann::json( *conversation_folder_ ) : nlohmann::json( nullptr ) )
+            : stored->value( "folder", nlohmann::json( nullptr ) );
+
+        if ( !project.empty() && held.is_string() && adoptFolder( project, held.get<std::string>(), id, making ) )
+        {
+            ( *stored )[ "folder_from_project" ] = true;
+            store_.save( *stored );
+
+            if ( id == conversation_id_ )
+            {
+                conversation_folder_from_project_ = true;
+            }
+        }
+    }
+
+    bool SessionProcess::adoptFolder( const std::string& project_id, const std::string& folder, const std::string& conversation, bool making )
+    {
+        std::optional<nlohmann::json> project = projectOf( project_id );
+
+        if ( !project.has_value() || folder.empty() || !project->value( "folders", nlohmann::json::array() ).empty() )
+        {
+            return false;
+        }
+
+        // Read only: each new chat in the project asks before it first changes a file, so nothing widens unseen.
+        ( *project )[ "folders" ] = nlohmann::json::array( { { { "path", folder }, { "access", "read" } } } );
+
+        if ( !making )
+        {
+            ( *project )[ "updated" ] = timestamp();
+        }
+
+        projects_.save( *project );
+
+        nlohmann::json event = { { "kind", "project.folder_added" }, { "project", project_id }, { "path", folder },
+            { "access", "read" }, { "conversation", conversation } };
+
+        if ( making )
+        {
+            event[ "suggested" ] = "project";
+        }
+
+        recordEvent( std::move( event ) );
+
+        return true;
     }
 
     // ---- Offers ---------------------------------------------------------------------------
@@ -4608,8 +4779,11 @@ namespace Mila::Assistant
             return "The user has not just answered a suggestion of yours, so nothing was done.";
         }
 
+        // "Go on" said as calls in this reply: told only to say what was done, Gemma 4 26B-A4B wrote its next step as a
+        // question and stopped, asking for a folder in words (Todd's walk, 2026-11-27).
         return std::format( "The user answered your suggestion, and the app did what they chose: {} In a sentence, in "
-            "your own words, say what was done, then go on with what they asked for.", line );
+            "your own words, say what was done, then go on with what they asked for in this same reply, calling the tools "
+            "it needs.", line );
     }
 
     void SessionProcess::decideSuggestion( const nlohmann::json& request )

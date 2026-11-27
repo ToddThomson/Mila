@@ -3,7 +3,7 @@
 How Mila runs on Apple M-series GPUs: which chips, how a capability is checked, which precision runs where, the kernels,
 memory, the build, and the phases that get there with their tests and measurements.
 
-**Status:** agreed 2026-11-04 (Todd, decisions in section 10). Phases 0 to 4 have passed; Phase 5's formats are built, with Llama's FP8 and FP4 tests not yet on the decided gate; Phase 6 has Gemma 4 12B with its drafter, and Qwen 3.8's operations and four layers (section 9). In v0.21.0, experimental, as `ROADMAP.md` *Mila on Apple Silicon* (Todd, 2026-11-05), limited to what the development Mac builds and tests: Llama and Gemma 4 12B. Decode replay, Qwen 3.8 whole, the Gemma 26B-A4B and its formats, and Phase 7 are in `Issues/Vnext.md` (Todd, 2026-11-09). Evidence:
+**Status:** agreed 2026-11-04 (Todd, decisions in section 10). Phases 0 to 4 have passed; Phase 5's formats are built, with Llama's FP8 and FP4 tests not yet on the decided gate; Phase 6 has Gemma 4 12B with its drafter, and Qwen 3.8's operations and four layers (section 9). In v0.21.0 at full parity with CUDA and not labelled experimental, as `ROADMAP.md` *Mila on Apple Silicon* (Todd, 2026-11-27, replacing the experimental scope of 2026-11-05 and 2026-11-09): decode replay, Qwen 3.8 whole and the Gemma 26B-A4B with its grouped prefill are `BACKLOG.md` work, the last two tested on a Mac with more memory than the development M1 Pro. Phase 7 and the formats no model's load builds, or only the exporter uses, are in `Issues/Vnext.md`. Evidence:
 `Notebooks/MetalPrecisionTiming.md`, `Notebooks/MetalDeviceAndMemory.md`, `Notebooks/MetalMatrixPath.md`, `Notebooks/MetalLlamaOperations.md`, `Notebooks/MetalFirstModel.md`, `Notebooks/MetalQuantizedWeights.md`, `Notebooks/MetalDecodeAttention.md`, `Notebooks/MetalGemma.md`, `Notebooks/MetalQwen.md`, `Notebooks/MetalRates.md`.
 
 ---
@@ -29,7 +29,7 @@ alone would take about 22 GiB, against this Mac's 11.84 GiB working set (arithme
 
 These are storage: the precision a kernel computes in is section 3's. FP32 compute stays out (section 10), so CUDA's FP32 specializations are not on this list.
 
-**Not on Metal in v0.21.0** (Todd, 2026-11-09, `Issues/Vnext.md`): the FP8 token embedding and the FP8 sliding window, which no model's load builds on CUDA either; quantizing to Q4_0 and six bits at load, which serves the exporter and the Gemma 26B-A4B; and the mixture of experts' grouped prefill, the 26B-A4B's alone.
+**Not on Metal in v0.21.0** (Todd, 2026-11-09, `Issues/Vnext.md`): the FP8 token embedding and the FP8 sliding window, which no model's load builds on CUDA either; and quantizing to Q4_0 and six bits at load, which serves the exporter and the Gemma 26B-A4B's unquantized checkpoint. The mixture of experts' grouped prefill came back into v0.21.0 with the 26B-A4B (Todd, 2026-11-27).
 
 **Out:**
 
@@ -253,7 +253,7 @@ its pipelines were ever prepared cold in those readings is not known.
 
 `IExecutionContext::createDecodeRecording()` stays null, so a decode step is called every step. The rule in `CLAUDE.md`
 still binds, so that replay remains possible: read the position from the execution context, no per-token launch argument.
-Indirect command buffers (Apple3 and later) are the candidate for replay, which is not in v0.21.0 (Todd, 2026-11-09, `Issues/Vnext.md`).
+Indirect command buffers (Apple3 and later) are the candidate for replay, which is v0.21.0 work (Todd, 2026-11-27, `BACKLOG.md`; out of it from 2026-11-09 until then).
 
 `synchronize()` commits and waits, and an operation only encodes. Measured: a commit and wait is about 220 us and a further
 dispatch about 3 us, so a decode step commits once.
@@ -861,7 +861,7 @@ weight dispatch builds a plan wherever `OperationSupported` says its Linears exi
 **Passed, 2026-11-07, on the four-layer build:** every operation holds its bar in FP16 and BF16, 30 of 31 forced failures
 are caught, and the build passes the gate against HuggingFace FP32 on its weights as Mila runs them, FP16 about ten times
 closer than either BF16 run. No Qwen 3.8 agentic build fits this Mac's working set, and the whole model has not run here.
-Qwen 3.8 whole on a Mac is v0.22.0's (Todd, 2026-11-09, `Issues/Vnext.md`).
+Qwen 3.8 whole on a Mac is v0.21.0 work, on a Mac with the memory to hold it (Todd, 2026-11-27, `BACKLOG.md`; v0.22.0's from 2026-11-09 until then).
 
 ### Phase 7 -- Other chips
 
@@ -915,5 +915,6 @@ loading and Network.framework, TLS from the OS as on Windows (`HttpClient.md` se
 | Attention's decode in two passes on MLX's path, 32 blocks fixed, the partials in the context's scratch (section 4.4, `Notebooks/MetalDecodeAttention.md`) | Todd, 2026-11-05 |
 | Gemma 4's drafter runs on Metal: the multi-token decode, the reader of another layer's cache, every M-series chip in view, no measurement asked to earn it (section 4.6) | Todd, 2026-11-09 |
 | Backend parity: what CUDA runs fused or replayed, Metal does too, with no measurement asked to earn it. First, prefill attention fused, over the whole cache, the sliding-window ring and the FP8 cache, as CUDA's flash prefill is (section 4.5); its rates before the change at 0, 4096 and 16384 held tokens are in `Notebooks/MetalRates.md` | Todd, 2026-11-08 |
-| Metal in v0.21.0 is what the development Mac, an M1 Pro with 16 GB, builds and tests: Llama and Gemma 4 12B. Decode replay, Qwen 3.8 whole, the Gemma 26B-A4B and the formats only it or no model uses (section 1), and Phase 7 move to `Issues/Vnext.md`. Signing the Mac app stays in v0.21.0 | Todd, 2026-11-09 |
+| Superseded 2026-11-27: Metal in v0.21.0 is what the development Mac, an M1 Pro with 16 GB, builds and tests: Llama and Gemma 4 12B. Decode replay, Qwen 3.8 whole, the Gemma 26B-A4B and the formats only it or no model uses (section 1), and Phase 7 move to `Issues/Vnext.md`. Signing the Mac app stays in v0.21.0 | Todd, 2026-11-09 |
+| The Mac version has full parity with Windows in v0.21.0 and is not labelled experimental: decode replay, Qwen 3.8 whole and the Gemma 26B-A4B with its grouped prefill come back into it, the last two tested on a Mac with more memory than the M1 Pro. Phase 7 and the formats no model's load builds stay in `Issues/Vnext.md` | Todd, 2026-11-27 |
 | Phase 5's model runs are Llama's (3.2 3B FP8 and FP4, 3.1 8B FP4); Gemma's and Qwen's formats are operations here and model runs in Phase 6. The FP8 cache dispatch asks `OperationSupported` (section 9, Phase 5) | Todd, 2026-11-05 |

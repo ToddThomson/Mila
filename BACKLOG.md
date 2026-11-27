@@ -505,11 +505,27 @@ or by the app when the local model is stuck, never on the model's own judgement.
 
 `Specifications/Direction/MilaVision.md` section 9.1, step 4
 
+#### On a Mac Mila Assistant cannot run a command in a chat's folder
+
+`open` · `agents` · `apps` · `mila-src`
+
+`run_command` runs on Windows only: `Agents.MxcProgramContainer` has a Windows file and an always-absent one, and
+the Mac build compiles the second. Work: the macOS candidate file over MXC's Seatbelt backend at v1.1.0, the
+environment, shell (`/bin/zsh`) and program folders for macOS, and phase 2's refused-beside-allowed tests passing on
+the Mac as on Windows. MXC's conformance checks run on the Mac first. Two parts change the shared design, on Windows
+too: a command's network goes through a proxy of Mila's own on both platforms, since Seatbelt cannot hold it to public
+addresses (decision 14); and a file with more than one name is denied for the run on both, whatever its other names,
+since macOS cannot list them (decision 15). Stands on the grant's file checks, tested on the Mac (*Mila on Apple
+Silicon*). Admitted by Todd, 2026-11-17 (`ContainedPrograms.md` decision 12); moved here from *Mila on Apple Silicon*
+by Todd's decision that the Mac version has full parity with Windows in this release (2026-11-27).
+
+`Specifications/ContainedPrograms.md` section 11
+
 #### On Linux Mila Assistant cannot run a command, and a tool is held to no folder
 
 `open` · `agents` · `apps` · `mila-src`
 
-The grant's file checks are Windows only (macOS's are the item above), so on Linux a tool working in a folder is held
+The grant's file checks are Windows and macOS only, so on Linux a tool working in a folder is held
 to none and none is offered, and `run_command` has no container there. Work: the grant's file checks on Linux, with
 the same refused-beside-allowed tests; the Linux candidate of `Agents.MxcProgramContainer` over MXC's bubblewrap
 backend, whose accepts and refusals match Windows' (`Notebooks/MxcConformance.md`); and the environment, shell and
@@ -773,12 +789,55 @@ is decided: HuggingFace FP32 on the format's decoded weights. Q4_0, six bits, Ge
 mixture of experts' router and bank have Metal operations, each checked against a double-precision reference
 (`Notebooks/MetalGemma.md`), and Gemma 4 12B in Q4_0 passes its HuggingFace gate in FP16 and BF16 with every greedy token
 HuggingFace's (2.2 there). Gemma 4 12B decodes with Google's drafter on Metal, its greedy output that of decoding
-without it (`Metal/MetalBackend.md` section 4.6). Metal in this release is what the development Mac, an M1 Pro with
-16 GB, builds and tests (Todd, 2026-11-09); Qwen 3.8 on a Mac, the Gemma 26B-A4B and decode replay are in
-`Issues/Vnext.md`. What remains: Llama's FP8 and FP4 tests on the decided gate, which still fail on the old one
+without it (`Metal/MetalBackend.md` section 4.6). Qwen 3.8, the Gemma 26B-A4B and decode replay on a Mac are the
+items below (Todd, 2026-11-27). What remains here: Llama's FP8 and FP4 tests on the decided gate, which still fail on the old one
 (`Issues/Untriaged.md`), and the drafter against HuggingFace and sampled. The planner chooses a context at 99% of a
 Mac's working set, where the model runs and macOS swaps the rest of the Mac out (`MetalFirstModel.md` section 5).
 `Specifications/Metal/MetalBackend.md` section 9.
+
+#### Qwen 3.8 has never run whole on a Mac
+
+`open` · `qwen` · `architecture` · `mila-src` · `measured`
+
+Qwen 3.8's operations are on Metal, and its four-layer packed build passes its HuggingFace gate in FP16 and BF16
+(`Notebooks/MetalQwen.md`); the whole model has not run on Metal, and Qwen has no Mac rates. No Qwen 3.8 agentic build
+fits the development M1 Pro's 16 GB working set; `cb2-3` fits at a short context. Work: the whole model on Metal in its
+published formats, its gate against HuggingFace FP32 on its decoded weights, and its rates beside llama.cpp's, on a Mac
+with the memory to hold the agentic build. The planner refuses it on a Mac too small, as on a card. Moved from
+`Issues/Vnext.md` by Todd's decision that the Mac version has full parity with Windows in this release (2026-11-27).
+No Mac with more than 16 GB is available to the project today.
+
+`Specifications/Metal/MetalBackend.md` section 9, Phase 6
+
+#### The Gemma 4 26B-A4B has never run on a Mac
+
+`open` · `gemma` · `moe` · `architecture` · `mila-src` · `measured`
+
+Metal has the mixture of experts' router and Q4_0 bank operations, each checked against a double-precision reference
+(`Notebooks/MetalGemma.md`), but the 26B-A4B has not loaded on Metal. Work: the whole model on Metal in Q4_0, with the
+FP8 global cache, its gate against HuggingFace FP32, and its rates beside llama.cpp's; the bank's grouped prefill, as
+CUDA's `CudaMoeOp` has (backend parity, `MetalBackend.md` decisions); and the FP8 cache widened inside attention's
+tile, as CUDA does, where Metal widens it in a separate pass (`Issues/Untriaged.md`). Arithmetic, not measured: its
+Q4_0 weights are 13.5 GiB against the M1 Pro's 11.84 GiB working set, so it is tested on a Mac of 24 to 32 GB or more
+(Todd, 2026-11-10). Moved from `Issues/Vnext.md` by Todd's decision of 2026-11-27, with the grouped prefill. No such
+Mac is available to the project today.
+
+`Specifications/Notebooks/Gemma4MoE.md`; `Specifications/Metal/MetalBackend.md` section 9, Phase 6
+
+#### A Mac encodes every kernel of every token again, because Metal does not replay a decode step
+
+`open` · `architecture` · `perf` · `mila-src`
+
+CUDA records a decode step once and replays it every token (`DecodeGraph.md`); on Metal `createDecodeRecording()`
+returns null (`Metal/MetalBackend.md` 4.4), so every network calls each step whole. Each family still turns replay on
+whatever the device (`setDecodeReplay( true )` in `LlamaModel.ixx`, `GemmaModel.ixx`, `QwenModel.ixx`), so the first
+decode of every Metal load warns "replay of the decode step is off for this network -- it could not be recorded",
+words that mean a real failure on CUDA. Work: a recording on Metal, with indirect command buffers (Apple3 and later)
+the candidate, its output that of running the step whole, and the self-check on the third decode step as on CUDA;
+whether a device says it records, or the network tells a null recording from a failed one, is decided with it. Moved
+from `Issues/Vnext.md` by Todd's decision of 2026-11-27.
+
+`Specifications/DecodeGraph.md`; `Specifications/Metal/MetalBackend.md` section 4.4
 
 #### Mila Assistant for the Mac is neither signed nor notarized, so a person who downloads it cannot open it
 
@@ -790,24 +849,9 @@ signed and notarized under Todd's Apple developer account, as a Developer ID dis
 `Specifications/Apps/MilaAssistant.md` section 9, item 4); the build is written and has not yet run with the certificate. The staged session stands alone:
 it carries LLVM's C++ runtime inside itself and reaches the network through macOS's own transports, with no libcurl
 (`Specifications/HttpClient.md` section 9; `otool -L`, 2026-11-14). It reads web pages through the grant's network,
-and the files of a folder the person gives it through the grant's file checks, both tested on the Mac. Labelled experimental where
-it is offered. Not looked at: whether GitHub's macOS
+and the files of a folder the person gives it through the grant's file checks, both tested on the Mac. Not labelled experimental where it is offered
+(Todd, 2026-11-27). Not looked at: whether GitHub's macOS
 runners reach Metal for CI.
-
-#### On a Mac Mila Assistant cannot run a command in a chat's folder
-
-`open` · `agents` · `apps` · `mila-src`
-
-`run_command` runs on Windows only: `Agents.MxcProgramContainer` has a Windows file and an always-absent one, and
-the Mac build compiles the second. Work: the macOS candidate file over MXC's Seatbelt backend at v1.1.0, the
-environment, shell (`/bin/zsh`) and program folders for macOS, and phase 2's refused-beside-allowed tests passing on
-the Mac as on Windows. MXC's conformance checks run on the Mac first. Two parts change the shared design, on Windows
-too: a command's network goes through a proxy of Mila's own on both platforms, since Seatbelt cannot hold it to public
-addresses (decision 14); and a file with more than one name is denied for the run on both, whatever its other names,
-since macOS cannot list them (decision 15). Stands on the grant's file checks above. Admitted by Todd, 2026-11-17
-(`ContainedPrograms.md` decision 12).
-
-`Specifications/ContainedPrograms.md` section 11
 
 #### Mila for Python does not build on a Mac
 
@@ -815,7 +859,7 @@ since macOS cannot list them (decision 15). Stands on the grant's file checks ab
 
 `Lib/Bindings/Python/CMakeLists.txt` stops a configure without CUDA, and the binding names the CUDA device in three
 files (`Mila_py.Runtime.cpp`, `Mila_py.Deployment.cpp`, `Wrappers/Mila_py.Wrappers.cpp`). No wheel is built for
-Apple silicon, and none is published. Labelled experimental on PyPI's page and in the README.
+Apple silicon, and none is published. Not labelled experimental on PyPI's page or in the README (Todd, 2026-11-27).
 
 #### Nobody can see how Mila performs on a Mac next to llama.cpp
 

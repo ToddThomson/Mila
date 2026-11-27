@@ -102,7 +102,7 @@ function createReply( request, context )
     steps.push( { delay: 0, message: { type: 'turn.round_end', round, prefill_ms: 240, tokens_per_second: tokensPerSecond(),
         tokens: thought.length + answerSteps.length + toolCallTokens, thought_tokens: thought.length, finish: 'tool_call' } } );
     steps.push( { delay: 30, note: written, message: { type: 'turn.tool_result', call_id: noteId, is_error: false,
-        result: 'Noted for the project ' + project.name + '; new chats in it are given this note.' } } );
+        result: 'Noted for the project ' + project.name + '; new chats in it are given this note. Now write your reply, once; if you already wrote it this turn, end here.' } } );
     round += 1;
     steps.push( { delay: tokenMilliseconds, message: { type: 'turn.round_end', round, prefill_ms: 30, tokens_per_second: tokensPerSecond(),
         tokens: 1, thought_tokens: 0, finish: 'stop' } } );

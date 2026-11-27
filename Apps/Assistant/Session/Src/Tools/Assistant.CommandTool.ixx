@@ -82,6 +82,38 @@ namespace Mila::Assistant
             return describe( result, seconds );
         }
 
+        /**
+         * @brief The command as a script, run one top-level statement at a time: a program that exits with a code
+         *        other than 0 ends the run with that code, so a failed build joined to a run by `;` reads as failed and
+         *        nothing after it runs. Otherwise the exit code is 1 when the last statement failed, else 0.
+         *
+         * Only a program's exit code stops the run: a cmdlet's error does not, since `-ErrorAction SilentlyContinue`
+         * reads as failed too and is how a step is let fail. The statements run dot-sourced, so a variable or
+         * function one defines is there for the next. The byte order mark makes Windows PowerShell 5.1 read the
+         * script as UTF-8, not the system's code page.
+         */
+        [[nodiscard]] static std::string script( const std::string& command )
+        {
+            return "\xEF\xBB\xBF[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n"
+                "$ProgressPreference = 'SilentlyContinue'\n"
+                "$milaCommand = {\n"
+                + command + "\n"
+                "}\n"
+                "$milaStepSucceeded = $true\n"
+                "foreach ( $milaStep in $milaCommand.Ast.EndBlock.Statements )\n"
+                "{\n"
+                "    $global:LASTEXITCODE = 0\n"
+                "    . ( [scriptblock]::Create( $milaStep.Extent.Text + \"`n\" + '$milaStepSucceeded = $?' ) )\n"
+                "    if ( $LASTEXITCODE )\n"
+                "    {\n"
+                "        [Console]::Error.WriteLine( \"Stopped: ``$( ( $milaStep.Extent.Text -split \"`n\" )[ 0 ].Trim() )`` "
+                "exited with code $LASTEXITCODE, so nothing after it ran.\" )\n"
+                "        exit $LASTEXITCODE\n"
+                "    }\n"
+                "}\n"
+                "if ( -not $milaStepSucceeded ) { exit 1 }\n";
+        }
+
     private:
 
         static constexpr int kDefaultSeconds = 120;
@@ -90,22 +122,6 @@ namespace Mila::Assistant
 
         /// Relative to the project, where the run starts.
         static constexpr std::string_view kScriptPath = ".mila/command.ps1";
-
-        /**
-         * @brief The command as a script: output written as UTF-8, and an exit code that is the last program's
-         *        when it failed, else 1 when the last command failed.
-         *
-         * The byte order mark makes Windows PowerShell 5.1 read the script as UTF-8, not the system's code page.
-         */
-        static std::string script( const std::string& command )
-        {
-            return "\xEF\xBB\xBF[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n"
-                "$ProgressPreference = 'SilentlyContinue'\n"
-                + command + "\n"
-                "$succeeded = $?\n"
-                "if ( $LASTEXITCODE ) { exit $LASTEXITCODE }\n"
-                "if ( -not $succeeded ) { exit 1 }\n";
-        }
 
         /**
          * @brief Windows PowerShell 5.1 running the script from its file, so no quoting of the model's text can
@@ -134,7 +150,8 @@ namespace Mila::Assistant
                 text = std::format( "Exit code: {}\n", result.exit_code );
 
             appendStream( text, "Output", result.output, result.output_dropped );
-            appendStream( text, "Errors", result.errors, result.errors_dropped );
+            // Not "Errors": a compiler writes its banner there on a clean build, and the exit code says what failed.
+            appendStream( text, "Standard error", result.errors, result.errors_dropped );
 
             if ( !result.withheld.empty() )
             {

@@ -140,6 +140,14 @@ namespace Mila::Tests::Apps::Assistant
 
         EXPECT_NE( commands_coming.find( "run commands in it" ), std::string::npos );
         EXPECT_EQ( commands_coming.find( "run_command" ), std::string::npos );
+
+        // A plan is made before the folder, so how new software is planned is said then too: given only with the folder,
+        // the plan of Todd's walk had no git (2026-11-27).
+        EXPECT_NE( commands_coming.find( "cmake --build build" ), std::string::npos );
+
+        // The first commit is offered with the plan, for the person to decide on (Todd, 2026-11-27).
+        EXPECT_NE( commands_coming.find( "and last, the first commit" ), std::string::npos );
+        EXPECT_NE( commands_coming.find( "git init" ), std::string::npos );
         EXPECT_EQ( commands_coming.find( "turning on Commands in Settings" ), std::string::npos );
 
         before_folder.erase( "commands_on" );
@@ -148,6 +156,7 @@ namespace Mila::Tests::Apps::Assistant
 
         EXPECT_NE( commands_off.find( "turning on Commands in Settings" ), std::string::npos );
         EXPECT_EQ( commands_off.find( "run_command" ), std::string::npos );
+        EXPECT_EQ( commands_off.find( "cmake --build build" ), std::string::npos );
         EXPECT_EQ( commands_off.find( "experimental" ), std::string::npos ) << "commands are no longer an experiment";
 
         // On, where this computer cannot run them: no setting to send the person to.
@@ -164,6 +173,21 @@ namespace Mila::Tests::Apps::Assistant
         const std::string commands_here = prompt.systemPromptFor( with_commands );
 
         EXPECT_NE( commands_here.find( "no && or ||" ), std::string::npos );
+        EXPECT_NE( commands_here.find( "A program that fails stops the command there" ), std::string::npos );
+
+        // New software is planned with its developers' own build system and source control (Todd, 2026-11-27).
+        EXPECT_NE( commands_here.find( "cmake --build build" ), std::string::npos );
+        EXPECT_NE( commands_here.find( "never start a second" ), std::string::npos );
+
+        // A step inside a script the model wrote neither stops the command nor always shows in its exit code.
+        EXPECT_NE( commands_here.find( "not from a script file you write" ), std::string::npos );
+
+        // A program's output is shown as output, not as a sentence (Todd's walk, 2026-11-27).
+        EXPECT_NE( commands_here.find( "show what it printed in your reply" ), std::string::npos );
+
+        // The walk's model looked in build\Debug twice before finding the program (2026-11-27).
+        EXPECT_NE( commands_here.find( "not in build\\Debug" ), std::string::npos );
+        EXPECT_NE( commands_here.find( "in a code block" ), std::string::npos );
         EXPECT_EQ( commands_here.find( "you will also be able to run commands" ), std::string::npos );
 
         // The workspace's own tools are named only where they are offered (AssistantInterface.md 5.2).
@@ -184,6 +208,11 @@ namespace Mila::Tests::Apps::Assistant
         EXPECT_NE( proposing.find( "call move_to_project" ), std::string::npos );
         EXPECT_EQ( with_workspace.find( "propose_project" ), std::string::npos );
 
+        // New software is offered a project before it is planned, whatever the person calls it: "a simple C++ helloworld
+        // project" was planned with none (Todd, 2026-11-27).
+        EXPECT_NE( proposing.find( "offer it a project with propose_project before you plan it" ), std::string::npos );
+        EXPECT_NE( proposing.find( "from the user's own words for the work" ), std::string::npos );
+
         // A project's note is named only in a chat in a project, which alone is offered its tools (phase 7).
         EXPECT_EQ( proposing.find( "note_understanding" ), std::string::npos );
         EXPECT_EQ( proposing.find( "read_project_notes" ), std::string::npos );
@@ -192,7 +221,9 @@ namespace Mila::Tests::Apps::Assistant
 
         const std::string in_project = prompt.systemPromptFor( workspace );
 
-        EXPECT_NE( in_project.find( "calling note_understanding" ), std::string::npos );
+        // Before the reply, since a call is always followed by a round: called after it, the reply was written twice
+        // (the HelloWorld walk, 2026-11-27).
+        EXPECT_NE( in_project.find( "call note_understanding before you write your reply" ), std::string::npos );
         EXPECT_NE( in_project.find( "read_project_notes" ), std::string::npos );
         EXPECT_NE( in_project.find( "not the user's words" ), std::string::npos );
     }

@@ -7,6 +7,7 @@ export module Agents.AgentEvent;
 
 import std;
 import Dnn.GenerateStatus;
+import Dnn.SamplingParams;
 import Dnn.TensorTypes;
 import Dnn.Models.Conversation.ToolCall;
 import Dnn.Models.Conversation.Reply;
@@ -95,6 +96,18 @@ namespace Mila::Agents
         /// RoundBegan: the tokens the round's prompt holds, which is the context the conversation takes before the
         /// round generates. Empty for every other kind.
         std::optional<Mila::Dnn::dim_t> prompt_tokens;
+
+        /// RoundBegan: the prompt the round generates from, as text and whole: the conversation rendered, or within a
+        /// response the last round's prompt, its reply as generated and the results after it (ToolCalling.md 4.1).
+        /// Valid for the duration of the event only.
+        std::string_view prompt;
+
+        /// RoundBegan: the sampling the round runs at. Empty for every other kind.
+        std::optional<Mila::Dnn::SamplingParams> sampling;
+
+        /// Token: the token's id, since its text alone is not always text -- a character split across tokens
+        /// decodes to a fragment of it. Empty for every other kind.
+        std::optional<std::int32_t> token;
 
         /// RoundEnded: why the round's generation stopped.
         Mila::Dnn::GenerateStatus status{ Mila::Dnn::GenerateStatus::Success };

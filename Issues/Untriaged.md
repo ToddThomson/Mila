@@ -10,29 +10,71 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Mila asked in words whether to make a project, then offered it and went on before the answer, so no project was made
+
+`Apps/Assistant/Prompts/general.json` (the `propose_project` passage) @ 0.21.0-dev+167
+
+Found 2026-11-27 in Todd's sixth HelloWorld walk (`D:\Claude\helloworld\walk6`): to "Let's start with a simple HelloWorld C++23 project using CMake" Gemma 4 26B-A4B wrote "Would you like to start a project called "Hello World C++23"...?"; after "Yes" it called `propose_project`, whose result says the user answers in their next message, and in the same reply proposed the plan, which Todd approved. The offer was never answered, so the chat is in no project and its folder joined none. The same habit as asking for a folder in words (fixed that day for `request_folder`): the passage does not say never to ask in words first.
+
+## A round rendered afresh after a reply with text and a call reads that text after the results, its turn closed and thinking opened outside it
+
+`Lib/Src/Agents/Implementation/Agent.cpp` (`nextRound`, rendered whole when the framing changed) @ 0.21.0-dev+166
+
+Found 2026-11-27 in Todd's fifth HelloWorld walk through the round record (`D:\Claude\helloworld` walk 5, turn 5 round 2): Gemma 4 26B-A4B wrote a sentence and then called `request_folder`; the folder changed the tools, so the round was rendered whole, and its prompt ended `...build the code.<turn|>\n<|channel>thought\n`. Gemma 4's own `chat_template.jinja` renders the same history the same way (checked with jinja2 the same day, `D:\Claude\gemma-render\render.py`): a message's content after its results, then the turn closed. So `Gemma.ChatProtocol` is faithful and the shape is the template's; what the model wrote (text, then the call, the turn open) is lost only when a response's rounds are rendered rather than continued. The model then closed every thought empty for the rest of the turn. Put to Todd: render the response's first prompt afresh with the new framing and continue from there with what the model generated, as the splice does.
+
+## A chat cannot be shared with someone who does not have Mila
+
+`Apps/Assistant/Ui` (the chat's menu) and `Apps/Assistant/Session` (the stored conversation) @ 0.21.0-dev+166
+
+Todd, 2026-11-27, during his HelloWorld walks: the chat should have a share feature, so others can see a chat properly. Discussed the same day: a self-contained HTML file (the transcript as the window draws it, thinking and tool calls folded with `<details>`, no script, opens offline in any browser) as the main form; Markdown to paste into an issue or a message; PDF through Electron's own print to PDF. Made on this computer and sent by the person, never uploaded by Mila (AssistantInterface.md rule 7); what goes in (thinking, tool results, folder paths, file contents) shown and chosen before the file is made.
+
+## A script the model writes and runs hides a failed step from the command's exit code
+
+`Apps/Assistant/Session/Src/Tools/Assistant.CommandTool.ixx` (`script`) @ 0.21.0-dev+166
+
+Found 2026-11-27 in Todd's second HelloWorld walk (Gemma 4 26B-A4B, `conversation-20261127171128-ecad1e`, turn 29): the model wrote `build.ps1` (cmake, cmake --build, `./build/Debug/HelloWorld.exe`) and ran `.\build.ps1`. The last line failed (NMake has no `Debug` folder) and the result read `Exit code: 0`, the error only under standard error: the wrapper runs the command's statements one at a time, and the script is one statement, whose cmdlet errors do not fail it. A program failing inside the script is not stopped at either. The prompt now asks for steps as commands of their own; the wrapper still lets a script through.
+
+## A new piece of software was planned with CMake but no git, though the prompt asks for both
+
+`Apps/Assistant/Prompts/general.json` (the `run_command` passage) @ 0.21.0-dev+166
+
+Found 2026-11-27 replaying Todd's HelloWorld walk on Gemma 4 26B-A4B after the prompt gained "plan it with the build system and source control its developers normally use ... git for any project": the plan made `src`, `main.cpp` and `CMakeLists.txt`, configured and built into `build`, and never ran `git init` nor wrote a `.gitignore`. One run.
+
+## Every CMake build in a command warns that `/Zi` is overridden by `/Z7`
+
+`Apps/Assistant/Session/Src/Tools/Assistant.ProgramSetup.Windows.ixx` (`_CL_=/Z7`) @ 0.21.0-dev+166
+
+Found 2026-11-27 in the same replay: `cmake --build build` on a default Debug project printed `cl : Command line warning D9025 : overriding '/Zi' with '/Z7'` on standard error. The 26B read past it; it is on every build, and a model told to fix warnings may chase one it cannot fix.
+
+## The model wrote its reply twice around `note_understanding`
+
+`Apps/Assistant/Prompts/general.json` (the `note_understanding` passage, "end the turn by calling") @ 0.21.0-dev+166
+
+Found 2026-11-27 reading Todd's HelloWorld walk on Gemma 4 26B-A4B: turn 16 is the reply and the `note_understanding` call together, and turn 18, after the tool's result, is the same reply word for word. The page showed it once. A call always gets a round after it, so "end the turn by calling" cannot be done as written, and the result ("Noted for the project ...") does not say the reply was already given. Prompt and result changed the same day (call it before the reply; the result says to write the reply once); not yet seen working, since the 26B replay of the walk never called `note_understanding` at all.
+
 ## A command's output names a different folder from the one the person gave Mila
 
 `Apps/Assistant/Session/Src/Implementation/SessionProcess.cpp` (the folder mapped into the container) @ 0.21.0-dev+166
 
 Found 2026-11-27 reading Todd's HelloWorld walk on Gemma 4 26B-A4B. He gave `C:\Users\ToddT\Src\Mila\HelloWorld`, and `request_folder`'s result said so, but `New-Item`'s output inside the container read `Directory: D:\Mila\HelloWorld`. The model let it pass this time; a model that writes an absolute path, or a person reading the tool card, meets two names for one folder.
 
-## A model that joins build and run with `;` reports a failed build as a success
-
-`Apps/Assistant/Prompts/general.json` (the `run_command` passage) @ 0.21.0-dev+166
-
-Found 2026-11-27 in the same walk: the model ran `New-Item ...; cl /Fe:build/hello.exe src/main.cpp; .\build\hello.exe` as one command. The exit code is the last command's, so a compile that failed would still read 0, and would run a stale `hello.exe` if one were there. The prompt forbids `&&` and `||` (PowerShell 5.1 has neither) but says nothing of `;`.
-
 ## A project made from a chat keeps none of that chat's folder, and its note is never brought up to date
 
 `Data/TestUser/Mila/Assistant/Projects/project-20261127151632-dd1c55` (`project.json`, `understanding.json`) @ 0.21.0-dev+166
 
-Found 2026-11-27 in the same walk: the folder was given after the chat moved into the HelloWorld project, yet the project's `folders` is empty, so a new chat in it starts with no folder. Its understanding note, written once when the project was made, still says the next step is "Ask Todd how he would like to begin", after the files were written, built and run; the model called `note_understanding` once and not after the plan or the build.
+Found 2026-11-27 in the same walk: the folder was given after the chat moved into the HelloWorld project, yet the project's `folders` is empty, so a new chat in it starts with no folder. Its understanding note, written once when the project was made, still says the next step is "Ask Todd how he would like to begin", after the files were written, built and run; the model called `note_understanding` once and not after the plan or the build. In the replay the same day it was never called, so the project has no note.
 
-## A turn on Gemma 4 12B went silent for over nine minutes after its plan's last step, and never ended
+## After suggesting a project, Gemma 4 26B wrote "thought" line after line as its reply, then calls and an answer it made up
 
-`D:\Claude\round13\round-off.log` (the real session, commands off, Gemma 4 12B Q4_0 on the RTX 4070) @ 0.21.0-dev+165
+`Data/TestUser/Mila/Assistant/Conversations/conversation-20261127163614-482543.json` (turn 12; the window over x64-claude-verify) @ 0.21.0-dev+166
 
-Found 2026-11-26 testing commands for Todd. After `update_step` marked the last of five steps done at 44.8 s, the session sent nothing more until the script's 600 s limit stopped it: no text, no round end, no call. Run again the same way, the turn ended at 52.9 s with a reply; a trace of that run showed one round thinking for 6,756 characters. Not reproduced; whether it was a long thought, a loop or a hang is not known, and the session has no limit that would have ended it.
+Found 2026-11-27 at the start of Todd's clean walk, on the 5060 Ti. After `propose_project`'s result ("... in a sentence, say what you suggested"), the round thought twice (1,480 characters, shown as two "Thought for 350 tokens" blocks) about whether it should say anything before the person answered ("I shouldn't say anything more until they answer"), then wrote 18,058 characters of reply: "thought" on each line, ending in plain-text `propose_project(...)`, `offer_answered()` and "I've created the project HelloWorld for you", none of which happened. Whether the model wrote the word or a channel marker the reader hid (`<channel|>` is hidden, `<|channel>` opens reasoning) is not known: the tokens were not kept. The engine opens the thought channel itself after a tool result when thinking is on (`Gemma.ChatProtocol.ixx` `continueWithToolResults`). The same step ran clean in Todd's walk that morning and in the replay. Third unbounded round in two days (see the next entry); nothing ended it but the model.
+
+## A round can think in a loop until the context is full, and the reply comes out empty
+
+`D:\Claude\helloworld\g26.log` and `D:\Claudeound13ound-off.log` (the real session) @ 0.21.0-dev+166
+
+Found 2026-11-26 testing commands for Todd: on Gemma 4 12B Q4_0, after `update_step` marked the last of five steps done at 44.8 s, the session sent nothing more until the script's 600 s limit stopped it. Not reproduced then. Reproduced 2026-11-27 on Gemma 4 26B-A4B (the 5060 Ti, Todd's HelloWorld walk replayed): the model had called `update_step` in_progress for each step beside its work, in the same round, and never done; after the last step's done, one round thought for 642 s, 185,930 characters ending in "Actually, I'll call `update_step` for all 4." over and over, and ended at the context (70,099 tokens) with no reply. Mila Assistant sets no `AgentLimits` (`SessionProcess.cpp`, `withLimits( AgentLimits{} )`), by ToolCalling.md 4's decision that the library sets none and an application sets its own, so only the context ends such a round. The second turn's plan had steps 1 and 2 left in_progress the same way, though both were done.
 
 ## After setup downloads a model, the first chat on it does not know it is that model, and asks whether the person means a machine learning model
 

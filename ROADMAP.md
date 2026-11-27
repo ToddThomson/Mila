@@ -50,10 +50,11 @@ deployment's features, use cases and that rebuild are v0.22.0's (**Future**, bel
 
 **Once it is set, the date is fixed and the scope drains, except for *The Desktop Agent*.** What has not landed by then
 returns to [`Vnext.md`](Issues/Vnext.md) and the release ships with what it has, its claim stated as
-narrowed. **The 26B-A4B's vision tower is tentative and drains first**, with *Mila on Apple Silicon*, which is
-experimental, and with *The Desktop Agent*'s use of more than one intelligence, tentative too (Todd, 2026-11-26); the
-12B's image and audio are committed. Apart from that part, *The Desktop Agent* neither drains nor narrows: its code is not compromised to hold the date, and if
-it is not done the date moves (Todd, 2026-10-25).
+narrowed. **The 26B-A4B's vision tower is tentative and drains first**, with *The Desktop Agent*'s use of more than
+one intelligence, tentative too (Todd, 2026-11-26); the 12B's image and audio are committed. Apart from that part,
+*The Desktop Agent* neither drains nor narrows: its code is not compromised to hold the date, and if it is not done the
+date moves (Todd, 2026-10-25). **Nor does *Mila on Apple Silicon*:** the Mac version of Mila has full parity with the
+Windows version in this release (Todd, 2026-11-27).
 
 Pre-1.0 still holds: breaking changes to the API are acceptable. **A model a user installed is not one
 of them.** From this release on, upgrading Mila by one minor never stops an installed model loading,
@@ -352,32 +353,35 @@ context to that same length, from one script in the repository that reproduces e
 
 ### Mila on Apple Silicon
 
-*Mila runs your models on a Mac, through Metal, from the same packages -- experimental in this release.*
+*Mila runs your models on a Mac, through Metal, from the same packages -- everything the Windows version does.*
 
 Mila was CUDA and the CPU until November 2026, when a development Mac arrived and the Metal backend began
 (`Specifications/Metal/MetalBackend.md`). It is the first test of the claim the type axes were built on: a second GPU
 vendor as a new partition of operations, with the components unchanged. On the M1 Pro Llama 3.2 3B already matches
 HuggingFace in FP16, the M1's precision, and decodes at 0.83 of llama.cpp after 4096 tokens. This theme carries that to
-the models this release publishes and to the things a person installs, all of them marked experimental: Mila Assistant
-as a Mac app, signed and notarized, Mila for Python as a wheel for Apple silicon, and Chat and the model store built from
-source as on every other platform (Todd, 2026-11-05). Published packages do not change; Metal reads the ones CUDA
-reads. A 16 GB Mac holds less than a 16 GB card, since the GPU shares that memory with the Mac, so not every published
-model fits one. A Mac is a platform at parity with Windows (Todd, 2026-11-15): Mila Assistant on a Mac reads web pages
-through the grant's network and works in the folder a person names through its file tools, the grant's checks tested
-there as on Windows. Metal in this release is what the development Mac, an M1 Pro with
-16 GB, can build and test: Llama and Gemma 4 12B. Qwen 3.8 on a Mac, the Gemma 26B-A4B and decode replay are
-v0.22.0's (Todd, 2026-11-09).
+every model this release publishes and to the things a person installs: Mila Assistant as a Mac app, signed and
+notarized, Mila for Python as a wheel for Apple silicon, and Chat and the model store built from source as on every
+other platform (Todd, 2026-11-05). Published packages do not change; Metal reads the ones CUDA reads. **The Mac version
+of Mila has full parity with the Windows version, and none of it is labelled experimental** (Todd, 2026-11-27,
+replacing "experimental" of 2026-11-05 and the narrower scope of 2026-11-09): Mila Assistant on a Mac reads web pages,
+works in the folder a person names and runs commands there, the grant's and the container's checks tested there as on
+Windows; Qwen 3.8 and the Gemma 4 26B-A4B run whole on Metal; and a decode step is replayed, as on CUDA. A 16 GB Mac
+holds less than a 16 GB card, since the GPU shares that memory with the Mac, so not every published model fits one, and
+the planner refuses one that does not, as on a card too small. The development Mac, an M1 Pro with 16 GB, holds neither
+Qwen 3.8's agentic build nor the 26B-A4B (arithmetic in `Issues/Vnext.md`'s former entry, now `BACKLOG.md`), so those
+two are tested on a Mac with more memory.
 
-**Experimental, and the first to drain** (Todd, 2026-11-05): what has not landed by the date returns to `Vnext.md`
-before anything else does.
+**At full parity with Windows, and not drained** (Todd, 2026-11-27): like *The Desktop Agent*, what is not done by
+the date moves the date. This replaces "the first to drain" of 2026-11-05.
 
-**Success criteria:** on an M1 Pro with 16 GB and macOS 27, every Llama and Gemma model this release publishes that the
-planner admits there passes its family's HuggingFace gate on Metal, in its published format; Mila Assistant installs on that Mac from a
-signed, notarized download and runs one of those models in a conversation, its file and web tools held to the
-grant as on Windows; `pip install mila-llm` on that Mac opens a
-session on one and generates; Chat and `mila-store` build there from source with the documented toolchain and run one;
-the rates on that Mac are shown beside llama.cpp's on the same Mac, by the same method; and every surface that offers
-a Mac artifact says it is experimental.
+**Success criteria:** on macOS 27, every Llama, Gemma and Qwen model this release publishes passes its family's
+HuggingFace gate on Metal, in its published format, on the M1 Pro with 16 GB where the planner admits it there and on
+a Mac with the memory to hold it where it does not; a decode step on Metal is recorded once and replayed, its output
+that of running it whole; Mila Assistant installs on a Mac from a signed, notarized download and runs one of those
+models in a conversation, its file, web and command tools held to the grant as on Windows; `pip install mila-llm` on
+that Mac opens a session on one and generates; Chat and `mila-store` build there from source with the documented
+toolchain and run one; the rates on that Mac are shown beside llama.cpp's on the same Mac, by the same method; and no
+surface that offers a Mac artifact calls it experimental.
 
 ---
 
@@ -517,8 +521,8 @@ OpenAI and Anthropic wire shapes -- still pass unchanged.
   type is a compile-time template parameter and dispatch resolves through an explicit `OperationTraits`
   table, a backend should be a new partition of specializations rather than conditional compilation
   threaded through the components — that is the design claim, and a port is the first honest test of
-  whether it holds across a second GPU vendor. Metal is now in v0.21.0, experimental (*Mila on Apple
-  Silicon*, above, Todd, 2026-11-05); ROCm stays gated on hardware access (see SPONSORING.md).
+  whether it holds across a second GPU vendor. Metal is now in v0.21.0, at parity with CUDA (*Mila on Apple
+  Silicon*, above, Todd, 2026-11-27); ROCm stays gated on hardware access (see SPONSORING.md).
   Success bar: an existing validated model path reproduces its token-for-token reference result on the
   new backend, with the component sources unchanged.
 - **Platform portability** — `aarch64` as a build and correctness target (Mila is x86-64 Windows and

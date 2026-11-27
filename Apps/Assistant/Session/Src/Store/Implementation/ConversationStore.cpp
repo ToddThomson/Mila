@@ -9,6 +9,7 @@ import std;
 import nlohmann.json;
 import Assistant.ConversationSummary;
 import Assistant.StoreFile;
+import Assistant.RoundRecord;
 
 namespace Mila::Assistant
 {
@@ -143,6 +144,9 @@ namespace Mila::Assistant
         }
 
         std::error_code failed;
+
+        // Its round record goes with it: it holds all the conversation held (ToolCalling.md 4.1).
+        std::filesystem::remove( RoundRecord::pathFor( directory_, id ), failed );
 
         return std::filesystem::remove( pathOf( id ), failed );
     }

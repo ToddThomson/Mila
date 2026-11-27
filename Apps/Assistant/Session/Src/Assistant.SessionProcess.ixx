@@ -23,6 +23,7 @@ import Assistant.ProgramSetup;
 import Assistant.PromptTool;
 import Assistant.RecordSearch;
 import Assistant.ResidentAgent;
+import Assistant.RoundRecord;
 import Assistant.RoundTimer;
 import Assistant.SearchKeyFile;
 import Assistant.SearchKeyStore;
@@ -361,6 +362,16 @@ namespace Mila::Assistant
         /// join the event, such as who moved it and whether Mila suggested it.
         void moveOne( const std::string& id, const std::string& project, const nlohmann::json& details = nlohmann::json::object() );
 
+        /**
+         * @brief Make a chat's folder its project's, read only, when the project has no folder yet: the folder a piece
+         *        of work was begun in is where the project's later chats start (Todd, 2026-11-27). A project with a
+         *        folder already gains no other this way.
+         *
+         * @param making The folder joins as the project is made from Mila's suggestion, which leaves it undoable.
+         * @return Whether the folder joined.
+         */
+        bool adoptFolder( const std::string& project_id, const std::string& folder, const std::string& conversation, bool making );
+
         /// A new project's record, stored, and its event; @p suggested names the chat and call it was offered on, or is
         /// null. @return Its id.
         std::string makeProject( const std::string& name, const std::string& purpose, const nlohmann::json& suggested );
@@ -697,6 +708,10 @@ namespace Mila::Assistant
 
         void changeRunCommands( const nlohmann::json& value );
 
+        /// `person_name`, `person_about` or `person_uses` from Settings: what Mila keeps about the person, which every
+        /// chat's prompt carries; empty or null forgets it.
+        void changePerson( const nlohmann::json& request );
+
         /**
          * @brief Opens MXC from the session's own folder and finds the build tools, so a chat with a folder can offer
          *        run_command; what failed is kept for Settings to show.
@@ -973,6 +988,9 @@ namespace Mila::Assistant
         int round_{ 0 };
         TurnRecord turn_;
         nlohmann::json turn_calls_ = nlohmann::json::array();
+
+        // Everything the turn's rounds read and wrote, when the person keeps it (ToolCalling.md 4.1).
+        std::optional<RoundRecord> round_record_;
         std::string announced_call_id_;
 
         // Set while the turn's placed call has yet to run, so its stored record says the app made it.

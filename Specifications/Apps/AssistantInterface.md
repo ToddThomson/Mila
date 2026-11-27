@@ -739,8 +739,14 @@ Tools of the app's own, offered in every chat:
   it as edited in `suggestion.decide`. An offer is not a gate approval (phase 6's decisions): `propose_project` runs and
   returns that it was offered, so the gate is never asked to take changed arguments.
 - **The guidance is in the system prompt**: suggest a project when several chats have become one body of work, once,
-  and not again for the same chats if declined; keep the project's understanding current at the end of a turn that
-  changed it.
+  and not again for the same chats if declined; keep the project's understanding current as the work moves on. *And
+  when the person starts a piece of software or other lasting work, whatever they call it, offer it a project before
+  planning it* (Todd, 2026-11-27: "the workspace project is extremely important"). In his walk "I'd like to start an
+  HelloWorld project" was offered one and "Let's start with a simple C++ helloworld project" was planned with none,
+  the model reading "project" as the code. *Named from the person's own words for the work* (Todd, the same day):
+  asked for "a simple c++ helloworld project", the 26B offered "C++ 23 Exploration", from what the person had said of
+  themselves; a larger project may be mentioned in the reply, and the person decides. `propose_project` takes `chats`
+  as a list of titles, which the model reached for, and still reads one a line.
 - **Every suggestion, accepted or declined, is an event**, and a project made is undoable from the overview until the
   next change.
 - **Measured before on by default**, as section 5.2's tools are.
@@ -752,7 +758,10 @@ the two are kept apart, and *Run again* makes a new run of the same plan beside 
 
 **Today** a plan belongs to its chat: the goal is the person's request, `propose_plan` gives the steps, `update_step` marks
 them, and the chat is the run. Each `update_step` divides the calls between steps, so a run's record is read from the
-stored chat with nothing new asked of the model. *Run again* starts a new chat in the project with the plan's goal and
+stored chat with nothing new asked of the model. Its result names any earlier step still in progress, so the model
+closes it rather than leave the person's plan showing work unfinished; and in a project chat, the result that
+finishes the plan asks for the project's note first (Todd's HelloWorld walks, 2026-11-27: a step left open, and no note
+written in three walks). *Run again* starts a new chat in the project with the plan's goal and
 steps already approved: the person's press is the approval `propose_plan` would have asked for.
 
 **When the library has tasks** (`../Agents/AgentTasks.md` section 8): a run is a task, its record the trace, read from
@@ -951,7 +960,12 @@ removable at any time. How far standing access goes beyond a folder the person n
 
 **As decided for phase 4.** A chat still holds one folder (5.5, as built at phase 3). A chat in a project with one
 folder holds it from its start; in a project with several, `request_folder` offers them, and a folder chosen outside
-them is that chat's alone and is not added to the project. The project's access is where its chats start: *Read*, and a
+them is that chat's alone and is not added to the project. *Except the first (Todd, 2026-11-27, after his HelloWorld
+walk, where the project made from the chat kept no folder):* a project with no folder takes the folder its chat is
+given, or the folder a chat holds as it is moved into it or the project is made from it, at *Read*, and that chat
+then holds it through the project. The folder the work began in is where the project's later chats start. Made with
+the project from Mila's suggestion, the folder is part of the making, so the project stays undoable; given later, it
+is a change. A project that has a folder gains no other this way. The project's access is where its chats start: *Read*, and a
 chat's first write asks to change files for the rest of that chat, as in a chat of its own; *Read and change*, and its
 chats start able to change files, since the person chose that on the project. A chat moved into a project keeps the
 folder it holds. Removing a folder from the project takes it from the chats that hold it through the project, once any
@@ -1091,8 +1105,10 @@ I. **May the person set aside a change on disk?** (Claude, phase 8.) A file Mila
 5. *Conversations stored before projects:* chats in no project.
 6. *Deleting a project:* asked, *Keep its chats* the default; folders never touched; its history, plans, index and
    findings go.
-7. *Who writes What Mila understands:* Mila, through `note_understanding`, at the end of a turn that changed it; the
-   person can edit it. A chat closed without one leaves the last. From an exposed chat it waits (question H).
+7. *Who writes What Mila understands:* Mila, through `note_understanding`, in a turn that changed it, before its reply,
+   and again as the work moves on, such as when a plan's last step is done; the person can edit it. (Called after the
+   reply until 2026-11-27, when Todd's HelloWorld walk had the reply written twice, since a call is always followed by
+   a round, and the note was never brought up to date after the build.) A chat closed without one leaves the last. From an exposed chat it waits (question H).
 8. *Work under way while the person is elsewhere:* needs the session to hold more than one stream over its model, which
    the schema allows and nothing runs; a library question first (phase 11).
 9. *Work with the window closed:* out of this design until phase 11.

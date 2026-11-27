@@ -76,7 +76,7 @@ namespace Mila::Tests::Apps::Assistant
         steps.done( Step::Name, "Sam" );
 
         const nlohmann::json unfinished = summarizeConversation( { { "setup", steps.toJson() }, { "messages", nlohmann::json::array() } } );
-        EXPECT_EQ( unfinished[ "setup" ], nlohmann::json::array( { "What you will use Mila for" } ) );
+        EXPECT_EQ( unfinished[ "setup" ], nlohmann::json::array( { "About you, and what you would like help with" } ) );
         EXPECT_TRUE( unfinished[ "progress" ].is_null() );
 
         steps.skip( Step::Uses );

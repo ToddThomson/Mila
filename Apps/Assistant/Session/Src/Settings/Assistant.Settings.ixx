@@ -37,6 +37,10 @@ namespace Mila::Assistant
         /// since 0.21 is fully agentic (Todd, 2026-11-26).
         bool run_commands{ true };
 
+        /// Whether each conversation keeps a record of everything its rounds read and wrote beside it (ToolCalling.md
+        /// 4.1): off unless turned on, since it holds the conversation and the system prompt besides.
+        bool record_rounds{ false };
+
         /// The SHA-256 of the licence text the person accepted; empty until they have (AssistantOnboarding.md 4.1).
         std::string license_accepted;
 
@@ -55,7 +59,10 @@ namespace Mila::Assistant
         /// What the person asked to be called, from the interview; empty until they say.
         std::string person_name;
 
-        /// What the person said they will mostly use Mila for, from the interview; empty until they say.
+        /// What the person told Mila about themselves, from the interview or Settings; empty until they say.
+        std::string person_about;
+
+        /// What the person would like Mila's help with, from the interview or Settings; empty until they say.
         std::string person_uses;
 
         /// The person agreed to the setup's download on *Getting Mila Ready* (AssistantOnboarding.md 4.3,
