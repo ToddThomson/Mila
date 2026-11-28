@@ -746,7 +746,12 @@ Tools of the app's own, offered in every chat:
   the model reading "project" as the code. *Named from the person's own words for the work* (Todd, the same day):
   asked for "a simple c++ helloworld project", the 26B offered "C++ 23 Exploration", from what the person had said of
   themselves; a larger project may be mentioned in the reply, and the person decides. `propose_project` takes `chats`
-  as a list of titles, which the model reached for, and still reads one a line.
+  as a list of titles, which the model reached for, and still reads one a line. *Never offered in words, and nothing
+  planned until it is answered* (Todd, 2026-11-28): in his sixth walk the 26B asked "Would you like to start a
+  project...?" in its reply, called `propose_project` only after his "Yes", and proposed the plan in the same reply,
+  so the offer was never answered and the chat joined no project. The passage says never to offer a project in words
+  and to end the reply after the call, as `request_folder`'s says of a folder, and the call's result says not to plan or
+  start the work until the person answers.
 - **Every suggestion, accepted or declined, is an event**, and a project made is undoable from the overview until the
   next change.
 - **Measured before on by default**, as section 5.2's tools are.

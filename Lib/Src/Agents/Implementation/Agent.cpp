@@ -486,7 +486,8 @@ namespace Mila::Agents
 
             if ( closesItsCalls( reply_text ) )
             {
-                RoundPrompt as_generated{ { prompt.text + reply_text, false }, tokens, next.framing };
+                RoundPrompt as_generated = next;
+                as_generated.prompt = { prompt.text + reply_text, false };
                 as_generated.tokens.insert( as_generated.tokens.end(), reply_tokens.begin(), reply_tokens.end() );
                 continued_ = std::move( as_generated );
             }
@@ -672,14 +673,34 @@ namespace Mila::Agents
         const std::span<const Conversation::Turn> history = session_.conversation();
         std::string framed_by = framing();
 
-        // Changed while the calls were answered: the round is rendered whole, so the model reads the session as it now
-        // stands, at the cost of prefilling again from where the framing changed.
-        if ( !continued_ || continued_->framing != framed_by )
-        {
-            Conversation::Prompt prompt = render( history );
-            std::vector<std::int32_t> tokens = encode( prompt );
+        const auto rendered = [&]( std::span<const Conversation::Turn> turns )
+            {
+                RoundPrompt whole{ render( turns ), {}, framed_by, turns.size() };
+                whole.tokens = encode( whole.prompt );
+                whole.rendered_text = whole.prompt.text.size();
+                whole.rendered_tokens = whole.tokens.size();
 
-            return { std::move( prompt ), std::move( tokens ), std::move( framed_by ) };
+                return whole;
+            };
+
+        if ( !continued_ || continued_->rendered_turns > history.size() )
+        {
+            return rendered( history );
+        }
+
+        RoundPrompt next;
+
+        if ( continued_->framing != framed_by )
+        {
+            // The model reads the session as it now stands, at the cost of prefilling again from where the framing
+            // changed, and reads what it wrote where it wrote it, its turn still open.
+            next = rendered( history.first( continued_->rendered_turns ) );
+            next.prompt.text.append( continued_->prompt.text, continued_->rendered_text );
+            next.tokens.insert( next.tokens.end(),
+                continued_->tokens.begin() + static_cast<std::ptrdiff_t>( continued_->rendered_tokens ),
+                continued_->tokens.end() );
+        } else {
+            next = *continued_;
         }
 
         std::size_t first_result = history.size();
@@ -692,7 +713,6 @@ namespace Mila::Agents
         const Conversation::Prompt after = handle_.protocol()->continueWithToolResults(
             history.subspan( first_result ), promptOptions() );
 
-        RoundPrompt next = *continued_;
         next.prompt.text += after.text;
         next.prompt.reply_begins_in_reasoning = after.reply_begins_in_reasoning;
 

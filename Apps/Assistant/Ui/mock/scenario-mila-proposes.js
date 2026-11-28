@@ -48,8 +48,8 @@ function routesFor( context )
                 in_window: false
             },
             result: 'Offered the user a project called CSV analytics that gathers this chat and 1 other: Compare SQLite and DuckDB '
-                + 'for analytics. The user answers in their next message. Do not make the project yourself or offer it again; '
-                + 'in a sentence, say what you suggested.',
+                + 'for analytics. The user answers in their next message. Do not make the project yourself or offer it again, '
+                + 'and do not plan or start the work it is for until they answer; in a sentence, say what you suggested.',
             answer: 'DuckDB reads CSV directly: `SELECT * FROM read_csv(\'data/*.csv\')`. This follows on from your comparison of '
                 + 'SQLite and DuckDB, so shall I gather both chats into a project called **CSV analytics**?'
         }

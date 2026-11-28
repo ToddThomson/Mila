@@ -16,18 +16,6 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 Found 2026-11-27 installing the first Store package: it showed the model chooser instead of the onboarding, because `Window/session/` still held the session staged 2026-11-22, before onboarding (+164), beside the current page from `Apps/Assistant/Ui`, packed by `npm run build:windows:store` run alone. The `mila-app-store` target, added the same day, stages afresh as `mila-app` does; an npm build script run alone, on any platform, still packs whatever was staged last.
 
-## Mila asked in words whether to make a project, then offered it and went on before the answer, so no project was made
-
-`Apps/Assistant/Prompts/general.json` (the `propose_project` passage) @ 0.21.0-dev+167
-
-Found 2026-11-27 in Todd's sixth HelloWorld walk (`D:\Claude\helloworld\walk6`): to "Let's start with a simple HelloWorld C++23 project using CMake" Gemma 4 26B-A4B wrote "Would you like to start a project called "Hello World C++23"...?"; after "Yes" it called `propose_project`, whose result says the user answers in their next message, and in the same reply proposed the plan, which Todd approved. The offer was never answered, so the chat is in no project and its folder joined none. The same habit as asking for a folder in words (fixed that day for `request_folder`): the passage does not say never to ask in words first.
-
-## A round rendered afresh after a reply with text and a call reads that text after the results, its turn closed and thinking opened outside it
-
-`Lib/Src/Agents/Implementation/Agent.cpp` (`nextRound`, rendered whole when the framing changed) @ 0.21.0-dev+166
-
-Found 2026-11-27 in Todd's fifth HelloWorld walk through the round record (`D:\Claude\helloworld` walk 5, turn 5 round 2): Gemma 4 26B-A4B wrote a sentence and then called `request_folder`; the folder changed the tools, so the round was rendered whole, and its prompt ended `...build the code.<turn|>\n<|channel>thought\n`. Gemma 4's own `chat_template.jinja` renders the same history the same way (checked with jinja2 the same day, `D:\Claude\gemma-render\render.py`): a message's content after its results, then the turn closed. So `Gemma.ChatProtocol` is faithful and the shape is the template's; what the model wrote (text, then the call, the turn open) is lost only when a response's rounds are rendered rather than continued. The model then closed every thought empty for the rest of the turn. Put to Todd: render the response's first prompt afresh with the new framing and continue from there with what the model generated, as the splice does.
-
 ## A chat cannot be shared with someone who does not have Mila
 
 `Apps/Assistant/Ui` (the chat's menu) and `Apps/Assistant/Session` (the stored conversation) @ 0.21.0-dev+166

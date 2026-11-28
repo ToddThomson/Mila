@@ -283,6 +283,12 @@ namespace Mila::Agents
             Conversation::Prompt prompt;
             std::vector<std::int32_t> tokens;
             std::string framing;
+
+            /// How many of the conversation's turns the template rendered, and where that rendering ends in the text
+            /// and in the tokens: what follows is the response's own, as the model wrote it and the results after it.
+            std::size_t rendered_turns = 0;
+            std::size_t rendered_text = 0;
+            std::size_t rendered_tokens = 0;
         };
 
         /**
@@ -290,10 +296,14 @@ namespace Mila::Agents
          *
          * After a reply that made calls, the reply as generated followed by the results answered so far, as the
          * template frames them after it: the model holds every token before the results, so nothing it read or
-         * wrote is prefilled again. Otherwise the conversation as the template renders it -- and so too when the
-         * session's system prompt, tools or template variables changed while the calls were answered, as when a call
-         * gives the program a folder whose tools it then offers: continued, the round would read the framing the
-         * response began with, and the model could call a tool it is never shown.
+         * wrote is prefilled again. Otherwise the conversation as the template renders it.
+         *
+         * When the session's system prompt, tools or template variables changed while the calls were answered, as
+         * when a call gives the program a folder whose tools it then offers, the turns before the response are
+         * rendered again with the framing as it now stands, and the response follows them as it was written.
+         * Continued unchanged, the round would read the framing the response began with, and the model could call a
+         * tool it is never shown; rendered whole, Gemma 4's template puts a reply's text after its results and closes
+         * the turn the model is still in.
          */
         RoundPrompt nextRound() const;
 

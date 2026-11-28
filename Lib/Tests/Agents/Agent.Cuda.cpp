@@ -572,8 +572,9 @@ namespace Mila::Tests::AI
     }
 
     // A tool the program offers while a response's calls are answered -- as Mila Assistant offers a folder's tools once
-    // a call gives it the folder -- is in the next round's prompt: the round is rendered whole rather than continued from
-    // a prompt that never named it (2026-11-26, Gemma 4 26B-A4B said it had no write_file).
+    // a call gives it the folder -- is in the next round's prompt: the turns before the response are rendered again
+    // rather than continued from a prompt that never named it (2026-11-26, Gemma 4 26B-A4B said it had no write_file),
+    // and the reply follows them as the model wrote it, its text before its call.
     TEST( AgentCuda, AToolOfferedWhileCallsAreAnsweredIsInTheNextRoundsPrompt )
     {
         const auto name = firstInstalled( { "gemma-4-12b-it-q4_0", "gemma-4-12b-it-fp4" } );
@@ -585,7 +586,9 @@ namespace Mila::Tests::AI
 
         std::vector<std::string> arguments_seen;
 
+        // Text before the call is what a rendering moves: a reply that is only a call renders as it was written.
         auto agent = Agent::create( *name, *requestThatFits( *name ), Session{}
+            .withSystemPrompt( "Before you call a tool, say in one short sentence what you are about to do." )
             .withTool( weatherTool( arguments_seen ) )
             .onAsk( []( const ToolQuestion& ) { return ToolAnswer::Once; } ) );
 
@@ -599,7 +602,9 @@ namespace Mila::Tests::AI
 
         ReuseLog reuse;
         std::vector<dim_t> prompt_tokens;
+        std::vector<std::string> prompts;
         std::vector<dim_t> generated;
+        std::vector<std::string> written;
         bool offered = false;
 
         const Response response = agent.respond( message, [&]( const AgentEvent& event )
@@ -608,11 +613,14 @@ namespace Mila::Tests::AI
                 {
                     reuse.beginRound();
                     prompt_tokens.push_back( event.prompt_tokens.value_or( 0 ) );
+                    prompts.emplace_back( event.prompt );
                     generated.push_back( 0 );
+                    written.emplace_back();
                 }
                 else if ( event.kind == AgentEvent::Kind::Token )
                 {
                     ++generated.back();
+                    written.back() += event.text;
                 }
                 else if ( event.kind == AgentEvent::Kind::ToolCalled && !offered )
                 {
@@ -639,6 +647,19 @@ namespace Mila::Tests::AI
         const dim_t prefilled = prefill.has_value() ? prefill->prompt - prefill->skipped : prompt_tokens[ 1 ];
 
         EXPECT_GT( prefilled, added + 20 ) << "the second round prefilled only the result";
+
+        // Only the turns before the response are rendered again: the reply follows them as the model wrote it, then
+        // its result. Rendered whole, Gemma 4's template drops the reasoning, puts a reply's text after its results and
+        // closes the turn (Todd's walk, 2026-11-27).
+        ASSERT_FALSE( conversation[ 1 ].content.empty() ) << *name << " wrote nothing before its call: " << written.front();
+
+        const std::string as_written = written.front() + results.text;
+        const std::size_t tool_named = prompts[ 1 ].find( "get_forecast" );
+
+        EXPECT_TRUE( prompts[ 1 ].ends_with( as_written ) ) << "round 2 does not continue from the reply as written: "
+            << prompts[ 1 ].substr( prompts[ 1 ].size() - std::min( prompts[ 1 ].size(), as_written.size() + 200 ) );
+        EXPECT_LT( tool_named, prompts[ 1 ].size() - std::min( prompts[ 1 ].size(), as_written.size() ) )
+            << "the new tool is not named before the reply";
 
         std::printf( "%s\n", std::format( "{}: round 2 holds {} prompt tokens, {} had it been continued; prefilled {}",
             *name, prompt_tokens[ 1 ], continued, prefilled ).c_str() );

@@ -89,6 +89,8 @@ namespace Mila::Tests::Apps::Assistant
 
         EXPECT_NE( result.find( "this chat and 2 others: Raised beds for the garden; Soil for the vegetable patch" ), std::string::npos ) << result;
         EXPECT_NE( result.find( "answers in their next message" ), std::string::npos ) << result;
+        // Gemma 4 26B-A4B planned in the same reply as the offer, and the offer was never answered (Todd's walk, 2026-11-27).
+        EXPECT_NE( result.find( "do not plan or start the work it is for until they answer" ), std::string::npos ) << result;
     }
 
     TEST( OffersTest, TheChatsToGatherMayBeAListOfTitles )

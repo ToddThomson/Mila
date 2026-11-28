@@ -324,7 +324,8 @@ namespace Mila::Assistant
         }
 
         std::string result = std::format( "Offered the user a project called {} that gathers {}. {} Do not make the "
-            "project yourself or offer it again; in a sentence, say what you suggested.", name, gathers,
+            "project yourself or offer it again, and do not plan or start the work it is for until they answer; in a "
+            "sentence, say what you suggested.", name, gathers,
             names_allowed ? "The user answers in their next message." : "The user answers in the window." );
 
         if ( !problems.empty() )
