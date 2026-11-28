@@ -23,29 +23,6 @@ generates 53.7 / 50.4 / 48.1 tokens a second at depth 0 / 8K / 32K against llama
 `GqaDecodeAttention.md` section 6, and the merge needs a persistent counter in the op's state. The depth-0 cell also
 carries the output-head difference (FP8 in Mila's package, Q6_K in the GGUF).
 
-## Mila Assistant is not in the Microsoft Store or Apple's
-
-`apps` · `distribution` · `ci`
-
-Todd, 2026-11-05: a Store submission depends on the app's quality and feature set, so it is not v0.21.0's; Mila is
-MIT-licensed and none of this is commercial. Read the same day from Microsoft's and Apple's pages and secondary
-reports, nothing tried:
-
-- **Microsoft.** Partner Center registration is free for an individual (Windows Developer blog, 2025-09-10). Two
-  packages are accepted. **MSIX** is signed by the Store, but a packaged app's *new* folders under `AppData\Local` go to a
-  private per-package location (Microsoft Learn, *How packaged desktop apps run on Windows*), and the app's
-  `%LOCALAPPDATA%\Mila` is shared with `mila-store` and `mila-chat`; turning that off in the manifest, and MXC inside a
-  package, are unmeasured. **The NSIS installer** the app already builds is accepted signed by a certificate chaining
-  to Microsoft's Trusted Root Program, never self-signed, offline, silent, at an HTTPS address that never changes for
-  its version. The SignPath Foundation signs open-source projects free, with the certificate in its own name, but
-  requires no proprietary component, and the installer carries NVIDIA's CUDA libraries and the Visual C++ runtime:
-  ask them first. Microsoft's Artifact Signing lists Canadian individuals, and a Microsoft Q&A answer of March 2026
-  says individual onboarding is paused. A listing also needs a privacy policy, an age rating and the GPU requirement
-  stated (`Untriaged.md`, unsigned download).
-- **Apple.** Todd has a developer account (2026-11-14), and the first Mac testers get a notarized Developer ID disk
-  image (`MilaAssistant.md` section 9, item 4). The Mac App Store, and TestFlight with it, needs the App Sandbox, which
-  moves the model store into the app's container and needs a grant for each folder the agent works in.
-
 ## Qwen 3 — the dense members
 
 `models` · `quantization` · `mila-src`

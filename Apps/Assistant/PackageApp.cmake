@@ -1,4 +1,4 @@
-# The mila-app target's steps, run as a script: stage the session the window carries, then package the window.
+# The mila-app and mila-app-store targets' steps, run as a script: stage the session the window carries, then package the window.
 # Given MILA_BUILD_DIRECTORY, MILA_WINDOW_DIRECTORY, MILA_NPM and MILA_PACKAGE_SCRIPT by the target.
 
 set( session_directory "${MILA_WINDOW_DIRECTORY}/session" )

@@ -14,6 +14,7 @@ FetchContent never configures it.
 | `MetalMatrixTiming/` | C++ | Linear's matrix multiply on Metal, timed by each path and tile, each output checked against a double-precision reference; `mila-metal-product-timing` beside it times the library's own product, padded and not, and `mila-metal-quantized-timing` Linear's operation on FP8 or FP4 weights at a number of rows |
 | `MetalModelTiming/` | C++ | Llama on Metal through `load` and `generate`, prefill and decode timed at llama-bench's shapes in FP16 and BF16, with memory against the plan and the working set |
 | `MetalReport/` | C++ | What a Mac's GPU reports, and whether every Metal kernel compiles on it |
+| `Mxc/` | PowerShell | Writes `Lib/Deps/mxc` for one MXC release, once per Mila release: Windows' library built here from source, unrouted, and macOS's and Linux's from Microsoft's release |
 | `Measurement/` | C++ | Header-only harness: a network built from weights, scored teacher-forced; PG-19 books |
 | `Publishing/` | Python | Uploads a model package to the HuggingFace Hub |
 | `Quantization/` | Python | Fits, encodes and gates a sub-4-bit weight quantization scheme |

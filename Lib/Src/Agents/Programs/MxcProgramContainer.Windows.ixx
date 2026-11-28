@@ -3,8 +3,8 @@
  * @brief A grant's program container on Windows, through Microsoft eXecution Container's C library, loaded at run
  *        time (ContainedPrograms.md 4).
  *
- * One of two candidate files for Agents.MxcProgramContainer; CMake compiles this one on Windows when MILA_ENABLE_MXC is
- * on, and the other, whose container is always absent, otherwise.
+ * One of two candidate files for Agents.MxcProgramContainer; CMake compiles this one on Windows, and the other, whose
+ * container is always absent, on a platform whose half is not built.
  */
 
 module;

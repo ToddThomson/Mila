@@ -140,22 +140,29 @@ if( APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang" )
     mila_session_licence( LLVM "${mila_llvm_license}" )
 endif()
 
-# MXC's library beside the session, which loads it from there when commands are on (ContainedPrograms.md 4.10).
-if( MILA_ENABLE_MXC AND MILA_MXC_LIBRARY )
-    get_filename_component( MILA_MXC_FOLDER "${MILA_MXC_LIBRARY}" DIRECTORY )
+# MXC's library beside the session, which loads it from there, since commands are on by default (ContainedPrograms.md
+# 4.10, decision 16). Lib/Deps/mxc keeps MXC's licence one folder above the platform's library; a library named
+# elsewhere carries it beside itself.
+if( MILA_MXC_LIBRARY AND EXISTS "${MILA_MXC_LIBRARY}" )
+    get_filename_component( mila_mxc_folder "${MILA_MXC_LIBRARY}" DIRECTORY )
+    get_filename_component( mila_mxc_name "${MILA_MXC_LIBRARY}" NAME )
 
-    if( NOT EXISTS "${MILA_MXC_FOLDER}/LICENSE.md" )
-        message( WARNING "No LICENSE.md beside ${MILA_MXC_LIBRARY}: the session's install, and so the installer, will fail without MXC's licence." )
+    if( WIN32 )
+        set( mila_mxc_name "mxc_ffi.dll" )
+    endif()
+
+    if( EXISTS "${mila_mxc_folder}/LICENSE.md" )
+        set( mila_mxc_license "${mila_mxc_folder}/LICENSE.md" )
+    else()
+        set( mila_mxc_license "${mila_mxc_folder}/../LICENSE.md" )
     endif()
 
     add_custom_command( TARGET mila-session POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MILA_MXC_LIBRARY}" "$<TARGET_FILE_DIR:mila-session>/mxc_ffi.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MILA_MXC_LIBRARY}" "$<TARGET_FILE_DIR:mila-session>/${mila_mxc_name}"
     )
 
-    install( FILES "${MILA_MXC_LIBRARY}" DESTINATION . RENAME mxc_ffi.dll COMPONENT mila-session EXCLUDE_FROM_ALL )
-    mila_session_licence( MXC "${MILA_MXC_FOLDER}/LICENSE.md" )
-elseif( MILA_ENABLE_MXC )
-    message( STATUS "MILA_MXC_LIBRARY names no mxc_ffi.dll: Mila Assistant will say it cannot run commands." )
+    install( FILES "${MILA_MXC_LIBRARY}" DESTINATION . RENAME "${mila_mxc_name}" COMPONENT mila-session EXCLUDE_FROM_ALL )
+    mila_session_licence( MXC "${mila_mxc_license}" )
 endif()
 
 # What the window's package carries (MilaAssistant.md 9.4): the session, its prompts, its licence and the third-party

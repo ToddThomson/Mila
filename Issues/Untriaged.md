@@ -10,6 +10,12 @@ GitHub issue rather than a copy. Triage flow, categories and the entry format ar
 
 ---
 
+## Mila Assistant's package can carry a session older than its page, and nothing says so
+
+`Apps/Assistant/Window/package.json` (`prebuild:windows`, which checks only that the session exists) @ 0.21.0-dev+167
+
+Found 2026-11-27 installing the first Store package: it showed the model chooser instead of the onboarding, because `Window/session/` still held the session staged 2026-11-22, before onboarding (+164), beside the current page from `Apps/Assistant/Ui`, packed by `npm run build:windows:store` run alone. The `mila-app-store` target, added the same day, stages afresh as `mila-app` does; an npm build script run alone, on any platform, still packs whatever was staged last.
+
 ## Mila asked in words whether to make a project, then offered it and went on before the answer, so no project was made
 
 `Apps/Assistant/Prompts/general.json` (the `propose_project` passage) @ 0.21.0-dev+167

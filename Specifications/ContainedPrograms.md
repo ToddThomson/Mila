@@ -226,8 +226,16 @@ grant reads what the person keeps under `HKCU`, which no grant gives. It is a kn
   administrative policy do not stop them, and Windows' own diagnostic-data setting does not govern them. They are
   routed only by a build that carries the signed metadata of `mxc_telemetry.dll`; a release built from source with
   `MXC_TELEMETRY_COMPONENT_PATH` empty is unrouted, its events local ETW that nothing sends (unmeasured). macOS has no
-  MXC telemetry. **Decided (Todd, 2026-11-17, decision 13):** development may run Microsoft's v1.1.0 binary; what
-  Mila ships is an unrouted build of its own, confirmed unrouted by a local trace before it ships.
+  MXC telemetry. **Decided (Todd, 2026-11-17, decision 13, narrowed to Windows 2026-11-28):** development may run
+  Microsoft's v1.1.0 binary; on Windows what Mila ships is an unrouted build of its own, built from MXC's source for
+  each Mila release and confirmed unrouted by a local trace before it ships. On macOS and Linux Mila carries
+  Microsoft's published library. *Built 2026-11-28 for v1.1.0* (`Lib/Deps/mxc`): the build removes Microsoft's
+  signed component from the checkout and refuses unless MXC's generated provider says `IS_UTC_ROUTED: bool = false`;
+  the routing group read from Microsoft's component is in Microsoft's `mxc_ffi.dll` as GUID bytes and nowhere in
+  Mila's; the container's 27 tests pass on Mila's as on Microsoft's. Not yet done: the local trace, an ETW capture of a
+  run showing its events carry no provider group. MXC's architecture page adds that Windows' own Required and Optional
+  diagnostic-data settings do not gate these events, and its `telemetry.md` asks a product that ships the routed
+  build to tell its users.
 - **Windows versions.** MXC's own table (`docs/backends/process-container/os-version-support.md`, v1.1.0) lists
   process isolation from 26100.9278 on 24H2 and 26200.9278 on 25H2, so "26H2 or later" in section 6 may be narrower
   than MXC; Mila asks MXC at load either way. Unmeasured: no 24H2 or 25H2 machine has been tried. From v1.1.0
@@ -236,9 +244,12 @@ grant reads what the person keeps under `HKCU`, which no grant gives. It is a kn
 
 ### 4.11 The switch
 
-- **The build:** a CMake option, off by default, selects `MxcProgramContainer`'s module or a module whose container
-  is always absent -- two candidate files for one module, as the grant's file system has (no `#ifdef` in a module).
-  Off, nothing of MXC is built or shipped.
+- **The build:** every build carries the container (Todd, 2026-11-28: "The MXC dependency must now be turned on for
+  ALL environments"), and the CMake option that turned it off is gone. The platform selects `MxcProgramContainer`'s
+  module where its half is built and a module whose container is always absent elsewhere -- two candidate files for
+  one module, as the grant's file system has (no `#ifdef` in a module). MXC's library for each platform is in
+  `Lib/Deps/mxc`, written for each Mila release by `Lib/Tools/Mxc/Update-MxcDependency.ps1` (4.10), and
+  `MILA_MXC_LIBRARY` defaults to it; the app's packages refuse to build without it.
 - **The app:** a setting, on by default since decision 16 (off by default and labelled experimental until then). Off,
   the shell tool is not registered. On where the container cannot run, the setting says why and Mila tells the person
   it cannot run commands on this computer.
@@ -409,6 +420,11 @@ Decided 2026-11-17 (Todd):
     design changes rather than one side going without (section 11). Phases 2 and 3 are done only when both halves
     are.
 13. **Telemetry: development may use Microsoft's v1.1.0 binary; Mila ships an unrouted build of its own** (4.10).
+    *Narrowed 2026-11-28 (Todd: "Agreed, narrow decision 13 to Windows. Let's build the dll ourselves per release"):*
+    only Windows has MXC telemetry, so only the Windows library is Mila's own, built unrouted from MXC's source for each
+    Mila release; on macOS and Linux Mila carries Microsoft's published library. Re-read the same day from MXC's
+    `docs/telemetry.md` and its architecture page: Windows' own diagnostic-data settings do not gate these events
+    either, and MXC asks products that ship its routed build to disclose them.
 
 Decided 2026-11-17 by Claude, Todd having left them to its call and to review later ("7,8,9 your call - I'll review
 later"):
@@ -426,7 +442,7 @@ Decided 2026-11-26 (Todd: "No, commands are no longer experimental. 0.21 will be
     the person turns it off, and is not labelled experimental; the known gaps of 4.3 and 4.9 are stated where it is as
     facts. Linux joins decision 12, through MXC's bubblewrap backend once the grant's file checks run there, and moves
     from `Issues/Vnext.md` into v0.21.0. What Mila ships carries an unrouted MXC build of its own (decision 13), and
-    the release build carries the container (4.11's CMake option), which the maintainer's own build has off today.
+    the release build carries the container (4.11), as every build has since 2026-11-28.
     The item's date is the release's and it does not drain (decision 1's drain no longer holds): its macOS part sits
     in *The Desktop Agent* beside Linux's, the Mac version having full parity with Windows in v0.21.0 (Todd,
     2026-11-27).
@@ -451,7 +467,7 @@ v1.1.0, but v1.1.0 fixes its symlink and parent-traversal enforcement (microsoft
 ### 11.1 The library and the switch
 
 - `Agents.MxcProgramContainer` gains a third candidate file, macOS's, beside Windows' and the always-absent one;
-  `MILA_ENABLE_MXC` selects it on Apple as on Windows. `libmxc_ffi.dylib` is loaded at run time from the
+  the platform selects it on Apple as on Windows. `libmxc_ffi.dylib` is loaded at run time from the
   application's bundle, the same `repr(C)` functions as Windows' (they are one Rust crate), the version pinned the same
   way. MXC's v1.1.0 release carries `arm64/libmxc_ffi.dylib` (about 5.6 MB) beside the Windows DLL; MXC sends no
   telemetry on macOS, so the decision of 4.10 does not reach it.

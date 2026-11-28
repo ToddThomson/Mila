@@ -281,7 +281,9 @@ allowed, on both (`ContainedPrograms.md` decision 12, Todd, 2026-11-17); and, te
 on Windows, macOS and Linux, Settings shows each device, each model that runs there and what it is measured to do; a
 second model resident beside the agent does Mila Assistant's background work where the machine has room, with what it
 costs the agent measured; and a frontier model is asked only on the person's explicit request, off by default, each
-send shown and approved, and its reply treated as content from outside.
+send shown and approved, and its reply treated as content from outside; and Mila Assistant is submitted to the
+Microsoft Store and to the Mac App Store, and installed from each runs a model, its tools held to the grant, and
+installs a model into the store `mila-store` and Chat read (Todd, 2026-11-27).
 
 ### A Developer Can Start
 

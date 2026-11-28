@@ -12,16 +12,19 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test",
-    "prebuild:windows": "node -e \"['session/mila-session.exe', 'session/vcruntime140.dll', 'session/Licences'].every(require('node:fs').existsSync) || (console.error('No session, or one staged without its licence texts, to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1))\"",
+    "prebuild:windows": "node -e \"['session/mila-session.exe', 'session/vcruntime140.dll', 'session/mxc_ffi.dll', 'session/Licences/MXC'].every(require('node:fs').existsSync) || (console.error('No session, or one staged without its licence texts or MXC, to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1))\"",
     "build:windows": "electron-builder --win --x64 --publish never",
     "postbuild:windows": "node packaging/check-licences.mjs windows",
-    "prebuild:linux": "node -e \"['session/mila-session', 'session/Licences'].every(require('node:fs').existsSync) || (console.error('No session, or one staged without its licence texts, to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1))\"",
+    "prebuild:windows:store": "npm run prebuild:windows",
+    "build:windows:store": "node packaging/build-store.mjs",
+    "postbuild:windows:store": "node packaging/check-licences.mjs windows",
+    "prebuild:linux": "node -e \"['session/mila-session', 'session/libmxc_ffi.so', 'session/Licences/MXC'].every(require('node:fs').existsSync) || (console.error('No session, or one staged without its licence texts or MXC, to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1))\"",
     "build:linux": "electron-builder --linux dir --publish never",
     "postbuild:linux": "node packaging/check-licences.mjs linux",
-    "prebuild:mac": "node -e \"['session/mila-session', 'session/Licences'].every(require('node:fs').existsSync) || (console.error('No session, or one staged without its licence texts, to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1))\"",
+    "prebuild:mac": "node -e \"['session/mila-session', 'session/libmxc_ffi.dylib', 'session/Licences/MXC'].every(require('node:fs').existsSync) || (console.error('No session, or one staged without its licence texts or MXC, to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1))\"",
     "build:mac": "electron-builder --mac dir --arm64 --publish never",
     "postbuild:mac": "node packaging/check-licences.mjs mac",
-    "prebuild:mac:signed": "node -e \"const env = process.env; ['session/mila-session', 'session/Licences'].every(require('node:fs').existsSync) || (console.error('No session, or one staged without its licence texts, to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1)); env.APPLE_KEYCHAIN_PROFILE || (env.APPLE_API_KEY && env.APPLE_API_KEY_ID && env.APPLE_API_ISSUER) || (env.APPLE_ID && env.APPLE_APP_SPECIFIC_PASSWORD && env.APPLE_TEAM_ID) || (console.error('No notarization credentials: set APPLE_KEYCHAIN_PROFILE to a profile stored with xcrun notarytool store-credentials.'), process.exit(1))\"",
+    "prebuild:mac:signed": "node -e \"const env = process.env; ['session/mila-session', 'session/libmxc_ffi.dylib', 'session/Licences/MXC'].every(require('node:fs').existsSync) || (console.error('No session, or one staged without its licence texts or MXC, to package: run cmake --install <build directory> --component mila-session --prefix session first.'), process.exit(1)); env.APPLE_KEYCHAIN_PROFILE || (env.APPLE_API_KEY && env.APPLE_API_KEY_ID && env.APPLE_API_ISSUER) || (env.APPLE_ID && env.APPLE_APP_SPECIFIC_PASSWORD && env.APPLE_TEAM_ID) || (console.error('No notarization credentials: set APPLE_KEYCHAIN_PROFILE to a profile stored with xcrun notarytool store-credentials.'), process.exit(1))\"",
     "build:mac:signed": "electron-builder --mac --arm64 --publish never --config mac-signed.config.mjs",
     "postbuild:mac:signed": "node packaging/check-licences.mjs mac && spctl --assess --type execute -vv \"dist/mac-arm64/Mila Assistant.app\" && xcrun stapler validate \"dist/mac-arm64/Mila Assistant.app\""
   },
@@ -66,6 +69,21 @@
           ]
         }
       ]
+    },
+    "appx": {
+      "identityName": "ToddJ.Thomson.MilaAssistant",
+      "publisher": "CN=A751D811-4EC2-413A-8519-8E4330E8740D",
+      "publisherDisplayName": "Todd J. Thomson",
+      "displayName": "Mila Assistant",
+      "applicationId": "Mila",
+      "capabilities": [
+        "runFullTrust",
+        "unvirtualizedResources"
+      ],
+      "customManifestPath": "AppxManifest.xml",
+      "minVersion": "10.0.18362.0",
+      "maxVersionTested": "10.0.26300.0",
+      "artifactName": "Mila-Assistant-${version}.${ext}"
     },
     "nsis": {
       "artifactName": "Mila-Assistant-Setup-${version}.${ext}"

@@ -30,8 +30,9 @@ FetchContent_MakeAvailable( Mila )
 target_link_libraries( your-program PRIVATE Mila::Mila )
 ```
 
-Running a tool's programs in Microsoft's MXC container is experimental and off by default: `MILA_ENABLE_MXC`, with
-`MILA_MXC_LIBRARY` naming its library.
+A tool's programs run in Microsoft's MXC container, on by default. Its library for each platform is in
+`Lib/Deps/mxc` (an unrouted build of Mila's own on Windows, Microsoft's on macOS and Linux), and `MILA_MXC_LIBRARY`
+names another file.
 
 The design is in [Direction.md](../../../Specifications/Direction.md) sections 3.2 and 4 and
 [ToolCalling.md](../../../Specifications/ToolCalling.md).

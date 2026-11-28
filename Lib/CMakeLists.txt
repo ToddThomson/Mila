@@ -1366,17 +1366,39 @@ endif()
 # Mila::Agents -- the container a grant runs programs through (ContainedPrograms.md 4.11)
 #
 # A tool's programs run in Microsoft's MXC container, loaded at run time from a file the application
-# names, never linked; experimental in v0.21.0, and built on Windows only so far -- macOS's half is
-# ContainedPrograms.md section 11, not yet built. Off, a grant runs no programs:
-# Agents.MxcProgramContainer has two candidate source files and exactly one is compiled.
-# Agents.SecondNameWatch and Agents.ToolDesktop are plain Windows and build on Windows regardless.
+# carries, never linked. Running commands is on by default on every platform (ContainedPrograms.md
+# decision 16), so every build carries MXC: Agents.MxcProgramContainer has two candidate source files and
+# exactly one is compiled, Windows' where its half is built; macOS's and Linux's halves are ContainedPrograms.md
+# section 11 and phase 4. Agents.SecondNameWatch and Agents.ToolDesktop are plain Windows.
 # ----------------------------------------------------------------------------
-option( MILA_ENABLE_MXC "Run a tool's programs in Microsoft's MXC container (Windows, experimental)." OFF )
 
-# MXC's library, v1.1.0: copied beside mila-session and carried by its installer, with the LICENSE.md
-# beside it when that is there. Empty, Mila Assistant runs no commands. Development may use the file
-# Microsoft's release ships; what Mila ships is an unrouted build of its own (ContainedPrograms.md 4.10).
-set( MILA_MXC_LIBRARY "" CACHE FILEPATH "mxc_ffi.dll from MXC v1.1.0, carried beside mila-session (MILA_ENABLE_MXC)." )
+# MXC's library for this platform, from Lib/Deps/mxc: on Windows an unrouted build of Mila's own, on macOS and
+# Linux Microsoft's (ContainedPrograms.md 4.10, decision 13). Copied beside mila-session and carried by its
+# package with MXC's licence. A developer may name another file; an empty value returns to the default.
+if(WIN32 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|x86_64)$")
+    set(mila_mxc_default "${CMAKE_CURRENT_SOURCE_DIR}/Deps/mxc/windows-x64/mxc_ffi.dll")
+elseif(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+    set(mila_mxc_default "${CMAKE_CURRENT_SOURCE_DIR}/Deps/mxc/macos-arm64/libmxc_ffi.dylib")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
+    set(mila_mxc_default "${CMAKE_CURRENT_SOURCE_DIR}/Deps/mxc/linux-x64/libmxc_ffi.so")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+    set(mila_mxc_default "${CMAKE_CURRENT_SOURCE_DIR}/Deps/mxc/linux-arm64/libmxc_ffi.so")
+else()
+    set(mila_mxc_default "")
+endif()
+
+set(MILA_MXC_LIBRARY "" CACHE FILEPATH "MXC's library for this platform, carried beside mila-session (Lib/Deps/mxc).")
+
+if(NOT MILA_MXC_LIBRARY)
+    set(MILA_MXC_LIBRARY "${mila_mxc_default}" CACHE FILEPATH "MXC's library for this platform, carried beside mila-session (Lib/Deps/mxc)." FORCE)
+endif()
+
+if(NOT MILA_MXC_LIBRARY OR NOT EXISTS "${MILA_MXC_LIBRARY}")
+    message(WARNING "No MXC library for this platform (${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR}) in Lib/Deps/mxc: Mila runs no commands here.")
+endif()
+
+# The switch this replaces; a cache that still holds it would only mislead.
+unset(MILA_ENABLE_MXC CACHE)
 
 if(WIN32)
     target_sources(Mila
@@ -1388,7 +1410,7 @@ if(WIN32)
     )
 endif()
 
-if(WIN32 AND MILA_ENABLE_MXC)
+if(WIN32)
     target_sources(Mila
         PUBLIC
             FILE_SET module_files

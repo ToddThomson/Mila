@@ -64,6 +64,8 @@ enc_temp_folder/
 dist/
 *.pyd
 *.so
+# MXC's libraries are kept in the tree (Lib/Tools/Mxc/Update-MxcDependency.ps1).
+!Lib/Deps/mxc/**
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs

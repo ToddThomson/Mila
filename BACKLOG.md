@@ -534,6 +534,35 @@ decision that running commands is a feature of all three platforms (`ContainedPr
 
 `Specifications/ContainedPrograms.md` section 8, phase 4; decision 16
 
+#### Mila Assistant cannot be installed from the Microsoft Store or the Mac App Store
+
+`open` · `apps` · `distribution`
+
+Admitted by Todd, 2026-11-27, reversing his decision of 2026-11-05 that a Store submission is not this release's; moved
+from `Issues/Future.md`, a deliberate growth of scope. Partner Center registration is made, publisher "Todd J. Thomson",
+and the product reserved as Store ID 9NFZ80TLMS5W. **Windows:** an MSIX package, which the Store signs and updates:
+electron-builder 26.15.3's `appx` target (`build:windows:store`), the package identity Partner Center gave in
+`package.json`. A packaged app's new folders under `AppData` are redirected to a private per-package location, and
+the Mila folder, `%LOCALAPPDATA%\Mila` (`Distribution.MilaFolder`), is shared with `mila-store` and `mila-chat`, so
+the package turns redirection off (Todd, 2026-11-27): `icons/AppxManifest.xml`, electron-builder's template with
+`desktop6:FileSystemWriteVirtualization` disabled, and the restricted capability `unvirtualizedResources`, whose use
+the Store submission must justify. Built 2026-11-27 (about 650 MB) with the installed Windows SDK's `makeappx`
+(`packaging/build-store.mjs`), since the one in electron-builder's downloaded kit does not start, by the
+`mila-app-store` CMake target, which stages the session afresh as `mila-app` does; the tiles in
+`icons/appx/` are cut from `icon.png`. Still to do: the minimum Windows version, set to 1903 for that element where
+the container may need a later one; and, installed from the package signed with a test certificate, a model
+installed into the shared store and a contained command run, since MXC builds each run's profile from the
+`LOCALAPPDATA` it is given. Installed that way the session starts, the onboarding begins, and the app writes the
+shared `%LOCALAPPDATA%\Mila`, nothing redirected (2026-11-27). Every build carries the command container since
+2026-11-28 (`Lib/Deps/mxc`), and the package refuses to build without it. **Mac:** the Mac App Store needs the App
+Sandbox, which moves the model store into the app's container, needs a grant for each folder the agent works in, and
+holds every program the session starts, so MXC's Seatbelt container runs inside it; whether that works is unknown and
+is the first thing to find out. The Developer ID download (*Mila on Apple Silicon*) stays. **Linux:** the matching
+channel, such as Flathub, is not decided. Each listing needs a privacy policy, an age rating, the GPU requirement
+stated, and the generative-AI rules of each Store read before submitting.
+
+`Specifications/Apps/MilaAssistant.md` section 9, item 4
+
 ### A Developer Can Start
 
 #### A conversation that fills its context stops, and nothing carries it forward

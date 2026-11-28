@@ -213,8 +213,8 @@ endif()
 
 if(WIN32)
     target_sources( MilaTests PRIVATE
-        # What a program run through a grant reaches (ContainedPrograms.md); MXC's part skips unless
-        # MILA_MXC_LIBRARY names its library and the build has MILA_ENABLE_MXC on.
+        # What a program run through a grant reaches (ContainedPrograms.md); MXC's part skips where
+        # MILA_MXC_LIBRARY names no library this platform can run (Lib/Deps/mxc by default).
         "Agents/ToolGrant.Programs.cpp"
         "Agents/SecondNameWatch.cpp"
     )

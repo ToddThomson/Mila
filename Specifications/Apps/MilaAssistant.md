@@ -764,6 +764,10 @@ interrupted the reply printed after the trace line; the renderer now writes it f
    MXC v1.0.1's `mxc_ffi.dll` (about 6 MB, MIT), the component carries it beside the session with MXC's licence as
    `MXC-LICENSE.md`; the session loads it from there only when *Run commands* is on. Moved to MXC v1.1.0's
    (about 8 MB) on 2026-11-17; what ships is an unrouted build of Mila's own (`ContainedPrograms.md` 4.10).
+   *Decided 2026-11-27 (Todd), reversing 2026-11-05:* v0.21.0 submits Mila Assistant to the Microsoft Store, as an
+   MSIX package the Store signs and updates, and to the Mac App Store. What each Store's package changes -- the
+   Mila folder under MSIX's `AppData` redirection, the App Sandbox around the session and its container on the Mac --
+   is in `BACKLOG.md`'s item until it is designed here.
    *Built 2026-11-17 (0.21.0-dev+152):* the component carries every third-party licence text in `Licences/` beside
    the session, each named in `NOTICE.md` *What Mila Assistant carries*; the install fails without one and the
    window's packaging refuses a session staged without the folder. *Changed 2026-11-17 (+153):* each text is in
